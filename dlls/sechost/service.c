@@ -2012,7 +2012,6 @@ BOOL WINAPI DECLSPEC_HOTPATCH StartServiceCtrlDispatcherW( const SERVICE_TABLE_E
     return service_run_main_thread();
 }
 
-static HANDLE device_notify_thread;
 static struct list device_notify_list = LIST_INIT(device_notify_list);
 
 struct device_notify
@@ -2025,145 +2024,6 @@ struct device_notify
 };
 
 C_ASSERT( sizeof(struct device_notify) == offsetof(struct device_notify, header[0]) );
-
-static struct device_notify *device_notify_copy( struct device_notify *notify, DEV_BROADCAST_HDR *header )
-{
-    struct device_notify *event;
-
-    if (!(event = calloc( 1, sizeof(*event) + header->dbch_size ))) return NULL;
-    event->handle = notify->handle;
-    event->callback = notify->callback;
-    memcpy( event->header, header, header->dbch_size );
-
-    if (header->dbch_devicetype == DBT_DEVTYP_HANDLE)
-    {
-        DEV_BROADCAST_HANDLE *notify_handle = (DEV_BROADCAST_HANDLE *)notify->header;
-        DEV_BROADCAST_HANDLE *event_handle = (DEV_BROADCAST_HANDLE *)event->header;
-        event_handle->dbch_handle = notify_handle->dbch_handle;
-        event_handle->dbch_hdevnotify = notify;
-    }
-
-    return event;
-}
-
-static BOOL notification_filter_matches( DEV_BROADCAST_HDR *filter, const WCHAR *path, DEV_BROADCAST_HDR *event, const WCHAR *event_path )
-{
-    if (!filter->dbch_devicetype) return TRUE;
-    if (filter->dbch_devicetype != event->dbch_devicetype) return FALSE;
-
-    if (filter->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE)
-    {
-        DEV_BROADCAST_DEVICEINTERFACE_W *filter_iface = (DEV_BROADCAST_DEVICEINTERFACE_W *)filter;
-        DEV_BROADCAST_DEVICEINTERFACE_W *event_iface = (DEV_BROADCAST_DEVICEINTERFACE_W *)event;
-        if (filter_iface->dbcc_size == offsetof(DEV_BROADCAST_DEVICEINTERFACE_W, dbcc_classguid)) return TRUE;
-        return IsEqualGUID( &filter_iface->dbcc_classguid, &event_iface->dbcc_classguid );
-    }
-
-    if (filter->dbch_devicetype == DBT_DEVTYP_HANDLE) return !wcscmp(path, event_path);
-
-    FIXME( "Filter dbch_devicetype %lu not implemented\n", filter->dbch_devicetype );
-    return TRUE;
-}
-
-static DWORD WINAPI device_notify_proc( void *arg )
-{
-    WCHAR endpoint[] = L"\\pipe\\wine_plugplay";
-    WCHAR protseq[] = L"ncacn_np";
-    RPC_WSTR binding_str;
-    DWORD err = ERROR_SUCCESS;
-    struct device_notify *notify, *event, *next;
-    struct list events = LIST_INIT(events);
-    plugplay_rpc_handle handle = NULL;
-    DWORD code = 0;
-    unsigned int size;
-    WCHAR *path;
-    BYTE *buf;
-
-    SetThreadDescription( GetCurrentThread(), L"wine_sechost_device_notify" );
-
-    if ((err = RpcStringBindingComposeW( NULL, protseq, NULL, endpoint, NULL, &binding_str )))
-    {
-        ERR("RpcStringBindingCompose() failed, error %#lx\n", err);
-        return err;
-    }
-    err = RpcBindingFromStringBindingW( binding_str, &plugplay_binding_handle );
-    RpcStringFreeW( &binding_str );
-    if (err)
-    {
-        ERR("RpcBindingFromStringBinding() failed, error %#lx\n", err);
-        return err;
-    }
-
-    __TRY
-    {
-        handle = plugplay_register_listener();
-    }
-    __EXCEPT(rpc_filter)
-    {
-        err = map_exception_code( GetExceptionCode() );
-    }
-    __ENDTRY
-
-    if (!handle)
-    {
-        ERR("failed to open RPC handle, error %lu\n", err);
-        return 1;
-    }
-
-    for (;;)
-    {
-        path = NULL;
-        buf = NULL;
-        __TRY
-        {
-            code = plugplay_get_event( handle, &path, &buf, &size );
-            err = ERROR_SUCCESS;
-        }
-        __EXCEPT(rpc_filter)
-        {
-            err = map_exception_code( GetExceptionCode() );
-        }
-        __ENDTRY
-
-        if (err)
-        {
-            ERR("failed to get event, error %lu\n", err);
-            break;
-        }
-
-        /* Make a copy to avoid a hang if a callback tries to register or unregister for notifications. */
-        EnterCriticalSection( &service_cs );
-        LIST_FOR_EACH_ENTRY( notify, &device_notify_list, struct device_notify, entry )
-        {
-            if (!notification_filter_matches( notify->header, notify->path, (DEV_BROADCAST_HDR *)buf, path )) continue;
-            if (!(event = device_notify_copy( notify, (DEV_BROADCAST_HDR *)buf ))) break;
-            list_add_tail( &events, &event->entry );
-        }
-        LeaveCriticalSection(&service_cs);
-
-        LIST_FOR_EACH_ENTRY_SAFE( event, next, &events, struct device_notify, entry )
-        {
-            event->callback( event->handle, code, event->header );
-            list_remove( &event->entry );
-            free( event );
-        }
-
-        MIDL_user_free(buf);
-        MIDL_user_free(path);
-    }
-
-    __TRY
-    {
-        plugplay_unregister_listener( handle );
-    }
-    __EXCEPT(rpc_filter)
-    {
-    }
-    __ENDTRY
-
-    RpcBindingFree( &plugplay_binding_handle );
-    return 0;
-}
 
 /******************************************************************************
  *     I_ScRegisterDeviceNotification   (sechost.@)
@@ -2205,8 +2065,7 @@ HDEVNOTIFY WINAPI I_ScRegisterDeviceNotification( HANDLE handle, DEV_BROADCAST_H
     EnterCriticalSection( &service_cs );
     list_add_tail( &device_notify_list, &notify->entry );
 
-    if (!device_notify_thread)
-        device_notify_thread = CreateThread( NULL, 0, device_notify_proc, NULL, 0, NULL );
+    TRACE("HACK: suppressing plugplay device notification helper thread.\n");
 
     LeaveCriticalSection( &service_cs );
 

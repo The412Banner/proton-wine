@@ -537,7 +537,7 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style 
     if (X11DRV_HasWindowManager( "Mutter" )) return 0;
 
     if (ex_style & WS_EX_TOOLWINDOW) return 0;
-    if (ex_style & WS_EX_LAYERED) return 0;
+    if ((ex_style & (WS_EX_LAYERED | WS_EX_COMPOSITED)) == WS_EX_LAYERED) return 0;
 
     if ((style & WS_CAPTION) == WS_CAPTION)
     {
@@ -568,6 +568,7 @@ static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD st
 static int get_window_attributes( struct x11drv_win_data *data, XSetWindowAttributes *attr )
 {
     DWORD ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
+    BOOL overlay = layered_overlay_shape_enabled() || layered_overlay_alpha_enabled();
 
     attr->colormap          = data->whole_colormap ? data->whole_colormap : default_colormap;
     attr->save_under        = ((NtUserGetClassLongW( data->hwnd, GCL_STYLE ) & CS_SAVEBITS) != 0);
@@ -577,9 +578,10 @@ static int get_window_attributes( struct x11drv_win_data *data, XSetWindowAttrib
     attr->background_pixel  = 0;
     attr->event_mask        = (ExposureMask | KeyPressMask | KeyReleaseMask |
                                FocusChangeMask | KeymapStateMask | StructureNotifyMask | PropertyChangeMask);
-    /* for transparent windows, exclude mouse events to allow mouse pass-through */
-    if (!(ex_style & WS_EX_TRANSPARENT)) attr->event_mask |= (PointerMotionMask | ButtonPressMask |
-                                                              ButtonReleaseMask | EnterWindowMask);
+    /* for transparent windows, exclude mouse events to allow mouse pass-through
+       (overlay-shape mode keeps input so the shaped overlay stays interactive) */
+    if (!(ex_style & WS_EX_TRANSPARENT) || overlay) attr->event_mask |= (PointerMotionMask | ButtonPressMask |
+                                                                       ButtonReleaseMask | EnterWindowMask);
 
     return (CWSaveUnder | CWColormap | CWBorderPixel | CWBackPixel |
             CWEventMask | CWBitGravity | CWBackingStore);
@@ -2759,6 +2761,17 @@ static void create_whole_window( struct x11drv_win_data *data )
     }
     data->shaped = (win_rgn != 0);
 
+    /* Layered overlay (WINE_LAYERED_OVERLAY_ALPHA): give the TOP-LEVEL window a 32-bit
+     * ARGB visual with per-pixel alpha so the compositor blends it (real transparency).
+     * The Vulkan child window being ARGB is not enough — the compositor composites the
+     * top-level, which must itself carry alpha. Env-var scoped to the opted-in game. */
+    if (layered_overlay_alpha_enabled() && argb_visual.visualid &&
+        data->vis.visualid != argb_visual.visualid)
+    {
+        data->vis = argb_visual;
+        data->use_alpha = TRUE;
+    }
+
     if (data->vis.visualid != default_visual.visualid)
         data->whole_colormap = XCreateColormap( data->display, root_window, data->vis.visual, AllocNone );
 
@@ -2942,7 +2955,12 @@ void X11DRV_SetWindowStyle( HWND hwnd, INT offset, STYLESTRUCT *style )
         if (changed & WS_EX_LAYERED) /* changing WS_EX_LAYERED resets attributes */
         {
             data->layered = FALSE;
-            set_window_visual( data, &default_visual, FALSE );
+            /* Layered overlay (WINE_LAYERED_OVERLAY_ALPHA): keep the ARGB visual instead
+             * of resetting to the opaque default, so the compositor keeps blending. */
+            if (layered_overlay_alpha_enabled() && argb_visual.visualid)
+                set_window_visual( data, &argb_visual, TRUE );
+            else
+                set_window_visual( data, &default_visual, FALSE );
             sync_window_opacity( data->display, data->whole_window, 0, 0 );
         }
         if (changed & WS_EX_TRANSPARENT) sync_window_style( data );
@@ -3659,7 +3677,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     /* layered windows are mapped only once their attributes are set */
     if (data->pending_state.wm_state == WithdrawnState && (new_style & WS_VISIBLE) &&
-        (ex_style & WS_EX_LAYERED) && !data->layered && !IsRectEmpty( &new_rects->window ))
+        (ex_style & (WS_EX_LAYERED | WS_EX_COMPOSITED)) == WS_EX_LAYERED && !data->layered && !IsRectEmpty( &new_rects->window ))
     {
         WARN( "win %p/%lx is layered, delaying mapping\n", hwnd, data->whole_window );
         new_style &= ~WS_VISIBLE;
@@ -4131,6 +4149,7 @@ void net_supporting_wm_check_init( struct x11drv_thread_data *data )
         char const *sgi = getenv( "SteamGameId" );
 
         if (!strcmp( data->window_manager, "GNOME Shell" )) strcpy( data->window_manager, "Mutter" );
+        if (!strcmp( data->window_manager, "Mutter (Muffin)" )) strcpy( data->window_manager, "Mutter" );
         TRACE( "Detected window manager: %s\n", debugstr_a(data->window_manager) );
 
         /* Street Fighter V expects a certain sequence of window resizes

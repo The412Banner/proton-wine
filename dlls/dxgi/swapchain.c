@@ -587,12 +587,66 @@ static HRESULT STDMETHODCALLTYPE d3d11_swapchain_GetContainingOutput(IDXGISwapCh
     return dxgi_get_output_from_window(swapchain->factory, window, output);
 }
 
+static int get_display_frequency(void)
+{
+    DEVMODEW mode;
+    BOOL ret;
+
+    memset(&mode, 0, sizeof(mode));
+    mode.dmSize = sizeof(mode);
+    ret = EnumDisplaySettingsExW(NULL, ENUM_CURRENT_SETTINGS, &mode, 0);
+    if (ret && mode.dmFields & DM_DISPLAYFREQUENCY && mode.dmDisplayFrequency)
+    {
+        return mode.dmDisplayFrequency;
+    }
+    else
+    {
+        WARN("Failed to query display frequency, returning a fallback value.\n");
+        return 60;
+    }
+}
+
+static LARGE_INTEGER get_perf_req(void)
+{
+    LARGE_INTEGER performance_frequency;
+
+    QueryPerformanceFrequency(&performance_frequency);
+    return performance_frequency;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d11_swapchain_GetFrameStatistics(IDXGISwapChain4 *iface,
         DXGI_FRAME_STATISTICS *stats)
 {
-    FIXME("iface %p, stats %p stub!\n", iface, stats);
+    struct d3d11_swapchain *swapchain = d3d11_swapchain_from_IDXGISwapChain4(iface);
+    HRESULT hr = S_OK;
+    static BOOL once = 0;
+    const LARGE_INTEGER performance_frequency = get_perf_req();
+    int display_frequency = get_display_frequency();
 
-    return E_NOTIMPL;
+    LARGE_INTEGER count;
+    TRACE("iface %p, stats %p Semi-stub\n", iface, stats);
+
+    if (!stats)
+        return E_INVALIDARG;
+
+    QueryPerformanceCounter(&count);
+
+    stats->PresentCount          = swapchain->present_count;
+    stats->PresentRefreshCount   = 0;
+    stats->SyncRefreshCount      = 0;
+    stats->SyncQPCTime.QuadPart  = count.QuadPart;
+    stats->SyncGPUTime.QuadPart  = 0;
+
+    stats->PresentRefreshCount =  performance_frequency.QuadPart / display_frequency;
+    stats->SyncRefreshCount = display_frequency;
+
+    if(!once)
+    {
+        once++;
+        hr = DXGI_ERROR_FRAME_STATISTICS_DISJOINT;
+    }
+
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d11_swapchain_GetLastPresentCount(IDXGISwapChain4 *iface,
@@ -2689,9 +2743,36 @@ static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetContainingOutput(IDXGISwapCh
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetFrameStatistics(IDXGISwapChain4 *iface,
         DXGI_FRAME_STATISTICS *stats)
 {
-    FIXME("iface %p, stats %p stub!\n", iface, stats);
+    struct d3d12_swapchain *swapchain = d3d12_swapchain_from_IDXGISwapChain4(iface);
+    HRESULT hr = S_OK;
+    static BOOL once = 0;
+    const LARGE_INTEGER performance_frequency = get_perf_req();
+    int display_frequency = get_display_frequency();
 
-    return E_NOTIMPL;
+    LARGE_INTEGER count;
+    TRACE("iface %p, stats %p Semi-stub\n", iface, stats);
+
+    if (!stats)
+        return E_INVALIDARG;
+
+    QueryPerformanceCounter(&count);
+
+    stats->PresentCount          = swapchain->frame_number;
+    stats->PresentRefreshCount   = 0;
+    stats->SyncRefreshCount      = 0;
+    stats->SyncQPCTime.QuadPart  = count.QuadPart;
+    stats->SyncGPUTime.QuadPart  = 0;
+
+    stats->PresentRefreshCount =  performance_frequency.QuadPart / display_frequency;
+    stats->SyncRefreshCount = display_frequency;
+
+    if(!once)
+    {
+        once++;
+        hr = DXGI_ERROR_FRAME_STATISTICS_DISJOINT;
+    }
+
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d12_swapchain_GetLastPresentCount(IDXGISwapChain4 *iface,

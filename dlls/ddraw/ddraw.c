@@ -2189,6 +2189,56 @@ static HRESULT WINAPI ddraw1_FlipToGDISurface(IDirectDraw *iface)
     return ddraw7_FlipToGDISurface(&ddraw->IDirectDraw7_iface);
 }
 
+static DWORD ddraw_get_vblank_refresh_rate(struct ddraw *ddraw)
+{
+    struct wined3d_display_mode mode;
+    DWORD refresh_rate = 60;
+
+    if (force_refresh_rate)
+        return force_refresh_rate;
+
+    wined3d_mutex_lock();
+    if (SUCCEEDED(wined3d_output_get_display_mode(ddraw->wined3d_output, &mode, NULL)) && mode.refresh_rate)
+        refresh_rate = mode.refresh_rate;
+    wined3d_mutex_unlock();
+
+    return refresh_rate;
+}
+
+static void ddraw_wait_for_vblank_interval(struct ddraw *ddraw)
+{
+    LARGE_INTEGER frequency, now;
+    LONGLONG interval, wait_time;
+    DWORD refresh_rate;
+
+    if (!QueryPerformanceFrequency(&frequency) || !frequency.QuadPart)
+    {
+        Sleep(1);
+        return;
+    }
+
+    refresh_rate = ddraw_get_vblank_refresh_rate(ddraw);
+    interval = frequency.QuadPart / refresh_rate;
+    if (!interval)
+        interval = 1;
+
+    QueryPerformanceCounter(&now);
+    if (!ddraw->next_vblank_time || now.QuadPart - ddraw->next_vblank_time > interval * 4)
+        ddraw->next_vblank_time = now.QuadPart + interval;
+    while (ddraw->next_vblank_time <= now.QuadPart)
+        ddraw->next_vblank_time += interval;
+
+    wait_time = ddraw->next_vblank_time - now.QuadPart;
+    if (wait_time > 0)
+    {
+        DWORD wait_ms = wait_time * 1000 / frequency.QuadPart;
+
+        Sleep(max(1, wait_ms));
+    }
+
+    ddraw->next_vblank_time += interval;
+}
+
 /*****************************************************************************
  * IDirectDraw7::WaitForVerticalBlank
  *
@@ -2208,20 +2258,15 @@ static HRESULT WINAPI ddraw1_FlipToGDISurface(IDirectDraw *iface)
  *****************************************************************************/
 static HRESULT WINAPI ddraw7_WaitForVerticalBlank(IDirectDraw7 *iface, DWORD Flags, HANDLE event)
 {
-    static BOOL hide;
+    struct ddraw *ddraw = impl_from_IDirectDraw7(iface);
 
     TRACE("iface %p, flags %#lx, event %p.\n", iface, Flags, event);
-
-    /* This function is called often, so print the fixme only once */
-    if(!hide)
-    {
-        FIXME("iface %p, flags %#lx, event %p stub!\n", iface, Flags, event);
-        hide = TRUE;
-    }
 
     /* MSDN says DDWAITVB_BLOCKBEGINEVENT is not supported */
     if(Flags & DDWAITVB_BLOCKBEGINEVENT)
         return DDERR_UNSUPPORTED; /* unchecked */
+
+    ddraw_wait_for_vblank_interval(ddraw);
 
     return DD_OK;
 }

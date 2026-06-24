@@ -34,13 +34,14 @@ WINE_DEFAULT_DEBUG_CHANNEL(dmo);
 #include "initguid.h"
 
 DEFINE_MEDIATYPE_GUID(MFAudioFormat_RAW_AAC,WAVE_FORMAT_RAW_AAC1);
+DEFINE_MEDIATYPE_GUID(MFAudioFormat_ADPCM,WAVE_FORMAT_ADPCM);
 static const GUID CLSID_WineAudioDecoder = {0x480b1517,0xc8e9,0x4eaf,{0xb0,0x06,0xe6,0x30,0x07,0x18,0xd8,0x5d}};
 
 static HRESULT WINAPI audio_decoder_factory_CreateInstance(IClassFactory *iface, IUnknown *outer,
         REFIID riid, void **out)
 {
-    static const GUID CLSID_GStreamerAudioDecoder = {0x480b1517,0xc8e9,0x4eae,{0xb0,0x06,0xe6,0x30,0x07,0x18,0xd8,0x5d}};
-    return CoCreateInstance(&CLSID_GStreamerAudioDecoder, outer, CLSCTX_INPROC_SERVER, riid, out);
+    static const GUID CLSID_WineDMOAudioDecoder = {0x480b1517,0xc8e9,0x4eae,{0xb0,0x06,0xe6,0x30,0x07,0x18,0xd8,0x5d}};
+    return CoCreateInstance(&CLSID_WineDMOAudioDecoder, outer, CLSCTX_INPROC_SERVER, riid, out);
 }
 
 static HRESULT WINAPI aac_decoder_factory_CreateInstance(IClassFactory *iface, IUnknown *outer,
@@ -125,6 +126,7 @@ HRESULT WINAPI DllRegisterServer(void)
     {
         {MFMediaType_Audio, MFAudioFormat_Vorbis},
         {MFMediaType_Audio, MFAudioFormat_Opus},
+        {MFMediaType_Audio, MFAudioFormat_ADPCM},
     };
     MFT_REGISTER_TYPE_INFO audio_decoder_mft_outputs[] =
     {

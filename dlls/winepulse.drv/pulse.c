@@ -27,7 +27,9 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <errno.h>
 #include <pthread.h>
+#include <time.h>
 #include <math.h>
 #include <poll.h>
 
@@ -111,6 +113,8 @@ struct pulse_stream
     struct pulse_period *period;
 };
 
+static void pulse_write(struct pulse_stream *stream);
+
 typedef struct _ACPacket
 {
     struct list entry;
@@ -162,6 +166,22 @@ static void pulse_unlock(void)
 static int pulse_cond_wait(void)
 {
     return pthread_cond_wait(&pulse_cond, &pulse_mutex);
+}
+
+static int pulse_cond_timedwait_ms(unsigned int timeout_ms)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += timeout_ms / 1000;
+    ts.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (ts.tv_nsec >= 1000000000)
+    {
+        ts.tv_sec++;
+        ts.tv_nsec -= 1000000000;
+    }
+
+    return pthread_cond_timedwait(&pulse_cond, &pulse_mutex, &ts);
 }
 
 static void pulse_broadcast(void)
@@ -390,14 +410,32 @@ static void pulse_contextcallback(pa_context *c, void *userdata)
 
 static void pulse_stream_state(pa_stream *s, void *user)
 {
+    struct pulse_stream *stream = user;
     pa_stream_state_t state = pa_stream_get_state(s);
     TRACE("Stream state changed to %i\n", state);
+    if (stream && stream->dataflow == eRender && state == PA_STREAM_READY)
+    {
+        const pa_buffer_attr *attr = pa_stream_get_buffer_attr(s);
+        pa_operation *op;
+
+        if (attr)
+            stream->attr = *attr;
+        if (stream->started)
+        {
+            pulse_write(stream);
+            if (pa_stream_is_corked(s) && (op = pa_stream_cork(s, 0, NULL, NULL)))
+                pa_operation_unref(op);
+        }
+    }
     pulse_broadcast();
 }
 
 static void pulse_attr_update(pa_stream *s, void *user) {
+    struct pulse_stream *stream = user;
     const pa_buffer_attr *attr = pa_stream_get_buffer_attr(s);
     TRACE("New attributes or device moved:\n");
+    if (stream && attr)
+        stream->attr = *attr;
     dump_attr(attr);
 }
 
@@ -427,6 +465,21 @@ static void silence_buffer(pa_sample_format_t format, BYTE *buffer, UINT32 bytes
 
 static BOOL pulse_stream_valid(struct pulse_stream *stream)
 {
+    pa_stream_state_t state;
+
+    if (!stream->stream)
+        return stream->dataflow == eRender;
+
+    state = pa_stream_get_state(stream->stream);
+
+    return state == PA_STREAM_READY || (stream->dataflow == eRender && state == PA_STREAM_CREATING);
+}
+
+static BOOL pulse_stream_ready(struct pulse_stream *stream)
+{
+    if (!stream->stream)
+        return FALSE;
+
     return pa_stream_get_state(stream->stream) == PA_STREAM_READY;
 }
 
@@ -479,9 +532,11 @@ static UINT pulse_channel_map_to_channel_mask(const pa_channel_map *map)
     for (i = 0; i < map->channels; ++i) {
         switch (map->map[i]) {
             default: FIXME("Unhandled channel %s\n", pa_channel_position_to_string(map->map[i])); break;
+            case PA_CHANNEL_POSITION_AUX0:
             case PA_CHANNEL_POSITION_FRONT_LEFT: mask |= SPEAKER_FRONT_LEFT; break;
             case PA_CHANNEL_POSITION_MONO:
             case PA_CHANNEL_POSITION_FRONT_CENTER: mask |= SPEAKER_FRONT_CENTER; break;
+            case PA_CHANNEL_POSITION_AUX1:
             case PA_CHANNEL_POSITION_FRONT_RIGHT: mask |= SPEAKER_FRONT_RIGHT; break;
             case PA_CHANNEL_POSITION_REAR_LEFT: mask |= SPEAKER_BACK_LEFT; break;
             case PA_CHANNEL_POSITION_REAR_CENTER: mask |= SPEAKER_BACK_CENTER; break;
@@ -814,7 +869,8 @@ static void convert_channel_map(const pa_channel_map *pa_map, WAVEFORMATEXTENSIB
     fmt->dwChannelMask = pa_mask;
 }
 
-static void pulse_probe_settings(int render, const char *pulse_name, WAVEFORMATEXTENSIBLE *fmt, REFERENCE_TIME *def_period, REFERENCE_TIME *min_period)
+static void pulse_probe_settings(pa_mainloop *ml, pa_context *ctx, int render, const char *pulse_name,
+                                 WAVEFORMATEXTENSIBLE *fmt, REFERENCE_TIME *def_period, REFERENCE_TIME *min_period)
 {
     WAVEFORMATEX *wfx = &fmt->Format;
     pa_stream *stream;
@@ -837,7 +893,7 @@ static void pulse_probe_settings(int render, const char *pulse_name, WAVEFORMATE
     attr.minreq = attr.fragsize = pa_frame_size(&ss);
     attr.prebuf = 0;
 
-    stream = pa_stream_new(pulse_ctx, "format test stream", &ss, &map);
+    stream = pa_stream_new(ctx, "format test stream", &ss, &map);
     if (stream)
         pa_stream_set_state_callback(stream, pulse_stream_state, NULL);
     if (!stream)
@@ -848,7 +904,7 @@ static void pulse_probe_settings(int render, const char *pulse_name, WAVEFORMATE
     else
         ret = pa_stream_connect_record(stream, pulse_name, &attr, PA_STREAM_START_CORKED|PA_STREAM_FIX_RATE|PA_STREAM_FIX_CHANNELS|PA_STREAM_EARLY_REQUESTS);
     if (ret >= 0) {
-        while (pa_mainloop_iterate(pulse_ml, 1, &ret) >= 0 &&
+        while (pa_mainloop_iterate(ml, 1, &ret) >= 0 &&
                 pa_stream_get_state(stream) == PA_STREAM_CREATING)
         {}
         if (pa_stream_get_state(stream) == PA_STREAM_READY) {
@@ -859,7 +915,7 @@ static void pulse_probe_settings(int render, const char *pulse_name, WAVEFORMATE
             else
                 length = pa_stream_get_buffer_attr(stream)->fragsize;
             pa_stream_disconnect(stream);
-            while (pa_mainloop_iterate(pulse_ml, 1, &ret) >= 0 &&
+            while (pa_mainloop_iterate(ml, 1, &ret) >= 0 &&
                     pa_stream_get_state(stream) == PA_STREAM_READY)
             {}
         }
@@ -901,34 +957,33 @@ static NTSTATUS pulse_test_connect(void *args)
     pa_operation *o;
     int ret;
     char *name = wstr_to_str(params->name);
+    pa_mainloop *ml;
+    pa_context *ctx;
 
     pulse_lock();
-    pulse_ml = pa_mainloop_new();
+    ml = pa_mainloop_new();
 
-    pa_mainloop_set_poll_func(pulse_ml, pulse_poll_func, NULL);
+    pa_mainloop_set_poll_func(ml, pulse_poll_func, NULL);
 
-    pulse_ctx = pa_context_new(pa_mainloop_get_api(pulse_ml), name);
-
+    ctx = pa_context_new(pa_mainloop_get_api(ml), name);
     free(name);
-
-    if (!pulse_ctx) {
+    if (!ctx) {
         ERR("Failed to create context\n");
-        pa_mainloop_free(pulse_ml);
-        pulse_ml = NULL;
+        pa_mainloop_free(ml);
         pulse_unlock();
         params->priority = Priority_Unavailable;
         return STATUS_SUCCESS;
     }
 
-    pa_context_set_state_callback(pulse_ctx, pulse_contextcallback, NULL);
+    pa_context_set_state_callback(ctx, pulse_contextcallback, NULL);
 
-    TRACE("libpulse protocol version: %u. API Version %u\n", pa_context_get_protocol_version(pulse_ctx), PA_API_VERSION);
-    if (pa_context_connect(pulse_ctx, NULL, 0, NULL) < 0)
+    TRACE("libpulse protocol version: %u. API Version %u\n", pa_context_get_protocol_version(ctx), PA_API_VERSION);
+    if (pa_context_connect(ctx, NULL, 0, NULL) < 0)
         goto fail;
 
     /* Wait for connection */
-    while (pa_mainloop_iterate(pulse_ml, 1, &ret) >= 0) {
-        pa_context_state_t state = pa_context_get_state(pulse_ctx);
+    while (pa_mainloop_iterate(ml, 1, &ret) >= 0) {
+        pa_context_state_t state = pa_context_get_state(ctx);
 
         if (state == PA_CONTEXT_FAILED || state == PA_CONTEXT_TERMINATED)
             goto fail;
@@ -937,12 +992,12 @@ static NTSTATUS pulse_test_connect(void *args)
             break;
     }
 
-    if (pa_context_get_state(pulse_ctx) != PA_CONTEXT_READY)
+    if (pa_context_get_state(ctx) != PA_CONTEXT_READY)
         goto fail;
 
     TRACE("Test-connected to server %s with protocol version: %i.\n",
-        pa_context_get_server(pulse_ctx),
-        pa_context_get_server_protocol_version(pulse_ctx));
+        pa_context_get_server(ctx),
+        pa_context_get_server_protocol_version(ctx));
 
     free_phys_device_lists();
     list_init(&g_phys_speakers);
@@ -952,34 +1007,32 @@ static NTSTATUS pulse_test_connect(void *args)
     pulse_add_device(&g_phys_speakers, NULL, 0, Speakers, 0, "", "PulseAudio Output");
     pulse_add_device(&g_phys_sources, NULL, 0, Microphone, 0, "", "PulseAudio Input");
 
-    o = pa_context_get_sink_info_list(pulse_ctx, &pulse_phys_speakers_cb, NULL);
+    o = pa_context_get_sink_info_list(ctx, &pulse_phys_speakers_cb, NULL);
     if (o) {
-        while (pa_mainloop_iterate(pulse_ml, 1, &ret) >= 0 &&
+        while (pa_mainloop_iterate(ml, 1, &ret) >= 0 &&
                 pa_operation_get_state(o) == PA_OPERATION_RUNNING)
         {}
         pa_operation_unref(o);
     }
 
-    o = pa_context_get_source_info_list(pulse_ctx, &pulse_phys_sources_cb, NULL);
+    o = pa_context_get_source_info_list(ctx, &pulse_phys_sources_cb, NULL);
     if (o) {
-        while (pa_mainloop_iterate(pulse_ml, 1, &ret) >= 0 &&
+        while (pa_mainloop_iterate(ml, 1, &ret) >= 0 &&
                 pa_operation_get_state(o) == PA_OPERATION_RUNNING)
         {}
         pa_operation_unref(o);
     }
 
     LIST_FOR_EACH_ENTRY(dev, &g_phys_speakers, PhysDevice, entry) {
-        pulse_probe_settings(1, dev->pulse_name, &dev->fmt, &dev->def_period, &dev->min_period);
+        pulse_probe_settings(ml, ctx, 1, dev->pulse_name, &dev->fmt, &dev->def_period, &dev->min_period);
     }
 
     LIST_FOR_EACH_ENTRY(dev, &g_phys_sources, PhysDevice, entry) {
-        pulse_probe_settings(0, dev->pulse_name, &dev->fmt, &dev->def_period, &dev->min_period);
+        pulse_probe_settings(ml, ctx, 0, dev->pulse_name, &dev->fmt, &dev->def_period, &dev->min_period);
     }
 
-    pa_context_unref(pulse_ctx);
-    pulse_ctx = NULL;
-    pa_mainloop_free(pulse_ml);
-    pulse_ml = NULL;
+    pa_context_unref(ctx);
+    pa_mainloop_free(ml);
 
     pulse_unlock();
 
@@ -987,10 +1040,8 @@ static NTSTATUS pulse_test_connect(void *args)
     return STATUS_SUCCESS;
 
 fail:
-    pa_context_unref(pulse_ctx);
-    pulse_ctx = NULL;
-    pa_mainloop_free(pulse_ml);
-    pulse_ml = NULL;
+    pa_context_unref(ctx);
+    pa_mainloop_free(ml);
     pulse_unlock();
     params->priority = Priority_Unavailable;
     return STATUS_SUCCESS;
@@ -1040,7 +1091,9 @@ static const enum pa_channel_position pulse_pos_from_wfx[] = {
     PA_CHANNEL_POSITION_TOP_FRONT_RIGHT,
     PA_CHANNEL_POSITION_TOP_REAR_LEFT,
     PA_CHANNEL_POSITION_TOP_REAR_CENTER,
-    PA_CHANNEL_POSITION_TOP_REAR_RIGHT
+    PA_CHANNEL_POSITION_TOP_REAR_RIGHT,
+    PA_CHANNEL_POSITION_AUX0,
+    PA_CHANNEL_POSITION_AUX1
 };
 
 static HRESULT pulse_spec_from_waveformat(struct pulse_stream *stream, const WAVEFORMATEX *fmt)
@@ -1179,6 +1232,7 @@ static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pul
     attr.tlength = period_bytes * 3;
     attr.maxlength = stream->bufsize_frames * pa_frame_size(&stream->ss);
     attr.prebuf = pa_frame_size(&stream->ss);
+    stream->attr = attr;
     dump_attr(&attr);
 
     /* If specific device was requested, use it exactly */
@@ -1195,14 +1249,27 @@ static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pul
         WARN("Returns %i\n", ret);
         return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
     }
-    while (pa_stream_get_state(stream->stream) == PA_STREAM_CREATING)
-        pulse_cond_wait();
-    if (pa_stream_get_state(stream->stream) != PA_STREAM_READY)
-        return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
-
     if (stream->dataflow == eRender) {
         pa_stream_set_underflow_callback(stream->stream, pulse_underflow_callback, stream);
         pa_stream_set_started_callback(stream->stream, pulse_started_callback, stream);
+    }
+    while (pa_stream_get_state(stream->stream) == PA_STREAM_CREATING)
+    {
+        if (pulse_cond_timedwait_ms(500) == ETIMEDOUT)
+            break;
+    }
+    if (pa_stream_get_state(stream->stream) != PA_STREAM_READY)
+    {
+        if (stream->dataflow == eRender && pa_stream_get_state(stream->stream) == PA_STREAM_CREATING)
+        {
+            WARN("Render stream still creating; disconnecting Pulse stream and continuing locally.\n");
+            pa_stream_disconnect(stream->stream);
+            pa_stream_unref(stream->stream);
+            stream->stream = NULL;
+            return S_OK;
+        }
+        WARN("Stream failed to become ready, state %i\n", pa_stream_get_state(stream->stream));
+        return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
     }
     return S_OK;
 }
@@ -1288,7 +1355,7 @@ static NTSTATUS pulse_create_stream(void *args)
     hr = pulse_stream_connect(stream, params->device, stream->period_bytes);
     if (SUCCEEDED(hr)) {
         UINT32 unalign;
-        const pa_buffer_attr *attr = pa_stream_get_buffer_attr(stream->stream);
+        const pa_buffer_attr *attr = pulse_stream_ready(stream) ? pa_stream_get_buffer_attr(stream->stream) : &stream->attr;
         SIZE_T size;
 
         stream->attr = *attr;
@@ -1490,7 +1557,12 @@ static void pulse_write(struct pulse_stream *stream)
     /* write as much data to PA as we can */
     UINT32 to_write;
     BYTE *buf = stream->local_buffer + stream->pa_offs_bytes;
-    UINT32 bytes = pa_stream_writable_size(stream->stream);
+    UINT32 bytes;
+
+    if (!pulse_stream_ready(stream))
+        return;
+
+    bytes = pa_stream_writable_size(stream->stream);
 
     if (stream->just_underran)
     {
@@ -1752,12 +1824,13 @@ static NTSTATUS pulse_release_stream(void *args)
 
     pulse_lock();
     remove_stream_from_period(stream);
-    if (PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream))) {
+    if (stream->stream && PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream))) {
         pa_stream_disconnect(stream->stream);
         while (pulse_ml && PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream)))
             pulse_cond_wait();
     }
-    pa_stream_unref(stream->stream);
+    if (stream->stream)
+        pa_stream_unref(stream->stream);
     pulse_unlock();
 
     if (stream->tmp_buffer) {
@@ -1804,14 +1877,17 @@ static NTSTATUS pulse_start(void *args)
         return STATUS_SUCCESS;
     }
 
-    pulse_write(stream);
-
-    if (pa_stream_is_corked(stream->stream))
+    if (pulse_stream_ready(stream))
     {
-        if (!wait_pa_operation_complete(pa_stream_cork(stream->stream, 0, pulse_op_cb, &success)))
-            success = 0;
-        if (!success)
-            params->result = E_FAIL;
+        pulse_write(stream);
+
+        if (pa_stream_is_corked(stream->stream))
+        {
+            if (!wait_pa_operation_complete(pa_stream_cork(stream->stream, 0, pulse_op_cb, &success)))
+                success = 0;
+            if (!success)
+                params->result = E_FAIL;
+        }
     }
 
     if (SUCCEEDED(params->result))
@@ -1846,7 +1922,7 @@ static NTSTATUS pulse_stop(void *args)
     }
 
     params->result = S_OK;
-    if (stream->dataflow == eRender)
+    if (stream->dataflow == eRender && pulse_stream_ready(stream))
     {
         if (!wait_pa_operation_complete(pa_stream_cork(stream->stream, 1, pulse_op_cb, &success)))
             success = 0;
@@ -1890,7 +1966,7 @@ static NTSTATUS pulse_reset(void *args)
     {
         /* If there is still data in the render buffer it needs to be removed from the server */
         int success = 0;
-        if (stream->held_bytes)
+        if (stream->held_bytes && pulse_stream_ready(stream))
             wait_pa_operation_complete(pa_stream_flush(stream->stream, pulse_op_cb, &success));
 
         if (success || !stream->held_bytes)
@@ -2329,7 +2405,7 @@ static NTSTATUS pulse_get_latency(void *args)
         params->result = AUDCLNT_E_DEVICE_INVALIDATED;
         return STATUS_SUCCESS;
     }
-    attr = pa_stream_get_buffer_attr(stream->stream);
+    attr = pulse_stream_ready(stream) ? pa_stream_get_buffer_attr(stream->stream) : &stream->attr;
     if (stream->dataflow == eRender)
         lat = attr->minreq / pa_frame_size(&stream->ss);
     else
@@ -2496,15 +2572,18 @@ static NTSTATUS pulse_set_sample_rate(void *args)
     new_ss = stream->ss;
     new_ss.rate = params->rate;
 
-    if (!wait_pa_operation_complete(pa_stream_update_sample_rate(stream->stream, params->rate, pulse_op_cb, &success)))
-        success = 0;
+    if (pulse_stream_ready(stream))
+    {
+        if (!wait_pa_operation_complete(pa_stream_update_sample_rate(stream->stream, params->rate, pulse_op_cb, &success)))
+            success = 0;
 
-    if (!success) {
-        hr = E_OUTOFMEMORY;
-        goto exit;
+        if (!success) {
+            hr = E_OUTOFMEMORY;
+            goto exit;
+        }
     }
 
-    if (stream->held_bytes)
+    if (stream->held_bytes && pulse_stream_ready(stream))
         wait_pa_operation_complete(pa_stream_flush(stream->stream, pulse_op_cb, &success));
 
     stream->clock_lastpos = stream->clock_written = 0;

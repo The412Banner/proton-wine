@@ -188,13 +188,22 @@ static HRESULT video_renderer_init_presenter_services(struct video_renderer *ren
     if (SUCCEEDED(hr = IMFVideoPresenter_QueryInterface(renderer->presenter, &IID_IMFTopologyServiceLookupClient,
             (void **)&lookup_client)))
     {
+        EnterCriticalSection(&renderer->cs);
         renderer->flags |= EVR_INIT_SERVICES;
+        LeaveCriticalSection(&renderer->cs);
+
         if (SUCCEEDED(hr = IMFTopologyServiceLookupClient_InitServicePointers(lookup_client,
                 &renderer->IMFTopologyServiceLookup_iface)))
         {
+            EnterCriticalSection(&renderer->cs);
             renderer->flags |= EVR_PRESENTER_INITED_SERVICES;
+            LeaveCriticalSection(&renderer->cs);
         }
+
+        EnterCriticalSection(&renderer->cs);
         renderer->flags &= ~EVR_INIT_SERVICES;
+        LeaveCriticalSection(&renderer->cs);
+
         IMFTopologyServiceLookupClient_Release(lookup_client);
     }
 
@@ -204,13 +213,18 @@ static HRESULT video_renderer_init_presenter_services(struct video_renderer *ren
 static void video_renderer_release_presenter_services(struct video_renderer *renderer)
 {
     IMFTopologyServiceLookupClient *lookup_client;
+    BOOL release;
 
-    if (renderer->flags & EVR_PRESENTER_INITED_SERVICES && SUCCEEDED(IMFVideoPresenter_QueryInterface(renderer->presenter,
+    EnterCriticalSection(&renderer->cs);
+    release = !!(renderer->flags & EVR_PRESENTER_INITED_SERVICES);
+    renderer->flags &= ~EVR_PRESENTER_INITED_SERVICES;
+    LeaveCriticalSection(&renderer->cs);
+
+    if (release && SUCCEEDED(IMFVideoPresenter_QueryInterface(renderer->presenter,
             &IID_IMFTopologyServiceLookupClient, (void **)&lookup_client)))
     {
         IMFTopologyServiceLookupClient_ReleaseServicePointers(lookup_client);
         IMFTopologyServiceLookupClient_Release(lookup_client);
-        renderer->flags &= ~EVR_PRESENTER_INITED_SERVICES;
     }
 }
 
@@ -393,54 +407,62 @@ static HRESULT WINAPI video_stream_sink_GetMediaTypeHandler(IMFStreamSink *iface
 static HRESULT WINAPI video_stream_sink_ProcessSample(IMFStreamSink *iface, IMFSample *sample)
 {
     struct video_stream *stream = impl_from_IMFStreamSink(iface);
-    LONGLONG timestamp;
+    struct video_renderer *renderer = stream->parent;
+    BOOL request_sample = FALSE, prerolled = FALSE;
     HRESULT hr = S_OK;
 
     TRACE("%p, %p.\n", iface, sample);
 
-    EnterCriticalSection(&stream->cs);
+    TRACE("stream %p, renderer %p, clock %p, state %u, flags %#x.\n",
+            stream, renderer, renderer ? renderer->clock : NULL, renderer ? renderer->state : 0, stream->flags);
 
-    if (!stream->parent)
+    if (!renderer)
         hr = MF_E_STREAMSINK_REMOVED;
-    else if (!stream->parent->clock)
+    else if (!renderer->clock)
         hr = MF_E_NO_CLOCK;
-    else if (FAILED(hr = IMFSample_GetSampleTime(sample, &timestamp)))
-    {
-        WARN("No sample timestamp, hr %#lx.\n", hr);
-    }
-    else if (stream->parent->state == EVR_STATE_RUNNING || stream->flags & EVR_STREAM_PREROLLING)
+    else if (renderer->state == EVR_STATE_RUNNING || stream->flags & EVR_STREAM_PREROLLING)
     {
         if (!(stream->flags & EVR_STREAM_STARTED))
         {
-            IMFTransform_ProcessMessage(stream->parent->mixer, MFT_MESSAGE_NOTIFY_START_OF_STREAM, stream->id);
+            TRACE("stream %p notifying mixer start of stream %#x.\n", stream, stream->id);
+            IMFTransform_ProcessMessage(renderer->mixer, MFT_MESSAGE_NOTIFY_START_OF_STREAM, stream->id);
+            TRACE("stream %p notified mixer start of stream %#x.\n", stream, stream->id);
             stream->flags |= EVR_STREAM_STARTED;
         }
 
-        if (SUCCEEDED(IMFTransform_ProcessInput(stream->parent->mixer, stream->id, sample, 0)))
+        TRACE("stream %p processing mixer input sample %p.\n", stream, sample);
+        hr = IMFTransform_ProcessInput(renderer->mixer, stream->id, sample, 0);
+        TRACE("stream %p processed mixer input sample %p, hr %#lx.\n", stream, sample, hr);
+        if (SUCCEEDED(hr))
         {
-            while ((hr = IMFVideoPresenter_ProcessMessage(stream->parent->presenter, MFVP_MESSAGE_PROCESSINPUTNOTIFY, 0)) == MF_E_TRANSFORM_TYPE_NOT_SET)
+            TRACE("stream %p notifying presenter input.\n", stream);
+            while ((hr = IMFVideoPresenter_ProcessMessage(renderer->presenter, MFVP_MESSAGE_PROCESSINPUTNOTIFY, 0)) == MF_E_TRANSFORM_TYPE_NOT_SET)
             {
-                if (FAILED(hr = IMFVideoPresenter_ProcessMessage(stream->parent->presenter, MFVP_MESSAGE_INVALIDATEMEDIATYPE, 0)))
+                if (FAILED(hr = IMFVideoPresenter_ProcessMessage(renderer->presenter, MFVP_MESSAGE_INVALIDATEMEDIATYPE, 0)))
                     break;
             }
+            TRACE("stream %p notified presenter input, hr %#lx.\n", stream, hr);
         }
 
         if (stream->flags & EVR_STREAM_PREROLLING)
         {
             if (stream->preroll_count--)
-                IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamSinkRequestSample,
-                        &GUID_NULL, S_OK, NULL);
+                request_sample = TRUE;
             else
             {
-                IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamSinkPrerolled,
-                        &GUID_NULL, S_OK, NULL);
                 stream->flags &= ~EVR_STREAM_PREROLLING;
                 stream->flags |= EVR_STREAM_PREROLLED;
+                prerolled = TRUE;
             }
         }
     }
 
-    LeaveCriticalSection(&stream->cs);
+    if (request_sample)
+        IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamSinkRequestSample,
+                &GUID_NULL, S_OK, NULL);
+    else if (prerolled)
+        IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamSinkPrerolled,
+                &GUID_NULL, S_OK, NULL);
 
     return hr;
 }
@@ -575,6 +597,8 @@ static HRESULT WINAPI video_stream_typehandler_GetMediaTypeByIndex(IMFMediaTypeH
 static HRESULT WINAPI video_stream_typehandler_SetCurrentMediaType(IMFMediaTypeHandler *iface, IMFMediaType *type)
 {
     struct video_stream *stream = impl_from_IMFMediaTypeHandler(iface);
+    IMFMediaType *current_type;
+    DWORD flags;
     HRESULT hr;
 
     TRACE("%p, %p.\n", iface, type);
@@ -584,6 +608,14 @@ static HRESULT WINAPI video_stream_typehandler_SetCurrentMediaType(IMFMediaTypeH
 
     if (!stream->parent)
         return MF_E_STREAMSINK_REMOVED;
+
+    if (SUCCEEDED(IMFTransform_GetInputCurrentType(stream->parent->mixer, stream->id, &current_type)))
+    {
+        hr = IMFMediaType_IsEqual(current_type, type, &flags);
+        IMFMediaType_Release(current_type);
+        if (hr == S_OK)
+            return S_OK;
+    }
 
     hr = IMFTransform_SetInputType(stream->parent->mixer, stream->id, type, 0);
     if (SUCCEEDED(hr) && !stream->id)
@@ -1381,20 +1413,30 @@ static HRESULT WINAPI video_renderer_sink_GetStreamSinkById(IMFMediaSink *iface,
 
 static void video_renderer_set_presentation_clock(struct video_renderer *renderer, IMFPresentationClock *clock)
 {
-    if (renderer->clock)
-    {
-        IMFPresentationClock_RemoveClockStateSink(renderer->clock, &renderer->IMFClockStateSink_iface);
-        IMFPresentationClock_Release(renderer->clock);
-    }
-    video_renderer_release_presenter_services(renderer);
+    IMFPresentationClock *old_clock;
 
+    old_clock = renderer->clock;
     renderer->clock = clock;
     if (renderer->clock)
-    {
         IMFPresentationClock_AddRef(renderer->clock);
-        IMFPresentationClock_AddClockStateSink(renderer->clock, &renderer->IMFClockStateSink_iface);
+
+    LeaveCriticalSection(&renderer->cs);
+
+    if (old_clock)
+    {
+        IMFPresentationClock_RemoveClockStateSink(old_clock, &renderer->IMFClockStateSink_iface);
+        IMFPresentationClock_Release(old_clock);
     }
-    video_renderer_init_presenter_services(renderer);
+
+    video_renderer_release_presenter_services(renderer);
+
+    if (clock)
+    {
+        IMFPresentationClock_AddClockStateSink(clock, &renderer->IMFClockStateSink_iface);
+        video_renderer_init_presenter_services(renderer);
+    }
+
+    EnterCriticalSection(&renderer->cs);
 }
 
 static HRESULT WINAPI video_renderer_sink_SetPresentationClock(IMFMediaSink *iface, IMFPresentationClock *clock)
@@ -1522,14 +1564,17 @@ static ULONG WINAPI video_renderer_preroll_Release(IMFMediaSinkPreroll *iface)
 static HRESULT WINAPI video_renderer_preroll_NotifyPreroll(IMFMediaSinkPreroll *iface, MFTIME start_time)
 {
     struct video_renderer *renderer = impl_from_IMFMediaSinkPreroll(iface);
+    struct video_stream **request_streams = NULL;
+    size_t i, request_count = 0;
     HRESULT hr = S_OK;
-    size_t i;
 
     TRACE("%p, %s.\n", iface, debugstr_time(start_time));
 
     EnterCriticalSection(&renderer->cs);
     if (renderer->flags & EVR_SHUT_DOWN)
         hr = MF_E_SHUTDOWN;
+    else if (renderer->stream_count && !(request_streams = calloc(renderer->stream_count, sizeof(*request_streams))))
+        hr = E_OUTOFMEMORY;
     else
     {
         for (i = 0; i < renderer->stream_count; ++i)
@@ -1539,15 +1584,23 @@ static HRESULT WINAPI video_renderer_preroll_NotifyPreroll(IMFMediaSinkPreroll *
             EnterCriticalSection(&stream->cs);
             if (!(stream->flags & (EVR_STREAM_PREROLLING | EVR_STREAM_PREROLLED)))
             {
-                IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamSinkRequestSample,
-                        &GUID_NULL, S_OK, NULL);
                 stream->flags |= EVR_STREAM_PREROLLING;
                 stream->preroll_count = 3;
+                request_streams[request_count++] = stream;
+                IMFStreamSink_AddRef(&stream->IMFStreamSink_iface);
             }
             LeaveCriticalSection(&stream->cs);
         }
     }
     LeaveCriticalSection(&renderer->cs);
+
+    for (i = 0; i < request_count; ++i)
+    {
+        IMFMediaEventQueue_QueueEventParamVar(request_streams[i]->event_queue, MEStreamSinkRequestSample,
+                &GUID_NULL, S_OK, NULL);
+        IMFStreamSink_Release(&request_streams[i]->IMFStreamSink_iface);
+    }
+    free(request_streams);
 
     return hr;
 }
@@ -2035,14 +2088,22 @@ static HRESULT WINAPI video_renderer_clock_sink_OnClockRestart(IMFClockStateSink
 
     EnterCriticalSection(&renderer->cs);
 
-    IMFVideoPresenter_OnClockRestart(renderer->presenter, systime);
+    renderer->state = EVR_STATE_RUNNING;
 
     for (i = 0; i < renderer->stream_count; ++i)
     {
         struct video_stream *stream = renderer->streams[i];
+
+        EnterCriticalSection(&stream->cs);
+        stream->flags &= ~EVR_STREAM_SAMPLE_NEEDED;
+        LeaveCriticalSection(&stream->cs);
+
         IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamSinkStarted, &GUID_NULL, S_OK, NULL);
+        IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamSinkRequestSample,
+                &GUID_NULL, S_OK, NULL);
     }
-    renderer->state = EVR_STATE_RUNNING;
+
+    IMFVideoPresenter_OnClockRestart(renderer->presenter, systime);
 
     LeaveCriticalSection(&renderer->cs);
 

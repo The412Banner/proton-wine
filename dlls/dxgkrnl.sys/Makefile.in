@@ -1,0 +1,7 @@
+MODULE    = dxgkrnl.sys
+IMPORTS   = ntoskrnl
+EXTRADLLFLAGS = -mno-cygwin -Wl,--subsystem,native
+
+SOURCES = \
+	dxgkrnl.sys.spec \
+	main.c

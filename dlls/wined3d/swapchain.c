@@ -544,8 +544,9 @@ static void wined3d_swapchain_gl_rotate(struct wined3d_swapchain *swapchain, str
     unsigned int i;
     static const DWORD supported_locations = WINED3D_LOCATION_TEXTURE_RGB | WINED3D_LOCATION_RB_MULTISAMPLE;
 
-    if (swapchain->state.desc.backbuffer_count < 2)
-        return;
+    if (swapchain->state.desc.swap_effect == WINED3D_SWAP_EFFECT_DISCARD
+            || swapchain->state.desc.backbuffer_count < 2)
+         return;
 
     texture_prev = wined3d_texture_gl(swapchain->back_buffers[0]);
 
@@ -1208,7 +1209,8 @@ static void wined3d_swapchain_vk_rotate(struct wined3d_swapchain *swapchain, str
 
     static const DWORD supported_locations = WINED3D_LOCATION_TEXTURE_RGB | WINED3D_LOCATION_RB_MULTISAMPLE;
 
-    if (swapchain->state.desc.backbuffer_count < 2)
+    if (swapchain->state.desc.swap_effect == WINED3D_SWAP_EFFECT_DISCARD
+            || swapchain->state.desc.backbuffer_count < 2)
         return;
 
     texture_prev = wined3d_texture_vk(swapchain->back_buffers[0]);

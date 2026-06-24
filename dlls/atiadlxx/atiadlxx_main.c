@@ -1063,8 +1063,9 @@ int CDECL ADL_Graphics_Platform_Get(int *platform)
     return ADL2_Graphics_Platform_Get(default_ctx, platform);
 }
 
-int CDECL ADL2_Display_DisplayMapConfig_Get(ADL_CONTEXT_HANDLE ctx, int adapter_index, int *display_map_count, ADLDisplayMap **display_maps,
-        int *display_target_count, ADLDisplayTarget **display_targets, int options)
+int CDECL ADL2_Display_DisplayMapConfig_Get(ADL_CONTEXT_HANDLE ctx, int adapter_index, int *display_map_count,
+                                            ADLDisplayMap **display_maps, int *display_target_count,
+                                            ADLDisplayTarget **display_targets, int options)
 {
     struct gpu *gpu;
     int i;
@@ -1128,6 +1129,7 @@ int CDECL ADL_Display_DisplayMapConfig_Get(int adapter_index, int *display_map_c
             display_target_count, display_targets, options);
 }
 
+
 int CDECL ADL_Display_MVPUStatus_Get(int adapter_index, ADLMVPUStatus *mvpu_status)
 {
     TRACE("adapter_index %d, mvpu_status %p.\n", adapter_index, mvpu_status);
@@ -1149,4 +1151,26 @@ int CDECL ADL_Display_ODClockInfo_Get(int adapter_index, ADLAdapterODClockInfo *
     clock_info->sMemoryClock.iRequestedClock = 210000;
     clock_info->sEngineClock = clock_info->sMemoryClock;
     return ADL_OK;
+}
+
+int CDECL ADL2_Display_SLSMapIndex_Get(ADL_CONTEXT_HANDLE ctx, int adapter_index, int num_display_target,
+                                       ADLDisplayTarget *display_target, int *sls_index)
+{
+    FIXME("ctx %p adapter_index %d num_display_target %d display_target %p sls_index %p stub!\n",
+          ctx, adapter_index, num_display_target, display_target, sls_index);
+
+    if (!ctx || !display_target || !sls_index) return ADL_ERR_INVALID_PARAM;
+
+    *sls_index = 0;
+
+    return ADL_OK;
+}
+
+int CDECL ADL_Display_SLSMapIndex_Get(int adapter_index, int num_display_target,
+                                      ADLDisplayTarget *display_target, int *sls_index)
+{
+    TRACE("adapter_index %d num_display_target %d display_target %p sls_index %p\n",
+          adapter_index, num_display_target, display_target, sls_index);
+
+    return ADL2_Display_SLSMapIndex_Get(default_ctx, adapter_index, num_display_target, display_target, sls_index);
 }

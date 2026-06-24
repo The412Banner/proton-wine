@@ -57,6 +57,7 @@ static int kmemcmp( const void *ptr1, const void *ptr2, size_t n )
 
 static DRIVER_OBJECT *driver_obj;
 static DEVICE_OBJECT *lower_device, *upper_device;
+static LDR_DATA_TABLE_ENTRY *ldr_module;
 
 static IRP *queued_async_irps[2];
 static unsigned int queued_async_count;
@@ -1734,6 +1735,7 @@ static void test_resource(void)
     ok(status == STATUS_SUCCESS, "got status %#lx\n", status);
 }
 
+
 static void test_lookup_thread(void)
 {
     NTSTATUS status;
@@ -1979,6 +1981,105 @@ static void test_object_name(void)
     ok(ret_size == sizeof(*name), "got size %lu\n", ret_size);
     ok(!name->Name.Length, "got length %u\n", name->Name.Length);
     ok(!name->Name.MaximumLength, "got maximum length %u\n", name->Name.MaximumLength);
+}
+
+static void test_dir_kernel_object(void)
+{
+    OBJECT_ATTRIBUTES attr = { sizeof(attr) };
+    UNICODE_STRING pathU;
+    IO_STATUS_BLOCK io;
+    FILE_OBJECT *file_obj;
+    HANDLE dir_handle, handle;
+    NTSTATUS status;
+
+    RtlInitUnicodeString(&pathU, L"\\??\\C:\\windows");
+    InitializeObjectAttributes(&attr, &pathU, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+    status = ZwOpenFile(&dir_handle, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &attr, &io,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+    ok(!status, "ZwOpenFile failed: %#lx\n", status);
+    if (status)
+        return;
+
+    status = ObReferenceObjectByHandle(dir_handle, 0, *pIoFileObjectType, KernelMode,
+                                       (void **)&file_obj, NULL);
+    ok(!status, "ObReferenceObjectByHandle failed: %#lx\n", status);
+    if (!status)
+    {
+        status = ObOpenObjectByPointer(file_obj, OBJ_KERNEL_HANDLE, NULL, 0,
+                                       *pIoFileObjectType, KernelMode, &handle);
+        ok(!status, "ObOpenObjectByPointer failed: %#lx\n", status);
+        if (!status)
+            ZwClose(handle);
+        ObDereferenceObject(file_obj);
+    }
+
+    ZwClose(dir_handle);
+}
+
+static void test_fsrtl_get_file_size(void)
+{
+    static const char data[] = "hello, world!";
+    OBJECT_ATTRIBUTES attr = { sizeof(attr) };
+    UNICODE_STRING pathU;
+    IO_STATUS_BLOCK io;
+    LARGE_INTEGER file_size, offset;
+    HANDLE file_handle, dir_handle;
+    FILE_OBJECT *file_obj, *dir_obj;
+    NTSTATUS status;
+
+    /* test regular file */
+    RtlInitUnicodeString(&pathU, L"\\??\\C:\\windows\\winetest_ntoskrnl_fsrtl.tmp");
+    InitializeObjectAttributes(&attr, &pathU, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+    status = ZwCreateFile(&file_handle, DELETE | FILE_WRITE_DATA | SYNCHRONIZE, &attr, &io, NULL,
+                          FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          FILE_CREATE, FILE_DELETE_ON_CLOSE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+    ok(!status, "ZwCreateFile failed: %#lx\n", status);
+    if (status)
+        return;
+
+    offset.QuadPart = 0;
+    status = ZwWriteFile(file_handle, NULL, NULL, NULL, &io, (void *)data, sizeof(data), &offset, NULL);
+    ok(!status, "ZwWriteFile failed: %#lx\n", status);
+
+    status = ObReferenceObjectByHandle(file_handle, 0, *pIoFileObjectType, KernelMode,
+                                       (void **)&file_obj, NULL);
+    ok(!status, "ObReferenceObjectByHandle failed: %#lx\n", status);
+    if (!status)
+    {
+        file_size.QuadPart = 0;
+        status = FsRtlGetFileSize(file_obj, &file_size);
+        ok(!status, "FsRtlGetFileSize failed: %#lx\n", status);
+        ok(file_size.QuadPart == sizeof(data), "expected %Iu, got %I64d\n",
+           sizeof(data), file_size.QuadPart);
+        ObDereferenceObject(file_obj);
+    }
+
+    ZwClose(file_handle);
+
+    /* test directory returns STATUS_FILE_IS_A_DIRECTORY */
+    RtlInitUnicodeString(&pathU, L"\\??\\C:\\windows");
+    InitializeObjectAttributes(&attr, &pathU, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+    status = ZwOpenFile(&dir_handle, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &attr, &io,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                        FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT);
+    ok(!status, "ZwOpenFile failed: %#lx\n", status);
+    if (status)
+        return;
+
+    status = ObReferenceObjectByHandle(dir_handle, 0, *pIoFileObjectType, KernelMode,
+                                       (void **)&dir_obj, NULL);
+    ok(!status, "ObReferenceObjectByHandle failed: %#lx\n", status);
+    if (!status)
+    {
+        file_size.QuadPart = 0;
+        status = FsRtlGetFileSize(dir_obj, &file_size);
+        ok(status == STATUS_FILE_IS_A_DIRECTORY,
+           "expected STATUS_FILE_IS_A_DIRECTORY, got %#lx\n", status);
+        ObDereferenceObject(dir_obj);
+    }
+
+    ZwClose(dir_handle);
 }
 
 static PIO_WORKITEM work_item;
@@ -2444,6 +2545,52 @@ static void test_default_security(void)
     FltFreeSecurityDescriptor(sd);
 }
 
+static void test_default_modules(void)
+{
+    BOOL win32k = FALSE, dxgkrnl = FALSE, dxgmms1 = FALSE;
+    LIST_ENTRY *start, *entry;
+    ANSI_STRING name_a;
+    LDR_DATA_TABLE_ENTRY *mod;
+    NTSTATUS status;
+
+    /* Try to find start of the InLoadOrderModuleList list */
+    for (start = ldr_module->InLoadOrderLinks.Flink; ; start = start->Flink)
+    {
+        mod = CONTAINING_RECORD(start, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+        if (!MmIsAddressValid(&mod->DllBase) || !mod->DllBase) break;
+        if (!MmIsAddressValid(&mod->LoadCount) || !mod->LoadCount) break;
+        if (!MmIsAddressValid(&mod->SizeOfImage) || !mod->SizeOfImage) break;
+        if (!MmIsAddressValid(&mod->EntryPoint) || mod->EntryPoint < mod->DllBase ||
+            (DWORD_PTR)mod->EntryPoint > (DWORD_PTR)mod->DllBase + mod->SizeOfImage) break;
+    }
+
+    for (entry = start->Flink; entry != start; entry = entry->Flink)
+    {
+        mod = CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+        status = RtlUnicodeStringToAnsiString(&name_a, &mod->BaseDllName, TRUE);
+        ok(!status, "RtlUnicodeStringToAnsiString failed with %08lx\n", status);
+        if (status) continue;
+
+        if (entry == start->Flink)
+        {
+            ok(!strncmp(name_a.Buffer, "ntoskrnl.exe", name_a.Length),
+               "Expected ntoskrnl.exe, got %.*s\n", name_a.Length, name_a.Buffer);
+        }
+
+        if (!strncmp(name_a.Buffer, "win32k.sys", name_a.Length)) win32k = TRUE;
+        if (!strncmp(name_a.Buffer, "dxgkrnl.sys", name_a.Length)) dxgkrnl = TRUE;
+        if (!strncmp(name_a.Buffer, "dxgmms1.sys", name_a.Length)) dxgmms1 = TRUE;
+
+        RtlFreeAnsiString(&name_a);
+    }
+
+    ok(win32k, "Failed to find win32k.sys\n");
+    ok(dxgkrnl, "Failed to find dxgkrnl.sys\n");
+    ok(dxgmms1, "Failed to find dxgmms1.sys\n");
+}
+
 static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *stack)
 {
     void *buffer = irp->AssociatedIrp.SystemBuffer;
@@ -2476,10 +2623,13 @@ static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *st
     test_stack_callout();
     test_lookaside_list();
     test_ob_reference();
+    test_default_modules();
     test_resource();
     test_lookup_thread();
     test_IoAttachDeviceToDeviceStack();
     test_object_name();
+    test_dir_kernel_object();
+    test_fsrtl_get_file_size();
 #if defined(__i386__) || defined(__x86_64__)
     test_executable_pool();
 #endif
@@ -2987,6 +3137,7 @@ NTSTATUS WINAPI DriverEntry(DRIVER_OBJECT *driver, PUNICODE_STRING registry)
     DbgPrint("loading driver\n");
 
     driver_obj = driver;
+    ldr_module = (LDR_DATA_TABLE_ENTRY *)driver->DriverSection;
 
     /* Allow unloading of the driver */
     driver->DriverUnload = driver_Unload;

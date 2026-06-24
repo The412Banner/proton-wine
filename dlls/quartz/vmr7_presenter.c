@@ -37,6 +37,7 @@ struct vmr7_presenter
     IDirectDrawSurface7 *frontbuffer;
     IDirectDrawSurface7 *primary;
     HWND window;
+    BOOL nv12_to_rgb;
 
     SIZE native_size, aspect_ratio;
 };
@@ -127,6 +128,33 @@ static HRESULT WINAPI image_presenter_PresentImage(IVMRImagePresenter *iface,
     if (info->dwFlags & VMRSample_SrcDstRectsValid)
         FIXME("Ignoring src/dst rects.\n");
 
+    if (presenter->nv12_to_rgb)
+    {
+        DDSURFACEDESC2 surface_desc = {.dwSize = sizeof(surface_desc)};
+        BITMAPINFO bitmap_info = {0};
+        HDC dc;
+
+        if (SUCCEEDED(IDirectDrawSurface7_Lock(info->lpSurf, NULL, &surface_desc, DDLOCK_WAIT | DDLOCK_READONLY, NULL)))
+        {
+            GetClientRect(presenter->window, &rect);
+
+            bitmap_info.bmiHeader.biSize = sizeof(bitmap_info.bmiHeader);
+            bitmap_info.bmiHeader.biWidth = surface_desc.dwWidth;
+            bitmap_info.bmiHeader.biHeight = -surface_desc.dwHeight;
+            bitmap_info.bmiHeader.biPlanes = 1;
+            bitmap_info.bmiHeader.biBitCount = 32;
+            bitmap_info.bmiHeader.biCompression = BI_RGB;
+
+            dc = GetDC(presenter->window);
+            StretchDIBits(dc, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                    0, 0, surface_desc.dwWidth, surface_desc.dwHeight, surface_desc.lpSurface,
+                    &bitmap_info, DIB_RGB_COLORS, SRCCOPY);
+            ReleaseDC(presenter->window, dc);
+            IDirectDrawSurface7_Unlock(info->lpSurf, NULL);
+            return S_OK;
+        }
+    }
+
     GetClientRect(presenter->window, &rect);
     point.x = point.y = 0;
     ClientToScreen(presenter->window, &point);
@@ -195,7 +223,17 @@ static HRESULT WINAPI surface_allocator_AllocateSurface(IVMRSurfaceAllocator *if
     surface_desc.ddsCaps.dwCaps = DDSCAPS_FLIP | DDSCAPS_COMPLEX | DDSCAPS_OFFSCREENPLAIN;
     surface_desc.dwBackBufferCount = *count;
 
-    if (info->lpHdr->biCompression == BI_RGB || info->lpHdr->biCompression == BI_BITFIELDS)
+    presenter->nv12_to_rgb = info->lpHdr->biCompression == mmioFOURCC('N','V','1','2');
+
+    if (presenter->nv12_to_rgb)
+    {
+        surface_desc.ddpfPixelFormat.dwFlags = DDPF_RGB;
+        surface_desc.ddpfPixelFormat.dwRGBBitCount = 32;
+        surface_desc.ddpfPixelFormat.dwRBitMask = 0x00ff0000;
+        surface_desc.ddpfPixelFormat.dwGBitMask = 0x0000ff00;
+        surface_desc.ddpfPixelFormat.dwBBitMask = 0x000000ff;
+    }
+    else if (info->lpHdr->biCompression == BI_RGB || info->lpHdr->biCompression == BI_BITFIELDS)
     {
         DDSURFACEDESC2 primary_desc;
         DWORD *mask;

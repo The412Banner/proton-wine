@@ -733,6 +733,7 @@ static HRESULT WINAPI ddraw_IDirectDrawMediaStream_SetFormat(IDirectDrawMediaStr
 
     if (stream->peer && !is_format_compatible(stream, old_format.width, old_format.height, &old_format.pf))
     {
+        AM_MEDIA_TYPE old_mt;
         AM_MEDIA_TYPE new_mt;
 
         if (stream->sample_refs > 0)
@@ -745,30 +746,28 @@ static HRESULT WINAPI ddraw_IDirectDrawMediaStream_SetFormat(IDirectDrawMediaStr
 
         set_mt_from_desc(&new_mt, format, format->dwWidth * format->ddpfPixelFormat.dwRGBBitCount / 8);
 
-        if (!stream->using_private_allocator || IPin_QueryAccept(stream->peer, &new_mt) != S_OK)
+        /* QueryAccept() is not enough here. The upstream filter still keeps its
+         * old output media type, while this stream starts copying into samples
+         * with the new DirectDraw surface format. Reconnect with that format so
+         * the decoder and allocator agree on the same sample layout. */
+        old_peer = stream->peer;
+        IPin_AddRef(old_peer);
+        CopyMediaType(&old_mt, &stream->mt);
+
+        IFilterGraph_Disconnect(stream->graph, stream->peer);
+        IFilterGraph_Disconnect(stream->graph, &stream->IPin_iface);
+        if (FAILED(hr = IFilterGraph_ConnectDirect(stream->graph, old_peer, &stream->IPin_iface, &new_mt)))
         {
-            AM_MEDIA_TYPE old_mt;
-
-            /* Reconnect. */
-            old_peer = stream->peer;
-            IPin_AddRef(old_peer);
-            CopyMediaType(&old_mt, &stream->mt);
-
-            IFilterGraph_Disconnect(stream->graph, stream->peer);
-            IFilterGraph_Disconnect(stream->graph, &stream->IPin_iface);
-            if (FAILED(hr = IFilterGraph_ConnectDirect(stream->graph, old_peer, &stream->IPin_iface, NULL)))
-            {
-                stream->format = old_format;
-                IFilterGraph_ConnectDirect(stream->graph, old_peer, &stream->IPin_iface, &old_mt);
-                IPin_Release(old_peer);
-                FreeMediaType(&old_mt);
-                FreeMediaType(&new_mt);
-                LeaveCriticalSection(&stream->cs);
-                return DDERR_INVALIDSURFACETYPE;
-            }
-            FreeMediaType(&old_mt);
+            stream->format = old_format;
+            IFilterGraph_ConnectDirect(stream->graph, old_peer, &stream->IPin_iface, &old_mt);
             IPin_Release(old_peer);
+            FreeMediaType(&old_mt);
+            FreeMediaType(&new_mt);
+            LeaveCriticalSection(&stream->cs);
+            return DDERR_INVALIDSURFACETYPE;
         }
+        FreeMediaType(&old_mt);
+        IPin_Release(old_peer);
 
         FreeMediaType(&new_mt);
     }
@@ -1336,6 +1335,7 @@ static HRESULT WINAPI ddraw_sink_BeginFlush(IPin *iface)
     stream->flushing = TRUE;
     stream->eos = FALSE;
     WakeConditionVariable(&stream->update_queued_cv);
+    WakeAllConditionVariable(&stream->allocator_cv);
 
     LeaveCriticalSection(&stream->cs);
 
@@ -1527,13 +1527,18 @@ static HRESULT WINAPI ddraw_mem_allocator_GetBuffer(IMemAllocator *iface,
 
     EnterCriticalSection(&stream->cs);
 
-    while (stream->committed && !(sample = get_pending_sample(stream)))
+    while (stream->committed && !stream->flushing && !(sample = get_pending_sample(stream)))
         SleepConditionVariableCS(&stream->allocator_cv, &stream->cs, INFINITE);
 
     if (!stream->committed)
     {
         LeaveCriticalSection(&stream->cs);
         return VFW_E_NOT_COMMITTED;
+    }
+    if (stream->flushing)
+    {
+        LeaveCriticalSection(&stream->cs);
+        return VFW_E_WRONG_STATE;
     }
 
     sample->surface_desc.dwSize = sizeof(DDSURFACEDESC);

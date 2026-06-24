@@ -41,7 +41,6 @@ AC_ARG_WITH(gettextpo, AS_HELP_STRING([--with-gettextpo],[use the GetTextPO libr
 AC_ARG_WITH(gphoto,    AS_HELP_STRING([--without-gphoto],[do not use gphoto (Digital Camera support)]))
 AC_ARG_WITH(gnutls,    AS_HELP_STRING([--without-gnutls],[do not use GnuTLS (schannel support)]))
 AC_ARG_WITH(gssapi,    AS_HELP_STRING([--without-gssapi],[do not use GSSAPI (Kerberos SSP support)]))
-AC_ARG_WITH(gstreamer, AS_HELP_STRING([--without-gstreamer],[do not use GStreamer (codecs support)]))
 AC_ARG_WITH(hwloc,     AS_HELP_STRING([--without-hwloc],[do not use hwloc (CPU/cache topology detection on FreeBSD)]))
 AC_ARG_WITH(inotify,   AS_HELP_STRING([--without-inotify],[do not use inotify (filesystem change notifications)]))
 AC_ARG_WITH(krb5,      AS_HELP_STRING([--without-krb5],[do not use krb5 (Kerberos)]))
@@ -1424,7 +1423,8 @@ then
                             [`test -n "$PKG_CONFIG" && $PKG_CONFIG --variable=wayland_scanner wayland-scanner 2>/dev/null`])],
               [WAYLAND_CLIENT_LIBS=""],[$WAYLAND_CLIENT_LIBS])])])
     WINE_PACKAGE_FLAGS(XKBCOMMON,[xkbcommon],,,,
-        [AC_CHECK_LIB(xkbcommon,xkb_context_new,[:],[XKBCOMMON_LIBS=""],[$XKBCOMMON_LIBS])])
+        [AC_CHECK_HEADERS([xkbcommon/xkbcommon.h, xkbcommon/xkbcommon-compose.h])
+         AC_CHECK_LIB(xkbcommon,xkb_context_new,[:],[XKBCOMMON_LIBS=""],[$XKBCOMMON_LIBS])])
     WINE_PACKAGE_FLAGS(XKBREGISTRY,[xkbregistry],,,,
         [AC_CHECK_LIB(xkbregistry,rxkb_context_new,[:],[XKBREGISTRY_LIBS=""],[$XKBREGISTRY_LIBS])])
     if test "x$with_opengl" != "xno"
@@ -1721,24 +1721,6 @@ fi
 WINE_NOTICE_WITH(ffmpeg,[test "x$FFMPEG_LIBS" = x],
         [FFmpeg ${notice_platform}development files not found.])
 
-dnl **** Check for gstreamer ****
-if test "x$with_gstreamer" != "xno"
-then
-    WINE_PACKAGE_FLAGS(GSTREAMER,[gstreamer-1.0 gstreamer-video-1.0 gstreamer-audio-1.0 gstreamer-tag-1.0 gstreamer-gl-1.0],,,,
-        [AC_CHECK_HEADER([gst/gst.h],
-            [AC_MSG_CHECKING([whether gint64 defined by gst/gst.h is indeed 64-bit])
-              AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <gst/gst.h>]],
-                                                 [[static int a[sizeof(gint64) > 4 ? 1 : -1]; if (a[0]) return 0;]])],
-                [AC_MSG_RESULT([yes])
-                 AC_CHECK_LIB(gstreamer-1.0,gst_pad_new,[:],,[$GSTREAMER_LIBS])],
-                [AC_MSG_RESULT([no])
-                 ac_glib2_broken=yes
-                 enable_winegstreamer=${enable_winegstreamer:-no}
-                 WINE_NOTICE([glib-2.0 pkgconfig configuration is for the wrong architecture, winegstreamer won't be built.])])])])
-fi
-WINE_NOTICE_WITH(gstreamer,[test "x$ac_glib2_broken" != xyes -a "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" != xyes],
-                 [gstreamer-1.0 base plugins ${notice_platform}development files not found, GStreamer won't be supported.],
-                 [enable_winegstreamer])
 
 dnl **** Check for ALSA 1.x ****
 AC_SUBST(ALSA_LIBS,"")
@@ -2442,6 +2424,7 @@ esac
 dnl *** Check for modules to disable by default
 
 enable_vcruntime140_1=${enable_vcruntime140_1:-x86_64,arm64ec,aarch64}
+enable_wineopenxr=${enable_wineopenxr:-x86_64,arm64ec,aarch64}
 
 if test -n "$PE_ARCHS"
 then
@@ -2533,6 +2516,7 @@ WINE_CONFIG_MAKEFILE(dlls/apphelp/tests)
 WINE_CONFIG_MAKEFILE(dlls/appwiz.cpl)
 WINE_CONFIG_MAKEFILE(dlls/appxdeploymentclient)
 WINE_CONFIG_MAKEFILE(dlls/atiadlxx)
+WINE_CONFIG_MAKEFILE(dlls/atidxx64)
 WINE_CONFIG_MAKEFILE(dlls/atl)
 WINE_CONFIG_MAKEFILE(dlls/atl/tests)
 WINE_CONFIG_MAKEFILE(dlls/atl100)
@@ -2793,6 +2777,8 @@ WINE_CONFIG_MAKEFILE(dlls/dxdiagn)
 WINE_CONFIG_MAKEFILE(dlls/dxdiagn/tests)
 WINE_CONFIG_MAKEFILE(dlls/dxgi)
 WINE_CONFIG_MAKEFILE(dlls/dxgi/tests)
+WINE_CONFIG_MAKEFILE(dlls/dxgkrnl.sys)
+WINE_CONFIG_MAKEFILE(dlls/dxgmms1.sys)
 WINE_CONFIG_MAKEFILE(dlls/dxtrans)
 WINE_CONFIG_MAKEFILE(dlls/dxva2)
 WINE_CONFIG_MAKEFILE(dlls/dxva2/tests)
@@ -3197,6 +3183,7 @@ WINE_CONFIG_MAKEFILE(dlls/rsabase)
 WINE_CONFIG_MAKEFILE(dlls/rsaenh)
 WINE_CONFIG_MAKEFILE(dlls/rsaenh/tests)
 WINE_CONFIG_MAKEFILE(dlls/rstrtmgr)
+WINE_CONFIG_MAKEFILE(dlls/rsx)
 WINE_CONFIG_MAKEFILE(dlls/rtutils)
 WINE_CONFIG_MAKEFILE(dlls/rtworkq)
 WINE_CONFIG_MAKEFILE(dlls/rtworkq/tests)
@@ -3359,6 +3346,7 @@ WINE_CONFIG_MAKEFILE(dlls/wevtsvc)
 WINE_CONFIG_MAKEFILE(dlls/wiaservc)
 WINE_CONFIG_MAKEFILE(dlls/wiaservc/tests)
 WINE_CONFIG_MAKEFILE(dlls/wimgapi)
+WINE_CONFIG_MAKEFILE(dlls/win32k.sys)
 WINE_CONFIG_MAKEFILE(dlls/win32s16.dll16)
 WINE_CONFIG_MAKEFILE(dlls/win32u)
 WINE_CONFIG_MAKEFILE(dlls/win32u/tests)
@@ -3432,10 +3420,15 @@ WINE_CONFIG_MAKEFILE(dlls/winecoreaudio.drv)
 WINE_CONFIG_MAKEFILE(dlls/winecrt0)
 WINE_CONFIG_MAKEFILE(dlls/wined3d)
 WINE_CONFIG_MAKEFILE(dlls/winedmo)
-WINE_CONFIG_MAKEFILE(dlls/winegstreamer)
 WINE_CONFIG_MAKEFILE(dlls/winehid.sys)
 WINE_CONFIG_MAKEFILE(dlls/winemac.drv)
 WINE_CONFIG_MAKEFILE(dlls/winemapi)
+WINE_CONFIG_MAKEFILE(dlls/wineopenxr)
+if test "$HOST_ARCH" = "i386"
+then
+    DISABLED_SUBDIRS="$DISABLED_SUBDIRS dlls/wineopenxr"
+fi
+
 WINE_CONFIG_MAKEFILE(dlls/wineoss.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps16.drv16)
@@ -3844,7 +3837,7 @@ dnl Rules for generated source files
 
 WINE_APPEND_RULE(
 [dlls/ntdll/unix/version.c: dummy
-	@version=\`(GIT_DIR=${wine_srcdir}.git git describe HEAD 2>/dev/null || echo \"wine-\$(PACKAGE_VERSION)\") | sed -n -e '\$\$s/\(.*\)/const char wine_build[[]] = \"\\1\";/p'\` && (echo \$\$version | cmp -s - \$[@]) || echo \$\$version >\$[@] || (rm -f \$[@] && exit 1)
+	@version=\`(GIT_DIR=${wine_srcdir}.git git describe HEAD 2>/dev/null || echo \"wine-\$(PACKAGE_VERSION)\") | sed -n -e '\$\$s/\(.*\)/const char wine_build[[]] = \"\\1 (Staging)\";/p'\` && (echo \$\$version | cmp -s - \$[@]) || echo \$\$version >\$[@] || (rm -f \$[@] && exit 1)
 programs/winetest/build.rc: dummy
 	@build=\"STRINGTABLE { 1 \\\"\`GIT_DIR=${wine_srcdir}.git git rev-parse HEAD 2>/dev/null\`\\\" }\" && (echo \$\$build | cmp -s - \$[@]) || echo \$\$build >\$[@] || (rm -f \$[@] && exit 1)
 dlls/wineandroid.drv/wine-debug.apk: dlls/wineandroid.drv/build.gradle ${wine_srcdir}dlls/wineandroid.drv/AndroidManifest.xml ${wine_srcdir}dlls/wineandroid.drv/WineActivity.java ${wine_srcdir}dlls/wineandroid.drv/wine.svg

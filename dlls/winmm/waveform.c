@@ -2830,6 +2830,39 @@ UINT WINAPI waveOutUnprepareHeader(HWAVEOUT hWaveOut,
 /**************************************************************************
  * 				waveOutWrite		[WINMM.@]
  */
+static void WINMM_DumpWaveOutBuffer(const WAVEHDR *header)
+{
+    static LONG dump_index;
+    char enabled[8], path[MAX_PATH], filename[MAX_PATH + 64];
+    DWORD len, written;
+    HANDLE file;
+
+    if (!header->lpData || !header->dwBufferLength)
+        return;
+    if (!GetEnvironmentVariableA("WINE_DUMP_WAVEOUT", enabled, sizeof(enabled))
+            || strcmp(enabled, "1"))
+        return;
+
+    len = GetEnvironmentVariableA("WINE_DUMP_WAVEOUT_DIR", path, sizeof(path));
+    if (!len || len >= sizeof(path))
+    {
+        len = GetTempPathA(sizeof(path), path);
+        if (!len || len >= sizeof(path))
+            return;
+    }
+
+    snprintf(filename, sizeof(filename), "%s\\wine-waveout-%04ld-%08lx.raw",
+            path, InterlockedIncrement(&dump_index), header->dwBufferLength);
+    file = CreateFileA(filename, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+        return;
+
+    WriteFile(file, header->lpData, header->dwBufferLength, &written, NULL);
+    CloseHandle(file);
+    TRACE("Dumped waveOutWrite buffer to %s.\n", debugstr_a(filename));
+}
+
 UINT WINAPI waveOutWrite(HWAVEOUT hWaveOut, WAVEHDR *header, UINT uSize)
 {
     WINMM_Device *device;
@@ -2853,6 +2886,7 @@ UINT WINAPI waveOutWrite(HWAVEOUT hWaveOut, WAVEHDR *header, UINT uSize)
     }
 
     TRACE("dwBufferLength: %lu\n", header->dwBufferLength);
+    WINMM_DumpWaveOutBuffer(header);
 
     if(device->acm_handle){
         ACMSTREAMHEADER *ash = (ACMSTREAMHEADER*)header->reserved;

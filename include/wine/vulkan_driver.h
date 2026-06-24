@@ -222,6 +222,7 @@ struct vulkan_device
     uint64_t queue_count;
     struct vulkan_queue *queues;
     VkQueueFamilyProperties *queue_props;
+    BOOL low_latency_enabled;
 };
 
 static inline struct vulkan_device *vulkan_device_from_handle( VkDevice handle )
@@ -354,11 +355,14 @@ struct vulkan_funcs
     PFN_vkMapMemory p_vkMapMemory;
     PFN_vkMapMemory2KHR p_vkMapMemory2KHR;
     PFN_vkQueuePresentKHR p_vkQueuePresentKHR;
+    PFN_vkSetLatencySleepModeNV p_vkSetLatencySleepModeNV;
     PFN_vkQueueSubmit p_vkQueueSubmit;
     PFN_vkQueueSubmit2 p_vkQueueSubmit2;
     PFN_vkQueueSubmit2KHR p_vkQueueSubmit2KHR;
     PFN_vkUnmapMemory p_vkUnmapMemory;
     PFN_vkUnmapMemory2KHR p_vkUnmapMemory2KHR;
+    PFN_vkWaitForPresentKHR p_vkWaitForPresentKHR;
+    PFN_vkWaitForPresent2KHR p_vkWaitForPresent2KHR;
 };
 
 /* interface between win32u and the user drivers */
@@ -366,6 +370,7 @@ struct client_surface;
 struct vulkan_driver_funcs
 {
     VkResult (*p_vulkan_surface_create)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct client_surface **);
+    VkResult (*p_vulkan_surface_configure)( VkColorSpaceKHR *, VkCompositeAlphaFlagBitsKHR, struct client_surface * );
     VkBool32 (*p_get_physical_device_presentation_support)(struct vulkan_physical_device *, uint32_t);
     void (*p_map_instance_extensions)( struct vulkan_instance_extensions *extensions );
     void (*p_map_device_extensions)( struct vulkan_device_extensions *extensions );

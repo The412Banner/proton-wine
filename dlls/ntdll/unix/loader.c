@@ -2271,6 +2271,7 @@ static ULONG_PTR get_image_address(void)
     return 0;
 }
 
+BOOL disable_sfn;
 BOOL process_termination_delay;
 BOOL ac_odyssey;
 BOOL fsync_help_simulated_pulse;
@@ -2293,6 +2294,12 @@ static void hacks_init(void)
         ram_reporting_bias = atoll(env_str) * 1024 * 1024;
         ERR( "HACK: ram_reporting_bias %lldMB.\n", ram_reporting_bias / (1024 * 1024) );
     }
+
+    env_str = getenv("WINE_DISABLE_SFN");
+    if (env_str)
+        disable_sfn = !!atoi(env_str);
+    else if (main_argc > 1 && (strstr(main_argv[1], "Yakuza5.exe") ))
+        disable_sfn = TRUE;
 
     if (inproc_device_fd >= 0)
     {
@@ -2402,14 +2409,6 @@ static void hacks_init(void)
     if (kernel_stack_size != 0x100000)
         ERR( "HACK: setting kernel_stack_size to %luKB.\n", (long)(kernel_stack_size / 1024) );
 
-    if (sgi && (0
-        || !strcmp(sgi, "1364780") || !strcmp(sgi, "1952120") || !strcmp(sgi, "2154900") /* Street Fighter 6 */
-        || !strcmp(sgi, "1740720") /* Have a Nice Death  */
-    ))
-    {
-        ERR("HACK: setting WINE_ENABLE_GST_LIVE_LATENCY.\n");
-        setenv("WINE_ENABLE_GST_LIVE_LATENCY", "1", 0);
-    }
 
     if (sgi && !strcmp(sgi, "2379390"))
     {

@@ -70,6 +70,7 @@ enum sample_flag
 {
     SAMPLE_FLAG_SYNC_POINT = 1,
     SAMPLE_FLAG_INCOMPLETE = 2,
+    SAMPLE_FLAG_DISCONTINUITY = 4,
 };
 
 struct sample
@@ -152,6 +153,115 @@ struct demuxer_stream_type_params
     struct media_type media_type;
 };
 
+struct transform_create_params
+{
+    GUID   major_type;
+    UINT64 input_format;       /* pointer to union winedmo_format */
+    UINT32 input_format_size;
+    UINT64 output_format;      /* pointer to union winedmo_format, or 0 */
+    UINT32 output_format_size;
+    struct winedmo_transform transform;
+};
+
+struct transform_destroy_params
+{
+    struct winedmo_transform transform;
+};
+
+struct transform_push_input_params
+{
+    struct winedmo_transform transform;
+    UINT64 data;               /* pointer to input buffer */
+    UINT32 size;
+    INT64  pts;
+    INT64  dts;
+    INT64  duration;
+    DWORD  flags;
+};
+
+struct transform_get_output_params
+{
+    struct winedmo_transform transform;
+    UINT64 data;               /* pointer to output buffer */
+    UINT32 size;               /* in: capacity; out: bytes written or required */
+    INT64  pts;
+    INT64  duration;
+    DWORD  flags;
+};
+
+struct transform_drain_params
+{
+    struct winedmo_transform transform;
+};
+
+struct transform_flush_params
+{
+    struct winedmo_transform transform;
+};
+
+struct transform_get_output_format_params
+{
+    struct winedmo_transform transform;
+    struct media_type media_type;
+};
+
+struct transform_set_output_format_params
+{
+    struct winedmo_transform transform;
+    UINT64 format;             /* pointer to union winedmo_format */
+    UINT32 format_size;
+};
+
+
+struct muxer_create_params
+{
+    char format[64];
+    struct winedmo_muxer muxer;
+};
+
+struct muxer_destroy_params
+{
+    struct winedmo_muxer muxer;
+};
+
+struct muxer_add_stream_params
+{
+    struct winedmo_muxer muxer;
+    UINT32 stream_id;
+    GUID major_type;
+    UINT64 format;           /* pointer to union winedmo_format */
+    UINT32 format_size;
+};
+
+struct muxer_start_params
+{
+    struct winedmo_muxer muxer;
+};
+
+struct muxer_push_sample_params
+{
+    struct winedmo_muxer muxer;
+    UINT32 stream_id;
+    UINT64 data;             /* pointer to sample data */
+    UINT32 size;
+    INT64  pts;
+    INT64  duration;
+    DWORD  flags;
+};
+
+struct muxer_read_data_params
+{
+    struct winedmo_muxer muxer;
+    UINT64 data;             /* pointer to output buffer */
+    UINT32 size;             /* in: capacity; out: bytes written */
+    UINT64 offset;           /* out: file offset for this chunk */
+};
+
+struct muxer_finalize_params
+{
+    struct winedmo_muxer muxer;
+};
+
 
 enum unix_funcs
 {
@@ -165,6 +275,23 @@ enum unix_funcs
     unix_demuxer_stream_lang,
     unix_demuxer_stream_name,
     unix_demuxer_stream_type,
+
+    unix_transform_create,
+    unix_transform_destroy,
+    unix_transform_push_input,
+    unix_transform_get_output,
+    unix_transform_drain,
+    unix_transform_flush,
+    unix_transform_get_output_format,
+    unix_transform_set_output_format,
+
+    unix_muxer_create,
+    unix_muxer_destroy,
+    unix_muxer_add_stream,
+    unix_muxer_start,
+    unix_muxer_push_sample,
+    unix_muxer_read_data,
+    unix_muxer_finalize,
 
     unix_funcs_count,
 };

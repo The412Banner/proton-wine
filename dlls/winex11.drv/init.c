@@ -33,6 +33,9 @@
 #include "x11drv.h"
 #include "xcomposite.h"
 #include "wine/debug.h"
+#ifdef HAVE_LIBXSHAPE
+#include <X11/extensions/shape.h>
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(x11drv);
 
@@ -242,9 +245,40 @@ static BOOL enable_fullscreen_hack( HWND hwnd )
     return FALSE;
 }
 
+/* Opt-in via WINE_LAYERED_OVERLAY_SHAPE=1. For borderless WS_EX_LAYERED windows that
+ * paint per-pixel-alpha overlays through a 3D client surface (DWM-glass style, e.g.
+ * desktop/taskbar overlay games), shape the X window to the rendered (non-black) pixels
+ * so transparent areas show the desktop instead of an opaque black box, and let the
+ * window receive mouse input. Disabled by default: no effect on any other game. */
+BOOL layered_overlay_shape_enabled(void)
+{
+    static int enabled = -1;
+    if (enabled == -1)
+    {
+        const char *e = getenv( "WINE_LAYERED_OVERLAY_SHAPE" );
+        enabled = e && atoi( e );
+    }
+    return enabled;
+}
+
+/* Opt-in via WINE_LAYERED_OVERLAY_ALPHA=1|2. Real per-pixel-alpha path: give the
+ * Vulkan overlay window a 32-bit ARGB visual so the X compositor blends transparency
+ * directly (no XShape). Pairs with vkd3d-proton requesting a non-opaque compositeAlpha. */
+BOOL layered_overlay_alpha_enabled(void)
+{
+    static int enabled = -1;
+    if (enabled == -1)
+    {
+        const char *e = getenv( "WINE_LAYERED_OVERLAY_ALPHA" );
+        enabled = e && atoi( e );
+    }
+    return enabled;
+}
+
 BOOL needs_offscreen_rendering( HWND hwnd )
 {
     UINT style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
+    UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE );
     struct window_surface *surface;
     struct x11drv_win_data *data;
     BOOL needs_offscreen;
@@ -259,6 +293,10 @@ BOOL needs_offscreen_rendering( HWND hwnd )
 
     if (!needs_offscreen && style & WS_EX_LAYERED && NtUserGetLayeredWindowAttributes( hwnd, NULL, NULL, &layered_flags )
         && layered_flags & LWA_COLORKEY)
+        needs_offscreen = TRUE;
+
+    /* Layered overlay (DWM-glass style) painting per-pixel alpha via a 3D client surface. */
+    if (!needs_offscreen && (layered_overlay_shape_enabled() || layered_overlay_alpha_enabled()) && (ex_style & WS_EX_LAYERED))
         needs_offscreen = TRUE;
 
     if (!needs_offscreen && (surface = window_surface_get( hwnd )))
@@ -320,6 +358,13 @@ struct x11drv_client_surface
     HDC hdc_src;
     HDC hdc_dst;
     BOOL other_process;
+
+    BYTE *shape_age;
+    unsigned int shape_cols;
+    unsigned int shape_rows;
+
+    XRectangle *shape_rects;
+    unsigned int shape_rect_count;
 };
 
 static struct x11drv_client_surface *impl_from_client_surface( struct client_surface *client )
@@ -338,6 +383,8 @@ static void x11drv_client_surface_destroy( struct client_surface *client )
     if (surface->window) destroy_client_window( hwnd, surface->window );
     if (surface->hdc_dst) NtGdiDeleteObjectApp( surface->hdc_dst );
     if (surface->hdc_src) NtGdiDeleteObjectApp( surface->hdc_src );
+    free( surface->shape_age );
+    free( surface->shape_rects );
 }
 
 static void x11drv_client_surface_detach( struct client_surface *client )
@@ -464,6 +511,132 @@ static void x11drv_client_surface_update( struct client_surface *client )
     client_surface_update_offscreen( hwnd, surface );
 }
 
+/* Returns TRUE if the client window has actually-visible pixels this frame (ignoring age
+   hysteresis). A FALSE return means the D3D pipeline delivered a cleared/black frame —
+   the caller should skip blitting to avoid overwriting screen pixels with the clear colour. */
+static BOOL update_layered_overlay_shape( struct x11drv_client_surface *surface, HWND toplevel )
+{
+#ifdef HAVE_LIBXSHAPE
+    unsigned int width, height, cols, rows, x, y, count = 0, capacity;
+    BOOL actually_visible = FALSE;
+    XRectangle *rects;
+    XImage *image;
+    Window window;
+    /* SHAPE mode clips the bounding region (visual); ALPHA mode sets the INPUT region
+       (mouse click-through on transparent areas) while the ARGB visual handles the
+       transparency. Input-shape changes don't repaint, so this adds click-through
+       without bringing the reshape flicker back. */
+    const int shape_kind = layered_overlay_alpha_enabled() ? ShapeInput : ShapeBounding;
+
+    if (!layered_overlay_shape_enabled() && !layered_overlay_alpha_enabled()) return TRUE;
+
+    width = surface->rect.right - surface->rect.left;
+    height = surface->rect.bottom - surface->rect.top;
+    if (!width || !height || !(window = X11DRV_get_whole_window( toplevel ))) return TRUE;
+
+    cols = (width + 3) / 4;
+    rows = (height + 3) / 4;
+    if (cols != surface->shape_cols || rows != surface->shape_rows)
+    {
+        free( surface->shape_age );
+        surface->shape_age = calloc( cols * rows, sizeof(*surface->shape_age) );
+        surface->shape_cols = cols;
+        surface->shape_rows = rows;
+        free( surface->shape_rects );
+        surface->shape_rects = NULL;
+        surface->shape_rect_count = 0;
+    }
+    if (!surface->shape_age) return TRUE;
+
+    if (!(image = XGetImage( gdi_display, surface->window, 0, 0, width, height, AllPlanes, ZPixmap ))) return TRUE;
+
+    capacity = cols * rows;
+    if (!(rects = malloc( capacity * sizeof(*rects) )))
+    {
+        XDestroyImage( image );
+        return TRUE;
+    }
+
+    for (y = 0; y < height; y += 4)
+    {
+        int run_start = -1;
+
+        for (x = 0; x < width; x += 4)
+        {
+            BYTE *age = &surface->shape_age[(y / 4) * cols + x / 4];
+            unsigned int xx, yy;
+            BOOL visible = FALSE;
+
+            for (yy = y; yy < min( y + 4, height ) && !visible; yy++)
+                for (xx = x; xx < min( x + 4, width ); xx++)
+                    if (XGetPixel( image, xx, yy ) & 0x00f0f0f0)
+                    {
+                        visible = TRUE;
+                        break;
+                    }
+
+            /* Hysteresis: a block stays in the shape for several frames after it was
+               last seen lit. This absorbs the transient all/partial-black frames that
+               XGetImage catches while the window is being moved or re-rendered on
+               mouse hover (the live X window is read mid-update) -- which would
+               otherwise shrink the shape every active frame and flicker. Growth is
+               instant (content shows immediately); only shrink is delayed, a brief
+               and barely-visible trail. */
+            if (visible) { *age = 12; actually_visible = TRUE; }
+            else if (*age) --*age;
+
+            if (*age && run_start < 0) run_start = x;
+            if ((!*age || x + 4 >= width) && run_start >= 0)
+            {
+                unsigned int end = *age ? width : x;
+
+                rects[count].x = surface->changes.x + run_start;
+                rects[count].y = surface->changes.y + y;
+                rects[count].width = end - run_start;
+                rects[count].height = min( 4, height - y );
+                count++;
+                run_start = -1;
+            }
+        }
+    }
+
+    XDestroyImage( image );
+
+    /* Only call XShapeCombineRectangles when the shape actually changed. On the first call
+       the window has the default full shape, so an all-black first frame (count==0) must be
+       explicitly clipped to nothing. */
+    if (!surface->shape_rects ||
+        count != surface->shape_rect_count ||
+        (count > 0 && memcmp( rects, surface->shape_rects, count * sizeof(*rects) )))
+    {
+        if (count)
+            XShapeCombineRectangles( gdi_display, window, shape_kind, 0, 0, rects, count, ShapeSet, YXBanded );
+        else
+        {
+            static XRectangle empty;
+            XShapeCombineRectangles( gdi_display, window, shape_kind, 0, 0, &empty, 1, ShapeSet, YXBanded );
+        }
+
+        TRACE( "layered overlay window %p/%lx shape updated with %u rectangles\n", toplevel, window, count );
+        XFlush( gdi_display );
+
+        free( surface->shape_rects );
+        surface->shape_rects = rects;
+        surface->shape_rect_count = count;
+    }
+    else
+    {
+        free( rects );
+    }
+
+    /* ALPHA mode: always blit (the ARGB content carries its own alpha). SHAPE mode: skip
+       the blit on an all-black frame so the previous correct pixels stay (flicker guard). */
+    return layered_overlay_alpha_enabled() ? TRUE : actually_visible;
+#else
+    return TRUE;
+#endif
+}
+
 static void X11DRV_client_surface_present( struct client_surface *client, HDC hdc )
 {
     struct x11drv_client_surface *surface = impl_from_client_surface( client );
@@ -494,8 +667,12 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
         TRACE( "Surface is present.\n" );
         region = get_dc_monitor_region( hwnd, hdc );
         if (region) NtGdiExtSelectClipRgn( hdc, region, RGN_COPY );
-        NtGdiStretchBlt( hdc, 0, 0, surface->rect.right - surface->rect.left, surface->rect.bottom - surface->rect.top,
-                         surface->hdc_src, 0, 0, surface->rect.right, surface->rect.bottom, SRCCOPY, 0 );
+        /* Layered overlay: shape check runs first. If it returns FALSE the client
+           window holds the D3D clear colour — skip the blit so the previous correct
+           pixels stay in the whole window, avoiding flicker. */
+        if (update_layered_overlay_shape( surface, toplevel ))
+            NtGdiStretchBlt( hdc, 0, 0, surface->rect.right - surface->rect.left, surface->rect.bottom - surface->rect.top,
+                             surface->hdc_src, 0, 0, surface->rect.right, surface->rect.bottom, SRCCOPY, 0 );
         if (region) NtGdiDeleteObjectApp( region );
         window_surface_release( win_surface );
         return;
@@ -528,8 +705,9 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
         set_dc_drawable( surface->hdc_dst, window, &rect_dst, IncludeInferiors );
     if (region) NtGdiExtSelectClipRgn( surface->hdc_dst, region, RGN_COPY );
 
-    NtGdiStretchBlt( surface->hdc_dst, 0, 0, rect_dst.right - rect_dst.left, rect_dst.bottom - rect_dst.top,
-                     surface->hdc_src, 0, 0, surface->rect.right, surface->rect.bottom, SRCCOPY, 0 );
+    if (update_layered_overlay_shape( surface, toplevel ))
+        NtGdiStretchBlt( surface->hdc_dst, 0, 0, rect_dst.right - rect_dst.left, rect_dst.bottom - rect_dst.top,
+                         surface->hdc_src, 0, 0, surface->rect.right, surface->rect.bottom, SRCCOPY, 0 );
     XFlush( gdi_display );
 
 done:
@@ -570,6 +748,22 @@ Window x11drv_client_surface_create( HWND hwnd, BOOL raw, int format, struct cli
     Colormap colormap;
 
     if (format && !visual_from_pixel_format( format, &visual )) return None;
+
+    /* Layered overlay (WINE_LAYERED_OVERLAY_ALPHA): use a 32-bit ARGB visual for the
+     * Vulkan surface window so the X compositor can blend its per-pixel alpha. The env
+     * var already scopes this to the opted-in game, so apply unconditionally — the
+     * window may not be WS_EX_LAYERED yet when the Vulkan surface is first created. */
+    if (!format && layered_overlay_alpha_enabled())
+    {
+        if (argb_visual.visualid)
+        {
+            visual = argb_visual;
+            TRACE( "layered overlay: using ARGB visual %#lx depth %d for hwnd %p\n",
+                   visual.visualid, visual.depth, hwnd );
+        }
+        else
+            WARN( "layered overlay: no 32-bit ARGB visual available, transparency unavailable\n" );
+    }
 
     if (visual.visualid == default_visual.visualid) colormap = default_colormap;
     else colormap = XCreateColormap( gdi_display, get_dummy_parent(), visual.visual, visual_class_alloc( visual.class ) );

@@ -4079,7 +4079,8 @@ HRESULT WINAPI D3DXLoadMeshHierarchyFromXInMemory(const void *memory, DWORD memo
     if (anim_controller)
     {
         *anim_controller = NULL;
-        FIXME("Animation controller creation not implemented.\n");
+        /*FIXME("Animation controller creation not implemented.\n");*/
+        D3DXCreateAnimationController(1, 1, 1, 1, anim_controller);
     }
 
 cleanup:
@@ -7676,6 +7677,8 @@ HRESULT WINAPI D3DXIntersect(ID3DXBaseMesh *mesh, const D3DXVECTOR3 *ray_pos, co
 {
     FIXME("mesh %p, ray_pos %p, ray_dir %p, hit %p, face_index %p, u %p, v %p, distance %p, all_hits %p, "
             "count_of_hits %p stub!\n", mesh, ray_pos, ray_dir, hit, face_index, u, v, distance, all_hits, count_of_hits);
+
+    *hit = FALSE;
 
     return E_NOTIMPL;
 }

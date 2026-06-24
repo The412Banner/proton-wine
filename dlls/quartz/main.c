@@ -359,16 +359,19 @@ HRESULT WINAPI DllRegisterServer(void)
         {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG1Video},
         {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG1System},
         {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG1VideoCD},
+        {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG2_PROGRAM},
     };
     static const REGPINTYPES mpeg_splitter_audio_outputs[] =
     {
         {&MEDIATYPE_Audio, &MEDIASUBTYPE_MPEG1Packet},
         {&MEDIATYPE_Audio, &MEDIASUBTYPE_MPEG1AudioPayload},
+        {&MEDIATYPE_Audio, &MEDIASUBTYPE_DOLBY_AC3},
     };
     static const REGPINTYPES mpeg_splitter_video_outputs[] =
     {
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Packet},
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Payload},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG2_VIDEO},
     };
     static const REGFILTERPINS2 mpeg_splitter_pins[] =
     {
@@ -483,10 +486,29 @@ HRESULT WINAPI DllRegisterServer(void)
         .rgPins2 = mpeg_audio_codec_pins,
     };
 
+    static const GUID MEDIASUBTYPE_DIVX = {MAKEFOURCC('D','I','V','X'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_DX50 = {MAKEFOURCC('D','X','5','0'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_FMP4 = {MAKEFOURCC('F','M','P','4'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_M4S2 = {MAKEFOURCC('M','4','S','2'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_MP4S = {MAKEFOURCC('M','P','4','S'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_MP4V = {MAKEFOURCC('M','P','4','V'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_XVID = {MAKEFOURCC('X','V','I','D'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_mp4v = {MAKEFOURCC('m','p','4','v'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_mpg2 = {MAKEFOURCC('m','p','g','2'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
     static const REGPINTYPES mpeg_video_codec_inputs[] =
     {
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Packet},
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Payload},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG2_VIDEO},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_mpg2},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_DIVX},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_DX50},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_FMP4},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_M4S2},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MP4S},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MP4V},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_XVID},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_mp4v},
     };
     static const REGPINTYPES mpeg_video_codec_outputs[] =
     {

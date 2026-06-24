@@ -1,7 +1,7 @@
 MODULE    = wmvcore.dll
 IMPORTLIB = wmvcore
 IMPORTS   = kernel32 combase
-DELAYIMPORTS = winegstreamer
+DELAYIMPORTS = winedmo
 
 EXTRADLLFLAGS = -Wb,--prefer-native
 

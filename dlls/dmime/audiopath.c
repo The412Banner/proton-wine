@@ -18,6 +18,7 @@
  */
 
 #include "dmime_private.h"
+#include "dmksctrl.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmime);
 
@@ -28,6 +29,7 @@ struct IDirectMusicAudioPathImpl {
     IDirectMusicGraph*        pToolGraph;
     IDirectSoundBuffer*       pDSBuffer;
     IDirectSoundBuffer*       pPrimary;
+    IDirectMusicPort*         pPort;
 
     BOOL fActive;
 };
@@ -64,6 +66,24 @@ static inline struct IDirectMusicAudioPathImpl *impl_from_IDirectMusicAudioPath(
     return CONTAINING_RECORD(iface, struct IDirectMusicAudioPathImpl, IDirectMusicAudioPath_iface);
 }
 
+static HRESULT audiopath_get_graph(struct IDirectMusicAudioPathImpl *This, IDirectMusicGraph **graph)
+{
+    HRESULT hr;
+
+    if (!This->pToolGraph)
+    {
+        IDirectMusicGraph *new_graph;
+
+        if (FAILED(hr = create_dmgraph(&IID_IDirectMusicGraph, (void **)&new_graph)))
+            return hr;
+        This->pToolGraph = new_graph;
+    }
+
+    *graph = This->pToolGraph;
+    IDirectMusicGraph_AddRef(*graph);
+    return S_OK;
+}
+
 static inline struct audio_path_config *impl_from_IPersistStream(IPersistStream *iface)
 {
     return CONTAINING_RECORD(iface, struct audio_path_config, dmobj.IPersistStream_iface);
@@ -87,6 +107,17 @@ void set_audiopath_primary_dsound_buffer(IDirectMusicAudioPath *iface, IDirectSo
     This->pPrimary = buffer;
 }
 
+void set_audiopath_port(IDirectMusicAudioPath *iface, IDirectMusicPort *port)
+{
+    struct IDirectMusicAudioPathImpl *This = impl_from_IDirectMusicAudioPath(iface);
+
+    if (This->pPort)
+        IDirectMusicPort_Release(This->pPort);
+    This->pPort = port;
+    if (This->pPort)
+        IDirectMusicPort_AddRef(This->pPort);
+}
+
 /*****************************************************************************
  * IDirectMusicAudioPathImpl implementation
  */
@@ -96,10 +127,14 @@ static HRESULT WINAPI IDirectMusicAudioPathImpl_QueryInterface (IDirectMusicAudi
 
     TRACE("(%p, %s, %p)\n", This, debugstr_dmguid(riid), ppobj);
 
+    if (!ppobj)
+        return E_POINTER;
     *ppobj = NULL;
 
     if (IsEqualIID (riid, &IID_IDirectMusicAudioPath) || IsEqualIID (riid, &IID_IUnknown))
         *ppobj = &This->IDirectMusicAudioPath_iface;
+    else if (IsEqualIID(riid, &IID_IDirectMusicGraph))
+        return audiopath_get_graph(This, (IDirectMusicGraph **)ppobj);
 
     if (*ppobj) {
         IUnknown_AddRef((IUnknown*)*ppobj);
@@ -128,10 +163,14 @@ static ULONG WINAPI IDirectMusicAudioPathImpl_Release (IDirectMusicAudioPath *if
     TRACE("(%p): ref=%ld\n", This, ref);
 
     if (ref == 0) {
+        if (This->pToolGraph)
+            IDirectMusicGraph_Release(This->pToolGraph);
         if (This->pPrimary)
             IDirectSoundBuffer_Release(This->pPrimary);
         if (This->pDSBuffer)
             IDirectSoundBuffer_Release(This->pDSBuffer);
+        if (This->pPort)
+            IDirectMusicPort_Release(This->pPort);
         This->pPerf = NULL;
         free(This);
     }
@@ -145,8 +184,12 @@ static HRESULT WINAPI IDirectMusicAudioPathImpl_GetObjectInPath (IDirectMusicAud
 	struct IDirectMusicAudioPathImpl *This = impl_from_IDirectMusicAudioPath(iface);
 	HRESULT hr;
 
-	FIXME("(%p, %ld, %ld, %ld, %s, %ld, %s, %p): stub\n", This, dwPChannel, dwStage, dwBuffer, debugstr_dmguid(guidObject),
+	TRACE("(%p, %ld, %ld, %ld, %s, %ld, %s, %p)\n", This, dwPChannel, dwStage, dwBuffer, debugstr_dmguid(guidObject),
             dwIndex, debugstr_dmguid(iidInterface), ppObject);
+
+	if (!ppObject)
+	    return E_POINTER;
+	*ppObject = NULL;
 	    
 	switch (dwStage) {
         case DMUS_PATH_BUFFER:
@@ -178,16 +221,7 @@ static HRESULT WINAPI IDirectMusicAudioPathImpl_GetObjectInPath (IDirectMusicAud
 	case DMUS_PATH_AUDIOPATH_GRAPH:
 	  {
 	    if (IsEqualIID (iidInterface, &IID_IDirectMusicGraph)) {
-	      if (NULL == This->pToolGraph) {
-		IDirectMusicGraph* pGraph;
-		hr = create_dmgraph(&IID_IDirectMusicGraph, (void**)&pGraph);
-		if (FAILED(hr))
-		  return hr;
-		This->pToolGraph = pGraph;
-	      }
-	      *ppObject = This->pToolGraph;
-	      IDirectMusicGraph_AddRef((LPDIRECTMUSICGRAPH) *ppObject);
-	      return S_OK;
+	      return audiopath_get_graph(This, (IDirectMusicGraph **)ppObject);
 	    }
 	  }
 	  break;
@@ -195,6 +229,25 @@ static HRESULT WINAPI IDirectMusicAudioPathImpl_GetObjectInPath (IDirectMusicAud
 	case DMUS_PATH_AUDIOPATH_TOOL:
 	  {
 	    /* TODO */
+	  }
+	  break;
+
+	case DMUS_PATH_PORT:
+	  {
+	    IDirectMusicPort *port;
+	    DWORD pchannel = dwPChannel == DMUS_PCHANNEL_ALL ? 0 : dwPChannel;
+
+	    if (This->pPort)
+	      return IDirectMusicPort_QueryInterface(This->pPort, iidInterface, ppObject);
+
+	    if (!This->pPerf)
+	      return DMUS_E_AUDIOPATH_INACTIVE;
+	    if (FAILED(hr = IDirectMusicPerformance8_PChannelInfo(This->pPerf, pchannel, &port, NULL, NULL)))
+	      return hr;
+
+	    hr = IDirectMusicPort_QueryInterface(port, iidInterface, ppObject);
+	    IDirectMusicPort_Release(port);
+	    return hr;
 	  }
 	  break;
 
@@ -236,11 +289,15 @@ static HRESULT WINAPI IDirectMusicAudioPathImpl_GetObjectInPath (IDirectMusicAud
 static HRESULT WINAPI IDirectMusicAudioPathImpl_Activate(IDirectMusicAudioPath *iface, BOOL activate)
 {
     struct IDirectMusicAudioPathImpl *This = impl_from_IDirectMusicAudioPath(iface);
+    HRESULT hr;
 
     FIXME("(%p, %d): semi-stub\n", This, activate);
 
-    if (!!activate == This->fActive)
+    if (!!activate == This->fActive && (activate || !This->pPort))
         return S_FALSE;
+
+    if (This->pPort && FAILED(hr = IDirectMusicPort_Activate(This->pPort, activate)))
+        return hr;
 
     if (!activate && This->pDSBuffer) {
         /* Path is being deactivated */
@@ -254,9 +311,43 @@ static HRESULT WINAPI IDirectMusicAudioPathImpl_Activate(IDirectMusicAudioPath *
 
 static HRESULT WINAPI IDirectMusicAudioPathImpl_SetVolume (IDirectMusicAudioPath *iface, LONG lVolume, DWORD dwDuration)
 {
-  struct IDirectMusicAudioPathImpl *This = impl_from_IDirectMusicAudioPath(iface);
-  FIXME("(%p, %li, %ld): stub\n", This, lVolume, dwDuration);
-  return S_OK;
+    struct IDirectMusicAudioPathImpl *This = impl_from_IDirectMusicAudioPath(iface);
+    HRESULT hr = S_OK;
+
+    TRACE("(%p, %li, %ld)\n", This, lVolume, dwDuration);
+
+    if (dwDuration)
+        FIXME("Volume ramping is not implemented.\n");
+
+    if (This->pDSBuffer)
+    {
+        LONG dsound_volume = max(DSBVOLUME_MIN, min(DSBVOLUME_MAX, lVolume));
+
+        hr = IDirectSoundBuffer_SetVolume(This->pDSBuffer, dsound_volume);
+        if (FAILED(hr) && hr != DSERR_CONTROLUNAVAIL)
+            return hr;
+    }
+
+    if (This->pPort)
+    {
+        KSPROPERTY volume_prop;
+        IKsControl *control;
+        ULONG size;
+        LONG volume = max(DMUS_VOLUME_MIN, min(DMUS_VOLUME_MAX, lVolume));
+
+        if (SUCCEEDED(hr = IDirectMusicPort_QueryInterface(This->pPort, &IID_IKsControl, (void **)&control)))
+        {
+            volume_prop.Set = GUID_DMUS_PROP_Volume;
+            volume_prop.Id = 0;
+            volume_prop.Flags = KSPROPERTY_TYPE_SET;
+            hr = IKsControl_KsProperty(control, &volume_prop, sizeof(volume_prop), &volume, sizeof(volume), &size);
+            IKsControl_Release(control);
+            if (FAILED(hr))
+                return hr;
+        }
+    }
+
+    return S_OK;
 }
 
 static HRESULT WINAPI IDirectMusicAudioPathImpl_ConvertPChannel (IDirectMusicAudioPath *iface, DWORD dwPChannelIn, DWORD* pdwPChannelOut)
@@ -649,18 +740,21 @@ HRESULT path_config_get_audio_path_params(IUnknown *iface, WAVEFORMATEX *format,
 {
     struct audio_path_config *This = impl_from_IUnknown(iface);
     struct list *first_port_config, *first_pchannel_to_buffer;
-    struct audio_path_port_config *port_config;
-    struct audio_path_pchannel_to_buffer *pchannel_to_buffer;
+    struct audio_path_port_config *port_config = NULL;
+    struct audio_path_pchannel_to_buffer *pchannel_to_buffer = NULL;
     GUID *guids;
 
     first_port_config = list_head(&This->port_config_entries);
-    if (list_next(&This->port_config_entries, first_port_config))
-        FIXME("Only one port config supported. %p -> %p\n", first_port_config, list_next(&This->port_config_entries, first_port_config));
-    port_config = LIST_ENTRY(first_port_config, struct audio_path_port_config, entry);
-    first_pchannel_to_buffer = list_head(&port_config->pchannel_to_buffer_entries);
-    if (list_next(&port_config->pchannel_to_buffer_entries, first_pchannel_to_buffer))
-        FIXME("Only one pchannel to buffer entry supported.\n");
-    pchannel_to_buffer = LIST_ENTRY(first_pchannel_to_buffer, struct audio_path_pchannel_to_buffer, entry);
+    if (first_port_config)
+    {
+        if (list_next(&This->port_config_entries, first_port_config))
+            FIXME("Only one port config supported. %p -> %p\n", first_port_config, list_next(&This->port_config_entries, first_port_config));
+        port_config = LIST_ENTRY(first_port_config, struct audio_path_port_config, entry);
+        first_pchannel_to_buffer = list_head(&port_config->pchannel_to_buffer_entries);
+        if (list_next(&port_config->pchannel_to_buffer_entries, first_pchannel_to_buffer))
+            FIXME("Only one pchannel to buffer entry supported.\n");
+        pchannel_to_buffer = LIST_ENTRY(first_pchannel_to_buffer, struct audio_path_pchannel_to_buffer, entry);
+    }
 
     /* Secondary buffer description */
     memset(format, 0, sizeof(*format));
@@ -680,50 +774,56 @@ HRESULT path_config_get_audio_path_params(IUnknown *iface, WAVEFORMATEX *format,
     desc->lpwfxFormat = format;
     desc->guid3DAlgorithm = GUID_NULL;
 
-    guids = pchannel_to_buffer->guids;
-    if (pchannel_to_buffer->header.dwBufferCount == 2)
+    if (pchannel_to_buffer)
     {
-        if ((!IsEqualGUID(&guids[0], &GUID_Buffer_Reverb) && !IsEqualGUID(&guids[0], &GUID_Buffer_Stereo)) ||
-                (!IsEqualGUID(&guids[1], &GUID_Buffer_Reverb) && !IsEqualGUID(&guids[1], &GUID_Buffer_Stereo)) ||
-                IsEqualGUID(&guids[0], &guids[1]))
-            FIXME("Only a stereo plus reverb buffer is supported\n");
-        else
+        guids = pchannel_to_buffer->guids;
+        if (pchannel_to_buffer->header.dwBufferCount == 2)
         {
-            desc->dwFlags |= DSBCAPS_CTRLPAN | DSBCAPS_CTRLFREQUENCY;
-            format->nChannels = 2;
-            format->nBlockAlign *= 2;
-            format->nAvgBytesPerSec *= 2;
+            if ((!IsEqualGUID(&guids[0], &GUID_Buffer_Reverb) && !IsEqualGUID(&guids[0], &GUID_Buffer_Stereo)) ||
+                    (!IsEqualGUID(&guids[1], &GUID_Buffer_Reverb) && !IsEqualGUID(&guids[1], &GUID_Buffer_Stereo)) ||
+                    IsEqualGUID(&guids[0], &guids[1]))
+                FIXME("Only a stereo plus reverb buffer is supported\n");
+            else
+            {
+                desc->dwFlags |= DSBCAPS_CTRLPAN | DSBCAPS_CTRLFREQUENCY;
+                format->nChannels = 2;
+                format->nBlockAlign *= 2;
+                format->nAvgBytesPerSec *= 2;
+            }
         }
-    }
-    else if (pchannel_to_buffer->header.dwBufferCount == 1)
-    {
-        if (IsEqualGUID(guids, &GUID_Buffer_Stereo))
+        else if (pchannel_to_buffer->header.dwBufferCount == 1)
         {
-            desc->dwFlags |= DSBCAPS_CTRLPAN | DSBCAPS_CTRLFREQUENCY;
-            format->nChannels = 2;
-            format->nBlockAlign *= 2;
-            format->nAvgBytesPerSec *= 2;
+            if (IsEqualGUID(guids, &GUID_Buffer_Stereo))
+            {
+                desc->dwFlags |= DSBCAPS_CTRLPAN | DSBCAPS_CTRLFREQUENCY;
+                format->nChannels = 2;
+                format->nBlockAlign *= 2;
+                format->nAvgBytesPerSec *= 2;
+            }
+            else if (IsEqualGUID(guids, &GUID_Buffer_3D_Dry))
+                desc->dwFlags |= DSBCAPS_CTRL3D | DSBCAPS_CTRLFREQUENCY | DSBCAPS_MUTE3DATMAXDISTANCE;
+            else if (IsEqualGUID(guids, &GUID_Buffer_Mono))
+                desc->dwFlags |= DSBCAPS_CTRLPAN | DSBCAPS_CTRLFREQUENCY;
+            else
+                FIXME("Unsupported buffer guid %s\n", debugstr_dmguid(guids));
         }
-        else if (IsEqualGUID(guids, &GUID_Buffer_3D_Dry))
-            desc->dwFlags |= DSBCAPS_CTRL3D | DSBCAPS_CTRLFREQUENCY | DSBCAPS_MUTE3DATMAXDISTANCE;
-        else if (IsEqualGUID(guids, &GUID_Buffer_Mono))
-            desc->dwFlags |= DSBCAPS_CTRLPAN | DSBCAPS_CTRLFREQUENCY;
         else
-            FIXME("Unsupported buffer guid %s\n", debugstr_dmguid(guids));
+            FIXME("Multiple buffers not supported\n");
     }
-    else
-        FIXME("Multiple buffers not supported\n");
 
-    *params = port_config->params;
-    if (!(params->dwValidParams & DMUS_PORTPARAMS_CHANNELGROUPS))
+    if (port_config)
     {
-        params->dwValidParams |= DMUS_PORTPARAMS_CHANNELGROUPS;
-        params->dwChannelGroups = (port_config->header.dwPChannelCount + 15) / 16;
-    }
-    if (!(params->dwValidParams & DMUS_PORTPARAMS_AUDIOCHANNELS))
-    {
-        params->dwValidParams |= DMUS_PORTPARAMS_AUDIOCHANNELS;
-        params->dwAudioChannels = format->nChannels;
+        *params = port_config->params;
+        if (!(params->dwValidParams & DMUS_PORTPARAMS_CHANNELGROUPS))
+        {
+            params->dwValidParams |= DMUS_PORTPARAMS_CHANNELGROUPS;
+            params->dwChannelGroups = (port_config->header.dwPChannelCount + 15) / 16;
+        }
+        if (!(params->dwValidParams & DMUS_PORTPARAMS_AUDIOCHANNELS))
+        {
+            params->dwValidParams |= DMUS_PORTPARAMS_AUDIOCHANNELS;
+            params->dwAudioChannels = format->nChannels;
+        }
     }
     return S_OK;
 }

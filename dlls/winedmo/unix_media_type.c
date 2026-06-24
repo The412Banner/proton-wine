@@ -75,8 +75,6 @@ static UINT wave_format_tag_from_codec_id( enum AVCodecID id )
 
 static void wave_format_ex_init( const AVCodecParameters *params, WAVEFORMATEX *format, UINT32 format_size, WORD format_tag )
 {
-    const char *sgi;
-
     memset( format, 0, format_size );
     format->cbSize = format_size - sizeof(*format);
     format->wFormatTag = format_tag;
@@ -88,13 +86,8 @@ static void wave_format_ex_init( const AVCodecParameters *params, WAVEFORMATEX *
     format->nSamplesPerSec = params->sample_rate;
     format->wBitsPerSample = av_get_bits_per_sample( params->codec_id );
     if (!format->wBitsPerSample) format->wBitsPerSample = params->bits_per_coded_sample;
-    if (!format->wBitsPerSample && (params->codec_id == AV_CODEC_ID_OPUS || params->codec_id == AV_CODEC_ID_VORBIS)
-            && (sgi = getenv("SteamGameId")) && (!strcmp(sgi, "287700") || !strcmp(sgi, "543900")))
-    {
-        /* Metal Gear Solid V: The Phantom Pain uses wBitsPerSample as a divisor in an integer division,
-         * so it must be non-zero, but is zero for transcoded audio. */
+    if (!format->wBitsPerSample && (params->codec_id == AV_CODEC_ID_OPUS || params->codec_id == AV_CODEC_ID_VORBIS))
         format->wBitsPerSample = 16;
-    }
     if (!(format->nBlockAlign = params->block_align)) format->nBlockAlign = format->wBitsPerSample * format->nChannels / 8;
     if (!(format->nAvgBytesPerSec = params->bit_rate / 8)) format->nAvgBytesPerSec = format->nSamplesPerSec * format->nBlockAlign;
 }
@@ -194,6 +187,7 @@ static NTSTATUS audio_format_from_codec_params( const AVCodecParameters *params,
 
     format_tag = wave_format_tag_from_codec_id( params->codec_id );
     if (params->codec_id == AV_CODEC_ID_OPUS) format_tag = WAVE_FORMAT_OPUS;
+    else if (params->codec_id == AV_CODEC_ID_AC3) format_tag = WAVE_FORMAT_EXTENSIBLE;
     /* Big-endian PCM in native Windows is given the usual WAVE_FORMAT_PCM tag. */
     else if (params->codec_id == AV_CODEC_ID_PCM_S16BE) format_tag = WAVE_FORMAT_PCM;
 
@@ -203,6 +197,7 @@ static NTSTATUS audio_format_from_codec_params( const AVCodecParameters *params,
         GUID subtype = MFAudioFormat_Base;
 
         if (params->codec_id == AV_CODEC_ID_VORBIS) subtype = MFAudioFormat_Vorbis;
+        else if (params->codec_id == AV_CODEC_ID_AC3) subtype = MFAudioFormat_Dolby_AC3;
         else subtype.Data1 = format_tag;
 
         wave_format_size += sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
@@ -244,9 +239,121 @@ static UINT video_format_tag_from_codec_id( enum AVCodecID id )
     return av_codec_get_tag( table, id );
 }
 
+struct bitreader
+{
+    const BYTE *data;
+    UINT32 bit_size;
+    UINT32 bit_pos;
+};
+
+static BOOL bitreader_read( struct bitreader *reader, UINT32 bits, UINT32 *value )
+{
+    UINT32 i, ret = 0;
+
+    if (bits > 32 || reader->bit_pos + bits > reader->bit_size)
+        return FALSE;
+
+    for (i = 0; i < bits; ++i)
+    {
+        ret <<= 1;
+        ret |= (reader->data[reader->bit_pos / 8] >> (7 - reader->bit_pos % 8)) & 1;
+        reader->bit_pos++;
+    }
+
+    *value = ret;
+    return TRUE;
+}
+
+static BOOL bitreader_skip( struct bitreader *reader, UINT32 bits )
+{
+    UINT32 value;
+    return bitreader_read( reader, bits, &value );
+}
+
+static UINT32 ceil_log2( UINT32 value )
+{
+    UINT32 ret = 0;
+
+    if (value <= 1)
+        return 1;
+
+    value--;
+    while (value)
+    {
+        ret++;
+        value >>= 1;
+    }
+
+    return ret;
+}
+
+static BOOL parse_mpeg4_vol_dimensions( const BYTE *data, UINT32 size, UINT32 *width, UINT32 *height )
+{
+    UINT32 i, value, time_increment_resolution;
+    struct bitreader reader;
+
+    for (i = 0; i + 4 < size; ++i)
+    {
+        if (data[i] || data[i + 1] || data[i + 2] != 1 || (data[i + 3] & 0xf0) != 0x20)
+            continue;
+
+        reader.data = data + i + 4;
+        reader.bit_size = (size - i - 4) * 8;
+        reader.bit_pos = 0;
+
+        if (!bitreader_skip( &reader, 1 ) /* random_accessible_vol */
+                || !bitreader_skip( &reader, 8 ) /* video_object_type_indication */
+                || !bitreader_read( &reader, 1, &value ))
+            return FALSE;
+
+        if (value && !bitreader_skip( &reader, 7 ))
+            return FALSE;
+
+        if (!bitreader_read( &reader, 4, &value ))
+            return FALSE;
+        if (value == 15 && !bitreader_skip( &reader, 16 ))
+            return FALSE;
+
+        if (!bitreader_read( &reader, 1, &value ))
+            return FALSE;
+        if (value)
+        {
+            if (!bitreader_skip( &reader, 3 ) || !bitreader_read( &reader, 1, &value ))
+                return FALSE;
+            if (value && !bitreader_skip( &reader, 79 ))
+                return FALSE;
+        }
+
+        if (!bitreader_read( &reader, 2, &value ) || value != 0 /* rectangular shape */
+                || !bitreader_skip( &reader, 1 )
+                || !bitreader_read( &reader, 16, &time_increment_resolution )
+                || !bitreader_skip( &reader, 1 )
+                || !bitreader_read( &reader, 1, &value ))
+            return FALSE;
+
+        if (value && !bitreader_skip( &reader, ceil_log2( time_increment_resolution ) ))
+            return FALSE;
+
+        if (!bitreader_skip( &reader, 1 )
+                || !bitreader_read( &reader, 13, width )
+                || !bitreader_skip( &reader, 1 )
+                || !bitreader_read( &reader, 13, height ))
+            return FALSE;
+
+        if (!*width || !*height)
+            return FALSE;
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
 static void mf_video_format_init( const AVCodecParameters *params, MFVIDEOFORMAT *format, UINT32 format_size,
                                   const AVRational *sar, const AVRational *fps, UINT32 align )
 {
+    UINT32 width = params->width, height = params->height;
+
     memset( format, 0, format_size );
     format->dwSize = format_size;
 
@@ -256,6 +363,7 @@ static void mf_video_format_init( const AVCodecParameters *params, MFVIDEOFORMAT
     {
         format->guidFormat = MFVideoFormat_Base;
         if (params->codec_id == AV_CODEC_ID_MPEG1VIDEO) format->guidFormat = MEDIASUBTYPE_MPEG1Payload;
+        else if (params->codec_id == AV_CODEC_ID_MPEG2VIDEO) format->guidFormat = MFVideoFormat_MPEG2;
         else if (params->codec_id == AV_CODEC_ID_H264) format->guidFormat.Data1 = MFVideoFormat_H264.Data1;
         else if (params->codec_id == AV_CODEC_ID_VP9) format->guidFormat.Data1 = MFVideoFormat_VP90.Data1;
         else if (params->codec_id == AV_CODEC_ID_AV1) format->guidFormat.Data1 = MFVideoFormat_AV1.Data1;
@@ -264,12 +372,15 @@ static void mf_video_format_init( const AVCodecParameters *params, MFVIDEOFORMAT
         else format->guidFormat.Data1 = video_format_tag_from_codec_id( params->codec_id );
     }
 
-    format->videoInfo.dwWidth = (params->width + align) & ~align;
-    format->videoInfo.dwHeight = (params->height + align) & ~align;
-    if (format->videoInfo.dwWidth != params->width || format->videoInfo.dwHeight != params->height)
+    if ((!width || !height) && params->codec_id == AV_CODEC_ID_MPEG4 && params->extradata_size && params->extradata)
+        parse_mpeg4_vol_dimensions( params->extradata, params->extradata_size, &width, &height );
+
+    format->videoInfo.dwWidth = (width + align) & ~align;
+    format->videoInfo.dwHeight = (height + align) & ~align;
+    if (format->videoInfo.dwWidth != width || format->videoInfo.dwHeight != height)
     {
-        format->videoInfo.MinimumDisplayAperture.Area.cx = params->width;
-        format->videoInfo.MinimumDisplayAperture.Area.cy = params->height;
+        format->videoInfo.MinimumDisplayAperture.Area.cx = width;
+        format->videoInfo.MinimumDisplayAperture.Area.cy = height;
     }
     format->videoInfo.GeometricAperture = format->videoInfo.MinimumDisplayAperture;
     format->videoInfo.PanScanAperture = format->videoInfo.MinimumDisplayAperture;

@@ -262,6 +262,43 @@ BOOL WINAPI GetBinaryTypeA( LPCSTR lpApplicationName, LPDWORD lpBinaryType )
     return GetBinaryTypeW(NtCurrentTeb()->StaticUnicodeString.Buffer, lpBinaryType);
 }
 
+static void __attribute__((naked)) int3_stub( void )
+{
+#if defined(__arm64ec__) || defined(_M_ARM64EC) || defined(__aarch64__) || defined(_M_ARM64)
+    asm("brk #0\t\n"
+        "brk #0\t\n"
+        "brk #0\t\n"
+        "brk #0\t\n");
+#else
+    asm("int3\t\n"
+        "int3\t\n"
+        "int3\t\n"
+        "int3\t\n");
+#endif
+}
+
+static BOOL int3_hack_enabled(void)
+{
+    static int enabled = -1;
+
+    if (enabled == -1)
+    {
+        static const WCHAR env_nameW[] = L"PROTON_ENABLE_INT3_HACK";
+        UNICODE_STRING name, value;
+        WCHAR valueW[2];
+
+        RtlInitUnicodeString( &name, env_nameW );
+        value.Buffer = valueW;
+        value.Length = 0;
+        value.MaximumLength = sizeof(valueW);
+
+        enabled = !RtlQueryEnvironmentVariable_U( NULL, &name, &value )
+                && value.Length == sizeof(WCHAR) && valueW[0] == L'1';
+    }
+
+    return enabled;
+}
+
 /***********************************************************************
  *           GetProcAddress   		(KERNEL32.@)
  *
@@ -284,6 +321,13 @@ FARPROC get_proc_address( HMODULE hModule, LPCSTR function )
     if ((ULONG_PTR)function >> 16)
     {
         ANSI_STRING     str;
+
+        if ((strcmp( function, "KiUserApcDispatcher" ) == 0 || strcmp( function, "KiUserCallbackDispatcher" ) == 0)
+                && int3_hack_enabled())
+        {
+            FIXME( "HACK: returning int3 stub instead of %s\n", function );
+            return (FARPROC)&int3_stub;
+        }
 
         RtlInitAnsiString( &str, function );
         if (!set_ntstatus( LdrGetProcedureAddress( hModule, &str, 0, (void**)&fp ))) return NULL;

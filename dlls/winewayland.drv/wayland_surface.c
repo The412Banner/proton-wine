@@ -34,6 +34,13 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 
+static inline BOOL popup_config_changed(struct wayland_surface_config *c1,
+                                        struct wayland_surface_config *c2)
+{
+    return c1->height != c2->height || c1->width != c2->width ||
+           c1->x != c2->x || c1->y != c2->y;
+}
+
 static void xdg_surface_handle_configure(void *private, struct xdg_surface *xdg_surface,
                                          uint32_t serial)
 {
@@ -48,8 +55,13 @@ static void xdg_surface_handle_configure(void *private, struct xdg_surface *xdg_
 
     /* Handle this event only if wayland_surface is still associated with
      * the target xdg_surface. */
-    if ((surface = data->wayland_surface) && wayland_surface_is_toplevel(surface) &&
-        surface->xdg_surface == xdg_surface)
+    if (!(surface = data->wayland_surface) || surface->xdg_surface != xdg_surface)
+    {
+        wayland_win_data_release(data);
+        return;
+    }
+
+    if (wayland_surface_is_toplevel(surface))
     {
         /* If we have a previously requested config, we have already sent a
          * WM_WAYLAND_CONFIGURE which hasn't been handled yet. In that case,
@@ -57,11 +69,37 @@ static void xdg_surface_handle_configure(void *private, struct xdg_surface *xdg_
         should_post = surface->requested.serial == 0;
         initial_configure = surface->current.serial == 0;
         surface->pending.serial = serial;
+        if (!surface->pending.caps && surface->current.caps)
+            surface->pending.caps = surface->current.caps;
+        if (!surface->pending.decor && surface->current.decor)
+            surface->pending.decor = surface->current.decor;
+        else if (!surface->pending.decor && surface->requested.decor)
+            surface->pending.decor = surface->requested.decor;
+        if (surface->pending.decor &&
+            surface->pending.decor != surface->current.decor)
+        {
+            should_post = TRUE;
+            initial_configure = TRUE;
+        }
         surface->requested = surface->pending;
+        memset(&surface->pending, 0, sizeof(surface->pending));
+    }
+    else if (wayland_surface_is_popup(surface))
+    {
+        /* expose the surface to ensure that the new config is ack-ed
+         * and the popup can move if needed */
+        initial_configure = surface->current.serial == 0 ||
+                            popup_config_changed(&surface->current,
+                                                 &surface->pending);
+        surface->pending.serial = serial;
+        surface->processing = surface->pending;
+        surface->processing.processed = 1;
         memset(&surface->pending, 0, sizeof(surface->pending));
     }
 
     wayland_win_data_release(data);
+
+    TRACE("post=%u expose=%u\n", should_post, initial_configure);
 
     if (should_post) NtUserPostMessage(hwnd, WM_WAYLAND_CONFIGURE, 0, 0);
 
@@ -132,10 +170,192 @@ static void xdg_toplevel_handle_close(void *data, struct xdg_toplevel *xdg_tople
     NtUserPostMessage((HWND)data, WM_SYSCOMMAND, SC_CLOSE, 0);
 }
 
+static void xdg_toplevel_handle_configure_bounds(void *private, struct xdg_toplevel *xdg_toplevel, int width, int height)
+{
+    HWND hwnd = private;
+
+    /* FIXME: we don't respect these yet */
+    TRACE("hwnd %p, (%d, %d)\n", hwnd, width, height);
+}
+
+static void xdg_toplevel_handle_wm_caps(void *private, struct xdg_toplevel *xdg_toplevel, struct wl_array *caps)
+{
+    int *state;
+    HWND hwnd = private;
+    struct wayland_surface *surface;
+    struct wayland_win_data *data;
+    enum wayland_surface_wm_caps cap = WAYLAND_SURFACE_WM_CAPS_CHANGED;
+
+    wl_array_for_each(state, caps)
+    {
+        switch (*state)
+        {
+            case XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN:
+                cap |= WAYLAND_SURFACE_WM_CAPS_FULLSCREEN;
+                break;
+            case XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE:
+                cap |= WAYLAND_SURFACE_WM_CAPS_MINIMIZE;
+                break;
+            case XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE:
+                cap |= WAYLAND_SURFACE_WM_CAPS_MAXIMIZE;
+                break;
+            case XDG_TOPLEVEL_WM_CAPABILITIES_WINDOW_MENU:
+                cap |= WAYLAND_SURFACE_WM_CAPS_SHOW_WINDOW;
+                break;
+            default: break;
+        }
+    }
+
+    TRACE("hwnd %p caps %x\n", hwnd, cap);
+
+    if (!(cap & WAYLAND_SURFACE_WM_CAPS_FULLSCREEN))
+        WARN("Compositor does not support fullscreen!\n");
+    if (!(cap & WAYLAND_SURFACE_WM_CAPS_MAXIMIZE))
+        WARN("Compositor does not support maximize!\n");
+    if (!(cap & WAYLAND_SURFACE_WM_CAPS_MINIMIZE))
+        WARN("Compositor does not support minimize, cannot implement window focus loss!\n");
+
+    if (!(data = wayland_win_data_get(hwnd))) return;
+
+    if ((surface = data->wayland_surface) && wayland_surface_is_toplevel(surface))
+    {
+        surface->pending.caps = cap;
+    }
+
+    wayland_win_data_release(data);
+}
+
 static const struct xdg_toplevel_listener xdg_toplevel_listener =
 {
     xdg_toplevel_handle_configure,
-    xdg_toplevel_handle_close
+    xdg_toplevel_handle_close,
+    xdg_toplevel_handle_configure_bounds,
+    xdg_toplevel_handle_wm_caps
+};
+
+static void xdg_popup_handle_configure(void *private, struct xdg_popup *xdg_popup,
+                                       int32_t x, int32_t y, int32_t width, int32_t height)
+{
+    HWND hwnd = private;
+    struct wayland_win_data *data;
+    struct wayland_surface *surface;
+
+    TRACE("hwnd=%p %dx%d\n", hwnd, width, height);
+
+    if (!(data = wayland_win_data_get(hwnd))) return;
+
+    if ((surface = data->wayland_surface) && wayland_surface_is_popup(surface))
+    {
+        surface->pending.x = x;
+        surface->pending.y = y;
+        surface->pending.width = width;
+        surface->pending.height = height;
+        surface->pending.state = 0;
+    }
+
+    wayland_win_data_release(data);
+}
+
+static void xdg_popup_handle_done(void *private, struct xdg_popup *xdg_popup)
+{
+    HWND hwnd = private;
+
+    ERR("Closing popup on hwnd=%p!\n", hwnd);
+
+    NtUserPostMessage(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+}
+
+static void xdg_popup_handle_reposition(void *private, struct xdg_popup *xdg_popup, uint32_t token)
+{
+    /* we get a configure event in this case so we dont need to do anything */
+    TRACE("hwnd=%p\n", private);
+}
+
+static const struct xdg_popup_listener xdg_popup_listener =
+{
+    xdg_popup_handle_configure,
+    xdg_popup_handle_done,
+    xdg_popup_handle_reposition,
+};
+
+void wp_fractional_scale_handle_scale(void* user_data,
+                                      struct wp_fractional_scale_v1 *fractional_scale_v1,
+                                      uint32_t scale_fixed)
+{
+    struct wayland_win_data *data, *owner_data;
+    struct wayland_client_surface *client;
+    struct wayland_surface *surface;
+    HWND hwnd = user_data;
+    BOOL updated = FALSE;
+
+    if ((data = wayland_win_data_get(hwnd)))
+    {
+        if ((surface = data->wayland_surface))
+        {
+            double scale = scale_fixed / 120.0;
+
+            updated = (scale != surface->window.fractional_scale);
+            surface->window.scale = surface->window.fractional_scale = scale;
+
+            if (updated)
+            {
+                /* reattach the client surface as its rect has changed */
+                if ((client = data->client_surface))
+                    wayland_client_surface_attach(client, client->toplevel);
+
+                /* the subsurface rect has changed */
+                if (surface->role == WAYLAND_SURFACE_ROLE_SUBSURFACE)
+                {
+                    surface->processing.serial = 1;
+                    surface->processing.processed = TRUE;
+                }
+
+                /* the popup x,y position has changed */
+                if (wayland_surface_is_popup(surface) &&
+                   (owner_data = wayland_win_data_get_nolock(surface->owner_hwnd)) &&
+                    owner_data->wayland_surface)
+                {
+                    wayland_surface_make_popup(surface, owner_data->wayland_surface,
+                                               &data->rects.window);
+                }
+            }
+
+            TRACE("hwnd=%p scale %lf\n", hwnd, scale);
+        }
+
+        wayland_win_data_release(data);
+    }
+
+    if (updated) NtUserExposeWindowSurface(hwnd, 0, NULL, 0);
+}
+
+static const struct wp_fractional_scale_v1_listener wp_fractional_scale_listener =
+{
+    wp_fractional_scale_handle_scale
+};
+
+static void zxdg_toplevel_decoration_v1_configure(void *user_data,
+                                                  struct zxdg_toplevel_decoration_v1 *decoration,
+                                                  uint32_t mode)
+{
+    struct wayland_win_data *data;
+    struct wayland_surface *surface;
+    HWND hwnd = user_data;
+
+    if ((data = wayland_win_data_get(hwnd)))
+    {
+        if ((surface = data->wayland_surface) && wayland_surface_is_toplevel(surface))
+        {
+            TRACE("got mode %u for surface %p\n", mode, surface);
+            surface->pending.decor = mode;
+        }
+        wayland_win_data_release(data);
+    }
+}
+
+static const struct zxdg_toplevel_decoration_v1_listener zxdg_toplevel_decoration_listener =
+{
+    zxdg_toplevel_decoration_v1_configure
 };
 
 /**********************************************************************
@@ -175,6 +395,7 @@ struct wayland_surface *wayland_surface_create(HWND hwnd)
     }
 
     surface->window.scale = 1.0;
+    surface->window.fractional_scale = 1.0;
 
     return surface;
 
@@ -241,19 +462,111 @@ void wayland_surface_destroy(struct wayland_surface *surface)
     free(surface);
 }
 
+static void wayland_surface_init_fractional_scale(struct wayland_surface *surface,
+                                                  double initial_scale)
+{
+    if (process_wayland.wp_fractional_scale_manager_v1)
+    {
+        surface->window.fractional_scale = initial_scale;
+        surface->wp_fractional_scale_v1 =
+            wp_fractional_scale_manager_v1_get_fractional_scale(
+                process_wayland.wp_fractional_scale_manager_v1,
+                surface->wl_surface);
+        if (!surface->wp_fractional_scale_v1)
+        {
+            ERR("Failed to create wp_fractional_scale_v1\n");
+            return;
+        }
+        wp_fractional_scale_v1_add_listener(
+            surface->wp_fractional_scale_v1,
+            &wp_fractional_scale_listener,
+            surface->hwnd);
+    }
+}
+
+static void wayland_surface_init_decoration(struct wayland_surface *surface)
+{
+    TRACE("surface %p\n", surface);
+
+    if (process_wayland.zxdg_decoration_manager_v1)
+    {
+        surface->current.decor = 0;
+        surface->zxdg_toplevel_decoration_v1 =
+        zxdg_decoration_manager_v1_get_toplevel_decoration(
+            process_wayland.zxdg_decoration_manager_v1,
+            surface->xdg_toplevel);
+        if (!surface->zxdg_toplevel_decoration_v1)
+        {
+            ERR("Failed to create toplevel zxdg_toplevel_decoration_v1\n");
+            return;
+        }
+        zxdg_toplevel_decoration_v1_set_mode(
+            surface->zxdg_toplevel_decoration_v1,
+            ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+        zxdg_toplevel_decoration_v1_add_listener(
+            surface->zxdg_toplevel_decoration_v1,
+            &zxdg_toplevel_decoration_listener,
+            surface->hwnd);
+    }
+}
+
+void wayland_surface_sync_alpha(struct wayland_surface *surface)
+{
+    if (!process_wayland.wp_alpha_modifier_v1) return;
+
+    if (surface->alpha_multiplier != UINT32_MAX)
+    {
+        if (!surface->wp_alpha_modifier_surface_v1)
+        {
+            surface->wp_alpha_modifier_surface_v1 =
+                wp_alpha_modifier_v1_get_surface(process_wayland.wp_alpha_modifier_v1,
+                                                 surface->wl_surface);
+        }
+        if (!surface->wp_alpha_modifier_surface_v1)
+        {
+            ERR("Failed to create alpha modifier surface\n");
+            return;
+        }
+        wp_alpha_modifier_surface_v1_set_multiplier(surface->wp_alpha_modifier_surface_v1,
+                                                    surface->alpha_multiplier);
+    }
+    else if (surface->wp_alpha_modifier_surface_v1)
+    {
+        wp_alpha_modifier_surface_v1_destroy(surface->wp_alpha_modifier_surface_v1);
+        surface->wp_alpha_modifier_surface_v1 = NULL;
+    }
+}
+
 /**********************************************************************
  *          wayland_surface_make_toplevel
  *
  * Gives the toplevel role to a plain wayland surface.
  */
-void wayland_surface_make_toplevel(struct wayland_surface *surface)
+void wayland_surface_make_toplevel(struct wayland_surface *surface, BOOL server_decor)
 {
     WCHAR text[1024];
 
     TRACE("surface=%p\n", surface);
 
     assert(!surface->role || surface->role == WAYLAND_SURFACE_ROLE_TOPLEVEL);
-    if (surface->xdg_surface && surface->xdg_toplevel) return;
+    if (surface->xdg_surface && surface->xdg_toplevel)
+    {
+        if (process_wayland.zxdg_decoration_manager_v1)
+        {
+            if (!server_decor && surface->zxdg_toplevel_decoration_v1)
+            {
+                zxdg_toplevel_decoration_v1_destroy(surface->zxdg_toplevel_decoration_v1);
+                surface->zxdg_toplevel_decoration_v1 = NULL;
+                surface->pending.decor = surface->current.decor = 0;
+            }
+            else if (server_decor && !surface->zxdg_toplevel_decoration_v1)
+                wayland_surface_init_decoration(surface);
+
+            wl_surface_commit(surface->wl_surface);
+            wl_display_flush(process_wayland.wl_display);
+        }
+        return;
+    }
 
     wayland_surface_clear_role(surface);
     surface->role = WAYLAND_SURFACE_ROLE_TOPLEVEL;
@@ -270,11 +583,29 @@ void wayland_surface_make_toplevel(struct wayland_surface *surface)
     if (process_name)
         xdg_toplevel_set_app_id(surface->xdg_toplevel, process_name);
 
+    if (process_wayland.xdg_toplevel_tag_manager_v1)
+    {
+        xdg_toplevel_tag_manager_v1_set_toplevel_tag(
+            process_wayland.xdg_toplevel_tag_manager_v1, surface->xdg_toplevel,
+            "proton-game"
+        );
+        xdg_toplevel_tag_manager_v1_set_toplevel_description(
+            process_wayland.xdg_toplevel_tag_manager_v1, surface->xdg_toplevel,
+            "This is a game running through proton"
+        );
+    }
+
     if (!NtUserInternalGetWindowText(surface->hwnd, text, ARRAY_SIZE(text)))
         text[0] = 0;
     wayland_surface_set_title(surface, text);
 
     wayland_surface_assign_icon(surface);
+
+    wayland_surface_init_fractional_scale(surface, 1.0);
+
+    wayland_surface_sync_alpha(surface);
+
+    if (server_decor) wayland_surface_init_decoration(surface);
 
     wl_surface_commit(surface->wl_surface);
     wl_display_flush(process_wayland.wl_display);
@@ -312,6 +643,10 @@ void wayland_surface_make_subsurface(struct wayland_surface *surface,
         goto err;
     }
 
+    wayland_surface_init_fractional_scale(surface, parent->window.fractional_scale);
+
+    wayland_surface_sync_alpha(surface);
+
     surface->role = WAYLAND_SURFACE_ROLE_SUBSURFACE;
     surface->toplevel_hwnd = parent->hwnd;
 
@@ -327,6 +662,113 @@ err:
     ERR("Failed to assign subsurface role to wayland surface\n");
 }
 
+/* helper to intialize the positioner using a given surface config */
+static struct xdg_positioner *popup_create_positioner(struct wayland_surface *surface,
+                                                      struct wayland_surface *owner,
+                                                      struct wayland_surface_config *config)
+{
+    struct xdg_positioner *xdg_positioner =
+        xdg_wm_base_create_positioner(process_wayland.xdg_wm_base);
+
+    if (!xdg_positioner) return NULL;
+
+    if (config->width <= 0) config->width = 1;
+    if (config->height <= 0) config->height = 1;
+
+    xdg_positioner_set_anchor_rect(xdg_positioner, owner->geometry.left,
+                                   owner->geometry.top, 1, 1);
+    xdg_positioner_set_anchor(xdg_positioner, XDG_POSITIONER_ANCHOR_TOP_LEFT);
+    xdg_positioner_set_gravity(xdg_positioner, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT);
+    xdg_positioner_set_offset(xdg_positioner, config->x, config->y);
+    xdg_positioner_set_size(xdg_positioner, config->width, config->height);
+
+    return xdg_positioner;
+}
+
+/**********************************************************************
+ *          wayland_surface_make_popup
+ *
+ * Gives the popup role to a plain wayland surface.
+ */
+void wayland_surface_make_popup(struct wayland_surface *surface,
+                                struct wayland_surface *owner,
+                                const RECT *rect)
+{
+    struct wayland_surface_config config;
+    struct xdg_positioner *xdg_positioner = NULL;
+
+    config.x = rect->left - owner->window.rect.left;
+    config.y = rect->top - owner->window.rect.top;
+    config.width = rect->right - rect->left;
+    config.height = rect->bottom - rect->top;
+
+    assert(owner->xdg_surface);
+    assert(!surface->role || surface->role == WAYLAND_SURFACE_ROLE_POPUP);
+
+    if (surface->xdg_popup && surface->owner_hwnd == owner->hwnd)
+    {
+        if (!surface->current.serial) return;
+        /* reposition the popup if needed */
+        wayland_surface_coords_from_window(surface, config.x, config.y,
+                                            &config.x, &config.y);
+        wayland_surface_coords_from_window(surface, config.width, config.height,
+                                            &config.width, &config.height);
+
+        if (popup_config_changed(&surface->current, &config))
+        {
+            xdg_positioner = popup_create_positioner(surface, owner, &config);
+            if (!xdg_positioner)
+            {
+                ERR("Failed to create positioner!\n");
+                return;
+            }
+
+            xdg_popup_reposition(surface->xdg_popup, xdg_positioner, 0);
+            xdg_positioner_destroy(xdg_positioner);
+            wl_surface_commit(surface->wl_surface);
+            wl_display_flush(process_wayland.wl_display);
+        }
+        return;
+    }
+
+    wayland_surface_clear_role(surface);
+    surface->role = WAYLAND_SURFACE_ROLE_POPUP;
+
+    surface->xdg_surface = xdg_wm_base_get_xdg_surface(process_wayland.xdg_wm_base,
+                                                       surface->wl_surface);
+    if (!surface->xdg_surface) goto err;
+    xdg_surface_add_listener(surface->xdg_surface, &xdg_surface_listener, surface->hwnd);
+
+    /* seed the scale with the owner's */
+    surface->window.scale = owner->window.scale;
+
+    wayland_surface_coords_from_window(surface, config.x, config.y, &config.x, &config.y);
+    wayland_surface_coords_from_window(surface, config.width, config.height,
+                                       &config.width, &config.height);
+
+    xdg_positioner = popup_create_positioner(surface, owner, &config);
+    if (!xdg_positioner) goto err;
+
+    surface->xdg_popup = xdg_surface_get_popup(surface->xdg_surface, owner->xdg_surface,
+                                               xdg_positioner);
+    xdg_positioner_destroy(xdg_positioner);
+    if (!surface->xdg_popup) goto err;
+    xdg_popup_add_listener(surface->xdg_popup, &xdg_popup_listener, surface->hwnd);
+
+    wayland_surface_init_fractional_scale(surface, owner->window.fractional_scale);
+
+    wayland_surface_sync_alpha(surface);
+
+    surface->owner_hwnd = owner->hwnd;
+    wl_surface_commit(surface->wl_surface);
+    wl_display_flush(process_wayland.wl_display);
+
+    return;
+err:
+    wayland_surface_clear_role(surface);
+    ERR("Failed to assign popup role to wayland surface\n");
+}
+
 /**********************************************************************
  *          wayland_surface_clear_role
  *
@@ -338,9 +780,40 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
 {
     TRACE("surface=%p\n", surface);
 
+    /* some objects are shared between several roles */
+
+    if (surface->wp_fractional_scale_v1)
+    {
+        wp_fractional_scale_v1_destroy(surface->wp_fractional_scale_v1);
+        surface->wp_fractional_scale_v1 = NULL;
+    }
+
+    if (surface->wp_alpha_modifier_surface_v1)
+    {
+        wp_alpha_modifier_surface_v1_destroy(surface->wp_alpha_modifier_surface_v1);
+        surface->wp_alpha_modifier_surface_v1 = NULL;
+    }
+
     switch (surface->role)
     {
     case WAYLAND_SURFACE_ROLE_NONE:
+        break;
+
+    case WAYLAND_SURFACE_ROLE_POPUP:
+
+        if (surface->xdg_popup)
+        {
+            xdg_popup_destroy(surface->xdg_popup);
+            surface->xdg_popup = NULL;
+        }
+
+        if (surface->xdg_surface)
+        {
+            xdg_surface_destroy(surface->xdg_surface);
+            surface->xdg_surface = NULL;
+        }
+
+        surface->owner_hwnd = NULL;
         break;
 
     case WAYLAND_SURFACE_ROLE_TOPLEVEL:
@@ -351,6 +824,19 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
                 surface->xdg_toplevel, NULL);
             xdg_toplevel_icon_v1_destroy(surface->xdg_toplevel_icon);
             surface->xdg_toplevel_icon = NULL;
+        }
+
+        if (surface->zwp_keyboard_shortcuts_inhibitor_v1)
+        {
+            zwp_keyboard_shortcuts_inhibitor_v1_destroy(
+                surface->zwp_keyboard_shortcuts_inhibitor_v1);
+            surface->zwp_keyboard_shortcuts_inhibitor_v1 = NULL;
+        }
+
+        if (surface->zxdg_toplevel_decoration_v1)
+        {
+            zxdg_toplevel_decoration_v1_destroy(surface->zxdg_toplevel_decoration_v1);
+            surface->zxdg_toplevel_decoration_v1 = NULL;
         }
 
         if (surface->xdg_toplevel)
@@ -364,6 +850,8 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
             xdg_surface_destroy(surface->xdg_surface);
             surface->xdg_surface = NULL;
         }
+
+        surface->requested_output = NULL;
         break;
 
     case WAYLAND_SURFACE_ROLE_SUBSURFACE:
@@ -389,6 +877,7 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
 
     surface->content_width = 0;
     surface->content_height = 0;
+    SetRect(&surface->geometry, 0, 0, 0, 0);
 
     wl_display_flush(process_wayland.wl_display);
 }
@@ -466,6 +955,14 @@ BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf,
     static enum wayland_surface_config_state mask =
         WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED;
 
+    /* The fullscreen state requires a size smaller or equal to the configured
+     * size. If we have a larger size, we can use surface geometry during
+     * surface reconfiguration to provide the smaller size, so we are always
+     * compatible with a fullscreen state.
+     * NOTE: Fullscreen combined with maximized is the same as fullscreen. */
+    if (conf->state & WAYLAND_SURFACE_CONFIG_STATE_FULLSCREEN)
+        return TRUE;
+
     /* We require the same state. */
     if ((state & mask) != (conf->state & mask)) return FALSE;
 
@@ -477,11 +974,6 @@ BOOL wayland_surface_config_is_compatible(struct wayland_surface_config *conf,
     {
         return FALSE;
     }
-
-    /* The fullscreen state requires a size smaller or equal to the configured
-     * size. If we have a larger size, we can use surface geometry during
-     * surface reconfiguration to provide the smaller size, so we are always
-     * compatible with a fullscreen state. */
 
     return TRUE;
 }
@@ -536,6 +1028,7 @@ static void wayland_surface_reconfigure_geometry(struct wayland_surface *surface
         /* If the window rect in the monitor is smaller than required,
          * fall back to an appropriately sized rect at the top-left. */
         if ((surface->current.state & WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED) &&
+            !(surface->current.state & WAYLAND_SURFACE_CONFIG_STATE_FULLSCREEN) &&
             (rect.right - rect.left < surface->current.width ||
              rect.bottom - rect.top < surface->current.height))
         {
@@ -555,12 +1048,24 @@ static void wayland_surface_reconfigure_geometry(struct wayland_surface *surface
 
     TRACE("hwnd=%p geometry=%s\n", surface->hwnd, wine_dbgstr_rect(&rect));
 
-    if (!IsRectEmpty(&rect))
+    if (!IsRectEmpty(&rect) && !EqualRect(&surface->geometry, &rect))
     {
+        int width = rect.right - rect.left, height = rect.bottom - rect.top;
         xdg_surface_set_window_geometry(surface->xdg_surface,
                                         rect.left, rect.top,
-                                        rect.right - rect.left,
-                                        rect.bottom - rect.top);
+                                        width, height);
+        surface->geometry = rect;
+        if (!wayland_surface_is_toplevel(surface)) return;
+        if (surface->window.resizeable)
+        {
+            xdg_toplevel_set_min_size(surface->xdg_toplevel, 0, 0);
+            xdg_toplevel_set_max_size(surface->xdg_toplevel, 0, 0);
+        }
+        else
+        {
+            xdg_toplevel_set_min_size(surface->xdg_toplevel, width, height);
+            xdg_toplevel_set_max_size(surface->xdg_toplevel, width, height);
+        }
     }
 }
 
@@ -574,7 +1079,7 @@ static void wayland_surface_reconfigure_size(struct wayland_surface *surface,
 {
     TRACE("hwnd=%p size=%dx%d\n", surface->hwnd, width, height);
 
-    if (width != 0 && height != 0)
+    if (width > 0 && height > 0)
         wp_viewport_set_destination(surface->wp_viewport, width, height);
     else
         wp_viewport_set_destination(surface->wp_viewport, -1, -1);
@@ -585,13 +1090,14 @@ static void wayland_surface_reconfigure_size(struct wayland_surface *surface,
  *
  * Reconfigures the subsurface covering the client area.
  */
-static void wayland_surface_reconfigure_client(struct wayland_surface *surface,
+static BOOL wayland_surface_reconfigure_client(struct wayland_surface *surface,
                                                struct wayland_client_surface *client,
                                                const RECT *client_rect)
 {
     struct wayland_window_config *window = &surface->window;
     int client_x, client_y, x, y;
     int client_width, client_height, width, height;
+    RECT rect;
 
     /* The offset of the client area origin relatively to the window origin. */
     client_x = client_rect->left + window->client_rect.left - window->rect.left;
@@ -604,18 +1110,30 @@ static void wayland_surface_reconfigure_client(struct wayland_surface *surface,
     wayland_surface_coords_from_window(surface, client_width, client_height,
                                        &width, &height);
 
-    TRACE("hwnd=%p subsurface=%d,%d+%dx%d\n", surface->hwnd, x, y, width, height);
+    SetRect(&rect, 0, 0, width, height);
+    OffsetRect(&rect, x, y);
 
-    if (client->wl_subsurface)
+    if (!EqualRect(&client->rect, &rect))
     {
-        wl_subsurface_set_position(client->wl_subsurface, x, y);
-        wl_subsurface_place_above(client->wl_subsurface, surface->wl_surface);
+        TRACE("hwnd=%p subsurface=%d,%d+%dx%d\n", surface->hwnd, x, y, width, height);
+
+        client->rect = rect;
+
+        if (client->wl_subsurface)
+        {
+            wl_subsurface_set_position(client->wl_subsurface, x, y);
+            wl_subsurface_place_above(client->wl_subsurface, surface->wl_surface);
+        }
+
+        if (width > 0 && height > 0)
+            wp_viewport_set_destination(client->wp_viewport, width, height);
+        else /* We can't have a 0x0 destination, use 1x1 instead. */
+            wp_viewport_set_destination(client->wp_viewport, 1, 1);
+
+        return TRUE;
     }
 
-    if (width != 0 && height != 0)
-        wp_viewport_set_destination(client->wp_viewport, width, height);
-    else /* We can't have a 0x0 destination, use 1x1 instead. */
-        wp_viewport_set_destination(client->wp_viewport, 1, 1);
+    return FALSE;
 }
 
 /**********************************************************************
@@ -635,9 +1153,12 @@ static BOOL wayland_surface_reconfigure_xdg(struct wayland_surface *surface,
                                              width, height,
                                              window->state))
     {
+        /* if a decoration change occured during the initial configure, avoid
+         * a double ack as that would cause a protocol error */
+        if (surface->processing.serial != surface->current.serial)
+            xdg_surface_ack_configure(surface->xdg_surface, surface->processing.serial);
         surface->current = surface->processing;
         memset(&surface->processing, 0, sizeof(surface->processing));
-        xdg_surface_ack_configure(surface->xdg_surface, surface->current.serial);
     }
     /* If this is the initial configure, and we have a compatible requested
      * config, use that, in order to draw windows that don't go through the
@@ -647,9 +1168,13 @@ static BOOL wayland_surface_reconfigure_xdg(struct wayland_surface *surface,
                                                   width, height,
                                                   window->state))
     {
+        if (surface->requested.serial != surface->current.serial)
+            xdg_surface_ack_configure(surface->xdg_surface, surface->requested.serial);
         surface->current = surface->requested;
         memset(&surface->requested, 0, sizeof(surface->requested));
-        xdg_surface_ack_configure(surface->xdg_surface, surface->current.serial);
+        /* decoration changes must go through the message loop */
+        surface->requested.decor = surface->current.decor;
+        surface->current.decor = 0;
     }
     else if (!surface->current.serial ||
              !wayland_surface_config_is_compatible(&surface->current,
@@ -688,7 +1213,7 @@ static void wayland_surface_reconfigure_subsurface(struct wayland_surface *surfa
         TRACE("hwnd=%p pos=%d,%d\n", surface->hwnd, x, y);
 
         wl_subsurface_set_position(surface->wl_subsurface, x, y);
-        if (toplevel_data->client_surface)
+        if (toplevel_data->client_surface && toplevel_data->client_surface->wl_subsurface)
             wl_subsurface_place_above(surface->wl_subsurface, toplevel_data->client_surface->wl_surface);
         else
             wl_subsurface_place_above(surface->wl_subsurface, toplevel_surface->wl_surface);
@@ -726,6 +1251,7 @@ BOOL wayland_surface_reconfigure(struct wayland_surface *surface)
     case WAYLAND_SURFACE_ROLE_NONE:
         break;
     case WAYLAND_SURFACE_ROLE_TOPLEVEL:
+    case WAYLAND_SURFACE_ROLE_POPUP:
         if (!surface->xdg_surface) break; /* surface role has been cleared */
         if (!wayland_surface_reconfigure_xdg(surface, width, height)) return FALSE;
         break;
@@ -875,6 +1401,32 @@ err:
 }
 
 /***********************************************************************
+ *           copy_rectangle_into_center_of_square
+ *
+ * Copies non-square rectangle src to the center of square dest.
+ */
+static void copy_rectangle_into_center_of_square(const unsigned int *src,
+                                                 int src_w, int src_h,
+                                                 unsigned int *dest)
+{
+    int dest_length;
+
+    if (src_w > src_h)
+    {
+        dest += src_w * (src_w - src_h) / 2;
+        dest_length = src_w;
+    }
+    else
+    {
+        dest += (src_h - src_w) / 2;
+        dest_length = src_h;
+    }
+
+    for (int h = 0; h < src_h; h++, dest += dest_length, src += src_w)
+        memcpy(dest, src, src_w * 4);
+}
+
+/***********************************************************************
  *           wayland_shm_buffer_from_color_bitmaps
  *
  * Create a wayland_shm_buffer for a color bitmap.
@@ -882,7 +1434,8 @@ err:
  * Adapted from wineandroid.drv code.
  */
 struct wayland_shm_buffer *wayland_shm_buffer_from_color_bitmaps(HDC hdc, HBITMAP color,
-                                                                 HBITMAP mask)
+                                                                 HBITMAP mask,
+                                                                 BOOL allow_padding)
 {
     struct wayland_shm_buffer *shm_buffer = NULL;
     char buffer[FIELD_OFFSET(BITMAPINFO, bmiColors[256])];
@@ -890,15 +1443,10 @@ struct wayland_shm_buffer *wayland_shm_buffer_from_color_bitmaps(HDC hdc, HBITMA
     BITMAP bm;
     unsigned int *ptr, *bits = NULL;
     unsigned char *mask_bits = NULL;
-    int i, j;
-    BOOL has_alpha = FALSE;
+    int i, j, square_length;
+    BOOL has_alpha = FALSE, use_padding = FALSE;
 
     if (!NtGdiExtGetObjectW(color, sizeof(bm), &bm)) goto failed;
-
-    shm_buffer = wayland_shm_buffer_create(bm.bmWidth, bm.bmHeight,
-                                           WL_SHM_FORMAT_ARGB8888);
-    if (!shm_buffer) goto failed;
-    bits = shm_buffer->map_data;
 
     info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     info->bmiHeader.biWidth = bm.bmWidth;
@@ -911,6 +1459,24 @@ struct wayland_shm_buffer *wayland_shm_buffer_from_color_bitmaps(HDC hdc, HBITMA
     info->bmiHeader.biYPelsPerMeter = 0;
     info->bmiHeader.biClrUsed = 0;
     info->bmiHeader.biClrImportant = 0;
+
+    use_padding = allow_padding && bm.bmWidth != bm.bmHeight;
+
+    if (use_padding)
+    {
+        square_length = max(bm.bmWidth, bm.bmHeight);
+        shm_buffer = wayland_shm_buffer_create(square_length, square_length,
+                                               WL_SHM_FORMAT_ARGB8888);
+        if (!shm_buffer) goto failed;
+        if (!(bits = malloc(info->bmiHeader.biSizeImage))) goto failed;
+    }
+    else
+    {
+        shm_buffer = wayland_shm_buffer_create(bm.bmWidth, bm.bmHeight,
+                                               WL_SHM_FORMAT_ARGB8888);
+        if (!shm_buffer) goto failed;
+        bits = shm_buffer->map_data;
+    }
 
     if (!NtGdiGetDIBitsInternal(hdc, color, 0, bm.bmHeight, bits, info,
                                 DIB_RGB_COLORS, 0, 0))
@@ -941,8 +1507,16 @@ struct wayland_shm_buffer *wayland_shm_buffer_from_color_bitmaps(HDC hdc, HBITMA
         free(mask_bits);
     }
 
+    if (use_padding)
+    {
+        copy_rectangle_into_center_of_square(bits, bm.bmWidth,
+                                             bm.bmHeight, shm_buffer->map_data);
+        free(bits);
+        bits = shm_buffer->map_data;
+    }
+
     /* Wayland requires pre-multiplied alpha values */
-    for (ptr = bits, i = 0; i < bm.bmWidth * bm.bmHeight; ptr++, i++)
+    for (ptr = bits, i = 0; i < shm_buffer->width * shm_buffer->height; ptr++, i++)
     {
         unsigned char alpha = *ptr >> 24;
         if (alpha == 0)
@@ -962,6 +1536,7 @@ struct wayland_shm_buffer *wayland_shm_buffer_from_color_bitmaps(HDC hdc, HBITMA
 
 failed:
     if (shm_buffer) wayland_shm_buffer_unref(shm_buffer);
+    if (use_padding) free(bits);
     free(mask_bits);
     return NULL;
 }
@@ -1003,6 +1578,10 @@ static void wayland_client_surface_destroy(struct client_surface *client)
 
     TRACE("%s\n", debugstr_client_surface(client));
 
+    if (surface->wp_color_management_surface_v1)
+        wp_color_management_surface_v1_destroy(surface->wp_color_management_surface_v1);
+    if (surface->wp_content_type_v1)
+        wp_content_type_v1_destroy(surface->wp_content_type_v1);
     if (surface->wp_viewport)
         wp_viewport_destroy(surface->wp_viewport);
     if (surface->wl_subsurface)
@@ -1015,6 +1594,8 @@ static void wayland_client_surface_detach(struct client_surface *client)
 {
     struct wayland_client_surface *surface = impl_from_client_surface(client);
     struct wayland_win_data *data;
+
+    TRACE("%s\n", debugstr_client_surface(client));
 
     if ((data = wayland_win_data_get(client->hwnd)))
     {
@@ -1030,12 +1611,12 @@ static void wayland_client_surface_update(struct client_surface *client)
     HWND hwnd = client->hwnd, toplevel = NtUserGetAncestor(hwnd, GA_ROOT);
     struct wayland_win_data *data;
 
+    TRACE("%s\n", debugstr_client_surface(client));
+
     if (!(data = wayland_win_data_get(hwnd))) return;
 
-    if (toplevel && NtUserIsWindowVisible(hwnd))
-        wayland_client_surface_attach(surface, toplevel);
-    else
-        wayland_client_surface_attach(surface, NULL);
+    /* the client surface is not detached by update, only the geometry is updated */
+    if (toplevel) wayland_client_surface_attach(surface, toplevel);
 
     wayland_win_data_release(data);
 }
@@ -1091,6 +1672,21 @@ struct wayland_client_surface *wayland_client_surface_create(HWND hwnd)
         goto err;
     }
 
+    if (process_wayland.wp_content_type_manager_v1)
+    {
+        client->wp_content_type_v1 =
+            wp_content_type_manager_v1_get_surface_content_type(
+                process_wayland.wp_content_type_manager_v1,
+                client->wl_surface
+            );
+        if (client->wp_content_type_v1)
+        {
+            wp_content_type_v1_set_content_type(client->wp_content_type_v1,
+                                                WP_CONTENT_TYPE_V1_TYPE_GAME);
+            TRACE("set game content on client surface!\n");
+        }
+    }
+
     return client;
 
 err:
@@ -1111,6 +1707,8 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
         {
             wl_subsurface_destroy(client->wl_subsurface);
             client->wl_subsurface = NULL;
+            client->toplevel_wl_surface = NULL;
+            TRACE("Detached %s\n", debugstr_client_surface(&client->client));
         }
 
         client->toplevel = 0;
@@ -1123,7 +1721,9 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
         return;
     }
 
-    if (client->toplevel != toplevel)
+    /* if the toplevel's role changes (e.g becomes unmanaged popup/subsurface)
+     * we are left with an invalid parent, so we need to reparent */
+    if (client->toplevel != toplevel || client->toplevel_wl_surface != surface->wl_surface)
     {
         wayland_client_surface_attach(client, NULL);
 
@@ -1140,76 +1740,95 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
         wl_subsurface_set_desync(client->wl_subsurface);
 
         client->toplevel = toplevel;
+        client->toplevel_wl_surface = surface->wl_surface;
+        SetRect(&client->rect, 0, 0, -1, -1);
+
+        TRACE("Created subsurface for toplevel=%p\n", toplevel);
     }
 
     NtUserGetClientRect(hwnd, &client_rect, NtUserGetWinMonitorDpi(hwnd, MDT_RAW_DPI));
     NtUserMapWindowPoints(hwnd, toplevel, (POINT *)&client_rect, 2, NtUserGetWinMonitorDpi(hwnd, MDT_RAW_DPI));
 
-    wayland_surface_reconfigure_client(surface, client, &client_rect);
-    /* Commit to apply subsurface positioning. */
-    wl_surface_commit(surface->wl_surface);
-}
-
-static void dummy_buffer_release(void *data, struct wl_buffer *buffer)
-{
-    struct wayland_shm_buffer *shm_buffer = data;
-    TRACE("shm_buffer=%p\n", shm_buffer);
-    wayland_shm_buffer_unref(shm_buffer);
-}
-
-static const struct wl_buffer_listener dummy_buffer_listener =
-{
-    dummy_buffer_release
-};
-
-/**********************************************************************
- *          wayland_surface_ensure_contents
- *
- * Ensure that the wayland surface has up-to-date contents, by committing
- * a dummy buffer if necessary.
- */
-void wayland_surface_ensure_contents(struct wayland_surface *surface)
-{
-    struct wayland_shm_buffer *dummy_shm_buffer;
-    HRGN damage;
-    int width, height;
-    BOOL needs_contents;
-
-    width = surface->window.rect.right - surface->window.rect.left;
-    height = surface->window.rect.bottom - surface->window.rect.top;
-    needs_contents = surface->window.visible &&
-                     (surface->content_width != width ||
-                      surface->content_height != height);
-
-    TRACE("surface=%p hwnd=%p needs_contents=%d\n",
-          surface, surface->hwnd, needs_contents);
-
-    if (!needs_contents) return;
-
-    /* Create a transparent dummy buffer. */
-    dummy_shm_buffer = wayland_shm_buffer_create(width, height, WL_SHM_FORMAT_ARGB8888);
-    if (!dummy_shm_buffer)
+    if (wayland_surface_reconfigure_client(surface, client, &client_rect))
     {
-        ERR("Failed to create dummy buffer\n");
-        return;
-    }
-    wl_buffer_add_listener(dummy_shm_buffer->wl_buffer, &dummy_buffer_listener,
-                           dummy_shm_buffer);
-
-    if (!(damage = NtGdiCreateRectRgn(0, 0, width, height)))
-        WARN("Failed to create damage region for dummy buffer\n");
-
-    if (wayland_surface_reconfigure(surface))
-    {
-        wayland_surface_attach_shm(surface, dummy_shm_buffer, damage);
+        /* Commit to apply subsurface positioning. */
         wl_surface_commit(surface->wl_surface);
     }
-    else
+}
+
+static void wayland_image_description_v1_failed(void *user_data,
+                    struct wp_image_description_v1 *wp_image_description_v1,
+                    uint32_t cause, const char *msg)
+{
+    struct wayland_client_surface *surface = user_data;
+    ERR("cause=%u msg=%s\n", cause, debugstr_a(msg));
+
+    wp_image_description_v1_destroy(wp_image_description_v1);
+    client_surface_release(&surface->client);
+}
+
+static void wayland_image_description_v1_ready2(void *user_data,
+                    struct wp_image_description_v1 *wp_image_description_v1,
+                    uint32_t identity_hi, uint32_t identity_lo)
+{
+    struct wayland_client_surface *surface = user_data;
+    TRACE("id=%#x%x\n", identity_hi, identity_lo);
+
+    if (!surface->wp_color_management_surface_v1)
     {
-        wayland_shm_buffer_unref(dummy_shm_buffer);
+        surface->wp_color_management_surface_v1 =
+            wp_color_manager_v1_get_surface(process_wayland.wp_color_manager_v1,
+                                            surface->wl_surface);
+        if (!surface->wp_color_management_surface_v1)
+        {
+            ERR("Failed to create color management surface for client surface!\n");
+            return;
+        }
+    }
+    wp_color_management_surface_v1_set_image_description(
+        surface->wp_color_management_surface_v1,
+        wp_image_description_v1,
+        WP_COLOR_MANAGER_V1_RENDER_INTENT_PERCEPTUAL);
+    wp_image_description_v1_destroy(wp_image_description_v1);
+    client_surface_release(&surface->client);
+}
+
+static void wayland_image_description_v1_ready(void *user_data,
+                    struct wp_image_description_v1 *wp_image_description_v1,
+                    uint32_t identity)
+{
+    wayland_image_description_v1_ready2(user_data, wp_image_description_v1, 0, identity);
+}
+
+static const struct wp_image_description_v1_listener image_description_listener = {
+    wayland_image_description_v1_failed,
+    wayland_image_description_v1_ready,
+    wayland_image_description_v1_ready2
+};
+
+void wayland_client_surface_attach_image_description(struct client_surface *client,
+                                                     struct wp_image_description_v1 *image_desc)
+{
+    struct wayland_client_surface *surface = impl_from_client_surface(client);
+    if (!image_desc)
+    {
+        if (surface->wp_color_management_surface_v1)
+        {
+            wp_color_management_surface_v1_destroy(surface->wp_color_management_surface_v1);
+            surface->wp_color_management_surface_v1 = NULL;
+        }
+        return;
     }
 
-    if (damage) NtGdiDeleteObjectApp(damage);
+    client_surface_add_ref(&surface->client);
+    wp_image_description_v1_add_listener(image_desc, &image_description_listener, surface);
+    wl_display_flush(process_wayland.wl_display);
+}
+
+void wayland_client_surface_set_alpha(struct client_surface *client, BOOL alpha)
+{
+    struct wayland_client_surface *surface = impl_from_client_surface(client);
+    surface->has_alpha = alpha;
 }
 
 /**********************************************************************
@@ -1253,7 +1872,7 @@ void wayland_surface_set_icon_buffer(struct wayland_surface *surface, UINT type,
     TRACE("surface=%p type=%x ii=%p\n", surface, type, ii);
 
     hDC = NtGdiCreateCompatibleDC(0);
-    icon_buf = wayland_shm_buffer_from_color_bitmaps(hDC, ii->hbmColor, ii->hbmMask);
+    icon_buf = wayland_shm_buffer_from_color_bitmaps(hDC, ii->hbmColor, ii->hbmMask, TRUE);
     NtGdiDeleteObjectApp(hDC);
 
     if (surface->big_icon_buffer && type == ICON_BIG)
@@ -1311,5 +1930,88 @@ void wayland_surface_assign_icon(struct wayland_surface *surface)
 
         xdg_toplevel_icon_manager_v1_set_icon(process_wayland.xdg_toplevel_icon_manager_v1,
                                               surface->xdg_toplevel, surface->xdg_toplevel_icon);
+    }
+}
+
+static void xdg_activation_token_handle_done(void *user_data,
+                                             struct xdg_activation_token_v1 *xdg_activation_token_v1,
+                                             const char *token)
+{
+    HWND hwnd = user_data;
+    struct wayland_win_data *data;
+    struct wayland_surface *surface;
+
+
+    if ((data = wayland_win_data_get(hwnd)))
+    {
+        if ((surface = data->wayland_surface))
+            xdg_activation_v1_activate(process_wayland.xdg_activation_v1, token, surface->wl_surface);
+        wayland_win_data_release(data);
+    }
+
+    xdg_activation_token_v1_destroy(xdg_activation_token_v1);
+}
+
+const static struct xdg_activation_token_v1_listener xdg_activation_listener = {
+    xdg_activation_token_handle_done
+};
+
+void wayland_surface_activate(struct wayland_surface *surface)
+{
+    struct xdg_activation_token_v1 *token;
+    assert(surface);
+
+    if (process_wayland.xdg_activation_v1)
+    {
+        token = xdg_activation_v1_get_activation_token(process_wayland.xdg_activation_v1);
+
+        if (!token)
+        {
+            ERR("Failed to create activation token!\n");
+            return;
+        }
+
+        xdg_activation_token_v1_add_listener(token, &xdg_activation_listener, surface->hwnd);
+        xdg_activation_token_v1_set_surface(token, surface->wl_surface);
+        xdg_activation_token_v1_commit(token);
+    }
+}
+
+static BOOL use_inhibit(void)
+{
+    static int enabled = -1;
+
+    if (enabled == -1)
+    {
+        const char *env = getenv("WAYLANDDRV_SHORTCUT_INHIBIT");
+        enabled = env && atoi(env);
+    }
+
+    return enabled;
+}
+
+void wayland_surface_shortcut_control(struct wayland_surface *surface, BOOL inhibit)
+{
+    BOOL should_inhibit = inhibit && use_inhibit();
+
+    if (!process_wayland.zwp_keyboard_shortcuts_inhibit_manager_v1) return;
+
+    if (should_inhibit)
+    {
+        if (!surface->zwp_keyboard_shortcuts_inhibitor_v1)
+        {
+            surface->zwp_keyboard_shortcuts_inhibitor_v1 =
+                zwp_keyboard_shortcuts_inhibit_manager_v1_inhibit_shortcuts(
+                    process_wayland.zwp_keyboard_shortcuts_inhibit_manager_v1,
+                    surface->wl_surface, process_wayland.seat.wl_seat);
+            /* dont create a listener since we dont care
+             * if the shortcuts are actually inhibited or not */
+        }
+    }
+    else if (surface->zwp_keyboard_shortcuts_inhibitor_v1)
+    {
+        zwp_keyboard_shortcuts_inhibitor_v1_destroy(
+            surface->zwp_keyboard_shortcuts_inhibitor_v1);
+        surface->zwp_keyboard_shortcuts_inhibitor_v1 = NULL;
     }
 }

@@ -178,6 +178,23 @@ static BOOL process_pattern_string(const WCHAR *pattern, HANDLE file)
     return ret;
 }
 
+static BOOL is_asf_stream(HANDLE file)
+{
+    static const BYTE asf_header_guid[] =
+    {
+        0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11,
+        0xa6, 0xd9, 0x00, 0xaa, 0x00, 0x62, 0xce, 0x6c,
+    };
+    BYTE header[ARRAY_SIZE(asf_header_guid)];
+    DWORD ret_size;
+
+    SetFilePointer(file, 0, NULL, FILE_BEGIN);
+    if (!ReadFile(file, header, sizeof(header), &ret_size, NULL) || ret_size != sizeof(header))
+        return FALSE;
+
+    return !memcmp(header, asf_header_guid, sizeof(header));
+}
+
 BOOL get_media_type(const WCHAR *filename, GUID *majortype, GUID *subtype, GUID *source_clsid)
 {
     WCHAR extensions_path[278] = L"Media Type\\Extensions\\";
@@ -216,6 +233,22 @@ BOOL get_media_type(const WCHAR *filename, GUID *majortype, GUID *subtype, GUID 
     {
         WARN("Failed to open file %s, error %lu.\n", debugstr_w(filename), GetLastError());
         return FALSE;
+    }
+
+    if (is_asf_stream(file))
+    {
+        /* Persona 4 Arena Ultimax stores its intro ASF without an extension.
+         * Prefer the ASF reader before generic registry pattern matching so
+         * the file does not get misclassified and skipped. */
+        if (majortype)
+            *majortype = MEDIATYPE_Stream;
+        if (subtype)
+            *subtype = MEDIASUBTYPE_Asf;
+        if (source_clsid)
+            *source_clsid = CLSID_WMAsfReader;
+
+        CloseHandle(file);
+        return TRUE;
     }
 
     if (RegOpenKeyExW(HKEY_CLASSES_ROOT, L"Media Type", 0, KEY_READ, &parent_key))

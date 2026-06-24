@@ -974,7 +974,7 @@ static void load_steam_overlay(const char *unix_lib_path)
     unsigned int len;
     void *handle;
 
-    if (!strstr(unix_lib_path, "winex11.so")) return;
+    if (!strstr(unix_lib_path, "winex11.so") && !strstr(unix_lib_path, "winewayland.so")) return;
     if (getenv("LD_PRELOAD") || !(preload = getenv("WINE_LD_PRELOAD"))) return;
 
     p = preload;
@@ -3649,7 +3649,6 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
     }
 
     if (!image_info->map_addr &&
-        (image_info->image_charact & IMAGE_FILE_DLL) &&
         (image_info->image_flags & IMAGE_FLAGS_ImageDynamicallyRelocated))
     {
         SERVER_START_REQ( get_image_map_address )

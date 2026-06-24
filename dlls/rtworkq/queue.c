@@ -224,6 +224,7 @@ static HRESULT lock_user_queue(DWORD queue)
 static HRESULT unlock_user_queue(DWORD queue)
 {
     HRESULT hr = RTWQ_E_INVALID_WORKQUEUE;
+    struct queue *queue_obj = NULL;
     struct queue_handle *entry;
 
     if (!(queue & RTWQ_CALLBACK_QUEUE_PRIVATE_MASK))
@@ -236,14 +237,20 @@ static HRESULT unlock_user_queue(DWORD queue)
         if (--entry->refcount == 0)
         {
             if (shared_mt_queue == queue) shared_mt_queue = 0;
-            shutdown_queue((struct queue *)entry->obj);
-            free(entry->obj);
+            queue_obj = entry->obj;
             entry->obj = next_free_user_queue;
             next_free_user_queue = entry;
         }
         hr = S_OK;
     }
     LeaveCriticalSection(&queues_section);
+
+    if (queue_obj)
+    {
+        shutdown_queue(queue_obj);
+        free(queue_obj);
+    }
+
     return hr;
 }
 
@@ -816,10 +823,11 @@ static void CALLBACK scheduled_item_cancelable_callback(TP_CALLBACK_INSTANCE *in
 static void CALLBACK periodic_item_callback(TP_CALLBACK_INSTANCE *instance, void *context, TP_TIMER *timer)
 {
     struct work_item *item = context;
+    RTWQASYNCRESULT *result = (RTWQASYNCRESULT *)item->result;
 
     IUnknown_AddRef(&item->IUnknown_iface);
 
-    invoke_async_callback(item->result);
+    IRtwqAsyncCallback_Invoke(result->pCallback, item->result);
 
     IUnknown_Release(&item->IUnknown_iface);
 }

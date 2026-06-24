@@ -1480,11 +1480,15 @@ void abort_thread( int status )
 }
 
 
+extern void delete_eac_wine_pid(void);
+
+
 /***********************************************************************
  *           abort_process
  */
 void abort_process( int status )
 {
+    delete_eac_wine_pid();
     _exit( get_unix_exit_code( status ));
 }
 

@@ -56,6 +56,107 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(mfplat);
 
+struct bytestream_read_cb
+{
+    IMFAsyncCallback IMFAsyncCallback_iface;
+    LONG refcount;
+    HANDLE event;
+    IMFAsyncResult *result;
+};
+
+static struct bytestream_read_cb *bytestream_read_cb_from_iface(IMFAsyncCallback *iface)
+{
+    return CONTAINING_RECORD(iface, struct bytestream_read_cb, IMFAsyncCallback_iface);
+}
+
+static HRESULT WINAPI bytestream_read_cb_QueryInterface(IMFAsyncCallback *iface, REFIID riid, void **obj)
+{
+    if (IsEqualIID(riid, &IID_IMFAsyncCallback) || IsEqualIID(riid, &IID_IUnknown))
+    {
+        *obj = iface;
+        IMFAsyncCallback_AddRef(iface);
+        return S_OK;
+    }
+    *obj = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI bytestream_read_cb_AddRef(IMFAsyncCallback *iface)
+{
+    return InterlockedIncrement(&bytestream_read_cb_from_iface(iface)->refcount);
+}
+
+static ULONG WINAPI bytestream_read_cb_Release(IMFAsyncCallback *iface)
+{
+    struct bytestream_read_cb *cb = bytestream_read_cb_from_iface(iface);
+    ULONG ref = InterlockedDecrement(&cb->refcount);
+    if (!ref) { CloseHandle(cb->event); free(cb); }
+    return ref;
+}
+
+static HRESULT WINAPI bytestream_read_cb_GetParameters(IMFAsyncCallback *iface, DWORD *flags, DWORD *queue)
+{
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI bytestream_read_cb_Invoke(IMFAsyncCallback *iface, IMFAsyncResult *result)
+{
+    struct bytestream_read_cb *cb = bytestream_read_cb_from_iface(iface);
+    cb->result = result;
+    IMFAsyncResult_AddRef(result);
+    SetEvent(cb->event);
+    return S_OK;
+}
+
+static const IMFAsyncCallbackVtbl bytestream_read_cb_vtbl =
+{
+    bytestream_read_cb_QueryInterface,
+    bytestream_read_cb_AddRef,
+    bytestream_read_cb_Release,
+    bytestream_read_cb_GetParameters,
+    bytestream_read_cb_Invoke,
+};
+
+/* Some IMFByteStream implementations only support asynchronous reads and signal
+ * this by returning pcbRead == 0xffffffff from the synchronous Read method.
+ * Fall back to BeginRead/EndRead in that case. */
+static HRESULT mfplat_bytestream_read(IMFByteStream *stream, BYTE *buffer, ULONG size, ULONG *read_size)
+{
+    struct bytestream_read_cb *cb;
+    IMFAsyncResult *result;
+    HRESULT hr;
+
+    if (FAILED(hr = IMFByteStream_Read(stream, buffer, size, read_size)))
+        return hr;
+    if (*read_size != 0xffffffff)
+        return S_OK;
+
+    if (!(cb = calloc(1, sizeof(*cb))))
+        return E_OUTOFMEMORY;
+    cb->IMFAsyncCallback_iface.lpVtbl = &bytestream_read_cb_vtbl;
+    cb->refcount = 1;
+    cb->event = CreateEventA(NULL, FALSE, FALSE, NULL);
+
+    if (FAILED(hr = IMFByteStream_BeginRead(stream, buffer, size, &cb->IMFAsyncCallback_iface, NULL)))
+    {
+        WARN("BeginRead failed, hr %#lx.\n", hr);
+        IMFAsyncCallback_Release(&cb->IMFAsyncCallback_iface);
+        return hr;
+    }
+    if (WaitForSingleObject(cb->event, 5000) != WAIT_OBJECT_0)
+    {
+        ERR("Timed out waiting for BeginRead.\n");
+        IMFAsyncCallback_Release(&cb->IMFAsyncCallback_iface);
+        return E_FAIL;
+    }
+    result = cb->result;
+    cb->result = NULL;
+    IMFAsyncCallback_Release(&cb->IMFAsyncCallback_iface);
+    hr = IMFByteStream_EndRead(stream, result, read_size);
+    IMFAsyncResult_Release(result);
+    return hr;
+}
+
 struct local_handler
 {
     struct list entry;
@@ -6142,10 +6243,26 @@ static HRESULT resolver_create_registered_handler(HKEY hkey, REFIID riid, void *
     return hr;
 }
 
+static BOOL is_asf_extension_or_mime(const WCHAR *mime, const WCHAR *extension)
+{
+    static const WCHAR *asf_extensions[] = { L".asf", L".wma", L".wmv" };
+    static const WCHAR *asf_mimes[] = { L"video/x-ms-asf", L"audio/x-ms-wma", L"video/x-ms-wmv" };
+    unsigned int i;
+
+    if (extension)
+        for (i = 0; i < ARRAY_SIZE(asf_extensions); ++i)
+            if (!lstrcmpiW(extension, asf_extensions[i])) return TRUE;
+    if (mime)
+        for (i = 0; i < ARRAY_SIZE(asf_mimes); ++i)
+            if (!lstrcmpiW(mime, asf_mimes[i])) return TRUE;
+    return FALSE;
+}
+
 static HRESULT resolver_create_bytestream_handler(IMFByteStream *stream, DWORD flags, const WCHAR *mime,
         const WCHAR *extension, IMFByteStreamHandler **handler)
 {
     static const HKEY hkey_roots[2] = { HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE };
+    static const GUID CLSID_WineDMOByteStreamHandler = {0x317df618,0x5e5a,0x468a,{0x9f,0x15,0xd8,0x27,0xa9,0xa0,0x81,0x62}};
     HRESULT hr = E_FAIL;
     unsigned int i, j;
 
@@ -6202,6 +6319,12 @@ static HRESULT resolver_create_bytestream_handler(IMFByteStream *stream, DWORD f
         if (SUCCEEDED(hr))
             break;
     }
+
+    /* Built-in fallback: if no registered ASF/WMA handler was found, try the winedmo handler directly.
+     * This avoids a dependency on the Windows registry having the handler entry populated. */
+    if (FAILED(hr) && is_asf_extension_or_mime(mime, extension))
+        hr = CoCreateInstance(&CLSID_WineDMOByteStreamHandler, NULL, CLSCTX_INPROC_SERVER,
+                &IID_IMFByteStreamHandler, (void **)handler);
 
     return hr;
 }
@@ -6266,7 +6389,9 @@ static HRESULT resolver_get_bytestream_url_hint(IMFByteStream *stream, WCHAR con
         return hr;
     if (position && FAILED(hr = IMFByteStream_SetCurrentPosition(stream, 0)))
         return hr;
-    if (FAILED(hr = IMFByteStream_Read(stream, buffer, sizeof(buffer), &length)))
+    if (FAILED(hr = mfplat_bytestream_read(stream, buffer, sizeof(buffer), &length)))
+        return hr;
+    if (FAILED(hr = IMFByteStream_SetCurrentPosition(stream, position)))
         return hr;
 
     if (length < sizeof(buffer))
@@ -6342,6 +6467,13 @@ static HRESULT resolver_get_bytestream_handler(IMFByteStream *stream, const WCHA
     if (url_ext || mimeW)
     {
         hr = resolver_create_bytestream_handler(stream, flags, mimeW, url_ext, handler);
+
+        if (FAILED(hr))
+            hr = resolver_create_default_handler(handler);
+    }
+    else if (SUCCEEDED(resolver_get_bytestream_url_hint(stream, &url_ext)) && url_ext)
+    {
+        hr = resolver_create_bytestream_handler(stream, flags, NULL, url_ext, handler);
 
         if (FAILED(hr))
             hr = resolver_create_default_handler(handler);
@@ -7420,11 +7552,19 @@ static HRESULT WINAPI eventqueue_GetEvent(IMFMediaEventQueue *iface, DWORD flags
 
 static void queue_notify_subscriber(struct event_queue *queue)
 {
+    DWORD flags, callback_queue = MFASYNC_CALLBACK_QUEUE_STANDARD;
+    RTWQASYNCRESULT *result_data;
+
     if (list_empty(&queue->events) || !queue->subscriber || queue->notified)
         return;
 
+    result_data = (RTWQASYNCRESULT *)queue->subscriber;
+    if (FAILED(IRtwqAsyncCallback_GetParameters(result_data->pCallback, &flags, &callback_queue))
+            || callback_queue == MFASYNC_CALLBACK_QUEUE_UNDEFINED)
+        callback_queue = MFASYNC_CALLBACK_QUEUE_STANDARD;
+
     queue->notified = TRUE;
-    RtwqPutWorkItem(MFASYNC_CALLBACK_QUEUE_STANDARD, 0, queue->subscriber);
+    RtwqPutWorkItem(callback_queue, 0, queue->subscriber);
 }
 
 static HRESULT WINAPI eventqueue_BeginGetEvent(IMFMediaEventQueue *iface, IMFAsyncCallback *callback, IUnknown *state)

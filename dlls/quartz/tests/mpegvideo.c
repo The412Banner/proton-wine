@@ -697,6 +697,13 @@ static void test_media_types(void)
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
 
     mt = mpeg_mt;
+    mt.formattype = FORMAT_VideoInfo;
+    mt.cbFormat = sizeof(VIDEOINFOHEADER);
+    mt.pbFormat = (BYTE *)&mpg_format.hdr;
+    hr = IPin_QueryAccept(pin, &mt);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    mt = mpeg_mt;
     mt.subtype = MEDIASUBTYPE_MPEG1Packet;
     hr = IPin_QueryAccept(pin, &mt);
     todo_wine ok(hr == S_OK, "Got hr %#lx.\n", hr);

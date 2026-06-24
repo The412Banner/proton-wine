@@ -1356,7 +1356,7 @@ static void test_source_resolver(void)
     ok(hr == S_OK, "Failed to set string value, hr %#lx.\n", hr);
     IMFAttributes_Release(attributes);
 
-    /* Start of gstreamer dependent tests */
+    /* Start of winedmo dependent tests */
 
     hr = IMFSourceResolver_CreateObjectFromByteStream(resolver, stream, NULL, MF_RESOLUTION_MEDIASOURCE, NULL,
             &obj_type, (IUnknown **)&mediasource);

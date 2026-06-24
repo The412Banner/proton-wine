@@ -29,6 +29,8 @@
 #include "winreg.h"
 #include "shlwapi.h"
 #include "dshow.h"
+#include "dmodshow.h"
+#include "dmoreg.h"
 #include "wine/debug.h"
 #include "quartz_private.h"
 #include "ole2.h"
@@ -40,6 +42,19 @@
 
 
 WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+
+static const CLSID CLSID_winedmo_ac3_audio_decoder =
+    {0x31d3ec21, 0x457d, 0x406f, {0x87, 0x84, 0x3d, 0x1a, 0x41, 0xe0, 0x7a, 0x6c}};
+static const CLSID CLSID_winedmo_wma_decoder =
+    {0x5b4d4e54, 0x0620, 0x4cf9, {0x94, 0xae, 0x78, 0x23, 0x96, 0x5c, 0x28, 0xb6}};
+static const GUID wma_audio_subtype_msaudio1 =
+    {0x00000160, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+static const GUID wma_audio_subtype_wmaudio2 =
+    {0x00000161, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+static const GUID wma_audio_subtype_wmaudio3 =
+    {0x00000162, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+static const GUID wma_audio_subtype_wmaudio_lossless =
+    {0x00000163, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
 
 DECLARE_CRITICAL_SECTION(message_cs);
 
@@ -1006,6 +1021,7 @@ static HRESULT WINAPI FilterGraph2_Disconnect(IFilterGraph2 *iface, IPin *ppin)
 static HRESULT WINAPI FilterGraph2_SetDefaultSyncSource(IFilterGraph2 *iface)
 {
     struct filter_graph *This = impl_from_IFilterGraph2(iface);
+    IBaseFilter *provider = NULL;
     IReferenceClock *pClock = NULL;
     struct filter *filter;
     HRESULT hr = S_OK;
@@ -1016,8 +1032,21 @@ static HRESULT WINAPI FilterGraph2_SetDefaultSyncSource(IFilterGraph2 *iface)
 
     LIST_FOR_EACH_ENTRY(filter, &This->filters, struct filter, entry)
     {
-        if (IBaseFilter_QueryInterface(filter->filter, &IID_IReferenceClock, (void **)&pClock) == S_OK)
-            break;
+        CLSID clsid;
+
+        if (FAILED(IBaseFilter_QueryInterface(filter->filter, &IID_IReferenceClock, (void **)&pClock)))
+            continue;
+
+        if (SUCCEEDED(IBaseFilter_GetClassID(filter->filter, &clsid))
+                && (IsEqualGUID(&clsid, &CLSID_AudioRender) || IsEqualGUID(&clsid, &CLSID_DSoundRender)))
+        {
+            IReferenceClock_Release(pClock);
+            pClock = NULL;
+            continue;
+        }
+
+        provider = filter->filter;
+        break;
     }
 
     if (!pClock)
@@ -1027,8 +1056,7 @@ static HRESULT WINAPI FilterGraph2_SetDefaultSyncSource(IFilterGraph2 *iface)
     }
     else
     {
-        filter = LIST_ENTRY(list_tail(&This->filters), struct filter, entry);
-        This->refClockProvider = filter->filter;
+        This->refClockProvider = provider;
     }
 
     if (SUCCEEDED(hr))
@@ -1271,6 +1299,204 @@ out:
     return hr;
 }
 
+static BOOL autoplug_types_include_mpeg_stream(unsigned int type_count, const GUID *types)
+{
+    unsigned int i;
+
+    for (i = 0; i < type_count; ++i)
+    {
+        const GUID *major = &types[i * 2], *subtype = &types[i * 2 + 1];
+
+        if (!IsEqualGUID(major, &MEDIATYPE_Stream))
+            continue;
+
+        if (IsEqualGUID(subtype, &MEDIASUBTYPE_MPEG1System)
+                || IsEqualGUID(subtype, &MEDIASUBTYPE_MPEG1VideoCD)
+                || IsEqualGUID(subtype, &MEDIASUBTYPE_MPEG2_PROGRAM))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOL autoplug_types_include_mpeg_video(unsigned int type_count, const GUID *types)
+{
+    unsigned int i;
+
+    for (i = 0; i < type_count; ++i)
+    {
+        const GUID *major = &types[i * 2], *subtype = &types[i * 2 + 1];
+
+        if (!IsEqualGUID(major, &MEDIATYPE_Video))
+            continue;
+
+        if (IsEqualGUID(subtype, &MEDIASUBTYPE_MPEG1Packet)
+                || IsEqualGUID(subtype, &MEDIASUBTYPE_MPEG1Payload)
+                || IsEqualGUID(subtype, &MEDIASUBTYPE_MPEG2_VIDEO))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOL autoplug_types_include_ac3_audio(unsigned int type_count, const GUID *types)
+{
+    unsigned int i;
+
+    for (i = 0; i < type_count; ++i)
+    {
+        const GUID *major = &types[i * 2], *subtype = &types[i * 2 + 1];
+
+        if (!IsEqualGUID(major, &MEDIATYPE_Audio))
+            continue;
+
+        if (IsEqualGUID(subtype, &MEDIASUBTYPE_DOLBY_AC3)
+                || IsEqualGUID(subtype, &MEDIASUBTYPE_DOLBY_AC3_SPDIF))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOL autoplug_types_include_wma_audio(unsigned int type_count, const GUID *types)
+{
+    unsigned int i;
+
+    for (i = 0; i < type_count; ++i)
+    {
+        const GUID *major = &types[i * 2], *subtype = &types[i * 2 + 1];
+
+        if (!IsEqualGUID(major, &MEDIATYPE_Audio))
+            continue;
+
+        if (IsEqualGUID(subtype, &wma_audio_subtype_msaudio1)
+                || IsEqualGUID(subtype, &wma_audio_subtype_wmaudio2)
+                || IsEqualGUID(subtype, &wma_audio_subtype_wmaudio3)
+                || IsEqualGUID(subtype, &wma_audio_subtype_wmaudio_lossless))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static HRESULT autoplug_filter_by_clsid(struct filter_graph *graph, IPin *source, IPin *sink,
+        const CLSID *clsid, const WCHAR *name, IAMGraphBuilderCallback *callback,
+        BOOL render_to_existing, unsigned int recursion_depth)
+{
+    IBaseFilter *filter;
+    IMoniker *moniker = NULL;
+    HRESULT hr;
+
+    TRACE("Trying %s before generic filter enumeration.\n", debugstr_w(name));
+
+    if (callback && SUCCEEDED(CreateClassMoniker(clsid, &moniker)))
+    {
+        hr = IAMGraphBuilderCallback_SelectedFilter(callback, moniker);
+        IMoniker_Release(moniker);
+        if (FAILED(hr))
+        {
+            TRACE("%s rejected by IAMGraphBuilderCallback::SelectedFilter(), hr %#lx.\n", debugstr_w(name), hr);
+            return hr;
+        }
+    }
+
+    if (FAILED(hr = CoCreateInstance(clsid, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IBaseFilter, (void **)&filter)))
+        return hr;
+
+    if (callback && FAILED(hr = IAMGraphBuilderCallback_CreatedFilter(callback, filter)))
+    {
+        TRACE("%s rejected by IAMGraphBuilderCallback::CreatedFilter(), hr %#lx.\n", debugstr_w(name), hr);
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    hr = IFilterGraph2_AddFilter(&graph->IFilterGraph2_iface, filter, name);
+    if (FAILED(hr))
+    {
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    hr = autoplug_through_filter(graph, source, filter, sink, render_to_existing, recursion_depth);
+    if (FAILED(hr))
+        IFilterGraph2_RemoveFilter(&graph->IFilterGraph2_iface, filter);
+
+    IBaseFilter_Release(filter);
+    return hr;
+}
+
+static HRESULT autoplug_dmo_wrapper_by_clsid(struct filter_graph *graph, IPin *source, IPin *sink,
+        const CLSID *clsid, const WCHAR *name, IAMGraphBuilderCallback *callback,
+        BOOL render_to_existing, unsigned int recursion_depth)
+{
+    IDMOWrapperFilter *wrapper;
+    IBaseFilter *filter;
+    IMoniker *moniker = NULL;
+    HRESULT hr;
+
+    TRACE("Trying %s through DMO wrapper before generic filter enumeration.\n", debugstr_w(name));
+
+    if (callback && SUCCEEDED(CreateClassMoniker(&CLSID_DMOWrapperFilter, &moniker)))
+    {
+        hr = IAMGraphBuilderCallback_SelectedFilter(callback, moniker);
+        IMoniker_Release(moniker);
+        if (FAILED(hr))
+        {
+            TRACE("%s wrapper rejected by IAMGraphBuilderCallback::SelectedFilter(), hr %#lx.\n",
+                    debugstr_w(name), hr);
+            return hr;
+        }
+    }
+
+    if (FAILED(hr = CoCreateInstance(&CLSID_DMOWrapperFilter, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IBaseFilter, (void **)&filter)))
+        return hr;
+
+    if (FAILED(hr = IBaseFilter_QueryInterface(filter, &IID_IDMOWrapperFilter, (void **)&wrapper)))
+    {
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    hr = IDMOWrapperFilter_Init(wrapper, clsid, &DMOCATEGORY_AUDIO_DECODER);
+    IDMOWrapperFilter_Release(wrapper);
+    if (FAILED(hr))
+    {
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    if (callback && FAILED(hr = IAMGraphBuilderCallback_CreatedFilter(callback, filter)))
+    {
+        TRACE("%s wrapper rejected by IAMGraphBuilderCallback::CreatedFilter(), hr %#lx.\n",
+                debugstr_w(name), hr);
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    hr = IFilterGraph2_AddFilter(&graph->IFilterGraph2_iface, filter, name);
+    if (FAILED(hr))
+    {
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    hr = autoplug_through_filter(graph, source, filter, sink, render_to_existing, recursion_depth);
+    if (FAILED(hr))
+        IFilterGraph2_RemoveFilter(&graph->IFilterGraph2_iface, filter);
+
+    IBaseFilter_Release(filter);
+    return hr;
+}
+
+static HRESULT autoplug_mpeg_stream_splitter(struct filter_graph *graph, IPin *source, IPin *sink,
+        IAMGraphBuilderCallback *callback, BOOL render_to_existing, unsigned int recursion_depth)
+{
+    return autoplug_filter_by_clsid(graph, source, sink, &CLSID_MPEG1Splitter,
+            L"MPEG-I Stream Splitter", callback, render_to_existing, recursion_depth);
+}
+
 /* Common helper for IGraphBuilder::Connect() and IGraphBuilder::Render(), which
  * share most of the same code. Render() calls this with a NULL sink. */
 static HRESULT autoplug(struct filter_graph *graph, IPin *source, IPin *sink,
@@ -1324,6 +1550,28 @@ static HRESULT autoplug(struct filter_graph *graph, IPin *source, IPin *sink,
 
     if (graph->pSite)
         IUnknown_QueryInterface(graph->pSite, &IID_IAMGraphBuilderCallback, (void **)&callback);
+
+    if (autoplug_types_include_mpeg_stream(type_count, types)
+            && SUCCEEDED(hr = autoplug_mpeg_stream_splitter(graph, source, sink, callback,
+                    render_to_existing, recursion_depth)))
+        goto out;
+
+    if (autoplug_types_include_mpeg_video(type_count, types)
+            && SUCCEEDED(hr = autoplug_filter_by_clsid(graph, source, sink, &CLSID_CMpegVideoCodec,
+                    L"MPEG Video Decoder", callback, render_to_existing, recursion_depth)))
+        goto out;
+
+    if (autoplug_types_include_ac3_audio(type_count, types)
+            && SUCCEEDED(hr = autoplug_filter_by_clsid(graph, source, sink, &CLSID_winedmo_ac3_audio_decoder,
+                    L"winedmo AC3 decoder", callback, render_to_existing, recursion_depth)))
+        goto out;
+
+    if (autoplug_types_include_wma_audio(type_count, types))
+    {
+        if (SUCCEEDED(hr = autoplug_dmo_wrapper_by_clsid(graph, source, sink, &CLSID_winedmo_wma_decoder,
+                L"winedmo WMA decoder", callback, render_to_existing, recursion_depth)))
+            goto out;
+    }
 
     if (FAILED(hr = IFilterMapper2_EnumMatchingFilters(mapper, &enummoniker,
             0, FALSE, MERIT_UNLIKELY, TRUE, type_count, types, NULL, NULL, FALSE,
@@ -1450,26 +1698,124 @@ static HRESULT WINAPI FilterGraph2_Render(IFilterGraph2 *iface, IPin *source)
     return hr;
 }
 
-static HRESULT WINAPI FilterGraph2_RenderFile(IFilterGraph2 *iface, LPCWSTR lpcwstrFile,
-        LPCWSTR lpcwstrPlayList)
+static HRESULT add_source_filter_with_clsid(IFilterGraph2 *iface, const WCHAR *filename,
+        const WCHAR *filter_name, const GUID *source_clsid, IBaseFilter **ret_filter)
+{
+    struct filter_graph *graph = impl_from_IFilterGraph2(iface);
+    IFileSourceFilter *filesource;
+    IBaseFilter *filter;
+    HRESULT hr;
+    GUID clsid;
+
+    TRACE("graph %p, filename %s, filter_name %s, source_clsid %s, ret_filter %p.\n",
+            graph, debugstr_w(filename), debugstr_w(filter_name), debugstr_guid(source_clsid), ret_filter);
+
+    if (!*filename)
+        return VFW_E_NOT_FOUND;
+
+    if (source_clsid)
+        clsid = *source_clsid;
+    else if (!get_media_type(filename, NULL, NULL, &clsid))
+        clsid = CLSID_AsyncReader;
+    TRACE("Using source filter %s.\n", debugstr_guid(&clsid));
+
+    if (FAILED(hr = CoCreateInstance(&clsid, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IBaseFilter, (void **)&filter)))
+    {
+        WARN("Failed to create filter, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    if (FAILED(hr = IBaseFilter_QueryInterface(filter, &IID_IFileSourceFilter, (void **)&filesource)))
+    {
+        WARN("Failed to get IFileSourceFilter, hr %#lx.\n", hr);
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    hr = IFileSourceFilter_Load(filesource, filename, NULL);
+    IFileSourceFilter_Release(filesource);
+    if (FAILED(hr))
+    {
+        WARN("Failed to load file, hr %#lx.\n", hr);
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    if (FAILED(hr = IFilterGraph2_AddFilter(iface, filter, filter_name)))
+    {
+        IBaseFilter_Release(filter);
+        return hr;
+    }
+
+    if (ret_filter)
+        *ret_filter = filter;
+    return S_OK;
+}
+
+static BOOL filter_in_snapshot(IBaseFilter *filter, IBaseFilter **snapshot, unsigned int count)
+{
+    unsigned int i;
+
+    for (i = 0; i < count; ++i)
+    {
+        if (snapshot[i] == filter)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static HRESULT remove_filters_added_after_snapshot(struct filter_graph *graph,
+        IBaseFilter **snapshot, unsigned int count)
+{
+    struct filter *filter, *next;
+    HRESULT hr = S_OK, tmp_hr;
+
+    LIST_FOR_EACH_ENTRY_SAFE(filter, next, &graph->filters, struct filter, entry)
+    {
+        if (filter_in_snapshot(filter->filter, snapshot, count))
+            continue;
+
+        tmp_hr = IFilterGraph2_RemoveFilter(&graph->IFilterGraph2_iface, filter->filter);
+        if (FAILED(tmp_hr) && SUCCEEDED(hr))
+            hr = tmp_hr;
+    }
+
+    return hr;
+}
+
+static HRESULT render_file_with_source_filter(IFilterGraph2 *iface, LPCWSTR filename, const GUID *source_clsid)
 {
     struct filter_graph *This = impl_from_IFilterGraph2(iface);
-    IBaseFilter* preader = NULL;
-    IPin* ppinreader = NULL;
-    IEnumPins* penumpins = NULL;
+    IBaseFilter *preader = NULL;
+    IBaseFilter **filter_snapshot = NULL;
+    IPin *ppinreader = NULL;
+    IEnumPins *penumpins = NULL;
     struct filter *filter;
+    unsigned int filter_count = 0, i = 0;
     HRESULT hr;
     BOOL partial = FALSE;
     BOOL any = FALSE;
 
-    TRACE("(%p/%p)->(%s, %s)\n", This, iface, debugstr_w(lpcwstrFile), debugstr_w(lpcwstrPlayList));
+    if (source_clsid)
+    {
+        LIST_FOR_EACH_ENTRY(filter, &This->filters, struct filter, entry)
+            ++filter_count;
 
-    if (lpcwstrPlayList != NULL)
-        return E_INVALIDARG;
+        if (filter_count && !(filter_snapshot = calloc(filter_count, sizeof(*filter_snapshot))))
+            return E_OUTOFMEMORY;
 
-    hr = IFilterGraph2_AddSourceFilter(iface, lpcwstrFile, L"Reader", &preader);
+        LIST_FOR_EACH_ENTRY(filter, &This->filters, struct filter, entry)
+        {
+            IBaseFilter_AddRef(filter->filter);
+            filter_snapshot[i++] = filter->filter;
+        }
+    }
+
+    hr = add_source_filter_with_clsid(iface, filename, L"Reader", source_clsid, &preader);
     if (FAILED(hr))
-        return hr;
+        goto done;
 
     hr = IBaseFilter_EnumPins(preader, &penumpins);
     if (SUCCEEDED(hr))
@@ -1511,63 +1857,50 @@ static HRESULT WINAPI FilterGraph2_RenderFile(IFilterGraph2 *iface, LPCWSTR lpcw
             hr = S_OK;
         }
     }
+    if (source_clsid && hr != S_OK && FAILED(remove_filters_added_after_snapshot(This, filter_snapshot, filter_count)))
+        WARN("Failed to remove all filters from partial source render.\n");
     IBaseFilter_Release(preader);
+
+done:
+    for (i = 0; i < filter_count; ++i)
+        IBaseFilter_Release(filter_snapshot[i]);
+    free(filter_snapshot);
 
     TRACE("Returning %#lx.\n", hr);
     return hr;
 }
 
+static HRESULT WINAPI FilterGraph2_RenderFile(IFilterGraph2 *iface, LPCWSTR lpcwstrFile,
+        LPCWSTR lpcwstrPlayList)
+{
+    struct filter_graph *graph = impl_from_IFilterGraph2(iface);
+    GUID source_clsid;
+    HRESULT hr;
+
+    TRACE("(%p/%p)->(%s, %s)\n", graph, iface, debugstr_w(lpcwstrFile), debugstr_w(lpcwstrPlayList));
+
+    if (lpcwstrPlayList != NULL)
+        return E_INVALIDARG;
+
+    if (get_media_type(lpcwstrFile, NULL, NULL, &source_clsid)
+            && IsEqualGUID(&source_clsid, &CLSID_WMAsfReader))
+    {
+        TRACE("Trying async reader before ASF source reader for %s.\n", debugstr_w(lpcwstrFile));
+
+        hr = render_file_with_source_filter(iface, lpcwstrFile, &CLSID_AsyncReader);
+        if (hr == S_OK)
+            return hr;
+
+        TRACE("Async reader failed with %#lx; falling back to ASF source reader.\n", hr);
+    }
+
+    return render_file_with_source_filter(iface, lpcwstrFile, NULL);
+}
+
 static HRESULT WINAPI FilterGraph2_AddSourceFilter(IFilterGraph2 *iface,
         const WCHAR *filename, const WCHAR *filter_name, IBaseFilter **ret_filter)
 {
-    struct filter_graph *graph = impl_from_IFilterGraph2(iface);
-    IFileSourceFilter *filesource;
-    IBaseFilter *filter;
-    HRESULT hr;
-    GUID clsid;
-
-    TRACE("graph %p, filename %s, filter_name %s, ret_filter %p.\n",
-            graph, debugstr_w(filename), debugstr_w(filter_name), ret_filter);
-
-    if (!*filename)
-        return VFW_E_NOT_FOUND;
-
-    if (!get_media_type(filename, NULL, NULL, &clsid))
-        clsid = CLSID_AsyncReader;
-    TRACE("Using source filter %s.\n", debugstr_guid(&clsid));
-
-    if (FAILED(hr = CoCreateInstance(&clsid, NULL, CLSCTX_INPROC_SERVER,
-            &IID_IBaseFilter, (void **)&filter)))
-    {
-        WARN("Failed to create filter, hr %#lx.\n", hr);
-        return hr;
-    }
-
-    if (FAILED(hr = IBaseFilter_QueryInterface(filter, &IID_IFileSourceFilter, (void **)&filesource)))
-    {
-        WARN("Failed to get IFileSourceFilter, hr %#lx.\n", hr);
-        IBaseFilter_Release(filter);
-        return hr;
-    }
-
-    hr = IFileSourceFilter_Load(filesource, filename, NULL);
-    IFileSourceFilter_Release(filesource);
-    if (FAILED(hr))
-    {
-        WARN("Failed to load file, hr %#lx.\n", hr);
-        IBaseFilter_Release(filter);
-        return hr;
-    }
-
-    if (FAILED(hr = IFilterGraph2_AddFilter(iface, filter, filter_name)))
-    {
-        IBaseFilter_Release(filter);
-        return hr;
-    }
-
-    if (ret_filter)
-        *ret_filter = filter;
-    return S_OK;
+    return add_source_filter_with_clsid(iface, filename, filter_name, NULL, ret_filter);
 }
 
 static HRESULT WINAPI FilterGraph2_SetLogFile(IFilterGraph2 *iface, DWORD_PTR file)
@@ -2036,7 +2369,7 @@ static void CALLBACK wait_pause_cb(TP_CALLBACK_INSTANCE *instance, void *context
     OAFilterState state;
     HRESULT hr;
 
-    if ((hr = IMediaControl_GetState(control, INFINITE, &state)) != S_OK)
+    if ((hr = IMediaControl_GetState(control, 100, &state)) != S_OK && hr != VFW_S_STATE_INTERMEDIATE)
         ERR("Failed to get paused state, hr %#lx.\n", hr);
 
     if (FAILED(hr = IMediaControl_Stop(control)))

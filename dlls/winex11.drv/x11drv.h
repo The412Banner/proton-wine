@@ -367,6 +367,8 @@ struct x11drv_escape_get_drawable
 };
 
 extern BOOL needs_offscreen_rendering( HWND hwnd );
+extern BOOL layered_overlay_shape_enabled(void);
+extern BOOL layered_overlay_alpha_enabled(void);
 extern void set_dc_drawable( HDC hdc, Drawable drawable, const RECT *rect, int mode );
 extern Drawable get_dc_drawable( HDC hdc, RECT *rect );
 extern HRGN get_dc_monitor_region( HWND hwnd, HDC hdc );
@@ -474,6 +476,8 @@ extern BOOL use_take_focus;
 extern BOOL use_primary_selection;
 extern BOOL use_system_cursors;
 extern BOOL grab_fullscreen;
+extern int keyboard_layout;
+extern BOOL keyboard_scancode_detect;
 extern BOOL usexcomposite;
 extern BOOL use_xfixes;
 extern BOOL managed_mode;
@@ -795,6 +799,11 @@ extern BOOL xinerama_get_fullscreen_monitors( const RECT *rect, unsigned long *g
 extern void xinerama_init( unsigned int width, unsigned int height );
 extern void init_recursive_mutex( pthread_mutex_t *mutex );
 extern void init_icm_profile(void);
+
+/* keyboard.c */
+
+extern int x11drv_find_keyboard_layout( const WCHAR *layout );
+extern WCHAR *x11drv_get_keyboard_layout_list( DWORD *size );
 
 #define DEPTH_COUNT 3
 extern const unsigned int *depths;

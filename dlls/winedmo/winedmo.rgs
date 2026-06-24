@@ -1,0 +1,69 @@
+HKCR
+{
+    NoRemove 'Media Type'
+    {
+        '{e436eb83-524f-11ce-9f53-0020af0ba770}'
+        {
+            ForceRemove '{ffffffff-128f-4dd1-ad22-becfa66ce7aa}'
+            {
+                val '0' = s '0,1,00,0'
+                val 'Source Filter' = s '{e436ebb5-524f-11ce-9f53-0020af0ba770}'
+            }
+        }
+    }
+}
+
+HKLM
+{
+    NoRemove 'Software'
+    {
+        NoRemove 'Microsoft'
+        {
+            NoRemove 'Windows Media Foundation'
+            {
+                NoRemove 'ByteStreamHandlers'
+                {
+                    '.asf'
+                    {
+                        val '{317df618-5e5a-468a-9f15-d827a9a08162}' = s 'winedmo ASF Byte Stream Handler'
+                    }
+                    '.wma'
+                    {
+                        val '{317df618-5e5a-468a-9f15-d827a9a08162}' = s 'winedmo ASF Byte Stream Handler'
+                    }
+                    '.wmv'
+                    {
+                        val '{317df618-5e5a-468a-9f15-d827a9a08162}' = s 'winedmo ASF Byte Stream Handler'
+                    }
+                    'audio/x-ms-wma'
+                    {
+                        val '{317df618-5e5a-468a-9f15-d827a9a08162}' = s 'winedmo ASF Byte Stream Handler'
+                    }
+                    'video/x-ms-asf'
+                    {
+                        val '{317df618-5e5a-468a-9f15-d827a9a08162}' = s 'winedmo ASF Byte Stream Handler'
+                    }
+                    'video/x-ms-wmv'
+                    {
+                        val '{317df618-5e5a-468a-9f15-d827a9a08162}' = s 'winedmo ASF Byte Stream Handler'
+                    }
+                }
+                NoRemove 'SchemeHandlers'
+                {
+                    'http:'
+                    {
+                        val '{587eeb6a-7336-4ebd-a4f2-91c948de622c}' = s 'winedmo Scheme Handler'
+                    }
+                    'https:'
+                    {
+                        val '{587eeb6a-7336-4ebd-a4f2-91c948de622c}' = s 'winedmo Scheme Handler'
+                    }
+                    'rtsp:'
+                    {
+                        val '{587eeb6a-7336-4ebd-a4f2-91c948de622c}' = s 'winedmo Scheme Handler'
+                    }
+                }
+            }
+        }
+    }
+}

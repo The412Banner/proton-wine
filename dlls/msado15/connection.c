@@ -959,7 +959,23 @@ static HRESULT WINAPI adoconstruct_WrapDSOandSession(ADOConnectionConstruction15
 {
     struct connection *connection = impl_from_ADOConnectionConstruction15( iface );
     FIXME("%p, %p, %p\n", connection, dso, session);
-    return E_NOTIMPL;
+
+    if (connection->session)
+        IUnknown_Release( connection->session );
+    connection->session = session;
+    if (connection->session)
+        IUnknown_AddRef(connection->session);
+
+    if (connection->dso)
+        IDBInitialize_Release( connection->dso );
+    connection->dso = NULL;
+    if (dso)
+        IUnknown_QueryInterface( dso, &IID_IDBInitialize, (void**)&connection->dso );
+
+    if (dso && session)
+        connection->state = adStateOpen;
+
+    return S_OK;
 }
 
 struct ADOConnectionConstruction15Vtbl ado_construct_vtbl =

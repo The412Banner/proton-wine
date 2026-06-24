@@ -110,8 +110,8 @@ void __stack_chk_fail(void) { return; }
  * dyld4 (starting in Monterey) does not like it to be missing:
  * - running vmmap on a Wine process prints this warning:
  *   "Process exists but has not fully started -- dyld has initialized but libSystem has not"
- * - because libSystem is not initialized, dlerror() always returns NULL (causing GStreamer
- *   to crash on init).
+ * - because libSystem is not initialized, dlerror() always returns NULL (any library
+ *   relying on dlerror() to detect load failures will silently malfunction).
  * - starting with macOS Sonoma, Wine crashes on launch if libSystem is not initialized.
  *
  * Adding __program_vars fixes those issues, and also allows more of the vars to

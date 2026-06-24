@@ -26,11 +26,6 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
         fvwm \
         gettext \
         git     \
-        gstreamer1.0-libav \
-        gstreamer1.0-plugins-bad \
-        gstreamer1.0-plugins-base \
-        gstreamer1.0-plugins-good \
-        gstreamer1.0-plugins-ugly \
         jq \
         libasound2-dev \
         libasound2-plugins \
@@ -45,8 +40,6 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
         libgl1-mesa-dev \
         libgnutls28-dev \
         libgphoto2-dev \
-        libgstreamer-plugins-base1.0-dev \
-        libgstreamer1.0-dev \
         libice-dev \
         libkrb5-dev \
         libpcap-dev \
@@ -99,11 +92,6 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
             gcc-mingw-w64-x86-64 \
             gcc-multilib \
             libunwind-dev \
-            gstreamer1.0-libav:i386 \
-            gstreamer1.0-plugins-bad:i386 \
-            gstreamer1.0-plugins-base:i386 \
-            gstreamer1.0-plugins-good:i386 \
-            gstreamer1.0-plugins-ugly:i386 \
             libasound2-dev:i386 \
             libasound2-plugins:i386 \
             libavcodec-dev:i386 \
@@ -146,10 +134,6 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
             mesa-vulkan-drivers:i386 \
             ocl-icd-opencl-dev:i386 \
             unixodbc-dev:i386 && \
-        apt-get download -y libgstreamer-plugins-base1.0-dev:i386 libgstreamer1.0-dev:i386 && \
-        (for deb in *.deb; do dpkg-deb -x $deb /dpkg; done) && \
-        cp -a /dpkg/usr/lib/i386-linux-gnu /usr/lib && \
-        rm -rf /dpkg && \
         curl -L -o /usr/local/bin/sarif-converter https://gitlab.com/ignis-build/sarif-converter/-/releases/permalink/latest/downloads/bin/sarif-converter-linux-amd64 && \
         chmod +x /usr/local/bin/sarif-converter ;; \
     arm64) \

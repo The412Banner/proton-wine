@@ -385,6 +385,7 @@ static HRESULT WINAPI video_frame_sink_stream_ProcessSample(IMFStreamSink *iface
 {
     struct video_frame_sink *sink = impl_from_IMFStreamSink(iface);
     BOOL first_frame = FALSE;
+    BOOL requested;
     LONGLONG sampletime;
     HRESULT hr = S_OK;
 
@@ -395,13 +396,15 @@ static HRESULT WINAPI video_frame_sink_stream_ProcessSample(IMFStreamSink *iface
 
     EnterCriticalSection(&sink->cs);
 
+    requested = sink->sample_request_pending;
     sink->sample_request_pending = FALSE;
 
     if (sink->is_shut_down)
     {
         hr = MF_E_STREAMSINK_REMOVED;
     }
-    else if (sink->state == SINK_STATE_RUNNING || sink->state == SINK_STATE_PAUSED)
+    else if (sink->state == SINK_STATE_RUNNING || sink->state == SINK_STATE_PAUSED
+            || (sink->rate == 0.0f && requested))
     {
         hr = IMFSample_GetSampleTime(sample, &sampletime);
 
@@ -425,7 +428,7 @@ static HRESULT WINAPI video_frame_sink_stream_ProcessSample(IMFStreamSink *iface
             else
                 video_frame_sink_sample_queue_push(sink, sample, FALSE);
 
-            if (sink->queue.used != ARRAY_SIZE(sink->queue.samples))
+            if (sink->rate != 0.0f && sink->queue.used != ARRAY_SIZE(sink->queue.samples))
                 video_frame_sink_stream_request_sample(sink);
         }
     }
@@ -1083,6 +1086,8 @@ static HRESULT WINAPI video_frame_sink_clock_sink_OnClockSetRate(IMFClockStateSi
     {
         IMFStreamSink_QueueEvent(&sink->IMFStreamSink_iface, MEStreamSinkRateChanged, &GUID_NULL, S_OK, NULL);
         sink->rate = rate;
+        if (rate == 0.0f && sink->state == SINK_STATE_STOPPED)
+            video_frame_sink_stream_request_sample(sink);
     }
 
     LeaveCriticalSection(&sink->cs);

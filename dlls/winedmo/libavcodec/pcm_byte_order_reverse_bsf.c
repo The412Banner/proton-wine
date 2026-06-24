@@ -26,23 +26,29 @@
 
 #ifdef HAVE_FFMPEG
 
-#define IS_EMPTY(pkt) (!(pkt)->data && !(pkt)->side_data_elems)
-
-struct AVBSFInternal {
-    AVPacket *buffer_pkt;
-    int eof;
-};
-
-/* From FFmpeg */
-int ff_bsf_get_packet(AVBSFContext *ctx, AVPacket **pkt)
+/* Mirror of FFmpeg's internal FFBSFContext layout (bsf.c).
+ * Must match the actual layout of FFBSFContext in the FFmpeg version we ship. */
+#ifndef WINE_FF_BSF_CTX_DEFINED
+#define WINE_FF_BSF_CTX_DEFINED
+typedef struct WineFFBSFContext
 {
-    AVBSFInternal *bsfi = ctx->internal;
+    AVBSFContext pub;        /* must be first: av_bsf_alloc() allocates FFBSFContext */
+    AVPacket    *buffer_pkt;
+    int          eof;
+} WineFFBSFContext;
+#endif /* WINE_FF_BSF_CTX_DEFINED */
+
+/* Reimplementation of FFmpeg's internal ff_bsf_get_packet() using our
+ * compatible WineFFBSFContext layout. */
+static int wine_bsf_get_packet( AVBSFContext *ctx, AVPacket **pkt )
+{
+    WineFFBSFContext *bsfi = (WineFFBSFContext *)ctx;
     AVPacket *tmp_pkt;
 
     if (bsfi->eof)
         return AVERROR_EOF;
 
-    if (IS_EMPTY(bsfi->buffer_pkt))
+    if (!bsfi->buffer_pkt || (!bsfi->buffer_pkt->data && !bsfi->buffer_pkt->side_data_elems))
         return AVERROR(EAGAIN);
 
     tmp_pkt = av_packet_alloc();
@@ -55,7 +61,7 @@ int ff_bsf_get_packet(AVBSFContext *ctx, AVPacket **pkt)
     return 0;
 }
 
-static enum AVCodecID reverse_codec_id(enum AVCodecID codec_id)
+static enum AVCodecID reverse_codec_id( enum AVCodecID codec_id )
 {
     switch (codec_id)
     {
@@ -75,19 +81,19 @@ static enum AVCodecID reverse_codec_id(enum AVCodecID codec_id)
     }
 }
 
-static int init(AVBSFContext *ctx)
+static int init( AVBSFContext *ctx )
 {
-    if (ctx->par_in->channels <= 0 || ctx->par_in->sample_rate <= 0)
+    if (ctx->par_in->ch_layout.nb_channels <= 0 || ctx->par_in->sample_rate <= 0)
         return AVERROR(EINVAL);
     if (ctx->par_in->bits_per_coded_sample % 8u)
         return AVERROR(EINVAL);
 
-    ctx->par_out->codec_id = reverse_codec_id(ctx->par_in->codec_id);
+    ctx->par_out->codec_id = reverse_codec_id( ctx->par_in->codec_id );
 
     return 0;
 }
 
-static int byte_order_reverse_filter(AVBSFContext *ctx, AVPacket *pkt)
+static int byte_order_reverse_filter( AVBSFContext *ctx, AVPacket *pkt )
 {
     unsigned int bytes_per_sample;
     const uint8_t *buf_end;
@@ -97,19 +103,19 @@ static int byte_order_reverse_filter(AVBSFContext *ctx, AVPacket *pkt)
     uint8_t *out;
     int ret;
 
-    ret = ff_bsf_get_packet(ctx, &in);
+    ret = wine_bsf_get_packet( ctx, &in );
     if (ret < 0)
         return ret;
 
     buf = in->data;
     buf_end = in->data + in->size;
 
-    ret = av_new_packet(pkt, in->size);
+    ret = av_new_packet( pkt, in->size );
     if (ret < 0)
-        return ret;
+        goto fail;
     out = pkt->data;
 
-    ret = av_packet_copy_props(pkt, in);
+    ret = av_packet_copy_props( pkt, in );
     if (ret < 0)
         goto fail;
 
@@ -125,8 +131,8 @@ static int byte_order_reverse_filter(AVBSFContext *ctx, AVPacket *pkt)
 
 fail:
     if (ret < 0)
-        av_packet_unref(pkt);
-    av_packet_free(&in);
+        av_packet_unref( pkt );
+    av_packet_free( &in );
     return ret;
 }
 
@@ -147,11 +153,17 @@ static const enum AVCodecID codec_ids[] = {
     AV_CODEC_ID_NONE,
 };
 
-const AVBitStreamFilter ff_pcm_byte_order_reverse_bsf = {
-    .name           = "pcm_byte_order_reverse",
-    .filter         = byte_order_reverse_filter,
-    .init           = init,
-    .codec_ids      = codec_ids,
+const WineFFBitStreamFilter ff_pcm_byte_order_reverse_bsf = {
+    { /* p — public AVBitStreamFilter */
+        "pcm_byte_order_reverse",
+        codec_ids,
+        NULL, /* priv_class */
+    },
+    0,                         /* priv_data_size */
+    init,                      /* init */
+    byte_order_reverse_filter, /* filter */
+    NULL,                      /* close */
+    NULL,                      /* flush */
 };
 
 #endif /* HAVE_FFMPEG */

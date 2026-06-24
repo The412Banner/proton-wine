@@ -24,6 +24,7 @@
 #include "rtworkq.h"
 
 #include "d3d11.h"
+#include "d3d11_4.h"
 #include "initguid.h"
 #include "d3d9.h"
 #include "evr.h"
@@ -92,6 +93,33 @@ static void copy_image(const struct buffer *buffer, BYTE *dest, LONG dest_stride
 static void copy_image_nv12(BYTE *dest, LONG dest_stride, const BYTE *src, LONG src_stride, DWORD width, DWORD lines)
 {
     MFCopyImage(dest, dest_stride, src, src_stride, width, lines / 2);
+}
+
+static void copy_image_i420(BYTE *dest, LONG dest_stride, const BYTE *src, LONG src_stride, DWORD width, DWORD lines)
+{
+    LONG chroma_stride = dest_stride / 2;
+    LONG src_chroma_stride = src_stride / 2;
+    DWORD chroma_width = width / 2;
+    DWORD chroma_lines = lines / 2;
+
+    MFCopyImage(dest, chroma_stride, src, src_chroma_stride, chroma_width, chroma_lines);
+    dest += chroma_stride * chroma_lines;
+    src += src_chroma_stride * chroma_lines;
+    MFCopyImage(dest, chroma_stride, src, src_chroma_stride, chroma_width, chroma_lines);
+}
+
+static void copy_image_yv12(BYTE *dest, LONG dest_stride, const BYTE *src, LONG src_stride, DWORD width, DWORD lines)
+{
+    LONG chroma_stride = dest_stride / 2;
+    LONG src_chroma_stride = src_stride / 2;
+    DWORD chroma_width = width / 2;
+    DWORD chroma_lines = lines / 2;
+    const BYTE *src_v = src;
+    const BYTE *src_u = src + src_chroma_stride * chroma_lines;
+
+    MFCopyImage(dest, chroma_stride, src_v, src_chroma_stride, chroma_width, chroma_lines);
+    dest += chroma_stride * chroma_lines;
+    MFCopyImage(dest, chroma_stride, src_u, src_chroma_stride, chroma_width, chroma_lines);
 }
 
 static void copy_image_imc1(BYTE *dest, LONG dest_stride, const BYTE *src, LONG src_stride, DWORD width, DWORD lines)
@@ -722,9 +750,62 @@ static HRESULT WINAPI memory_2d_buffer_Lock2DSize(IMF2DBuffer2 *iface, MF2DBuffe
 
 static HRESULT WINAPI memory_2d_buffer_Copy2DTo(IMF2DBuffer2 *iface, IMF2DBuffer2 *dest_buffer)
 {
-    FIXME("%p, %p.\n", iface, dest_buffer);
+    struct buffer *buffer = impl_from_IMF2DBuffer2(iface);
+    BYTE *src_scanline0, *src_buffer_start;
+    BYTE *dst_scanline0, *dst_buffer_start;
+    DWORD src_length, dst_length;
+    IMFMediaBuffer *media_buffer;
+    LONG src_pitch, dst_pitch;
+    HRESULT hr, hr2;
 
-    return E_NOTIMPL;
+    TRACE("%p, %p.\n", iface, dest_buffer);
+
+    if (!dest_buffer)
+        return E_POINTER;
+
+    if (iface == dest_buffer)
+        return S_OK;
+
+    hr = IMF2DBuffer2_Lock2DSize(iface, MF2DBuffer_LockFlags_Read,
+            &src_scanline0, &src_pitch, &src_buffer_start, &src_length);
+    if (FAILED(hr))
+        return hr;
+
+    hr = IMF2DBuffer2_Lock2DSize(dest_buffer, MF2DBuffer_LockFlags_Write,
+            &dst_scanline0, &dst_pitch, &dst_buffer_start, &dst_length);
+    if (SUCCEEDED(hr))
+    {
+        if (dst_length < buffer->_2d.plane_size)
+            hr = E_INVALIDARG;
+        else
+        {
+            if (src_pitch < 0)
+                src_pitch = -src_pitch;
+            if (dst_pitch < 0)
+                dst_pitch = -dst_pitch;
+
+            copy_image(buffer, dst_buffer_start, dst_pitch, src_buffer_start, src_pitch,
+                    buffer->_2d.width, buffer->_2d.height);
+
+            if (SUCCEEDED(IMF2DBuffer2_QueryInterface(dest_buffer, &IID_IMFMediaBuffer, (void **)&media_buffer)))
+            {
+                IMFMediaBuffer_SetCurrentLength(media_buffer, buffer->_2d.plane_size);
+                IMFMediaBuffer_Release(media_buffer);
+            }
+        }
+
+        if (FAILED(hr2 = IMF2DBuffer2_Unlock2D(dest_buffer)))
+            WARN("Couldn't unlock destination buffer %p, hr %#lx.\n", dest_buffer, hr2);
+        if (FAILED(hr2) && SUCCEEDED(hr))
+            hr = hr2;
+    }
+
+    if (FAILED(hr2 = IMF2DBuffer2_Unlock2D(iface)))
+        WARN("Couldn't unlock source buffer %p, hr %#lx.\n", iface, hr2);
+    if (FAILED(hr2) && SUCCEEDED(hr))
+        hr = hr2;
+
+    return hr;
 }
 
 static const IMF2DBuffer2Vtbl memory_2d_buffer_vtbl =
@@ -967,6 +1048,19 @@ static HRESULT WINAPI dxgi_1d_2d_buffer_QueryInterface(IMFMediaBuffer *iface, RE
     return S_OK;
 }
 
+static void enable_d3d11_multithread_protection(ID3D11DeviceContext *context)
+{
+    static const GUID d3d11_multithread_iid =
+            { 0x9b7e4e00, 0x342c, 0x4106, { 0xa1, 0x9f, 0x4f, 0x27, 0x04, 0xf6, 0x89, 0xf0 } };
+    ID3D11Multithread *multithread;
+
+    if (SUCCEEDED(ID3D11DeviceContext_QueryInterface(context, &d3d11_multithread_iid, (void **)&multithread)))
+    {
+        ID3D11Multithread_SetMultithreadProtected(multithread, TRUE);
+        ID3D11Multithread_Release(multithread);
+    }
+}
+
 static HRESULT dxgi_surface_buffer_create_readback_texture(struct buffer *buffer)
 {
     D3D11_TEXTURE2D_DESC texture_desc;
@@ -1003,6 +1097,7 @@ static HRESULT dxgi_surface_buffer_map(struct buffer *buffer, MF2DBuffer_LockFla
 
     ID3D11Texture2D_GetDevice(buffer->dxgi_surface.texture, &device);
     ID3D11Device_GetImmediateContext(device, &immediate_context);
+    enable_d3d11_multithread_protection(immediate_context);
 
     if (flags == MF2DBuffer_LockFlags_Read || flags == MF2DBuffer_LockFlags_ReadWrite)
     {
@@ -1030,6 +1125,7 @@ static void dxgi_surface_buffer_unmap(struct buffer *buffer, MF2DBuffer_LockFlag
 
     ID3D11Texture2D_GetDevice(buffer->dxgi_surface.texture, &device);
     ID3D11Device_GetImmediateContext(device, &immediate_context);
+    enable_d3d11_multithread_protection(immediate_context);
     ID3D11DeviceContext_Unmap(immediate_context, (ID3D11Resource *)buffer->dxgi_surface.rb_texture, 0);
     memset(&buffer->dxgi_surface.map_desc, 0, sizeof(buffer->dxgi_surface.map_desc));
 
@@ -1037,7 +1133,6 @@ static void dxgi_surface_buffer_unmap(struct buffer *buffer, MF2DBuffer_LockFlag
     {
         ID3D11DeviceContext_CopySubresourceRegion(immediate_context, (ID3D11Resource *)buffer->dxgi_surface.texture,
                 buffer->dxgi_surface.sub_resource_idx, 0, 0, 0, (ID3D11Resource *)buffer->dxgi_surface.rb_texture, 0, NULL);
-        ID3D11DeviceContext_Flush(immediate_context);
     }
 
     ID3D11DeviceContext_Release(immediate_context);
@@ -1151,7 +1246,7 @@ static HRESULT dxgi_surface_buffer_lock(struct buffer *buffer, MF2DBuffer_LockFl
         if (buffer_start)
             *buffer_start = *scanline0;
         if (buffer_length)
-            *buffer_length = buffer->dxgi_surface.map_desc.DepthPitch;
+            *buffer_length = buffer->_2d.plane_size;
     }
 
     return hr;
@@ -1432,10 +1527,14 @@ static p_copy_image_func get_2d_buffer_copy_func(DWORD fourcc)
         case MAKEFOURCC('I','M','C','2'):
         case MAKEFOURCC('I','M','C','4'):
         case MAKEFOURCC('N','V','1','1'):
+            return copy_image_imc2;
+
         case MAKEFOURCC('Y','V','1','2'):
+            return copy_image_yv12;
+
         case MAKEFOURCC('I','4','2','0'):
         case MAKEFOURCC('I','Y','U','V'):
-            return copy_image_imc2;
+            return copy_image_i420;
 
         case MAKEFOURCC('N','V','1','2'):
         case MAKEFOURCC('P','0','1','0'):

@@ -30,6 +30,7 @@
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(evr);
+WINE_DECLARE_DEBUG_CHANNEL(mfplat);
 
 /*
    Initial state represents just created object, presenter never returns to this state.
@@ -49,6 +50,7 @@ enum presenter_state
 enum presenter_flags
 {
     PRESENTER_MIXER_HAS_INPUT = 0x1,
+    PRESENTER_CURRENT_IMAGE_REQUESTED = 0x2,
 };
 
 enum streaming_thread_message
@@ -191,6 +193,9 @@ static struct video_presenter *impl_from_IDirect3DDeviceManager9(IDirect3DDevice
 {
     return CONTAINING_RECORD(iface, struct video_presenter, IDirect3DDeviceManager9_iface);
 }
+
+static HRESULT video_presenter_process_input(struct video_presenter *presenter);
+static HRESULT video_presenter_create_swapchain(struct video_presenter *presenter);
 
 static void video_presenter_notify_renderer(struct video_presenter *presenter,
         LONG event, LONG_PTR param1, LONG_PTR param2)
@@ -372,13 +377,26 @@ static HRESULT video_presenter_invalidate_media_type(struct video_presenter *pre
         return hr;
 
     video_presenter_get_native_video_size(presenter);
+    if (presenter->swapchain && presenter->native_size.cx > 0 && presenter->native_size.cy > 0)
+    {
+        IDirect3DSwapChain9_Release(presenter->swapchain);
+        presenter->swapchain = NULL;
+    }
 
     while (SUCCEEDED(hr = IMFTransform_GetOutputAvailableType(presenter->mixer, 0, idx++, &candidate_type)))
     {
         MFVideoArea aperture = {{ 0 }};
 
         rect = presenter->dst_rect;
-        if (!IsRectEmpty(&rect))
+        if (presenter->native_size.cx > 0 && presenter->native_size.cy > 0
+                && (IsRectEmpty(&rect)
+                || rect.right - rect.left > presenter->native_size.cx
+                || rect.bottom - rect.top > presenter->native_size.cy))
+        {
+            aperture.Area.cx = presenter->native_size.cx;
+            aperture.Area.cy = presenter->native_size.cy;
+        }
+        else if (!IsRectEmpty(&rect))
         {
             aperture.Area.cx = rect.right - rect.left;
             aperture.Area.cy = rect.bottom - rect.top;
@@ -472,17 +490,106 @@ static BOOL video_presenter_sample_queue_pop(struct video_presenter *presenter, 
     return *sample != NULL;
 }
 
+static BOOL video_presenter_sample_queue_has_space(struct video_presenter *presenter)
+{
+    struct sample_queue *queue = &presenter->thread.queue;
+    BOOL has_space;
+
+    if (!queue->size)
+        return TRUE;
+
+    EnterCriticalSection(&queue->cs);
+    has_space = queue->used < queue->size;
+    LeaveCriticalSection(&queue->cs);
+
+    return has_space;
+}
+
+static IMFSample *video_presenter_sample_queue_get_last_presented(struct video_presenter *presenter)
+{
+    struct sample_queue *queue = &presenter->thread.queue;
+    IMFSample *sample;
+
+    if (!queue->size)
+        return NULL;
+
+    /* GetCurrentImage() must take a stable, non-consuming snapshot here. Using
+     * a try-lock can intermittently fail to return the last frame and causes
+     * flicker in Catherine Classic videos. */
+    EnterCriticalSection(&queue->cs);
+    if ((sample = queue->last_presented))
+        IMFSample_AddRef(sample);
+    LeaveCriticalSection(&queue->cs);
+
+    return sample;
+}
+
+static void video_presenter_sample_queue_set_last_presented(struct video_presenter *presenter, IMFSample *sample)
+{
+    struct sample_queue *queue = &presenter->thread.queue;
+    IMFSample *old_sample;
+
+    if (!queue->size)
+        return;
+
+    IMFSample_AddRef(sample);
+
+    EnterCriticalSection(&queue->cs);
+    old_sample = queue->last_presented;
+    queue->last_presented = sample;
+    LeaveCriticalSection(&queue->cs);
+
+    if (old_sample)
+        IMFSample_Release(old_sample);
+}
+
+static void video_presenter_sample_queue_clear_last_presented(struct video_presenter *presenter)
+{
+    struct sample_queue *queue = &presenter->thread.queue;
+    IMFSample *sample;
+
+    EnterCriticalSection(&queue->cs);
+    sample = queue->last_presented;
+    queue->last_presented = NULL;
+    LeaveCriticalSection(&queue->cs);
+
+    if (sample)
+        IMFSample_Release(sample);
+}
 
 static void video_presenter_sample_queue_free(struct video_presenter *presenter)
 {
     struct sample_queue *queue = &presenter->thread.queue;
     IMFSample *sample;
 
+    if (!queue->size)
+        return;
+
     while (video_presenter_sample_queue_pop(presenter, &sample))
         IMFSample_Release(sample);
 
+    video_presenter_sample_queue_clear_last_presented(presenter);
+
     free(queue->samples);
     DeleteCriticalSection(&queue->cs);
+    memset(queue, 0, sizeof(*queue));
+}
+
+static void video_presenter_flush_samples(struct video_presenter *presenter)
+{
+    struct sample_queue *queue = &presenter->thread.queue;
+    IMFSample *sample;
+
+    if (!queue->size)
+        return;
+
+    presenter->flags &= ~PRESENTER_MIXER_HAS_INPUT;
+
+    video_presenter_sample_queue_clear_last_presented(presenter);
+
+    while (video_presenter_sample_queue_pop(presenter, &sample))
+        IMFSample_Release(sample);
+
 }
 
 static HRESULT video_presenter_get_sample_surface(IMFSample *sample, IDirect3DSurface9 **surface)
@@ -504,11 +611,32 @@ static HRESULT video_presenter_get_sample_surface(IMFSample *sample, IDirect3DSu
     return hr;
 }
 
+static void video_presenter_ensure_swapchain(struct video_presenter *presenter)
+{
+    HWND window;
+    HRESULT hr;
+
+    if (presenter->swapchain || (presenter->flags & PRESENTER_CURRENT_IMAGE_REQUESTED)
+            || presenter->native_size.cx <= 0 || presenter->native_size.cy <= 0)
+        return;
+
+    if (!presenter->video_window)
+    {
+        if (!(window = GetFocus()) && !(window = GetActiveWindow()))
+            window = GetForegroundWindow();
+
+        if (IsWindow(window))
+            presenter->video_window = window;
+    }
+
+    if (presenter->video_window && FAILED(hr = video_presenter_create_swapchain(presenter)))
+        WARN("Failed to create fallback swapchain, hr %#lx.\n", hr);
+}
+
 static void video_presenter_sample_present(struct video_presenter *presenter, IMFSample *sample)
 {
     IDirect3DSurface9 *surface, *backbuffer;
     IDirect3DDevice9 *device;
-    struct sample_queue *queue = &presenter->thread.queue;
     HRESULT hr;
 
     if (FAILED(hr = video_presenter_get_sample_surface(sample, &surface)))
@@ -516,6 +644,8 @@ static void video_presenter_sample_present(struct video_presenter *presenter, IM
         WARN("Failed to get sample surface, hr %#lx.\n", hr);
         return;
     }
+
+    video_presenter_ensure_swapchain(presenter);
 
     if (presenter->swapchain)
     {
@@ -534,9 +664,7 @@ static void video_presenter_sample_present(struct video_presenter *presenter, IM
             WARN("Failed to get a backbuffer, hr %#lx.\n", hr);
     }
 
-    IMFSample_AddRef(sample);
-    if ((sample = InterlockedExchangePointer((void **)&queue->last_presented, sample)))
-        IMFSample_Release(sample);
+    video_presenter_sample_queue_set_last_presented(presenter, sample);
 
     IDirect3DSurface9_Release(surface);
 }
@@ -549,6 +677,7 @@ static void video_presenter_check_queue(struct video_presenter *presenter,
     IMFSample *sample;
     MFTIME systime;
     BOOL present;
+    BOOL presented = FALSE;
     HRESULT hr;
 
     while (video_presenter_sample_queue_pop(presenter, &sample))
@@ -569,12 +698,16 @@ static void video_presenter_check_queue(struct video_presenter *presenter,
             {
                 /* Convert 100ns -> msec */
                 wait = (delta - 3 * presenter->frame_time_threshold) / 10000;
+                wait = min( wait, 10 );
                 present = FALSE;
             }
         }
 
         if (present)
+        {
             video_presenter_sample_present(presenter, sample);
+            presented = TRUE;
+        }
         else
             video_presenter_sample_queue_push(presenter, sample, TRUE);
 
@@ -588,17 +721,18 @@ static void video_presenter_check_queue(struct video_presenter *presenter,
         wait = INFINITE;
 
     *next_wait = wait;
+
+    if (presented && (presenter->flags & PRESENTER_MIXER_HAS_INPUT))
+    {
+        EnterCriticalSection(&presenter->cs);
+        video_presenter_process_input(presenter);
+        LeaveCriticalSection(&presenter->cs);
+    }
 }
 
 static void video_presenter_schedule_sample(struct video_presenter *presenter, IMFSample *sample)
 {
-    if (!presenter->thread.tid)
-    {
-        WARN("Streaming thread hasn't been started.\n");
-        return;
-    }
-
-    if (presenter->clock)
+    if (presenter->clock && presenter->thread.tid && presenter->thread.queue.size)
     {
         video_presenter_sample_queue_push(presenter, sample, FALSE);
         PostThreadMessageW(presenter->thread.tid, EVRM_PRESENT, 0, 0);
@@ -622,6 +756,9 @@ static HRESULT video_presenter_process_input(struct video_presenter *presenter)
     if (!presenter->media_type)
         return S_OK;
 
+    TRACE_(mfplat)("presenter %p process input state %u flags %#x mixer %p allocator %p clock %p.\n",
+            presenter, presenter->state, presenter->flags, presenter->mixer, presenter->allocator, presenter->clock);
+
     while (hr == S_OK)
     {
         LONGLONG mixing_started, mixing_finished;
@@ -630,11 +767,16 @@ static HRESULT video_presenter_process_input(struct video_presenter *presenter)
         if (!(presenter->flags & PRESENTER_MIXER_HAS_INPUT))
             break;
 
+        if (presenter->clock && !video_presenter_sample_queue_has_space(presenter))
+            break;
+
+        TRACE_(mfplat)("presenter %p allocating output sample.\n", presenter);
         if (FAILED(hr = IMFVideoSampleAllocator_AllocateSample(presenter->allocator, &sample)))
         {
             WARN("Failed to allocate a sample, hr %#lx.\n", hr);
             break;
         }
+        TRACE_(mfplat)("presenter %p allocated output sample %p.\n", presenter, sample);
 
         memset(&buffer, 0, sizeof(buffer));
         buffer.pSample = sample;
@@ -642,8 +784,10 @@ static HRESULT video_presenter_process_input(struct video_presenter *presenter)
         if (presenter->clock)
             IMFClock_GetCorrelatedTime(presenter->clock, 0, &mixing_started, &systime);
 
+        TRACE_(mfplat)("presenter %p processing mixer output sample %p.\n", presenter, sample);
         if (FAILED(hr = IMFTransform_ProcessOutput(presenter->mixer, 0, 1, &buffer, &status)))
         {
+            TRACE_(mfplat)("presenter %p processed mixer output sample %p, hr %#lx.\n", presenter, sample, hr);
             /* FIXME: failure path probably needs to handle some errors specifically */
             presenter->flags &= ~PRESENTER_MIXER_HAS_INPUT;
             IMFSample_Release(sample);
@@ -651,6 +795,8 @@ static HRESULT video_presenter_process_input(struct video_presenter *presenter)
         }
         else
         {
+            TRACE_(mfplat)("presenter %p processed mixer output sample %p, hr %#lx status %#lx.\n",
+                    presenter, sample, hr, status);
             if (presenter->clock)
             {
                 LONGLONG latency;
@@ -663,11 +809,15 @@ static HRESULT video_presenter_process_input(struct video_presenter *presenter)
             if (buffer.pEvents)
                 IMFCollection_Release(buffer.pEvents);
 
+            TRACE_(mfplat)("presenter %p scheduling output sample %p.\n", presenter, sample);
             video_presenter_schedule_sample(presenter, sample);
+            TRACE_(mfplat)("presenter %p scheduled output sample %p.\n", presenter, sample);
 
             IMFSample_Release(sample);
         }
     }
+
+    TRACE_(mfplat)("presenter %p process input done, hr %#lx flags %#x.\n", presenter, hr, presenter->flags);
 
     return S_OK;
 }
@@ -753,9 +903,6 @@ static HRESULT video_presenter_start_streaming(struct video_presenter *presenter
 
 static HRESULT video_presenter_end_streaming(struct video_presenter *presenter)
 {
-    struct sample_queue *queue = &presenter->thread.queue;
-    IMFSample *sample;
-
     if (!presenter->thread.hthread)
         return S_OK;
 
@@ -766,11 +913,9 @@ static HRESULT video_presenter_end_streaming(struct video_presenter *presenter)
 
     TRACE("Terminated streaming thread tid %#lx.\n", presenter->thread.tid);
 
-    if ((sample = InterlockedExchangePointer((void **)&queue->last_presented, NULL)))
-        IMFSample_Release(sample);
-
-    video_presenter_sample_queue_free(presenter);
-    memset(&presenter->thread, 0, sizeof(presenter->thread));
+    video_presenter_flush_samples(presenter);
+    presenter->thread.hthread = NULL;
+    presenter->thread.tid = 0;
     video_presenter_set_allocator_callback(presenter, NULL);
 
     return S_OK;
@@ -875,6 +1020,7 @@ static ULONG WINAPI video_presenter_inner_Release(IUnknown *iface)
     if (!refcount)
     {
         video_presenter_end_streaming(presenter);
+        video_presenter_sample_queue_free(presenter);
         video_presenter_clear_container(presenter);
         video_presenter_reset_media_type(presenter);
         DeleteCriticalSection(&presenter->cs);
@@ -985,10 +1131,21 @@ static HRESULT WINAPI video_presenter_ProcessMessage(IMFVideoPresenter *iface, M
 
     TRACE("%p, %d, %Iu.\n", iface, message, param);
 
+    TRACE_(mfplat)("presenter %p entering ProcessMessage %u.\n", presenter, message);
     EnterCriticalSection(&presenter->cs);
+    TRACE_(mfplat)("presenter %p entered ProcessMessage %u.\n", presenter, message);
 
     switch (message)
     {
+        case MFVP_MESSAGE_FLUSH:
+            if (presenter->state == PRESENTER_STATE_SHUT_DOWN)
+                hr = MF_E_SHUTDOWN;
+            else
+            {
+                video_presenter_flush_samples(presenter);
+                hr = S_OK;
+            }
+            break;
         case MFVP_MESSAGE_INVALIDATEMEDIATYPE:
             if (presenter->state == PRESENTER_STATE_SHUT_DOWN)
                 hr = MF_E_SHUTDOWN;
@@ -1013,6 +1170,7 @@ static HRESULT WINAPI video_presenter_ProcessMessage(IMFVideoPresenter *iface, M
     }
 
     LeaveCriticalSection(&presenter->cs);
+    TRACE_(mfplat)("presenter %p leaving ProcessMessage %u, hr %#lx.\n", presenter, message, hr);
 
     return hr;
 }
@@ -1413,16 +1571,36 @@ static HRESULT video_presenter_create_swapchain(struct video_presenter *presente
 {
     D3DPRESENT_PARAMETERS present_params = { 0 };
     IDirect3DDevice9 *d3d_device;
+    LONG width = 0, height = 0;
     HRESULT hr;
 
     if (SUCCEEDED(hr = video_presenter_get_device(presenter, &d3d_device)))
     {
-        present_params.hDeviceWindow = presenter->video_window;
-        present_params.Windowed = TRUE;
-        present_params.SwapEffect = D3DSWAPEFFECT_COPY;
-        present_params.Flags = D3DPRESENTFLAG_VIDEO;
-        present_params.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
-        hr = IDirect3DDevice9_CreateAdditionalSwapChain(d3d_device, &present_params, &presenter->swapchain);
+        if (presenter->native_size.cx <= 0 || presenter->native_size.cy <= 0)
+        {
+            IDirect3DDevice9_Release(d3d_device);
+            IDirect3DDeviceManager9_UnlockDevice(presenter->device_manager, presenter->hdevice, FALSE);
+            return MF_E_TRANSFORM_TYPE_NOT_SET;
+        }
+
+        width = presenter->native_size.cx;
+        height = presenter->native_size.cy;
+
+        if (width > 0 && height > 0)
+        {
+            present_params.BackBufferWidth = width;
+            present_params.BackBufferHeight = height;
+            present_params.hDeviceWindow = presenter->video_window;
+            present_params.Windowed = TRUE;
+            present_params.BackBufferFormat = D3DFMT_X8R8G8B8;
+            present_params.BackBufferCount = 1;
+            present_params.SwapEffect = D3DSWAPEFFECT_COPY;
+            present_params.Flags = D3DPRESENTFLAG_VIDEO;
+            present_params.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+            hr = IDirect3DDevice9_CreateAdditionalSwapChain(d3d_device, &present_params, &presenter->swapchain);
+        }
+        else
+            hr = MF_E_TRANSFORM_TYPE_NOT_SET;
 
         IDirect3DDevice9_Release(d3d_device);
         IDirect3DDeviceManager9_UnlockDevice(presenter->device_manager, presenter->hdevice, FALSE);
@@ -1447,7 +1625,8 @@ static HRESULT WINAPI video_presenter_control_SetVideoWindow(IMFVideoDisplayCont
         if (presenter->swapchain)
             IDirect3DSwapChain9_Release(presenter->swapchain);
         presenter->video_window = window;
-        hr = video_presenter_create_swapchain(presenter);
+        if (presenter->native_size.cx > 0 && presenter->native_size.cy > 0)
+            hr = video_presenter_create_swapchain(presenter);
     }
     LeaveCriticalSection(&presenter->cs);
 
@@ -1493,7 +1672,6 @@ static HRESULT WINAPI video_presenter_control_GetCurrentImage(IMFVideoDisplayCon
         BYTE **dib, DWORD *dib_size, LONGLONG *timestamp)
 {
     struct video_presenter *presenter = impl_from_IMFVideoDisplayControl(iface);
-    struct sample_queue *queue = &presenter->thread.queue;
     IDirect3DSurface9 *readback = NULL, *surface;
     D3DSURFACE_DESC surface_desc;
     D3DLOCKED_RECT mapped_rect;
@@ -1505,8 +1683,15 @@ static HRESULT WINAPI video_presenter_control_GetCurrentImage(IMFVideoDisplayCon
     TRACE("%p, %p, %p, %p, %p.\n", iface, header, dib, dib_size, timestamp);
 
     EnterCriticalSection(&presenter->cs);
+    presenter->flags |= PRESENTER_CURRENT_IMAGE_REQUESTED;
+    if (presenter->swapchain)
+    {
+        IDirect3DSwapChain9_Release(presenter->swapchain);
+        presenter->swapchain = NULL;
+    }
+    LeaveCriticalSection(&presenter->cs);
 
-    if (!(sample = InterlockedExchangePointer((void **)&queue->last_presented, NULL)))
+    if (!(sample = video_presenter_sample_queue_get_last_presented(presenter)))
     {
         hr = MF_E_INVALIDREQUEST;
     }
@@ -1569,8 +1754,6 @@ static HRESULT WINAPI video_presenter_control_GetCurrentImage(IMFVideoDisplayCon
 
     if (sample)
         IMFSample_Release(sample);
-
-    LeaveCriticalSection(&presenter->cs);
 
     return hr;
 }
@@ -2186,7 +2369,7 @@ HRESULT evr_presenter_create(IUnknown *outer, void **out)
     object->refcount = 1;
     object->src_rect.right = object->src_rect.bottom = 1.0f;
     object->ar_mode = MFVideoARMode_PreservePicture | MFVideoARMode_PreservePixel;
-    object->allocator_capacity = 3;
+    object->allocator_capacity = 8;
     InitializeCriticalSection(&object->cs);
 
     if (FAILED(hr = DXVA2CreateDirect3DDeviceManager9(&object->reset_token, &object->device_manager)))

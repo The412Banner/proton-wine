@@ -71,8 +71,6 @@ struct vmr7
     IVMRSurfaceAllocator *allocator;
     IVMRImagePresenter *presenter;
     IDirectDrawSurface7 **surfaces;
-    IDirectDraw7 *ddraw;
-    HMONITOR monitor;
     DWORD surface_count;
     DWORD surface_index;
     DWORD_PTR cookie;
@@ -163,6 +161,47 @@ static void copy_plane(BYTE **dstp, unsigned int dst_pitch, unsigned int dst_hei
     *dstp += dst_pitch * dst_height;
 }
 
+static BYTE clamp_rgb_value(int value)
+{
+    if (value < 0)
+        return 0;
+    if (value > 255)
+        return 255;
+    return value;
+}
+
+static void convert_nv12_to_rgb32(BYTE *dst, unsigned int dst_pitch,
+        const BYTE *src, unsigned int src_pitch, unsigned int width, unsigned int height)
+{
+    const BYTE *y_plane = src;
+    const BYTE *uv_plane = src + src_pitch * height;
+    unsigned int x, y;
+
+    for (y = 0; y < height; ++y)
+    {
+        DWORD *dst_row = (DWORD *)(dst + dst_pitch * y);
+        const BYTE *y_row = y_plane + src_pitch * y;
+        const BYTE *uv_row = uv_plane + src_pitch * (y / 2);
+
+        for (x = 0; x < width; ++x)
+        {
+            int c = y_row[x] - 16;
+            int d = uv_row[(x & ~1) + 0] - 128;
+            int e = uv_row[(x & ~1) + 1] - 128;
+            BYTE r, g, b;
+
+            if (c < 0)
+                c = 0;
+
+            r = clamp_rgb_value((298 * c + 409 * e + 128) >> 8);
+            g = clamp_rgb_value((298 * c - 100 * d - 208 * e + 128) >> 8);
+            b = clamp_rgb_value((298 * c + 516 * d + 128) >> 8);
+
+            dst_row[x] = (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
 static HRESULT vmr_render(struct strmbase_renderer *iface, IMediaSample *sample)
 {
     struct vmr7 *filter = impl_from_IBaseFilter(&iface->filter.IBaseFilter_iface);
@@ -240,7 +279,13 @@ static HRESULT vmr_render(struct strmbase_renderer *iface, IMediaSample *sample)
                 surface_desc.dwWidth, surface_desc.dwHeight);
     }
 
-    if (bitmap_header->biCompression == mmioFOURCC('N','V','1','2'))
+    if (bitmap_header->biCompression == mmioFOURCC('N','V','1','2')
+            && (surface_desc.ddpfPixelFormat.dwFlags & DDPF_RGB)
+            && surface_desc.ddpfPixelFormat.dwRGBBitCount == 32)
+    {
+        convert_nv12_to_rgb32(surface_desc.lpSurface, surface_desc.lPitch, data, src_pitch, width, abs(height));
+    }
+    else if (bitmap_header->biCompression == mmioFOURCC('N','V','1','2'))
     {
         BYTE *dst = surface_desc.lpSurface;
         const BYTE *src = data;
@@ -285,43 +330,21 @@ static HRESULT vmr_render(struct strmbase_renderer *iface, IMediaSample *sample)
     return IVMRImagePresenter_PresentImage(filter->presenter, filter->cookie, &info);
 }
 
-static BOOL fourcc_is_supported(IDirectDraw7 *ddraw, DWORD fourcc)
-{
-    DWORD *codes, count, i;
-    HRESULT hr;
-
-    if (FAILED(hr = IDirectDraw7_GetFourCCCodes(ddraw, &count, NULL)))
-    {
-        ERR("Failed to get FOURCC code count, hr %#lx.\n", hr);
-        return FALSE;
-    }
-
-    if (!count || !(codes = calloc(count, sizeof(*codes))))
-        return FALSE;
-
-    if (FAILED(hr = IDirectDraw7_GetFourCCCodes(ddraw, &count, codes)))
-    {
-        ERR("Failed to get FOURCC codes, hr %#lx.\n", hr);
-        free(codes);
-        return FALSE;
-    }
-
-    for (i = 0; i < count; ++i)
-    {
-        if (codes[i] == fourcc)
-            break;
-    }
-    free(codes);
-
-    return i < count;
-}
-
 static HRESULT vmr_query_accept(struct strmbase_renderer *iface, const AM_MEDIA_TYPE *mt)
 {
-    struct vmr7 *filter = impl_from_IBaseFilter(&iface->filter.IBaseFilter_iface);
-    const BITMAPINFOHEADER *bitmap_header = get_bitmap_header(mt);
-    IDirectDraw7 *ddraw = filter->ddraw;
-    HRESULT hr = S_OK;
+    static const GUID *supported_subtypes[] =
+    {
+        &MEDIASUBTYPE_RGB555,
+        &MEDIASUBTYPE_RGB565,
+        &MEDIASUBTYPE_RGB24,
+        &MEDIASUBTYPE_RGB32,
+        &MEDIASUBTYPE_ARGB32,
+        &MEDIASUBTYPE_NV12,
+        &MEDIASUBTYPE_YV12,
+        &MEDIASUBTYPE_UYVY,
+        &MEDIASUBTYPE_YUY2,
+    };
+    unsigned int i;
 
     if (!IsEqualIID(&mt->majortype, &MEDIATYPE_Video) || !mt->pbFormat)
         return S_FALSE;
@@ -330,22 +353,13 @@ static HRESULT vmr_query_accept(struct strmbase_renderer *iface, const AM_MEDIA_
             && !IsEqualGUID(&mt->formattype, &FORMAT_VideoInfo2))
         return S_FALSE;
 
-    if (bitmap_header->biCompression == BI_RGB || bitmap_header->biCompression == BI_BITFIELDS)
-        return S_OK;
-
-    if (!ddraw)
+    for (i = 0; i < ARRAY_SIZE(supported_subtypes); ++i)
     {
-        if (FAILED(DirectDrawCreateEx(NULL, (void **)&ddraw, &IID_IDirectDraw7, NULL)))
-            return S_FALSE;
+        if (IsEqualGUID(&mt->subtype, supported_subtypes[i]))
+            return S_OK;
     }
 
-    if (!fourcc_is_supported(ddraw, bitmap_header->biCompression))
-        hr = S_FALSE;
-
-    if (ddraw != filter->ddraw)
-        IDirectDraw7_Release(ddraw);
-
-    return hr;
+    return S_FALSE;
 }
 
 static HRESULT initialize_device(struct vmr7 *filter, VMRALLOCATIONINFO *info, DWORD count)
@@ -826,7 +840,6 @@ static HRESULT WINAPI filter_config_SetRenderingMode(IVMRFilterConfig *iface, DW
             }
             IUnknown_QueryInterface(default_presenter, &IID_IVMRSurfaceAllocator, (void **)&filter->allocator);
             IUnknown_QueryInterface(default_presenter, &IID_IVMRImagePresenter, (void **)&filter->presenter);
-            IVMRSurfaceAllocator_AdviseNotify(filter->allocator, &filter->IVMRSurfaceAllocatorNotify_iface);
             IUnknown_Release(default_presenter);
             break;
 
@@ -1314,19 +1327,8 @@ static HRESULT WINAPI surface_allocator_notify_AdviseSurfaceAllocator(
 static HRESULT WINAPI surface_allocator_notify_SetDDrawDevice(
         IVMRSurfaceAllocatorNotify *iface, IDirectDraw7 *device, HMONITOR monitor)
 {
-    struct vmr7 *filter = impl_from_IVMRSurfaceAllocatorNotify(iface);
-
-    TRACE("filter %p, device %p, monitor %p.\n", filter, device, monitor);
-
-    if (!device || monitor == MONITOR_DEFAULTTONULL)
-    {
-        WARN("Invalid parameters.\n");
-        return E_FAIL;
-    }
-
-    filter->ddraw = device;
-    filter->monitor = monitor;
-    return S_OK;
+    FIXME("iface %p, device %p, monitor %p, stub!\n", iface, device, monitor);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI surface_allocator_notify_ChangeDDrawDevice(

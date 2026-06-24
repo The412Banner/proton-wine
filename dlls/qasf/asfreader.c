@@ -20,6 +20,8 @@
 
 #include "qasf_private.h"
 
+#include <string.h>
+
 #include "mediaobj.h"
 #include "propsys.h"
 #include "initguid.h"
@@ -117,8 +119,9 @@ static HRESULT WINAPI buffer_GetBufferAndLength(INSSBuffer *iface, BYTE **data, 
 {
     struct buffer *impl = impl_from_INSSBuffer(iface);
     TRACE("iface %p, data %p, size %p.\n", iface, data, size);
-    *size = IMediaSample_GetSize(impl->sample);
-    return IMediaSample_GetPointer(impl->sample, data);
+    if (size) *size = IMediaSample_GetActualDataLength(impl->sample);
+    if (data) return IMediaSample_GetPointer(impl->sample, data);
+    return S_OK;
 }
 
 static const INSSBufferVtbl buffer_vtbl =
@@ -161,6 +164,7 @@ struct asf_stream
     struct strmbase_source source;
     struct SourceSeeking seek;
     DWORD index;
+    BOOL hidden;
 };
 
 struct asf_reader
@@ -428,12 +432,22 @@ static struct strmbase_pin *asf_reader_get_pin(struct strmbase_filter *iface, un
 {
     struct asf_reader *filter = impl_from_strmbase_filter(iface);
     struct strmbase_pin *pin = NULL;
+    unsigned int i, visible = 0;
 
     TRACE("iface %p, index %u.\n", iface, index);
 
     EnterCriticalSection(&filter->filter.filter_cs);
-    if (index < filter->stream_count)
-        pin = &filter->streams[index].source.pin;
+    for (i = 0; i < filter->stream_count; ++i)
+    {
+        if (filter->streams[i].hidden)
+            continue;
+
+        if (visible++ == index)
+        {
+            pin = &filter->streams[i].source.pin;
+            break;
+        }
+    }
     LeaveCriticalSection(&filter->filter.filter_cs);
 
     return pin;
@@ -484,6 +498,7 @@ static HRESULT asf_reader_init_stream(struct strmbase_filter *iface)
     WMT_STREAM_SELECTION selections[ARRAY_SIZE(filter->streams)];
     WORD stream_numbers[ARRAY_SIZE(filter->streams)];
     IWMReaderAdvanced2 *reader_advanced;
+    UINT preferred_audio_output = UINT_MAX;
     HRESULT hr = S_OK;
     BOOL value;
     int i;
@@ -492,6 +507,14 @@ static HRESULT asf_reader_init_stream(struct strmbase_filter *iface)
 
     if (FAILED(hr = IWMReader_QueryInterface(filter->reader, &IID_IWMReaderAdvanced2, (void **)&reader_advanced)))
         return hr;
+
+    for (i = 0; i < filter->stream_count; ++i)
+    {
+        struct asf_stream *stream = filter->streams + i;
+
+        if (IsEqualGUID(&stream->source.pin.mt.majortype, &MEDIATYPE_Audio))
+            preferred_audio_output = i;
+    }
 
     for (i = 0; i < filter->stream_count; ++i)
     {
@@ -518,7 +541,8 @@ static HRESULT asf_reader_init_stream(struct strmbase_filter *iface)
             break;
         }
 
-        if (FAILED(hr = IWMReaderAdvanced2_SetAllocateForOutput(reader_advanced, i, TRUE)))
+        if (!IsEqualGUID(&stream->source.pin.mt.majortype, &MEDIATYPE_Video)
+                && FAILED(hr = IWMReaderAdvanced2_SetAllocateForOutput(reader_advanced, i, TRUE)))
         {
             WARN("Failed to enable allocation for stream %u, hr %#lx\n", i, hr);
             break;
@@ -546,8 +570,12 @@ static HRESULT asf_reader_init_stream(struct strmbase_filter *iface)
             break;
         }
 
-        selections[i] = WMT_ON;
+        selections[i] = IsEqualGUID(&stream->source.pin.mt.majortype, &MEDIATYPE_Audio)
+                && preferred_audio_output != UINT_MAX && i != preferred_audio_output ? WMT_OFF : WMT_ON;
     }
+
+    if (preferred_audio_output != UINT_MAX)
+        selections[preferred_audio_output] = WMT_ON;
 
     if (SUCCEEDED(hr) && FAILED(hr = IWMReaderAdvanced2_SetStreamsSelected(reader_advanced,
             filter->stream_count, stream_numbers, selections)))
@@ -818,6 +846,7 @@ static HRESULT WINAPI reader_callback_OnStatus(IWMReaderCallback *iface, WMT_STA
     AM_MEDIA_TYPE stream_media_type = {{0}};
     IWMHeaderInfo *header_info;
     DWORD i, stream_count;
+    UINT preferred_audio_output = UINT_MAX, audio_output_count = 0;
     WCHAR name[MAX_PATH];
     QWORD duration;
     HRESULT hr;
@@ -855,11 +884,41 @@ static HRESULT WINAPI reader_callback_OnStatus(IWMReaderCallback *iface, WMT_STA
 
             for (i = 0; i < stream_count; ++i)
             {
+                if (FAILED(hr = asf_stream_get_media_type(&filter->streams[i].source.pin, 0, &stream_media_type)))
+                {
+                    WARN("Failed to get stream media type, hr %#lx.\n", hr);
+                    continue;
+                }
+                if (IsEqualGUID(&stream_media_type.majortype, &MEDIATYPE_Audio))
+                {
+                    ++audio_output_count;
+                    preferred_audio_output = i;
+                }
+                FreeMediaType(&stream_media_type);
+            }
+
+            for (i = 0; i < stream_count; ++i)
+            {
                 struct asf_stream *stream = filter->streams + i;
                 const char *sgi = getenv("SteamGameId");
+                WMT_STREAM_SELECTION selection = WMT_ON;
+                IWMReaderAdvanced2 *reader_advanced;
 
                 if (FAILED(hr = asf_stream_get_media_type(&stream->source.pin, 0, &stream_media_type)))
                     WARN("Failed to get stream media type, hr %#lx.\n", hr);
+                stream->hidden = FALSE;
+                if (IsEqualGUID(&stream_media_type.majortype, &MEDIATYPE_Audio)
+                        && SUCCEEDED(IWMReader_QueryInterface(filter->reader, &IID_IWMReaderAdvanced2,
+                        (void **)&reader_advanced)))
+                {
+                    if (SUCCEEDED(IWMReaderAdvanced2_GetStreamSelected(reader_advanced, i + 1, &selection))
+                            && selection == WMT_OFF)
+                        stream->hidden = TRUE;
+                    IWMReaderAdvanced2_Release(reader_advanced);
+                }
+                if (IsEqualGUID(&stream_media_type.majortype, &MEDIATYPE_Audio)
+                        && audio_output_count > 1 && i != preferred_audio_output)
+                    stream->hidden = TRUE;
                 if (IsEqualGUID(&stream_media_type.majortype, &MEDIATYPE_Video))
                 {
                     /* King of Fighters XIII requests the WMV decoder filter pins by name
@@ -872,6 +931,8 @@ static HRESULT WINAPI reader_callback_OnStatus(IWMReaderCallback *iface, WMT_STA
                 }
                 else
                     swprintf(name, ARRAY_SIZE(name), L"Raw Audio %u", stream->index);
+                if (stream->hidden)
+                    TRACE("Hiding deselected ASF audio stream %lu.\n", i);
                 FreeMediaType(&stream_media_type);
 
                 strmbase_source_init(&stream->source, &filter->filter, name, &source_ops);
@@ -933,7 +994,10 @@ static HRESULT WINAPI reader_callback_OnSample(IWMReaderCallback *iface, DWORD o
     struct asf_reader *filter = impl_from_IWMReaderCallback(iface)->filter;
     REFERENCE_TIME start_time = time, end_time = time + duration;
     struct asf_stream *stream = filter->streams + output;
+    IMediaSample *media_sample = NULL;
     struct buffer *buffer;
+    DWORD buffer_len;
+    BYTE *src, *dst;
     HRESULT hr = S_OK;
 
     TRACE("iface %p, output %lu, time %I64u, duration %I64u, flags %#lx, sample %p, context %p.\n",
@@ -945,18 +1009,50 @@ static HRESULT WINAPI reader_callback_OnSample(IWMReaderCallback *iface, DWORD o
         return S_OK;
     }
 
-    if (!(buffer = unsafe_impl_from_INSSBuffer(sample)))
-        WARN("Unexpected buffer iface %p, discarding.\n", sample);
+    if ((buffer = unsafe_impl_from_INSSBuffer(sample)))
+        media_sample = buffer->sample;
     else
     {
-        IMediaSample_SetTime(buffer->sample, &start_time, &end_time);
-        IMediaSample_SetDiscontinuity(buffer->sample, !!(flags & WM_SF_DISCONTINUITY));
-        IMediaSample_SetSyncPoint(buffer->sample, !!(flags & WM_SF_CLEANPOINT));
+        if (FAILED(hr = INSSBuffer_GetBufferAndLength(sample, &src, &buffer_len)))
+        {
+            WARN("Failed to get buffer data, hr %#lx.\n", hr);
+            return hr;
+        }
 
-        hr = IMemInputPin_Receive(stream->source.pMemInputPin, buffer->sample);
+        if (FAILED(hr = IMemAllocator_GetBuffer(stream->source.pAllocator, &media_sample, NULL, NULL, 0)))
+        {
+            WARN("Failed to get a sample, hr %#lx.\n", hr);
+            return hr;
+        }
 
-        TRACE("Receive returned hr %#lx.\n", hr);
+        if (buffer_len > IMediaSample_GetSize(media_sample))
+        {
+            WARN("Allocated media sample is too small, size %lu.\n", buffer_len);
+            IMediaSample_Release(media_sample);
+            return VFW_E_BUFFER_OVERFLOW;
+        }
+
+        if (FAILED(hr = IMediaSample_GetPointer(media_sample, &dst)))
+        {
+            WARN("Failed to get sample pointer, hr %#lx.\n", hr);
+            IMediaSample_Release(media_sample);
+            return hr;
+        }
+
+        memcpy(dst, src, buffer_len);
+        IMediaSample_SetActualDataLength(media_sample, buffer_len);
     }
+
+    IMediaSample_SetTime(media_sample, &start_time, &end_time);
+    IMediaSample_SetDiscontinuity(media_sample, !!(flags & WM_SF_DISCONTINUITY));
+    IMediaSample_SetSyncPoint(media_sample, !!(flags & WM_SF_CLEANPOINT));
+
+    hr = IMemInputPin_Receive(stream->source.pMemInputPin, media_sample);
+
+    TRACE("Receive returned hr %#lx.\n", hr);
+
+    if (!buffer)
+        IMediaSample_Release(media_sample);
 
     return hr;
 }

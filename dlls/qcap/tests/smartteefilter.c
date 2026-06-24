@@ -625,6 +625,11 @@ struct testfilter
     AM_MEDIA_TYPE source_mt;
     HANDLE sample_event, eos_event, segment_event;
     BOOL preview;
+    LONG expected_sample_size;
+    LONG expected_actual_length;
+    const BYTE *expected_data;
+    LONG expected_data_length;
+    BOOL ignore_alpha;
     unsigned int got_begin_flush, got_end_flush;
 };
 
@@ -781,19 +786,44 @@ static HRESULT WINAPI testsink_Receive(struct strmbase_sink *iface, IMediaSample
     struct testfilter *filter = impl_from_strmbase_filter(iface->pin.filter);
     REFERENCE_TIME start, stop;
     BYTE *data, expect[200];
+    LONG expected_actual_length, expected_data_length, expected_sample_size;
     LONG size, i;
     HRESULT hr;
 
+    expected_sample_size = filter->expected_sample_size ? filter->expected_sample_size : 256;
+    expected_actual_length = filter->expected_actual_length ? filter->expected_actual_length : 200;
+    expected_data_length = filter->expected_data_length ? filter->expected_data_length : expected_actual_length;
+
     size = IMediaSample_GetSize(sample);
-    ok(size == 256, "Got size %lu.\n", size);
+    ok(size == expected_sample_size, "Got size %lu, expected %ld.\n", size, expected_sample_size);
     size = IMediaSample_GetActualDataLength(sample);
-    ok(size == 200, "Got valid size %lu.\n", size);
+    ok(size == expected_actual_length, "Got valid size %lu, expected %ld.\n", size, expected_actual_length);
 
     hr = IMediaSample_GetPointer(sample, &data);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    for (i = 0; i < size; ++i)
-        expect[i] = i;
-    ok(!memcmp(data, expect, size), "Data didn't match.\n");
+    if (filter->expected_data)
+    {
+        if (filter->ignore_alpha)
+        {
+            for (i = 0; i < expected_data_length; i += 4)
+            {
+                ok(!memcmp(data + i, filter->expected_data + i, 3),
+                        "Data didn't match at pixel %ld, got {%02x,%02x,%02x}, expected {%02x,%02x,%02x}.\n",
+                        i / 4, data[i], data[i + 1], data[i + 2],
+                        filter->expected_data[i], filter->expected_data[i + 1], filter->expected_data[i + 2]);
+            }
+        }
+        else
+        {
+            ok(!memcmp(data, filter->expected_data, expected_data_length), "Data didn't match.\n");
+        }
+    }
+    else
+    {
+        for (i = 0; i < size; ++i)
+            expect[i] = i;
+        ok(!memcmp(data, expect, size), "Data didn't match.\n");
+    }
 
     hr = IMediaSample_GetTime(sample, &start, &stop);
     if (filter->preview)
@@ -885,6 +915,33 @@ static void testfilter_init(struct testfilter *filter)
     filter->sample_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     filter->segment_event = CreateEventW(NULL, FALSE, FALSE, NULL);
     filter->eos_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+}
+
+static void init_video_media_type(AM_MEDIA_TYPE *mt, VIDEOINFOHEADER *vih,
+        const GUID *subtype, LONG width, LONG height, WORD bit_count)
+{
+    LONG row_size;
+
+    memset(mt, 0, sizeof(*mt));
+    memset(vih, 0, sizeof(*vih));
+
+    row_size = ((width * bit_count + 31) / 32) * 4;
+
+    mt->majortype = MEDIATYPE_Video;
+    mt->subtype = *subtype;
+    mt->bFixedSizeSamples = TRUE;
+    mt->lSampleSize = row_size * height;
+    mt->formattype = FORMAT_VideoInfo;
+    mt->cbFormat = sizeof(*vih);
+    mt->pbFormat = (BYTE *)vih;
+
+    vih->bmiHeader.biSize = sizeof(vih->bmiHeader);
+    vih->bmiHeader.biWidth = width;
+    vih->bmiHeader.biHeight = height;
+    vih->bmiHeader.biPlanes = 1;
+    vih->bmiHeader.biBitCount = bit_count;
+    vih->bmiHeader.biCompression = BI_RGB;
+    vih->bmiHeader.biSizeImage = mt->lSampleSize;
 }
 
 static void test_source_media_types(AM_MEDIA_TYPE req_mt, const AM_MEDIA_TYPE *source_mt, IPin *source)
@@ -1396,6 +1453,208 @@ static void test_streaming(void)
     ok(!ref, "Got outstanding refcount %ld.\n", ref);
 }
 
+static void test_preview_rgb32_connection(void)
+{
+    static const BYTE input_data[] =
+    {
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+        0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+    };
+    static const BYTE output_data[] =
+    {
+        0x01, 0x02, 0x03, 0xff, 0x04, 0x05, 0x06, 0xff,
+        0x07, 0x08, 0x09, 0xff, 0x0a, 0x0b, 0x0c, 0xff,
+    };
+    IBaseFilter *filter;
+    struct testfilter testsource, testsink;
+    VIDEOINFOHEADER source_vih, req_vih, preview_vih;
+    ALLOCATOR_PROPERTIES props;
+    IMemAllocator *allocator = NULL;
+    IEnumMediaTypes *enummt = NULL;
+    IMediaControl *control = NULL;
+    IFilterGraph2 *graph = NULL;
+    IMediaSample *sample = NULL;
+    IMemInputPin *input = NULL;
+    AM_MEDIA_TYPE req_mt, preview_mt, *pmt = NULL;
+    IPin *sink = NULL, *preview = NULL;
+    BYTE *data;
+    REFERENCE_TIME start, stop;
+    HRESULT hr;
+    ULONG ref;
+
+    filter = create_smart_tee();
+    testfilter_init(&testsource);
+    testfilter_init(&testsink);
+    testsink.preview = TRUE;
+    testsink.expected_sample_size = sizeof(output_data);
+    testsink.expected_actual_length = sizeof(output_data);
+    testsink.expected_data = output_data;
+    testsink.expected_data_length = sizeof(output_data);
+    testsink.ignore_alpha = TRUE;
+
+    init_video_media_type(&testsource.source_mt, &source_vih, &MEDIASUBTYPE_RGB24, 4, 1, 24);
+    init_video_media_type(&req_mt, &req_vih, &MEDIASUBTYPE_RGB24, 4, 1, 24);
+    init_video_media_type(&preview_mt, &preview_vih, &MEDIASUBTYPE_RGB32, 4, 1, 32);
+    testsink.sink_mt = &preview_mt;
+
+    hr = CoCreateInstance(&CLSID_FilterGraph, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IFilterGraph2, (void **)&graph);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    hr = IFilterGraph2_QueryInterface(graph, &IID_IMediaControl, (void **)&control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IFilterGraph2_AddFilter(graph, &testsource.filter.IBaseFilter_iface, L"source");
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    hr = IFilterGraph2_AddFilter(graph, &testsink.filter.IBaseFilter_iface, L"sink");
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    hr = IFilterGraph2_AddFilter(graph, filter, L"smarttee");
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IBaseFilter_FindPin(filter, L"Input", &sink);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    hr = IBaseFilter_FindPin(filter, L"Preview", &preview);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    hr = IPin_QueryInterface(sink, &IID_IMemInputPin, (void **)&input);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IFilterGraph2_ConnectDirect(graph, &testsource.source.pin.IPin_iface, sink, &req_mt);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IPin_EnumMediaTypes(preview, &enummt);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    hr = IEnumMediaTypes_Next(enummt, 1, &pmt, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    todo_wine ok(compare_media_types(pmt, &req_mt), "Media types didn't match.\n");
+    DeleteMediaType(pmt);
+    pmt = NULL;
+    hr = IEnumMediaTypes_Next(enummt, 1, &pmt, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    ok(compare_media_types(pmt, &req_mt), "Media types didn't match.\n");
+    DeleteMediaType(pmt);
+    pmt = NULL;
+    hr = IEnumMediaTypes_Next(enummt, 1, &pmt, NULL);
+    ok(hr == S_FALSE, "Got hr %#lx.\n", hr);
+    IEnumMediaTypes_Release(enummt);
+    enummt = NULL;
+
+    hr = IPin_QueryAccept(preview, &preview_mt);
+    todo_wine ok(hr == S_FALSE, "Got hr %#lx.\n", hr);
+
+    hr = IFilterGraph2_ConnectDirect(graph, preview, &testsink.sink.pin.IPin_iface, &preview_mt);
+    todo_wine ok(hr == VFW_E_TYPE_NOT_ACCEPTED, "Got hr %#lx.\n", hr);
+    if (hr != S_OK)
+        goto done;
+
+    ok(!!testsink.sink.pAllocator, "Expected preview allocator.\n");
+    if (!testsink.sink.pAllocator)
+        goto done;
+    hr = IMemAllocator_GetProperties(testsink.sink.pAllocator, &props);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    ok(props.cbBuffer == sizeof(output_data), "Got cbBuffer %ld.\n", props.cbBuffer);
+
+    hr = IMediaControl_Pause(control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IMemInputPin_GetAllocator(input, &allocator);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    hr = IMemAllocator_GetBuffer(allocator, &sample, NULL, NULL, 0);
+    if (hr == VFW_E_NOT_COMMITTED)
+    {
+        hr = IMemAllocator_Commit(allocator);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        hr = IMemAllocator_GetBuffer(allocator, &sample, NULL, NULL, 0);
+    }
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+
+    hr = IMediaSample_GetPointer(sample, &data);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    memcpy(data, input_data, sizeof(input_data));
+    hr = IMediaSample_SetActualDataLength(sample, sizeof(input_data));
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    start = 10000;
+    stop = 20000;
+    hr = IMediaSample_SetMediaTime(sample, &start, &stop);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IMediaSample_SetDiscontinuity(sample, TRUE);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IMediaSample_SetPreroll(sample, TRUE);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IMediaSample_SetSyncPoint(sample, TRUE);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IMemInputPin_Receive(input, sample);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(!WaitForSingleObject(testsink.sample_event, 1000), "Wait timed out.\n");
+
+done:
+    if (pmt)
+        DeleteMediaType(pmt);
+    if (enummt)
+        IEnumMediaTypes_Release(enummt);
+    if (sample)
+        IMediaSample_Release(sample);
+    if (allocator)
+        IMemAllocator_Release(allocator);
+    if (input)
+        IMemInputPin_Release(input);
+    if (preview)
+        IPin_Release(preview);
+    if (sink)
+        IPin_Release(sink);
+    if (control)
+        IMediaControl_Release(control);
+    if (graph)
+    {
+        ref = IFilterGraph2_Release(graph);
+        ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    }
+    if (filter)
+    {
+        ref = IBaseFilter_Release(filter);
+        ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    }
+    ref = IBaseFilter_Release(&testsource.filter.IBaseFilter_iface);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    ref = IBaseFilter_Release(&testsink.filter.IBaseFilter_iface);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+}
+
 START_TEST(smartteefilter)
 {
     CoInitialize(NULL);
@@ -1411,6 +1670,7 @@ START_TEST(smartteefilter)
     test_unconnected_filter_state();
     test_connect_pin();
     test_streaming();
+    test_preview_rgb32_connection();
 
     CloseHandle(event);
     CoUninitialize();

@@ -891,6 +891,7 @@ static void test_COM_audiopath(void)
     IDirectSoundBuffer8 *dsound8;
     IDirectSoundNotify *notify;
     IDirectSound3DBuffer *dsound3d;
+    IDirectMusicPort *port = NULL;
     IKsPropertySet *propset;
     ULONG refcount;
     HRESULT hr;
@@ -966,6 +967,13 @@ static void test_COM_audiopath(void)
     hr = IDirectMusicAudioPath_GetObjectInPath(dmap, DMUS_PCHANNEL_ALL, DMUS_PATH_BUFFER, buffer, &GUID_NULL,
                 0, &GUID_NULL, (void**)&unk);
     ok(hr == E_NOINTERFACE, "Failed: %#lx\n", hr);
+
+    hr = IDirectMusicAudioPath_GetObjectInPath(dmap, 0, DMUS_PATH_PORT, 0, &GUID_All_Objects,
+                0, &IID_IDirectMusicPort, (void**)&port);
+    ok(hr == S_OK, "Failed: %#lx\n", hr);
+    ok(port != NULL, "Got NULL port\n");
+    if (port)
+        IDirectMusicPort_Release(port);
 
     while (IDirectMusicAudioPath_Release(dmap) > 1); /* performance has a reference too */
     IDirectMusicPerformance8_CloseDown(performance);
