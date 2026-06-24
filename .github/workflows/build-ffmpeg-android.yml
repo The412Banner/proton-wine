@@ -1,0 +1,87 @@
+name: Build ffmpeg 8 (Android aarch64 / bionic)
+
+# P0 of the GE video-rework tier: produce bionic aarch64 ffmpeg 8 shared libs
+# (libavcodec.so.62 / libavformat.so.62 / libavutil.so.60 + sws/swr/avfilter)
+# matching what winedmo.so already links (DT_NEEDED .62/.60). These drop into the
+# Winlator imagefs /usr/lib ALONGSIDE the existing ffmpeg 7 (.61/.59) so winedmo loads.
+# Toolchain matches the wine/proton build: Android NDK r27d, android28, aarch64.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install host build deps
+        run: sudo apt-get update && sudo apt-get install -y nasm pkg-config make git
+
+      - name: Fetch Android NDK r27d
+        run: |
+          cd $HOME
+          wget -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+          unzip -q android-ndk-r27d-linux.zip
+          echo "NDK=$HOME/android-ndk-r27d" >> $GITHUB_ENV
+
+      - name: Fetch ffmpeg 8.0
+        run: git clone --depth 1 --branch n8.0 https://github.com/FFmpeg/FFmpeg.git ffmpeg
+
+      - name: Configure + build (aarch64-linux-android28)
+        run: |
+          TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+          API=28
+          CC=$TOOLCHAIN/bin/aarch64-linux-android$API-clang
+          export PATH=$TOOLCHAIN/bin:$PATH
+          cd ffmpeg
+          ./configure \
+            --prefix=$GITHUB_WORKSPACE/out \
+            --target-os=android \
+            --arch=aarch64 \
+            --cpu=armv8-a \
+            --enable-cross-compile \
+            --cc=$CC \
+            --cxx=$TOOLCHAIN/bin/aarch64-linux-android$API-clang++ \
+            --ld=$CC \
+            --nm=$TOOLCHAIN/bin/llvm-nm \
+            --ar=$TOOLCHAIN/bin/llvm-ar \
+            --ranlib=$TOOLCHAIN/bin/llvm-ranlib \
+            --strip=$TOOLCHAIN/bin/llvm-strip \
+            --sysroot=$TOOLCHAIN/sysroot \
+            --enable-shared \
+            --disable-static \
+            --enable-pic \
+            --disable-programs \
+            --disable-doc \
+            --disable-avdevice \
+            --disable-postproc \
+            --disable-encoders \
+            --disable-muxers \
+            --enable-swscale \
+            --enable-swresample \
+            --enable-avfilter \
+            --enable-decoders \
+            --enable-parsers \
+            --enable-demuxers \
+            --enable-protocol=file,pipe \
+            --extra-cflags="-O2 -fPIC" \
+            --extra-ldflags="-Wl,-soname-prefix" || { cat ffbuild/config.log | tail -60; exit 1; }
+          make -j$(nproc)
+          make install
+
+      - name: Collect .so + verify soname/ABI
+        run: |
+          mkdir -p artifact
+          find $GITHUB_WORKSPACE/out -name 'lib*.so*' -exec cp -a {} artifact/ \;
+          echo "=== collected ==="; ls -la artifact/
+          echo "=== sonames (expect avcodec.so.62 / avformat.so.62 / avutil.so.60) ==="
+          for f in artifact/libavcodec.so artifact/libavformat.so artifact/libavutil.so; do
+            readlink -f "$f" 2>/dev/null | xargs -r basename
+          done
+          echo "=== ABI check (should be ELF aarch64, NEEDED libc.so) ==="
+          $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -dh artifact/libavcodec.so.* 2>/dev/null | grep -iE 'Machine|NEEDED.*libc|soname' | head
+
+      - name: Upload ffmpeg8 aarch64 libs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg8-android-aarch64
+          path: artifact/*
