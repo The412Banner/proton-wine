@@ -33,9 +33,12 @@ jobs:
           CC=$TOOLCHAIN/bin/aarch64-linux-android$API-clang
           export PATH=$TOOLCHAIN/bin:$PATH
           cd ffmpeg
+          # --target-os=linux (NOT android) so ffmpeg emits VERSIONED sonames
+          # (libavcodec.so.62 etc.) to match winedmo's DT_NEEDED + the imagefs's
+          # existing versioned ffmpeg 7. The NDK clang triple keeps the binary bionic.
           ./configure \
             --prefix=$GITHUB_WORKSPACE/out \
-            --target-os=android \
+            --target-os=linux \
             --arch=aarch64 \
             --cpu=armv8-a \
             --enable-cross-compile \
