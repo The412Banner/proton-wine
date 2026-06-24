@@ -677,15 +677,12 @@ static HRESULT clock_change_state(struct presentation_clock *clock, enum clock_c
         }
         else
         {
-    if (clock->key)
-    {
-        remove_key = clock->key;
-        clock->key = 0;
-    }
+            if (clock->key)
+            {
+                *remove_key = clock->key;
+                clock->key = 0;
+            }
         }
-    if (remove_key)
-        MFRemovePeriodicCallback(remove_key);
-
     }
 
     LIST_FOR_EACH_ENTRY(sink, &clock->sinks, struct clock_sink, entry)

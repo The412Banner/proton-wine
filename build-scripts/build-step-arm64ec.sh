@@ -247,7 +247,7 @@ do
     rm -rf $OUTPUT_DIR/lib
     rm -rf $OUTPUT_DIR/share
     rm -rf $install_dir
-    make -j$(nproc)
+    make -k -j$(nproc) || { echo "=== make finished WITH ERRORS (keep-going collected all above) ==="; exit 1; }
   fi
 
   if [ "$arg" == "--install" ]
