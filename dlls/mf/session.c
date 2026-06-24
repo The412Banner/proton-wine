@@ -3211,6 +3211,7 @@ static void session_set_source_object_state(struct media_session *session, IUnkn
     IMFStreamSink *stream_sink;
     struct media_source *src;
     struct media_sink *sink;
+    struct topo_node *node;
     enum object_state state;
     BOOL changed = FALSE;
     DWORD i, count;

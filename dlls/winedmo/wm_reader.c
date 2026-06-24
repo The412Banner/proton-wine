@@ -2549,8 +2549,8 @@ static ULONG WINAPI unknown_inner_Release(IUnknown *iface)
 
         reader->cs.DebugInfo->Spare[0] = 0;
         DeleteCriticalSection(&reader->cs);
-        reader->shutdown_cs.DebugInfo->Spare[0] = 0;
-        DeleteCriticalSection(&reader->shutdown_cs);
+        reader->demuxer_cs.DebugInfo->Spare[0] = 0;
+        DeleteCriticalSection(&reader->demuxer_cs);
 
         free(reader);
     }
