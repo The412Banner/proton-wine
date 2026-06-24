@@ -1,9 +1,9 @@
 diff --git a/dlls/ntdll/unix/server.c b/dlls/ntdll/unix/server.c
-index 5d8a59b6156..f11f7497c32 100644
+index b18ae5b9726..3daddf924fd 100644
 --- a/dlls/ntdll/unix/server.c
 +++ b/dlls/ntdll/unix/server.c
-@@ -1360,9 +1360,16 @@ static int setup_config_dir(void)
-
+@@ -1402,10 +1402,17 @@ static int setup_config_dir(void)
+ 
      if (!mkdir( "dosdevices", 0777 ))
      {
 +#ifdef __ANDROID__
@@ -13,13 +13,14 @@ index 5d8a59b6156..f11f7497c32 100644
 +        symlink( "/data/data/app.gamenative/files/imagefs/", "dosdevices/z:" );
 +#else
          mkdir( "drive_c", 0777 );
+         set_case_insensitive( "drive_c" );
          symlink( "../drive_c", "dosdevices/c:" );
          symlink( "/", "dosdevices/z:" );
 +#endif
      }
      else if (errno != EEXIST) fatal_perror( "cannot create %s/dosdevices", config_dir );
-
-@@ -1703,6 +1710,11 @@ size_t server_init_process(void)
+ 
+@@ -1771,6 +1778,11 @@ size_t server_init_process(void)
                  inproc_device_fd = FSYNC_USED_BY_SERVER;
                  fsync_init( pid );
              }
