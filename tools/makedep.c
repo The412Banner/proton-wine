@@ -1482,7 +1482,7 @@ static struct file *open_src_file( const struct makefile *make, struct incl_file
 {
     struct file *file = open_local_file( make, pFile->name, &pFile->filename );
 
-    if (!file) { fprintf( stderr, "WINEDBG makedep: empty/missing source name='%s' filename='%s' makefile obj_dir='%s' module='%s'\n", pFile->name ? pFile->name : "(null)", pFile->filename ? pFile->filename : "(null)", make->obj_dir ? make->obj_dir : "(null)", make->module ? make->module : "(null)" ); fatal_perror( "open %s", pFile->name ); }
+    if (!file) fatal_perror( "open %s", pFile->name );
     return file;
 }
 
@@ -1737,7 +1737,7 @@ static FILE *open_input_makefile( const struct makefile *make )
         input_file_name = output_makefile_name;  /* always use output name for main Makefile */
 
     input_line = 0;
-    if (!(ret = fopen( input_file_name, "r" ))) { fprintf( stderr, "WINEDBG makedep: MISSING input makefile '\''%s'\'' obj_dir='\''%s'\''\n", input_file_name ? input_file_name : "(null)", make->obj_dir ? make->obj_dir : "(null)" ); fatal_perror( "open" ); }
+    if (!(ret = fopen( input_file_name, "r" ))) fatal_perror( "open" );
     return ret;
 }
 
