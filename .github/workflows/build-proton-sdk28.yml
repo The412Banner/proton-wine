@@ -120,10 +120,6 @@ jobs:
             bash build-scripts/build-step-arm64ec.sh --build-sysvshm
           fi
       
-      - name: Apply GE-Proton patches (game-fixes tier)
-        run: |
-          bash build-scripts/apply-ge-patches.sh
-
       - name: Configure build for ${{ matrix.arch }}
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then

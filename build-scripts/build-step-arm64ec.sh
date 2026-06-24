@@ -103,7 +103,7 @@ do
       --without-coreaudio \
       --without-cups \
       --without-dbus \
-      --without-ffmpeg \
+      --with-ffmpeg \
       --with-fontconfig \
       --with-freetype \
       --without-gcrypt \
@@ -112,7 +112,7 @@ do
       --without-gphoto \
       --with-gnutls \
       --without-gssapi \
-      --with-gstreamer \
+      --without-gstreamer \
       --without-inotify \
       --without-krb5 \
       --without-netapi \
