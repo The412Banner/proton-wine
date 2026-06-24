@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [aarch64]
       fail-fast: false
     
     steps:
@@ -120,6 +120,10 @@ jobs:
             bash build-scripts/build-step-arm64ec.sh --build-sysvshm
           fi
       
+      - name: Apply GE-Proton patches (game-fixes tier)
+        run: |
+          bash build-scripts/apply-ge-patches.sh
+
       - name: Configure build for ${{ matrix.arch }}
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
@@ -166,7 +170,7 @@ jobs:
             "type": "Proton",
             "versionName": "11.0-1-${ARCH_NAME}",
             "versionCode": 1,
-            "description": "Proton 11.0-1 ${ARCH_NAME} - Windows compatibility layer with improved gaming support",
+            "description": "GE-Proton 11.0-1 ${ARCH_NAME} (bionic) - GloriousEggroll game-fixes on GameNative bionic Proton 11",
             "files": [],
             "wine": {
               "binPath": "bin",
@@ -182,7 +186,7 @@ jobs:
             "type": "Wine",
             "versionName": "11.0-1-${ARCH_NAME}",
             "versionCode": 0,
-            "description": "Proton 11.0-1 ${ARCH_NAME} - Windows compatibility layer with improved gaming support",
+            "description": "GE-Proton 11.0-1 ${ARCH_NAME} (bionic) - GloriousEggroll game-fixes on GameNative bionic Proton 11",
             "files": [],
             "wine": {
               "binPath": "bin",
