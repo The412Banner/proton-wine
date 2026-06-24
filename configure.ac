@@ -3423,11 +3423,6 @@ WINE_CONFIG_MAKEFILE(dlls/winedmo)
 WINE_CONFIG_MAKEFILE(dlls/winehid.sys)
 WINE_CONFIG_MAKEFILE(dlls/winemac.drv)
 WINE_CONFIG_MAKEFILE(dlls/winemapi)
-WINE_CONFIG_MAKEFILE(dlls/wineopenxr)
-if test "$HOST_ARCH" = "i386"
-then
-    DISABLED_SUBDIRS="$DISABLED_SUBDIRS dlls/wineopenxr"
-fi
 
 WINE_CONFIG_MAKEFILE(dlls/wineoss.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps.drv)
