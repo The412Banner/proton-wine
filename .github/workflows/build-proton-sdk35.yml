@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [aarch64]
       fail-fast: false
     
     steps:
@@ -165,8 +165,8 @@ jobs:
           {
             "type": "Proton",
             "versionName": "11.0-1-${ARCH_NAME}",
-            "versionCode": 1,
-            "description": "Proton 11.0-1 ${ARCH_NAME} - Windows compatibility layer with improved gaming support",
+            "versionCode": 3,
+            "description": "GE-Proton 11.0-1 FULL ${ARCH_NAME} (bionic, SDK35/16KB) - wine-staging + GE video-rework + game-fixes",
             "files": [],
             "wine": {
               "binPath": "bin",
@@ -182,7 +182,7 @@ jobs:
             "type": "Wine",
             "versionName": "11.0-1-${ARCH_NAME}",
             "versionCode": 0,
-            "description": "Proton 11.0-1 ${ARCH_NAME} - Windows compatibility layer with improved gaming support",
+            "description": "GE-Proton 11.0-1 FULL ${ARCH_NAME} (bionic, SDK35/16KB) - wine-staging + GE video-rework + game-fixes",
             "files": [],
             "wine": {
               "binPath": "bin",
@@ -252,15 +252,15 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find artifacts -name "*.wcp" -exec cp {} release/ \;
-          find artifacts -name "*.wcp.xz" -exec cp {} release/ \;
+          wcp=$(find artifacts -name "*arm64ec*.wcp" ! -name "*.xz" | head -1)
+          cp "$wcp" "release/GE-Proton-11.0-1-FULL-arm64ec-bionic-sdk35.wcp"
           ls -lah release/
       
       - name: Generate date-based tag
         id: generate_tag
         run: |
           DATE=$(date +%Y%m%d)
-          TAG_NAME="build-p11-${DATE}-sdk35"
+          TAG_NAME="gefull-${DATE}-sdk35"
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Generated tag: ${TAG_NAME}"
       
@@ -268,7 +268,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: Proton Wine 11.0-1 (SDK 35, ${{ steps.generate_tag.outputs.tag_name }})
+          name: GE-Proton 11.0-1 FULL SDK35/16KB (wine-staging + GE video-rework, bionic arm64ec, ${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
