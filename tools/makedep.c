@@ -1482,7 +1482,7 @@ static struct file *open_src_file( const struct makefile *make, struct incl_file
 {
     struct file *file = open_local_file( make, pFile->name, &pFile->filename );
 
-    if (!file) fatal_perror( "open %s", pFile->name );
+    if (!file) { fprintf( stderr, "WINEDBG makedep: empty/missing source name='%s' filename='%s' makefile obj_dir='%s' module='%s'\n", pFile->name ? pFile->name : "(null)", pFile->filename ? pFile->filename : "(null)", make->obj_dir ? make->obj_dir : "(null)", make->module ? make->module : "(null)" ); fatal_perror( "open %s", pFile->name ); }
     return file;
 }
 
