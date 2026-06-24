@@ -63,8 +63,7 @@ jobs:
             --enable-parsers \
             --enable-demuxers \
             --enable-protocol=file,pipe \
-            --extra-cflags="-O2 -fPIC" \
-            --extra-ldflags="-Wl,-soname-prefix" || { cat ffbuild/config.log | tail -60; exit 1; }
+            --extra-cflags="-O2 -fPIC" || { echo '=== config.log tail ==='; tail -80 ffbuild/config.log 2>/dev/null; exit 1; }
           make -j$(nproc)
           make install
 
