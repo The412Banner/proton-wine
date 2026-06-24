@@ -288,6 +288,8 @@ jobs:
 
             GloriousEggroll (GE-Proton 11.0-1) game-fix patches compiled on top of GameNative's bionic arm64ec Proton 11, for Winlator-Bionic (CMOD / Ludashi / Bannerlator).
 
+            **Upstream:** game-fix patches sourced from GloriousEggroll's [GE-Proton11-1 release](https://github.com/GloriousEggroll/proton-ge-custom/releases/tag/GE-Proton11-1) — [proton-ge-custom](https://github.com/GloriousEggroll/proton-ge-custom). This bionic build ports GE's **game-fixes tier** only (not the video-rework / proton-custom / wine-staging tiers).
+
             Built from commit: ${{ github.sha }}
 
             ### GE game-fix patches included
