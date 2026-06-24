@@ -299,6 +299,20 @@ jobs:
             - silence Star Citizen "unsupported OS"
             - vgsoh (SteamGameId 218210)
 
+            ### Verification (truly GE, not a relabel)
+            All 7 GE game-fix patches applied cleanly to the Valve proton_11.0 source **before** configure/compile (CI "Apply GE-Proton patches" step: `applied 7/7 patches`), then GameNative's bionic/android patches, then wine compiled.
+
+            GE-only markers confirmed compiled **into the shipped binaries** via on-device `strings | grep` — present in this GE build and **absent from the stock GameNative Proton 11.0-5 arm64ec** installed beside it:
+
+            | Marker (source patch) | Binary | GE 11.0-1 | Stock 11.0-5 |
+            |---|---|---|---|
+            | `WINE_NO_OPEN_FILE_SEARCH` (pso2_hack) | `ntdll.so` | ✅ 1 | 0 |
+            | `EAC_LAUNCHERDIR` (eac_60101_timeout) | `ntdll.so` | ✅ 1 | 0 |
+            | `Star Citizen` (silence-starcitizen) | `user32.dll` | ✅ 2 | 0 |
+            | control `WINEDEBUG` / `wine_server_call` | `ntdll.so` | 6 / 4 | 6 / 4 |
+
+            Identical control-string counts confirm comparable real builds; the GE markers differentiate them. Device-tested: installs into a fresh container and boots (appears as `proton-11.0-1-arm64ec-1`). ABI verified bionic (interpreter `/system/bin/linker64`, Android 28 / NDK r27d).
+
             ### Architecture
             - arm64ec (ARM64EC, bionic — interpreter /system/bin/linker64, Android 28 / NDK r27d)
 
