@@ -256,8 +256,11 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find artifacts -name "*.wcp" -exec cp {} release/ \;
-          find artifacts -name "*.wcp.xz" -exec cp {} release/ \;
+          # Publish the arm64ec build under the canonical GE name (matches the
+          # device-tested wcp): GE-Proton-11.0-1-arm64ec-bionic.wcp
+          wcp=$(find artifacts -name "*arm64ec*.wcp" | head -1)
+          if [ -z "$wcp" ]; then wcp=$(find artifacts -name "*.wcp" | head -1); fi
+          cp "$wcp" "release/GE-Proton-11.0-1-arm64ec-bionic.wcp"
           ls -lah release/
       
       - name: Generate date-based tag
@@ -272,30 +275,35 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: Proton Wine 11.0-1 (SDK 28, ${{ steps.generate_tag.outputs.tag_name }})
+          name: GE-Proton 11.0-1 arm64ec (bionic, SDK 28, ${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
           body: |
             # Caution: This version is provided for testing purposes only. It may lead to game instability or crashes. Use at your own risk.
-            
-            ## Proton Wine Build based on Valve [Wine](https://github.com/ValveSoftware/wine/tree/proton_11.0)
-            
-            ### Proton Version: 11.0-1
-            
+
+            ## GE-Proton (bionic) Build based on Valve [Wine](https://github.com/ValveSoftware/wine/tree/proton_11.0) + [GameNative](https://github.com/GameNative/proton-wine) Android bionic patches
+
+            ### Proton Version: GE-Proton 11.0-1 (arm64ec, bionic)
+
+            GloriousEggroll (GE-Proton 11.0-1) game-fix patches compiled on top of GameNative's bionic arm64ec Proton 11, for Winlator-Bionic (CMOD / Ludashi / Bannerlator).
+
             Built from commit: ${{ github.sha }}
-            
-            ### Architectures
-            - x86_64 (Intel/AMD 64-bit)
-            - arm64ec (ARM64EC)
-            
+
+            ### GE game-fix patches included
+            - win32u: avoid zero WM_ACTIVATEAPP lparam on first focus
+            - assettocorsa HUD (dwrite)
+            - Dragon Age: Inquisition xinput
+            - EAC 60101 launcher timeout
+            - PSO2 file-search hack
+            - silence Star Citizen "unsupported OS"
+            - vgsoh (SteamGameId 218210)
+
+            ### Architecture
+            - arm64ec (ARM64EC, bionic — interpreter /system/bin/linker64, Android 28 / NDK r27d)
+
             ### WCP Files
-            **Proton Type:**
-            - `proton-11.0-1-x86_64.wcp` - For GameNative
-            - `proton-11.0-1-arm64ec.wcp` - For GameNative
-            
-            **Wine Type:**
-            - `proton-wine-11.0-1-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
-            - `proton-wine-11.0-1-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
+            **Proton Type (for GameNative / Winlator-Bionic):**
+            - `GE-Proton-11.0-1-arm64ec-bionic.wcp` — install as a Proton compat layer; appears as `proton-11.0-1-arm64ec-1`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
