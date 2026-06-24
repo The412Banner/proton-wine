@@ -260,7 +260,7 @@ jobs:
         id: generate_tag
         run: |
           DATE=$(date +%Y%m%d)
-          TAG_NAME="build-p11-${DATE}-sdk28"
+          TAG_NAME="gefull-${DATE}-sdk28"
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Generated tag: ${TAG_NAME}"
       
@@ -268,7 +268,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: Proton Wine 11.0-1 (SDK 28, ${{ steps.generate_tag.outputs.tag_name }})
+          name: GE-Proton 11.0-1 FULL (wine-staging + GE video-rework, bionic arm64ec, ${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
