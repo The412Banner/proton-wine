@@ -70,6 +70,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/uio.h>
 #include <sys/un.h>
 
@@ -867,6 +868,11 @@ static void *courier_thread(void *arg)
     struct x11_conn c; memset(&c, 0, sizeof(c));
     if (x11_open(&c))
     {
+        /* Safety net: never let a missing/late X reply hang the probe forever
+         * (e.g. if the acceptance round-trip races the server's handler). */
+        struct timeval rtv = { 5, 0 };
+        setsockopt(c.fd, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
+
         uint8_t dri3 = x11_query_dri3_opcode(c.fd);
         if (dri3)
         {
@@ -884,22 +890,49 @@ static void *courier_thread(void *arg)
                                                  modifier, sv[1]))
                 {
                     close(sv[1]); /* server owns its copy now */
-                    x11_check_accepted(c.fd);
 
-                    /* app writes 1 ack byte, then recvHandleFromUnixSocket */
+                    /* CRITICAL ORDERING: send the AHardwareBuffer *before* any
+                     * blocking X round-trip. The Java X server processes our
+                     * PixmapFromBuffers synchronously on its client thread and
+                     * blocks inside AHardwareBuffer_recvHandleFromUnixSocket
+                     * until we deliver the buffer -- so a GetInputFocus round-trip
+                     * here would deadlock (server can't reply while it waits for
+                     * us; we'd wait for a reply that never comes). The readiness
+                     * ack + AHB handoff travel on the socketpair (sv[0]), which is
+                     * independent of the X protocol stream.
+                     *
+                     * Protocol (must match host hardwareBufferFromSocket): host
+                     * writes ONE ack byte to its socketpair end, then calls
+                     * recvHandleFromUnixSocket. So: read the ack on our retained
+                     * end sv[0], then AHardwareBuffer_sendHandleToUnixSocket. */
+                    int ahb_ok = 0;
+                    dc_log("waiting for host ack on AHB socketpair (fd=%d, 5000ms)...", sv[0]);
                     struct pollfd pf = { sv[0], POLLIN, 0 };
-                    if (poll(&pf, 1, 3000) > 0 && (pf.revents & POLLIN))
+                    int pr = poll(&pf, 1, 5000);
+                    if (pr > 0 && (pf.revents & POLLIN))
                     {
                         uint8_t ack = 0;
-                        if (read(sv[0], &ack, 1) == 1)
+                        ssize_t n = read(sv[0], &ack, 1);
+                        dc_log("host ack received: %zd byte(s) (val=%u)", n, ack);
+                        if (n == 1)
                         {
+                            dc_log("sending AHardwareBuffer over socketpair (ahb=%p)...", (void *)ahb);
                             int sr = p_AHB_send(ahb, sv[0]);
-                            dc_log("received app ack; AHardwareBuffer_sendHandleToUnixSocket -> %d (%s)",
-                                   sr, sr == 0 ? "AHB delivered" : "send failed");
+                            dc_log("AHardwareBuffer_sendHandleToUnixSocket -> %d (%s)",
+                                   sr, sr == 0 ? "AHB SENT" : "send FAILED");
+                            ahb_ok = (sr == 0);
                         }
-                        else dc_log("app ack read failed");
+                        else dc_log("host ack read failed (n=%zd errno=%s)", n, strerror(errno));
                     }
-                    else dc_log("timed out waiting for app ack on the AHB socket (app stub not wired?)");
+                    else dc_log("timed out/error waiting for host ack (poll=%d errno=%s) -- host stub not wired?",
+                                pr, pr < 0 ? strerror(errno) : "timeout");
+
+                    /* Now it is safe to confirm the server accepted the pixmap:
+                     * after the AHB transfer completes the server's handler
+                     * returns and can service further requests. Non-fatal. */
+                    dc_log("AHB handoff %s; confirming pixmap acceptance...",
+                           ahb_ok ? "complete" : "incomplete");
+                    x11_check_accepted(c.fd);
                 }
                 close(sv[0]);
             }
