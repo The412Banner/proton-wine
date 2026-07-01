@@ -5,6 +5,7 @@ IMPORTS   = advapi32
 UNIX_LIBS = -lwin32u $(PTHREAD_LIBS)
 
 SOURCES = \
+	depth_courier_unix.c \
 	loader.c \
 	loader_thunks.c \
 	vulkan.c \

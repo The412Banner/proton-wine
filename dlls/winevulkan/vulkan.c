@@ -30,6 +30,8 @@
 #include "ntgdi.h"
 #include "ntuser.h"
 
+#include "depth_courier.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(vulkan);
 
 static PFN_vkCreateInstance p_vkCreateInstance;
@@ -406,6 +408,12 @@ VkResult wine_vkCreateInstance(const VkInstanceCreateInfo *client_create_info, c
         debug_report_callback->pUserData = report_callback;
         list_add_tail(&report_callbacks, &report_callback->entry);
     }
+
+    /* SGSR2 Gate 0 depth-export capability probe. No-op unless WINE_DEPTH_COURIER
+     * is set; when enabled it runs once on a detached thread using its own
+     * throwaway host instance (via the raw host vkGetInstanceProcAddr), so it
+     * never touches the guest's instance/device and cannot perturb rendering. */
+    depth_courier_maybe_start((void *)vk_funcs->p_vkGetInstanceProcAddr);
 
     return vk_funcs->p_vkCreateInstance(create_info, NULL /* allocator */, client_instance_ptr);
 

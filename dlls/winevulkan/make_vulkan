@@ -136,9 +136,17 @@ UNEXPOSED_EXTENSIONS = {
     "VK_KHR_wayland_surface",
     "VK_KHR_xlib_surface",
     "VK_MVK_macos_surface",
+    # Android platform extensions: generate headers/thunks (needed by the
+    # winevulkan UNIX-side depth courier / future depth-export path) but do NOT
+    # advertise them to guest applications. Mirrors the metal/wayland/xlib pattern
+    # (platform is also listed in UNEXPOSED_PLATFORMS above).
+    "VK_KHR_android_surface",
+    "VK_ANDROID_external_memory_android_hardware_buffer",
+    "VK_ANDROID_external_format_resolve",
 }
 
 UNEXPOSED_PLATFORMS = {
+    "android",
     "macos",
     "metal",
     "wayland",
