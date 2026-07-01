@@ -206,32 +206,87 @@ static int read_xauth_cookie(int display_num, uint8_t *out, int out_max)
     return found;
 }
 
-/* Connect the AF_UNIX X socket for display N. Tries the filesystem path and the
- * Linux abstract namespace. Returns fd or -1. */
-static int x11_connect_socket(int display_num)
+/* Connect a filesystem AF_UNIX socket at `path`. Fresh fd per call (a failed
+ * connect on a stream socket must not be reused). Returns fd or -1. */
+static int x11_connect_fs(const char *path)
 {
+    if (!path || !*path) return -1;
+    if (strlen(path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) return -1;
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return -1;
-
     struct sockaddr_un sa;
-    /* filesystem: /tmp/.X11-unix/XN */
     memset(&sa, 0, sizeof(sa));
     sa.sun_family = AF_UNIX;
-    snprintf(sa.sun_path, sizeof(sa.sun_path), "/tmp/.X11-unix/X%d", display_num);
+    strcpy(sa.sun_path, path);
     if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) == 0) return fd;
+    close(fd);
+    return -1;
+}
 
-    /* abstract: \0/tmp/.X11-unix/XN */
+/* Connect an abstract-namespace AF_UNIX socket ("\0"+name). Returns fd or -1. */
+static int x11_connect_abstract(const char *name)
+{
+    if (!name || !*name) return -1;
+    size_t L = strlen(name);
+    if (L + 1 > sizeof(((struct sockaddr_un *)0)->sun_path)) return -1;
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_un sa;
     memset(&sa, 0, sizeof(sa));
     sa.sun_family = AF_UNIX;
-    {
-        char name[64];
-        int L = snprintf(name, sizeof(name), "/tmp/.X11-unix/X%d", display_num);
-        sa.sun_path[0] = '\0';
-        memcpy(sa.sun_path + 1, name, L);
-        socklen_t sl = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + L);
-        if (connect(fd, (struct sockaddr *)&sa, sl) == 0) return fd;
-    }
+    sa.sun_path[0] = '\0';
+    memcpy(sa.sun_path + 1, name, L);
+    socklen_t sl = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + L);
+    if (connect(fd, (struct sockaddr *)&sa, sl) == 0) return fd;
     close(fd);
+    return -1;
+}
+
+/* Connect to the X server for display N.
+ *
+ * This build's Wine runs *natively* (no proot path translation): its env uses
+ * absolute host paths, e.g. TMPDIR=/data/.../imagefs/usr/tmp, and its Xlib is
+ * termux-patched to place the X socket under $TMPDIR/.X11-unix (NOT the standard
+ * /tmp/.X11-unix). So we resolve the socket the SAME way the guest does --
+ * $TMPDIR first -- then fall back through other plausible locations. Returns fd
+ * or -1. */
+static int x11_connect_socket(int display_num)
+{
+    char p[256];
+    const char *tmpdir = getenv("TMPDIR");
+    const char *xdg    = getenv("XDG_RUNTIME_DIR");
+    const char *prefix = getenv("PREFIX");
+    int fd;
+
+    /* 1. $TMPDIR/.X11-unix/XN  -- exactly how the guest Xlib connects here. */
+    if (tmpdir && *tmpdir)
+    {
+        snprintf(p, sizeof(p), "%s/.X11-unix/X%d", tmpdir, display_num);
+        if ((fd = x11_connect_fs(p)) >= 0) { dc_log("X socket via TMPDIR: %s", p); return fd; }
+    }
+    /* 2. $XDG_RUNTIME_DIR/.X11-unix/XN */
+    if (xdg && *xdg)
+    {
+        snprintf(p, sizeof(p), "%s/.X11-unix/X%d", xdg, display_num);
+        if ((fd = x11_connect_fs(p)) >= 0) { dc_log("X socket via XDG_RUNTIME_DIR: %s", p); return fd; }
+    }
+    /* 3. $PREFIX/tmp/.X11-unix/XN */
+    if (prefix && *prefix)
+    {
+        snprintf(p, sizeof(p), "%s/tmp/.X11-unix/X%d", prefix, display_num);
+        if ((fd = x11_connect_fs(p)) >= 0) { dc_log("X socket via PREFIX: %s", p); return fd; }
+    }
+    /* 4/5. imagefs-relative and standard locations. */
+    snprintf(p, sizeof(p), "/usr/tmp/.X11-unix/X%d", display_num);
+    if ((fd = x11_connect_fs(p)) >= 0) { dc_log("X socket via %s", p); return fd; }
+    snprintf(p, sizeof(p), "/tmp/.X11-unix/X%d", display_num);
+    if ((fd = x11_connect_fs(p)) >= 0) { dc_log("X socket via %s", p); return fd; }
+
+    /* 6. Abstract namespace (unused by this server, but cheap to try last). */
+    snprintf(p, sizeof(p), "/tmp/.X11-unix/X%d", display_num);
+    if ((fd = x11_connect_abstract(p)) >= 0) { dc_log("X socket via abstract @%s", p); return fd; }
+
+    dc_log("could not connect X socket for display %d (tried TMPDIR/XDG/PREFIX/usr-tmp/tmp/abstract)", display_num);
     return -1;
 }
 
@@ -323,15 +378,16 @@ static int x11_do_setup(int fd, const char *auth_name, const uint8_t *auth, int 
  * empty auth (reconnecting between). Returns 1 on success. */
 static int x11_open(struct x11_conn *c)
 {
+    /* DISPLAY may be absent from some process envs even though the server is at
+     * display 0 (observed on device), so default to 0 rather than bailing. */
     const char *disp = getenv("DISPLAY");
-    if (!disp || !*disp) { dc_log("DISPLAY unset -- cannot open second X connection"); return 0; }
-    const char *colon = strchr(disp, ':');
+    const char *colon = disp ? strchr(disp, ':') : NULL;
     int display_num = colon ? atoi(colon + 1) : 0;
+    dc_log("DISPLAY=%s -> display %d", (disp && *disp) ? disp : "(unset, assuming :0)", display_num);
 
     uint8_t cookie[256];
     int cookielen = read_xauth_cookie(display_num, cookie, sizeof(cookie));
-    dc_log("DISPLAY='%s' (num=%d) xauth cookie=%s", disp, display_num,
-           cookielen ? "found" : "none");
+    dc_log("xauth cookie: %s", cookielen ? "found" : "none");
 
     /* Attempt 1: empty auth. The app's Java X server ignores auth content
      * (it always marks the client authenticated), so this clean 12-byte setup
