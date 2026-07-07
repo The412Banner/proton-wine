@@ -38,6 +38,7 @@
 #define GST_ERROR(fmt, ...) ERR(fmt "\n", ## __VA_ARGS__)
 #define GST_WARNING(fmt, ...) WARN(fmt "\n", ## __VA_ARGS__)
 #define GST_INFO(fmt, ...) TRACE(fmt "\n", ## __VA_ARGS__)
+#define GST_TRACE(fmt, ...) TRACE(fmt "\n", ## __VA_ARGS__)
 #define GST_DEBUG(fmt, ...) TRACE(fmt "\n", ## __VA_ARGS__)
 typedef struct gst_buffer GstBuffer; /* not used */
 extern size_t gst_buffer_extract(GstBuffer*,size_t,void*,size_t); /* not used */
@@ -51,6 +52,14 @@ GST_DEBUG_CATEGORY_EXTERN(media_converter_debug);
 #endif /* _WINEDMO */
 
 typedef int (*data_read_callback)(void *data_reader, uint8_t *buffer, size_t size, size_t *read_size);
+
+#define VIDEO_CONV_FOZ_TAG_VIDEODATA        0
+#define VIDEO_CONV_FOZ_TAG_OGVDATA          1
+#define VIDEO_CONV_FOZ_TAG_STREAM           2
+#define VIDEO_CONV_FOZ_TAG_MKVDATA          3
+#define VIDEO_CONV_FOZ_TAG_CODEC            4
+#define VIDEO_CONV_FOZ_TAG_ORIGINAL_ENTRIES 5
+#define VIDEO_CONV_FOZ_NUM_TAGS             6
 
 /* Changing this will invalidate the cache. You MUST clear it. */
 #define HASH_SEED 0x4AA61F63
@@ -166,6 +175,7 @@ struct fozdb
 
 /* lib.c. */
 extern bool open_file(const char *file_name, int open_flags, int *out_fd);
+extern int create_file(const char *file_name);
 extern bool get_file_size(int fd, uint64_t *file_size);
 extern bool complete_read(int file, void *buffer, size_t size);
 extern bool complete_write(int file, const void *buffer, size_t size);
@@ -173,6 +183,7 @@ extern uint32_t crc32(uint32_t crc, const uint8_t *ptr, size_t buf_len);
 extern int create_placeholder_file(const char *file_name);
 extern int dump_fozdb_open(struct dump_fozdb *db, bool create, const char *file_path_env, int num_tags);
 extern void dump_fozdb_close(struct dump_fozdb *db);
+extern void mark_transcoded_stream(struct fozdb *fozdb, struct fozdb_hash *hash);
 
 /* murmur3.c. */
 extern void murmur3_x64_128_state_init(struct murmur3_x64_128_state *state, uint32_t seed);

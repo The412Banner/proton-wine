@@ -688,6 +688,7 @@ AC_CHECK_HEADERS(\
 	linux/input.h \
 	linux/ioctl.h \
 	linux/major.h \
+	linux/memfd.h \
 	linux/ntsync.h \
 	linux/param.h \
 	linux/seccomp.h \

@@ -4544,6 +4544,35 @@ end:
     return retval;
 }
 
+static void bitmap_scanline_span_fill(GpBitmap *dst_bitmap, const DWORD *src_row, int row_x,
+    int start_x, int end_x, int y, CompositingMode comp_mode)
+{
+    int x;
+
+    for (x = start_x; x < end_x; x++)
+    {
+        ARGB dst_color, src_color;
+
+        src_color = src_row[x - row_x];
+
+        if (comp_mode == CompositingModeSourceCopy)
+        {
+            if (!(src_color & 0xff000000))
+                GdipBitmapSetPixel(dst_bitmap, x, y, 0);
+            else
+                GdipBitmapSetPixel(dst_bitmap, x, y, src_color);
+        }
+        else
+        {
+            if (!(src_color & 0xff000000))
+                continue;
+
+            GdipBitmapGetPixel(dst_bitmap, x, y, &dst_color);
+            GdipBitmapSetPixel(dst_bitmap, x, y, color_over(dst_color, src_color));
+        }
+    }
+}
+
 static GpStatus SOFTWARE_GdipFillPath(GpGraphics *graphics, GpBrush *brush, GpPath *path)
 {
     GpStatus stat;
@@ -4795,7 +4824,7 @@ GpStatus WINGDIPAPI GdipFillRectanglesI(GpGraphics *graphics, GpBrush *brush, GD
     return ret;
 }
 
-static GpStatus get_clipped_region_hrgn(GpGraphics* graphics, GpRegion* region, HRGN *hrgn)
+static GpStatus get_clipped_device_region(GpGraphics* graphics, GpRegion* region, GpRegion** clipped_region)
 {
     GpStatus status;
     GpRegion *tmp_region, *device_region;
@@ -4860,7 +4889,24 @@ static GpStatus get_clipped_region_hrgn(GpGraphics* graphics, GpRegion* region, 
         }
 
         if (status == Ok)
-            status = GdipGetRegionHRgn(device_region, NULL, hrgn);
+            *clipped_region = device_region;
+        else
+            GdipDeleteRegion(device_region);
+    }
+
+    return status;
+}
+
+static GpStatus get_clipped_region_hrgn(GpGraphics* graphics, GpRegion* region, HRGN *hrgn)
+{
+    GpStatus status;
+    GpRegion *device_region;
+
+    status = get_clipped_device_region(graphics, region, &device_region);
+
+    if (status == Ok)
+    {
+        status = GdipGetRegionHRgn(device_region, NULL, hrgn);
 
         GdipDeleteRegion(device_region);
     }
@@ -4916,13 +4962,50 @@ end:
     return status;
 }
 
+static GpStatus alpha_blend_pixels_gpregion(GpGraphics *graphics, INT dst_x, INT dst_y,
+    const BYTE *src, INT src_width, INT src_height, INT src_stride, GpRegion* region)
+{
+    struct span_list spans = {0};
+    RECT bounds;
+    GpStatus stat;
+
+    bounds.left = dst_x;
+    bounds.top = dst_y;
+    bounds.right = dst_x + src_width;
+    bounds.bottom = dst_y + src_height;
+    stat = region_element_to_spans(&region->node, &bounds, &spans);
+
+    if (stat == Ok)
+    {
+        GpBitmap *dst_bitmap = (GpBitmap*)graphics->image;
+        CompositingMode comp_mode = graphics->compmode;
+        size_t i;
+
+        for (i = 0; i < spans.length; i++)
+        {
+            struct span *span = &spans.spans[i];
+            const BYTE *row;
+
+            assert(span->y >= dst_y);
+            assert(span->y - dst_y < src_height);
+
+            row = src + (span->y - dst_y) * src_stride;
+            bitmap_scanline_span_fill(dst_bitmap, (const DWORD *)row, dst_x, span->x[0], span->x[1], span->y, comp_mode);
+        }
+    }
+
+    free(spans.spans);
+
+    return stat;
+}
+
 static GpStatus SOFTWARE_GdipFillRegion(GpGraphics *graphics, GpBrush *brush,
     GpRegion* region)
 {
     GpStatus stat;
     DWORD *pixel_data;
-    HRGN hregion;
-    RECT bound_rect;
+    HRGN hregion = NULL;
+    GpRegion* device_region = NULL;
     GpRect gp_bound_rect;
 
     if (!brush_can_fill_pixels(brush))
@@ -4931,22 +5014,46 @@ static GpStatus SOFTWARE_GdipFillRegion(GpGraphics *graphics, GpBrush *brush,
     stat = gdi_transform_acquire(graphics);
 
     if (stat == Ok)
-        stat = get_clipped_region_hrgn(graphics, region, &hregion);
-
-    if (stat == Ok && GetRgnBox(hregion, &bound_rect) == NULLREGION)
     {
-        DeleteObject(hregion);
-        gdi_transform_release(graphics);
-        return Ok;
+        if (graphics->image && graphics->image->type == ImageTypeBitmap)
+        {
+            stat = get_clipped_device_region(graphics, region, &device_region);
+
+            if (stat == Ok)
+                stat = GdipGetRegionBoundsI(device_region, graphics, &gp_bound_rect);
+
+            if (stat == Ok && gp_bound_rect.Width == 0 && gp_bound_rect.Height == 0)
+            {
+                GdipDeleteRegion(device_region);
+                gdi_transform_release(graphics);
+                return Ok;
+            }
+        }
+        else
+        {
+            RECT bound_rect;
+
+            stat = get_clipped_region_hrgn(graphics, region, &hregion);
+
+            if (stat == Ok && GetRgnBox(hregion, &bound_rect) == NULLREGION)
+            {
+                DeleteObject(hregion);
+                gdi_transform_release(graphics);
+                return Ok;
+            }
+
+            if (stat == Ok)
+            {
+                gp_bound_rect.X = bound_rect.left;
+                gp_bound_rect.Y = bound_rect.top;
+                gp_bound_rect.Width = bound_rect.right - bound_rect.left;
+                gp_bound_rect.Height = bound_rect.bottom - bound_rect.top;
+            }
+        }
     }
 
     if (stat == Ok)
     {
-        gp_bound_rect.X = bound_rect.left;
-        gp_bound_rect.Y = bound_rect.top;
-        gp_bound_rect.Width = bound_rect.right - bound_rect.left;
-        gp_bound_rect.Height = bound_rect.bottom - bound_rect.top;
-
         pixel_data = calloc(gp_bound_rect.Width * gp_bound_rect.Height, sizeof(*pixel_data));
         if (!pixel_data)
             stat = OutOfMemory;
@@ -4957,10 +5064,17 @@ static GpStatus SOFTWARE_GdipFillRegion(GpGraphics *graphics, GpBrush *brush,
                 &gp_bound_rect, gp_bound_rect.Width);
 
             if (stat == Ok)
-                stat = alpha_blend_pixels_hrgn(graphics, gp_bound_rect.X,
-                    gp_bound_rect.Y, (BYTE*)pixel_data, gp_bound_rect.Width,
-                    gp_bound_rect.Height, gp_bound_rect.Width * 4, hregion,
-                    PixelFormat32bppARGB);
+            {
+                if (hregion)
+                    stat = alpha_blend_pixels_hrgn(graphics, gp_bound_rect.X,
+                        gp_bound_rect.Y, (BYTE*)pixel_data, gp_bound_rect.Width,
+                        gp_bound_rect.Height, gp_bound_rect.Width * 4, hregion,
+                        PixelFormat32bppARGB);
+                else
+                    stat = alpha_blend_pixels_gpregion(graphics, gp_bound_rect.X,
+                        gp_bound_rect.Y, (BYTE*)pixel_data, gp_bound_rect.Width,
+                        gp_bound_rect.Height, gp_bound_rect.Width * 4, device_region);
+            }
 
             free(pixel_data);
         }
@@ -4968,6 +5082,7 @@ static GpStatus SOFTWARE_GdipFillRegion(GpGraphics *graphics, GpBrush *brush,
         DeleteObject(hregion);
     }
 
+    GdipDeleteRegion(device_region);
     gdi_transform_release(graphics);
 
     return stat;
