@@ -1,0 +1,143 @@
+name: Publish Fast-Yield P11 Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: The412Banner/proton-wine
+      TAG: build-p11-20260708-fastyield
+      TARGET_SHA: 08b90e7bc192c71eee8ecdf83daadad70b0e7ace
+    steps:
+      - name: Download SDK28 artifacts (run 28932343496)
+        run: |
+          gh run download 28932343496 --repo "$REPO" -D sdk28 \
+            -n proton-arm64ec -n proton-x86_64 \
+            -n proton-wine-arm64ec -n proton-wine-x86_64
+          find sdk28 -type f | sort
+
+      - name: Download SDK35 artifacts (run 28932344928)
+        run: |
+          gh run download 28932344928 --repo "$REPO" -D sdk35 \
+            -n proton-arm64ec -n proton-x86_64 \
+            -n proton-wine-arm64ec -n proton-wine-x86_64
+          find sdk35 -type f | sort
+
+      - name: Assemble release assets (mirror build-p11-20260707 naming)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # SDK28 .wcp (Proton profile) + .wcp.xz (Wine profile)
+          find sdk28/proton-arm64ec      -name '*.wcp'    -exec cp {} out/proton-11.0-1-arm64ec-sdk28.wcp \;
+          find sdk28/proton-x86_64       -name '*.wcp'    -exec cp {} out/proton-11.0-1-x86_64-sdk28.wcp \;
+          find sdk28/proton-wine-arm64ec -name '*.wcp.xz' -exec cp {} out/proton-wine-11.0-1-arm64ec-sdk28.wcp.xz \;
+          find sdk28/proton-wine-x86_64  -name '*.wcp.xz' -exec cp {} out/proton-wine-11.0-1-x86_64-sdk28.wcp.xz \;
+          # SDK35 .wcp (Proton profile) + .wcp.xz (Wine profile)
+          find sdk35/proton-arm64ec      -name '*.wcp'    -exec cp {} out/proton-11.0-1-arm64ec-sdk35.wcp \;
+          find sdk35/proton-x86_64       -name '*.wcp'    -exec cp {} out/proton-11.0-1-x86_64-sdk35.wcp \;
+          find sdk35/proton-wine-arm64ec -name '*.wcp.xz' -exec cp {} out/proton-wine-11.0-1-arm64ec-sdk35.wcp.xz \;
+          find sdk35/proton-wine-x86_64  -name '*.wcp.xz' -exec cp {} out/proton-wine-11.0-1-x86_64-sdk35.wcp.xz \;
+          echo "=== assembled assets ==="
+          ls -la out/
+          test "$(ls out/ | wc -l)" -eq 8
+          echo "=== magic bytes (expect xz: FD 37 7A 58 5A) ==="
+          for f in out/*; do printf '%s: ' "$f"; head -c 6 "$f" | xxd | head -1; done
+          echo "=== sha256 ==="
+          sha256sum out/*
+
+      - name: Verify no clash with build-p11-20260707
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "ERROR: release $TAG already exists"; exit 1
+          fi
+          echo "build-p11-20260707 current state:"
+          gh release view build-p11-20260707 --repo "$REPO" --json isLatest,isPrerelease,tagName
+
+      - name: Write release body
+        run: |
+          cat > body.md <<'BODYEOF'
+          # P11 fast-yield (WINE_FAST_YIELD) — CI-green, untested
+
+          > ⚠️ **CI-green, NOT device-proven.** This gated build compiles and passed CI, but the fast-yield path has **not** been wrung out on-device. Default behavior is stock and safe; the fast path is strictly opt-in. See caveats below.
+
+          ## What this is
+
+          Identical to stock **[`build-p11-20260707`](https://github.com/The412Banner/proton-wine/releases/tag/build-p11-20260707)** — Proton **11.0-1** for bionic (Android): **arm64ec**, **esync / fsync / ntsync** all compiled in — **plus** one addition: an **env-var-gated `NtYieldExecution` fast-yield path**.
+
+          Everything else (source, ABI, sync features, prefix, packaging) is the same as the stock 20260707 release. The only functional difference is the gated yield behavior described below.
+
+          ## How to use it
+
+          Set an environment variable in the container:
+
+          - **`WINE_FAST_YIELD=1`** → `NtYieldExecution` uses a `usleep(0)` fast-yield path.
+          - **unset / `WINE_FAST_YIELD=0`** → stock `sched_yield` behavior. **This is the default and is safe.**
+
+          No registry key, no profile change — purely the env var. Leave it unset to get exactly the stock 20260707 behavior.
+
+          ## What it fixes
+
+          Some games busy-wait: a worker thread spins on `SwitchToThread` → `NtYieldExecution`, pegging **one CPU core at 100%** regardless of any FPS cap. The `usleep(0)` fast-yield path lets the scheduler actually deschedule that spinner, cutting the wasted core.
+
+          Example: **Cyberpunk 2077**'s spin-heavy worker.
+
+          **Credit: fix discovered and reported by Hugo.**
+
+          ## Honest caveats
+
+          - ⚠️ **CI-green, NOT device-proven on this gated build.** The build compiles and CI is green, but the fast-yield path has not been verified on real hardware here.
+          - ⚠️ **The fast path can starve producer threads and hang some games** — that is exactly why it is **opt-in and default-off**. If a game misbehaves with `WINE_FAST_YIELD=1`, unset it.
+          - ⚠️ **Profile `vc1` collides with the GE game-fixes id.** The Proton `.wcp` ships `versionCode 1`; if you intend to ship this alongside a GE build, rebuild it as `vc0` to avoid the id clash.
+
+          ## Which file for which device
+
+          Pick by **page size**, then **arch**, then **target app**:
+
+          | Page size | Arch | File | For |
+          |---|---|---|---|
+          | **4 KB (SDK 28)** — use unless your device has 16 KB pages | arm64ec | `proton-11.0-1-arm64ec-sdk28.wcp` | GameNative / Bannerlator (Proton profile) |
+          | 4 KB (SDK 28) | arm64ec | `proton-wine-11.0-1-arm64ec-sdk28.wcp.xz` | Winlator CMOD & Ludashi (Wine profile) |
+          | 4 KB (SDK 28) | x86_64 | `proton-11.0-1-x86_64-sdk28.wcp` | GameNative / Bannerlator (Proton profile) |
+          | 4 KB (SDK 28) | x86_64 | `proton-wine-11.0-1-x86_64-sdk28.wcp.xz` | Winlator CMOD & Ludashi (Wine profile) |
+          | **16 KB (SDK 35)** — newer 16 KB-page devices | arm64ec | `proton-11.0-1-arm64ec-sdk35.wcp` | GameNative / Bannerlator (Proton profile) |
+          | 16 KB (SDK 35) | arm64ec | `proton-wine-11.0-1-arm64ec-sdk35.wcp.xz` | Winlator CMOD & Ludashi (Wine profile) |
+          | 16 KB (SDK 35) | x86_64 | `proton-11.0-1-x86_64-sdk35.wcp` | GameNative / Bannerlator (Proton profile) |
+          | 16 KB (SDK 35) | x86_64 | `proton-wine-11.0-1-x86_64-sdk35.wcp.xz` | Winlator CMOD & Ludashi (Wine profile) |
+
+          Both page-size targets are the same wine — only memory page size differs. **arm64ec requires a fresh container.**
+
+          ## Source
+
+          - **SDK 28** build: CI run [`28932343496`](https://github.com/The412Banner/proton-wine/actions/runs/28932343496)
+          - **SDK 35** build: CI run [`28932344928`](https://github.com/The412Banner/proton-wine/actions/runs/28932344928)
+          - Built from branch `feat/fast-yield-gate` @ `08b90e7b` (sync.c `NtYieldExecution` env-var gate).
+          BODYEOF
+          echo "--- body.md head ---"; head -5 body.md
+
+      - name: Create pre-release (prerelease, not latest)
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --target "$TARGET_SHA" \
+            --title "P11 fast-yield (WINE_FAST_YIELD) — CI-green, untested" \
+            --notes-file body.md \
+            --prerelease \
+            --latest=false \
+            out/*
+          echo "=== created release ==="
+          gh release view "$TAG" --repo "$REPO" --json tagName,isLatest,isPrerelease,url,assets \
+            --jq '{tag: .tagName, latest: .isLatest, prerelease: .isPrerelease, url: .url, assets: [.assets[] | {name: .name, size: .size}]}'
+
+      - name: Confirm build-p11-20260707 still Latest
+        run: |
+          gh release view build-p11-20260707 --repo "$REPO" --json tagName,isLatest,isPrerelease \
+            --jq '{tag: .tagName, latest: .isLatest, prerelease: .isPrerelease}'
