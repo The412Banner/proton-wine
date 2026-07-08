@@ -58,8 +58,8 @@ jobs:
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             echo "ERROR: release $TAG already exists"; exit 1
           fi
-          echo "build-p11-20260707 current state:"
-          gh release view build-p11-20260707 --repo "$REPO" --json isLatest,isPrerelease,tagName
+          echo "current Latest release tag (must stay build-p11-20260707):"
+          gh api "repos/$REPO/releases/latest" --jq '.tag_name'
 
       - name: Write release body
         run: |
@@ -134,10 +134,13 @@ jobs:
             --latest=false \
             out/*
           echo "=== created release ==="
-          gh release view "$TAG" --repo "$REPO" --json tagName,isLatest,isPrerelease,url,assets \
-            --jq '{tag: .tagName, latest: .isLatest, prerelease: .isPrerelease, url: .url, assets: [.assets[] | {name: .name, size: .size}]}'
+          gh release view "$TAG" --repo "$REPO" --json tagName,isPrerelease,isDraft,url,targetCommitish,assets \
+            --jq '{tag: .tagName, prerelease: .isPrerelease, draft: .isDraft, url: .url, target: .targetCommitish, assets: [.assets[] | {name: .name, size: .size}]}'
 
-      - name: Confirm build-p11-20260707 still Latest
+      - name: Confirm build-p11-20260707 still Latest and this release is NOT latest
         run: |
-          gh release view build-p11-20260707 --repo "$REPO" --json tagName,isLatest,isPrerelease \
-            --jq '{tag: .tagName, latest: .isLatest, prerelease: .isPrerelease}'
+          set -euo pipefail
+          LATEST=$(gh api "repos/$REPO/releases/latest" --jq '.tag_name')
+          echo "Latest release tag = $LATEST"
+          test "$LATEST" = "build-p11-20260707"
+          echo "OK: build-p11-20260707 is still Latest; $TAG is a prerelease and not Latest."
