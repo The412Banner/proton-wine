@@ -53,7 +53,7 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
      for (i = 0; i < count; i++) dll_path_maxlen = max( dll_path_maxlen, strlen(dll_paths[i]) );
      dll_paths[count] = NULL;
  }
-@@ -1785,6 +1807,78 @@
+@@ -1785,6 +1807,81 @@
  }
  
  
@@ -91,6 +91,7 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
 +    if (!(file = malloc( maxlen ))) return STATUS_NO_MEMORY;
 +
 +    pos = maxlen - len - 4;
++    ext = file + pos + len;
 +    /* we don't want to depend on the current codepage here */
 +    for (i = 0; i < len; i++)
 +    {
@@ -101,7 +102,6 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
 +    }
 +    file[pos + len] = 0;
 +    file[--pos] = '/';
-+    if (!ext) ext = file + pos + len;
 +
 +    if (build_dir)
 +    {
@@ -115,11 +115,14 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
 +    {
 +        ptr = prepend( file + pos, so_dir, strlen(so_dir) );
 +        ptr = prepend( ptr, dll_paths[i], strlen(dll_paths[i]) );
++        WARN_(module)( "load_unixlib_by_name: trying %s\n", ptr );
 +        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
 +
 +        ptr = prepend( file + pos, dll_paths[i], strlen(dll_paths[i]) );
++        WARN_(module)( "load_unixlib_by_name: trying %s\n", ptr );
 +        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
 +    }
++    WARN_(module)( "load_unixlib_by_name: no unixlib found for %s\n", file + pos );
 +
 + done:
 +    free( file );
@@ -132,7 +135,7 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
  /***************************************************************************
   *	get_machine_wow64_dir
   *
-@@ -2450,7 +2544,9 @@
+@@ -2450,7 +2547,9 @@
      set_thread_teb( teb );
  #endif
  
@@ -143,7 +146,7 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
      init_startup_info();
      *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
      set_load_order_app_name( main_wargv[0] );
-@@ -2459,7 +2555,9 @@
+@@ -2459,7 +2558,9 @@
      load_ntdll();
      load_wow64_ntdll( main_image_info.Machine );
      load_apiset_dll();
