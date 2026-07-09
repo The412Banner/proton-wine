@@ -1,11 +1,10 @@
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
-index 6e1697720f0..c12be9ba401 100644
 --- a/dlls/ntdll/unix/virtual.c
 +++ b/dlls/ntdll/unix/virtual.c
 @@ -100,6 +100,10 @@
  #include "unix_private.h"
  #include "wine/debug.h"
-
+ 
 +#ifdef __ANDROID__
 +#include "../../android/shm_utils/shm_utils.h"
 +#endif
@@ -13,7 +12,7 @@ index 6e1697720f0..c12be9ba401 100644
  WINE_DEFAULT_DEBUG_CHANNEL(virtual);
  WINE_DECLARE_DEBUG_CHANNEL(module);
  WINE_DECLARE_DEBUG_CHANNEL(virtual_ranges);
-@@ -314,9 +318,15 @@ static void *address_space_start = (void *)0x110000; /* keep DOS area clear */
+@@ -314,9 +318,15 @@
  static void *address_space_start = (void *)0x10000;
  #endif
  #ifdef _WIN64
@@ -29,15 +28,15 @@ index 6e1697720f0..c12be9ba401 100644
  #else
  static void *address_space_limit = (void *)0xc0000000;
  static void *user_space_limit    = (void *)0x7fff0000;
-@@ -418,6 +428,7 @@ void *anon_mmap_alloc( size_t size, int prot )
+@@ -418,6 +428,7 @@
  #ifdef USE_UFFD_WRITEWATCH
  static void kernel_writewatch_init(void)
  {
 +#ifndef __ANDROID__
      struct uffdio_api uffdio_api;
-
+ 
      uffd_fd = syscall( __NR_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY );
-@@ -439,6 +450,10 @@ static void kernel_writewatch_init(void)
+@@ -439,6 +450,10 @@
      }
      use_kernel_writewatch = 1;
      TRACE( "Using kernel write watches.\n" );
@@ -46,5 +45,62 @@ index 6e1697720f0..c12be9ba401 100644
 +    use_kernel_writewatch = 0;
 +#endif
  }
-
+ 
  static void kernel_writewatch_reset( void *start, SIZE_T len )
+@@ -993,6 +1008,18 @@
+ }
+ 
+ /***********************************************************************
++ *           get_unixlib_funcs
++ */
++static NTSTATUS get_unixlib_funcs( void *so_handle, BOOL wow, const void **funcs )
++{
++    const char *name = wow ? "__wine_unix_call_wow64_funcs" : "__wine_unix_call_funcs";
++
++    *funcs = dlsym( so_handle, name );
++    return *funcs ? STATUS_SUCCESS : STATUS_ENTRYPOINT_NOT_FOUND;
++}
++
++
++/***********************************************************************
+  *           get_builtin_unix_funcs
+  */
+ static NTSTATUS get_builtin_unix_funcs( void *module, BOOL wow, const void **funcs )
+@@ -6651,6 +6678,37 @@
+             }
+             return STATUS_INVALID_HANDLE;
+ 
++        case MemoryWineLoadUnixLibByName:
++        case MemoryWineLoadUnixLibByNameWow64:
++            if (process == GetCurrentProcess())
++            {
++                UINT64 res[2];
++                const UNICODE_STRING *name = addr;
++                const void *funcs;
++                void *handle;
++
++                if ((status = load_unixlib_by_name( name, &handle ))) return status;
++                res[0] = (UINT_PTR)handle;
++                if (len >= sizeof(res))
++                {
++                    if (!(status = get_unixlib_funcs( handle, info_class == MemoryWineLoadUnixLibByNameWow64, &funcs )))
++                        res[1] = (UINT_PTR)funcs;
++                }
++                if (status) dlclose( handle );
++                else memcpy( buffer, res, min( len, sizeof(res) ));
++                return status;
++            }
++            return STATUS_INVALID_HANDLE;
++
++        case MemoryWineUnloadUnixLib:
++            if (process == GetCurrentProcess())
++            {
++                const unixlib_module_t *handle = addr;
++
++                if (!dlclose( (void *)(UINT_PTR)*handle )) return STATUS_SUCCESS;
++            }
++            return STATUS_INVALID_HANDLE;
++
+         case MemoryFexStatsShm:
+ #if defined(linux) && defined(__aarch64__)
+             return get_memory_fex_stats_shm( process, addr, buffer, len, res_len );

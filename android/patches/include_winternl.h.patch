@@ -1,0 +1,13 @@
+diff --git a/include/winternl.h b/include/winternl.h
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -2465,6 +2465,9 @@
+ #ifdef __WINESRC__
+     MemoryWineUnixFuncs = 1000,
+     MemoryWineUnixWow64Funcs,
++    MemoryWineLoadUnixLibByName,
++    MemoryWineLoadUnixLibByNameWow64,
++    MemoryWineUnloadUnixLib,
+ #endif
+     MemoryFexStatsShm = 2000,
+ } MEMORY_INFORMATION_CLASS;

@@ -169,6 +169,12 @@ do
       "dlls_ntdll_unix_server.c.patch"
       "dlls_ntdll_unix_sync.c.patch"
       "dlls_ntdll_unix_virtual.c.patch"
+
+      # unixlib load-by-name (MemoryWineLoadUnixLibByName) for FEX companion unixlib
+      "dlls_ntdll_unix_unix_private.h.patch"
+      "dlls_wow64_virtual.c.patch"
+      "include_wine_unixlib.h.patch"
+      "include_winternl.h.patch"
 	  "dlls_ntdll_unix_signal_x86_64.c.patch"
 	  
 	  # opengl32
