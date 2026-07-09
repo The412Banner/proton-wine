@@ -1,0 +1,82 @@
+name: Publish Proton 11.0-1 (consolidated)
+
+# Manual-only. Pulls the already-built wcp artifacts from the two build runs
+# (sdk28 + sdk35) entirely on the GitHub runner and cuts ONE release with all
+# 8 assets (arm64ec + x86_64, .wcp + .wcp.xz, per sdk flavor). No source is
+# rebuilt and no artifact leaves the runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create (e.g. build-p11-YYYYMMDD)'
+        required: true
+      target_commitish:
+        description: 'Ref/branch/SHA to tag the release at (e.g. proton_11.0 or a full SHA). Explicit — never defaults to the repo default branch.'
+        required: true
+      sdk28_run_id:
+        description: 'Run ID of the SDK 28 build to pull artifacts from'
+        required: true
+      sdk35_run_id:
+        description: 'Run ID of the SDK 35 build to pull artifacts from'
+        required: true
+      prerelease:
+        description: 'Mark the release as a prerelease'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (for release notes)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_commitish }}
+
+      - name: Download SDK 28 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.inputs.sdk28_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dl/sdk28
+
+      - name: Download SDK 35 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.inputs.sdk35_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dl/sdk35
+
+      - name: Collect and rename the 8 assets
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for sdk in sdk28 sdk35; do
+            cp "dl/$sdk/proton-arm64ec/proton-11.0-1-arm64ec.wcp"                 "release/proton-11.0-1-arm64ec-$sdk.wcp"
+            cp "dl/$sdk/proton-x86_64/proton-11.0-1-x86_64.wcp"                   "release/proton-11.0-1-x86_64-$sdk.wcp"
+            cp "dl/$sdk/proton-wine-arm64ec/proton-wine-11.0-1-arm64ec.wcp.xz"    "release/proton-wine-11.0-1-arm64ec-$sdk.wcp.xz"
+            cp "dl/$sdk/proton-wine-x86_64/proton-wine-11.0-1-x86_64.wcp.xz"      "release/proton-wine-11.0-1-x86_64-$sdk.wcp.xz"
+          done
+          echo "Assets to publish:"
+          ls -lah release/
+          count=$(ls -1 release/ | wc -l)
+          echo "asset count = $count"
+          test "$count" -eq 8
+
+      - name: Create consolidated release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PRE=""
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then PRE="--prerelease"; fi
+          gh release create "${{ github.event.inputs.tag }}" release/* \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.event.inputs.target_commitish }}" \
+            --title "Proton Wine 11.0-1 (${{ github.event.inputs.tag }})" \
+            --notes-file .github/release-notes/p11-body.md \
+            $PRE
