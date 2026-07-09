@@ -24,3 +24,10 @@ Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android 
 **Which file** — newer device / Android 15+ / 16KB pages → **sdk35**; otherwise → **sdk28**.
 
 **Notes** — this is **stock Valve, not GE-Proton** (no GE game-fixes / FSR / OptiScaler tier). The FEX unixlib loader is build-ahead: games run identically today (FEX DLLs still self-contained); it future-proofs you for when FEX ships thin DLLs.
+
+## Using the FEX unixlib (optional)
+This Proton includes the FEX **unixlib loader** — it loads FEX's native `.so` companion automatically, with no app change. To actually use it, install a matching **FEX `-unix`** component:
+
+➜ **Get it from the Nightlies:** https://github.com/The412Banner/Nightlies/releases — grab **`FEX-*-unix.wcp`** (or **`FEX-*-PPA-unix.wcp`** for the DWARF/PPA-flavor DLLs).
+
+⚠️ Use the **The412Banner/Nightlies** `-unix` builds specifically — they carry the `shm_open`/`shm_unlink` fix required to load on Android bionic. Other/older FEX `-unix` builds leave those symbols unresolved, so the `.so` fails to `dlopen` and silently falls back to the DLL (the unixlib never engages). Games run fine on any FEX regardless — the unixlib is build-ahead for when FEX makes it mandatory.
