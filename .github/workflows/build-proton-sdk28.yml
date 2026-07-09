@@ -241,7 +241,9 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-24.04
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/proton_11.0')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/proton_11.0')
+    # Disabled: releases are cut only via publish-p11-consolidated.yml. A push
+    # no longer auto-publishes a per-sdk release. Artifacts are still uploaded.
+    if: false
     
     steps:
       - name: Download all artifacts
