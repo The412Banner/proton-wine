@@ -11,7 +11,7 @@ Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android 
 - **esync + fsync + ntsync** (inproc-sync) — modern Wine synchronization.
 - **Fast-yield gate** — `WINE_FAST_YIELD=1` (opt-in) fixes the `NtYieldExecution` busy-wait that pins one core at 100%.
 - **FEX unixlib loader** (`MemoryWineLoadUnixLibByName`) — lets a unixlib-aware FEXCore load its native `.so` companion. **FEX-version-agnostic**: works with any FEXCore; dormant unless a matched `-unix` FEX is installed.
-- winedmo media path (FMV via ffmpeg-8 when present in the imagefs).
+- 🎬 **Video / FMV** — ships `winedmo` (built against **ffmpeg-8**). Actual decoding needs the emulator app's imagefs to supply the ffmpeg-8 libs (current Bannerlator / WinNative do); otherwise it falls back to gstreamer.
 
 **Compatible with**
 - Apps: **Bannerlator, WinNative**, and other Winlator-bionic / Cmod-lineage emulators (bionic ABI, `/system/bin/linker64`).
