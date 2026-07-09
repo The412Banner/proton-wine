@@ -14,7 +14,46 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
      case IMAGE_FILE_MACHINE_ARMNT: return "/arm-windows";
      case IMAGE_FILE_MACHINE_ARM64: return "/aarch64-windows";
      default: return "";
-@@ -1785,6 +1789,78 @@
+@@ -362,6 +366,7 @@
+ static void set_dll_path(void)
+ {
+     char *p, *path = getenv( "WINEDLLPATH" ), *be_runtime = getenv( "PROTON_BATTLEYE_RUNTIME" ), *eac_runtime = getenv( "PROTON_EAC_RUNTIME" );
++    char *prefix = getenv( "PREFIX" );
+     int i, count = 0;
+ 
+     if (path) for (p = path, count = 1; *p; p++) if (*p == ':') count++;
+@@ -372,6 +377,9 @@
+     if (eac_runtime)
+         count += 2;
+ 
++    if (prefix && *prefix)
++        count += 1;
++
+     dll_paths = malloc( (count + 2) * sizeof(*dll_paths) );
+     count = 0;
+ 
+@@ -420,6 +428,20 @@
+         dll_paths[count++] = p;
+     }
+ 
++    /* Winlator-bionic containers set PREFIX to the imagefs mount; components
++     * (e.g. a FEX-unix companion) drop their unixlibs under $PREFIX/lib/wine.
++     * Add it as the lowest-priority search dir so the builtin's own dir wins. */
++    if (prefix && *prefix)
++    {
++        const char suffix[] = "/lib/wine";
++
++        p = malloc( strlen(prefix) + strlen(suffix) + 1 );
++        strcpy(p, prefix);
++        strcat(p, suffix);
++
++        dll_paths[count++] = p;
++    }
++
+     for (i = 0; i < count; i++) dll_path_maxlen = max( dll_path_maxlen, strlen(dll_paths[i]) );
+     dll_paths[count] = NULL;
+ }
+@@ -1785,6 +1807,78 @@
  }
  
  
@@ -93,7 +132,7 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
  /***************************************************************************
   *	get_machine_wow64_dir
   *
-@@ -2450,7 +2526,9 @@
+@@ -2450,7 +2544,9 @@
      set_thread_teb( teb );
  #endif
  
@@ -104,7 +143,7 @@ diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
      init_startup_info();
      *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
      set_load_order_app_name( main_wargv[0] );
-@@ -2459,7 +2537,9 @@
+@@ -2459,7 +2555,9 @@
      load_ntdll();
      load_wow64_ntdll( main_image_info.Machine );
      load_apiset_dll();
