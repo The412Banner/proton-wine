@@ -1,33 +1,61 @@
-# Proton 11.0-1 — arm64ec (bionic)
+# 🍷 Proton 11.0-1 — FEX unixlib support · arm64ec (bionic)
 
-Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android bionic** for **arm64ec** — a drop-in Wine/Proton runtime for Winlator-bionic emulators.
+Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android bionic** for **arm64ec** — a drop-in Wine/Proton runtime for Winlator-bionic emulators, now with the **FEX unixlib loader** built in.
 
-**What it is**
-- Base: Valve `proton-11.0-1` (latest 11.0); Wine unix side built with **Android NDK r27d**.
-- DLL trees per wcp: `aarch64-windows` (arm64ec) + `i386-windows` + `x86_64-windows`.
-- Two flavors: **sdk28** (API 28, 4KB pages) and **sdk35** (API 35 + 16KB-page support).
+---
 
-**Included**
-- **esync + fsync + ntsync** (inproc-sync) — modern Wine synchronization.
-- **Fast-yield gate** — `WINE_FAST_YIELD=1` (opt-in) fixes the `NtYieldExecution` busy-wait that pins one core at 100%.
-- **FEX unixlib loader** (`MemoryWineLoadUnixLibByName`) — lets a unixlib-aware FEXCore load its native `.so` companion. **FEX-version-agnostic**: works with any FEXCore; dormant unless a matched `-unix` FEX is installed.
-- 🎬 **Video / FMV** — ships `winedmo` (built against **ffmpeg-8**). Actual decoding needs the emulator app's imagefs to supply the ffmpeg-8 libs (current Bannerlator / WinNative do); otherwise it falls back to gstreamer.
+## ✨ What it provides / does
 
-**Compatible with**
-- Apps: **Bannerlator, WinNative**, and other Winlator-bionic / Cmod-lineage emulators (bionic ABI, `/system/bin/linker64`).
-- Translators: **FEXCore** (any version) or **wowbox64** for x86/x86_64.
-- Graphics: **DXVK / VKD3D-Proton** → Vulkan (Turnip/Adreno).
-- ⚠️ arm64ec requires a **fresh container**.
+- 🎮 **Runs Windows games on Android** (arm64ec) — via Wine + FEX or wowbox64
+- 🆕 **Latest Valve Proton 11.0-1 base** — not an old snapshot
+- ⚡ **Fast-yield gate** — opt-in (`WINE_FAST_YIELD=1`) fix for the bug that pins one CPU core at 100%; better perf/battery
+- 🪝 **FEX unixlib loader** — can load FEX's native `.so` add-on (the new thing we built); future-proofs you for when FEX makes it required
+- 📁 **Auto-finds the FEX `.so`** — searches the right folder on its own, so **no app change needed**
+- 🧩 **Works with any FEXCore version** — not locked to one
+- 🎞️ **Video / FMV** — ships `winedmo` (built against **ffmpeg-8**); actual decoding needs the emulator app's imagefs to supply the ffmpeg-8 libs (current Bannerlator / WinNative do), else it falls back to gstreamer.
+- 🖼️ **Graphics via DXVK / VKD3D → Vulkan** (Turnip / Adreno)
+- 🔄 **esync + fsync + ntsync** — modern threading for heavy games
+- 🤖 **Bionic** — works on **Bannerlator**, **WinNative**, and other Winlator-bionic apps
 
-**What it does** — runs Windows x86/x86_64 games on Android arm64ec via Wine + FEX/wowbox64, D3D → DXVK/VKD3D → Vulkan.
+> **In one sentence:** it's your current, sync-modern, fast-yield-capable Proton 11 that **also loads the FEX unixlib on its own with no app changes** — the build that keeps working when FEX makes the unixlib mandatory.
 
-**Which file** — newer device / Android 15+ / 16KB pages → **sdk35**; otherwise → **sdk28**.
+---
 
-**Notes** — this is **stock Valve, not GE-Proton** (no GE game-fixes / FSR / OptiScaler tier). The FEX unixlib loader is build-ahead: games run identically today (FEX DLLs still self-contained); it future-proofs you for when FEX ships thin DLLs.
+## 🌙 Matching FEX unixlib builds (Nightlies)
 
-## Using the FEX unixlib (optional)
-This Proton includes the FEX **unixlib loader** — it loads FEX's native `.so` companion automatically, with no app change. To actually use it, install a matching **FEX `-unix`** component:
+The unixlib loader stays **dormant** until you install a matched **`-unix` FEXCore**. Grab one from the Nightlies:
 
-➜ **Get it from the Nightlies:** https://github.com/The412Banner/Nightlies/releases — grab **`FEX-*-unix.wcp`** (or **`FEX-*-PPA-unix.wcp`** for the DWARF/PPA-flavor DLLs).
+**➡️ https://github.com/The412Banner/Nightlies/releases**
+
+Look for the `-unix` assets on the latest build, e.g. `FEX-…-Nightly-…-unix.wcp` (standard) or `FEX-…-PPA-unix.wcp` (PPA). Install that alongside this Proton and the `.so` companion is picked up automatically — no app change.
 
 > ⚠️ **Use the Nightlies `-unix` builds specifically — not other ports.** Older/other FEX `-unix` wcps (e.g. [nicholasx417's](https://github.com/nicholasx417/WinNative-Components/releases)) leave `shm_open`/`shm_unlink` unresolved — Android's bionic doesn't provide those symbols, so the `.so` fails to `dlopen` and silently falls back to the DLL (the unixlib never actually loads). The Nightlies builds compile in stubs for those two functions, so the `.so` loads correctly. Games run fine either way; only whether the unixlib engages differs.
+
+---
+
+## 📦 Which file do I want?
+
+| Your device | Pick |
+|---|---|
+| Newer device / Android 15+ / 16KB pages | **`…-sdk35.wcp`** |
+| Everything else (API 28, 4KB pages) | **`…-sdk28.wcp`** |
+
+`.wcp` = ready to install · `.wcp.xz` = smaller download, extract first. All assets are **arm64ec**.
+
+## 🧩 Compatible with
+
+- **Apps:** Bannerlator, WinNative, and other Winlator-bionic / Cmod-lineage emulators (bionic ABI, `/system/bin/linker64`)
+- **Translators:** FEXCore (any version) or wowbox64 for x86 / x86_64
+- **Graphics:** DXVK / VKD3D-Proton → Vulkan (Turnip / Adreno)
+
+## ⚠️ Notes
+
+- **arm64ec requires a fresh container.**
+- This is **stock Valve Proton, not GE-Proton** — no GE game-fixes / FSR / OptiScaler tier.
+- The FEX unixlib loader is **build-ahead**: games run identically today (FEX DLLs are still self-contained); it future-proofs you for when FEX ships thin DLLs that need the native `.so`.
+
+---
+
+*Base: Valve `proton-11.0-1` (final) · Wine unix side built with Android NDK r27d · DLL trees: `aarch64-windows` (arm64ec) + `i386-windows` + `x86_64-windows`.*
+
+
