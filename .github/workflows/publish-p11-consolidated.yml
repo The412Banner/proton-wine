@@ -71,11 +71,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          PRE=""
-          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then PRE="--prerelease"; fi
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
+            REL_FLAGS="--prerelease"
+          else
+            REL_FLAGS="--latest"
+          fi
           gh release create "${{ github.event.inputs.tag }}" release/* \
             --repo "${{ github.repository }}" \
             --target "${{ github.event.inputs.target_commitish }}" \
             --title "Proton Wine 11.0-1 (${{ github.event.inputs.tag }})" \
             --notes-file .github/release-notes/p11-body.md \
-            $PRE
+            $REL_FLAGS
