@@ -51,21 +51,20 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: dl/sdk35
 
-      - name: Collect and rename the 8 assets
+      - name: Collect and rename the 4 arm64ec assets
         run: |
           set -euo pipefail
           mkdir -p release
+          # arm64ec only: box64 users already have the fast-yield x86_64 build.
           for sdk in sdk28 sdk35; do
             cp "dl/$sdk/proton-arm64ec/proton-11.0-1-arm64ec.wcp"                 "release/proton-11.0-1-arm64ec-$sdk.wcp"
-            cp "dl/$sdk/proton-x86_64/proton-11.0-1-x86_64.wcp"                   "release/proton-11.0-1-x86_64-$sdk.wcp"
             cp "dl/$sdk/proton-wine-arm64ec/proton-wine-11.0-1-arm64ec.wcp.xz"    "release/proton-wine-11.0-1-arm64ec-$sdk.wcp.xz"
-            cp "dl/$sdk/proton-wine-x86_64/proton-wine-11.0-1-x86_64.wcp.xz"      "release/proton-wine-11.0-1-x86_64-$sdk.wcp.xz"
           done
           echo "Assets to publish:"
           ls -lah release/
           count=$(ls -1 release/ | wc -l)
           echo "asset count = $count"
-          test "$count" -eq 8
+          test "$count" -eq 4
 
       - name: Create consolidated release
         env:
