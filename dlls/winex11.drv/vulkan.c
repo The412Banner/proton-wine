@@ -1304,4 +1304,14 @@ void vulkan_thread_detach(void)
 {
 }
 
+/* Stub for pipetto's DisplayX direct-SurfaceFlinger fast-path hook. Returning
+ * FALSE means the fast-path is never taken and wine uses the standard
+ * window-surface path, which Bannerlator's own X11 server + Vulkan compositor
+ * handles (as with the Proton 10/11 builds). This decouples DisplayX, which is
+ * unused on Bannerlator and unavailable in our CI deps. */
+BOOL wine_vk_direct_window_draw( HWND hwnd )
+{
+    return FALSE;
+}
+
 #endif /* SONAME_LIBVULKAN */

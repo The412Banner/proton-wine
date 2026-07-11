@@ -125,11 +125,35 @@ jobs:
 
       - name: Build Proton 9 arm64ec (full make)
         run: |
+          set -eo pipefail
           bash build-scripts/build-step-arm64ec.sh --build
 
       - name: Install Proton 9 arm64ec
         run: |
+          set -eo pipefail
           bash build-scripts/build-step-arm64ec.sh --install
+
+      - name: Assert critical guest programs are present
+        run: |
+          set -eo pipefail
+          GUEST_DIR="$HOME/compiled-files-aarch64/lib/wine/aarch64-windows"
+          echo "Checking guest programs in: $GUEST_DIR"
+          missing=0
+          for exe in wineboot.exe start.exe explorer.exe services.exe; do
+            if [ ! -f "$GUEST_DIR/$exe" ]; then
+              echo "ERROR: missing critical guest program: $exe" >&2
+              missing=1
+            else
+              echo "  found: $exe"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "ERROR: install tree is incomplete (see missing programs above)." >&2
+            echo "Refusing to package an unbootable .wcp." >&2
+            ls -la "$GUEST_DIR" || true
+            exit 1
+          fi
+          echo "All critical guest programs present."
 
       - name: Download prefixPack.txz (arm64ec, version-agnostic)
         run: |

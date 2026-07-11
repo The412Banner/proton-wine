@@ -268,7 +268,10 @@ do
     rm -rf $OUTPUT_DIR/lib
     rm -rf $OUTPUT_DIR/share
     rm -rf $install_dir
-    make -j$(nproc)
+    if ! make -j$(nproc); then
+      echo "ERROR: 'make' failed for Proton 9 arm64ec build; aborting." >&2
+      exit 1
+    fi
   fi
 
   if [ "$arg" == "--install" ]
@@ -278,7 +281,10 @@ do
     mkdir -p $OUTPUT_DIR/lib
     mkdir -p $OUTPUT_DIR/share
     mkdir -p $install_dir
-    make install -j$(nproc)
+    if ! make install -j$(nproc); then
+      echo "ERROR: 'make install' failed for Proton 9 arm64ec build; aborting." >&2
+      exit 1
+    fi
     cp -r $install_dir/bin/wine* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/reg* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/msi* $OUTPUT_DIR/bin
