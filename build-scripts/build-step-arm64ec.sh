@@ -255,6 +255,9 @@ do
       # 5. Internal Headers
       "test-bylaws/include_winternl_h.patch"
 
+      # 5a. FEX unixlib load-by-name (MemoryWineLoadUnixLibByName = 1002)
+      "test-bylaws/include_wine_unixlib_h.patch"
+
       # 6. build vcruntime140_1 with aarch64
       "test-bylaws/dlls_vcruntime140_1_vcruntime140_1_spec.patch"
 

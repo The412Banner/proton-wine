@@ -1,8 +1,16 @@
 diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
-index ad73f83..301718d 100644
+index ad73f836041..bff54e8075a 100644
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
-@@ -606,4 +606,6 @@ static inline NTSTATUS map_section( HANDLE mapping, void **ptr, SIZE_T *size, UL
+@@ -214,6 +214,7 @@ extern NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_imag
+ extern NTSTATUS load_builtin( const struct pe_image_info *image_info, WCHAR *filename, USHORT machine,
+                               SECTION_IMAGE_INFORMATION *info, void **module, SIZE_T *size,
+                               ULONG_PTR limit_low, ULONG_PTR limit_high, off_t offset  );
++extern NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret );
+ extern BOOL is_builtin_path( const UNICODE_STRING *path, WORD *machine );
+ extern NTSTATUS load_main_exe( const WCHAR *name, const char *unix_name, const WCHAR *curdir,
+                                USHORT load_machine, WCHAR **image, void **module );
+@@ -606,4 +607,6 @@ static inline NTSTATUS map_section( HANDLE mapping, void **ptr, SIZE_T *size, UL
                                 0, NULL, size, ViewShare, 0, protect );
  }
  

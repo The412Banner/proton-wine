@@ -1,5 +1,5 @@
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
-index 2f97852..a7cac83 100644
+index 2f978520af6..e095d814e9f 100644
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
 @@ -363,7 +363,11 @@ static const char *get_pe_dir( WORD machine )
@@ -15,3 +15,127 @@ index 2f97852..a7cac83 100644
      case IMAGE_FILE_MACHINE_ARMNT: return "/arm-windows";
      case IMAGE_FILE_MACHINE_ARM64: return "/aarch64-windows";
      default: return "";
+@@ -374,6 +378,7 @@ static const char *get_pe_dir( WORD machine )
+ static void set_dll_path(void)
+ {
+     char *p, *path = getenv( "WINEDLLPATH" ), *be_runtime = getenv( "PROTON_BATTLEYE_RUNTIME" ), *eac_runtime = getenv( "PROTON_EAC_RUNTIME" );
++    char *prefix = getenv( "PREFIX" );
+     int i, count = 0;
+ 
+     if (path) for (p = path, count = 1; *p; p++) if (*p == ':') count++;
+@@ -384,6 +389,9 @@ static void set_dll_path(void)
+     if (eac_runtime)
+         count += 2;
+ 
++    if (prefix && *prefix)
++        count += 1;
++
+     dll_paths = malloc( (count + 2) * sizeof(*dll_paths) );
+     count = 0;
+ 
+@@ -432,6 +440,20 @@ static void set_dll_path(void)
+         dll_paths[count++] = p;
+     }
+ 
++    /* Winlator-bionic containers set PREFIX to the imagefs mount; components
++     * (e.g. a FEX-unix companion) drop their unixlibs under $PREFIX/lib/wine.
++     * Add it as the lowest-priority search dir so the builtin's own dir wins. */
++    if (prefix && *prefix)
++    {
++        const char suffix[] = "/lib/wine";
++
++        p = malloc( strlen(prefix) + strlen(suffix) + 1 );
++        strcpy(p, prefix);
++        strcat(p, suffix);
++
++        dll_paths[count++] = p;
++    }
++
+     for (i = 0; i < count; i++) dll_path_maxlen = max( dll_path_maxlen, strlen(dll_paths[i]) );
+     dll_paths[count] = NULL;
+ }
+@@ -1724,6 +1746,84 @@ NTSTATUS load_builtin( const struct pe_image_info *image_info, WCHAR *filename,
+ }
+ 
+ 
++/***********************************************************************
++ *           load_unixlib_by_name
++ *
++ * Load a unix .so library by name, searching build_dir and dll_paths[]
++ * (which includes $PREFIX/lib/wine on Winlator-bionic containers). Used
++ * by the MemoryWineLoadUnixLibByName NtQueryVirtualMemory class so that a
++ * dropped-in arm64ec PE DLL (e.g. libarm64ecfex.dll) can pull in its
++ * native companion unixlib (libarm64ecfex.so) at runtime.
++ */
++NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret )
++{
++    unsigned int i, pos, namepos, maxlen = 0;
++    unsigned int len = nt_name->Length / sizeof(WCHAR);
++    char *ptr = NULL, *file = NULL, *ext = NULL;
++    void *handle = NULL;
++
++    if (!len) return STATUS_DLL_NOT_FOUND;
++
++    for (i = namepos = 0; i < len; i++)
++        if (nt_name->Buffer[i] == '/' || nt_name->Buffer[i] == '\\') break;
++
++    if (i < len)  /* explicit path */
++    {
++        OBJECT_ATTRIBUTES attr;
++
++        InitializeObjectAttributes( &attr, (UNICODE_STRING *)nt_name, 0, 0, NULL );
++        if (!nt_to_unix_file_name( &attr, &file, FILE_OPEN ))
++            handle = dlopen( file, RTLD_NOW );
++        goto done;
++    }
++
++    if (build_dir) maxlen = strlen(build_dir) + sizeof("/dlls/") + len;
++    maxlen = max( maxlen, dll_path_maxlen + 1 ) + len + sizeof("/aarch64-unix") + sizeof(".so");
++
++    if (!(file = malloc( maxlen ))) return STATUS_NO_MEMORY;
++
++    pos = maxlen - len - 4;
++    ext = file + pos + len;
++    /* we don't want to depend on the current codepage here */
++    for (i = 0; i < len; i++)
++    {
++        if (nt_name->Buffer[namepos + i] > 127) goto done;
++        file[pos + i] = (char)nt_name->Buffer[namepos + i];
++        if (file[pos + i] >= 'A' && file[pos + i] <= 'Z') file[pos + i] += 'a' - 'A';
++        else if (file[pos + i] == '.') ext = file + pos + i;
++    }
++    file[pos + len] = 0;
++    file[--pos] = '/';
++
++    if (build_dir)
++    {
++        ptr = prepend_build_dir_path( file + pos, ".so", "", "/dlls" );
++        strcpy( ext, ".so" );
++        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
++    }
++
++    strcpy( ext, ".so" );
++    for (i = 0; dll_paths[i]; i++)
++    {
++        ptr = prepend( file + pos, so_dir, strlen(so_dir) );
++        ptr = prepend( ptr, dll_paths[i], strlen(dll_paths[i]) );
++        WARN_(module)( "load_unixlib_by_name: trying %s\n", ptr );
++        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
++
++        ptr = prepend( file + pos, dll_paths[i], strlen(dll_paths[i]) );
++        WARN_(module)( "load_unixlib_by_name: trying %s\n", ptr );
++        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
++    }
++    WARN_(module)( "load_unixlib_by_name: no unixlib found for %s\n", file + pos );
++
++ done:
++    free( file );
++    if (!handle) return STATUS_DLL_NOT_FOUND;
++    *handle_ret = handle;
++    return STATUS_SUCCESS;
++}
++
++
+ /***************************************************************************
+  *	get_machine_wow64_dir
+  *
