@@ -131,7 +131,7 @@ do
       --without-usb \
       --without-v4l2 \
       --without-vosk \
-      --without-vulkan \
+      --with-vulkan \
       --without-wayland \
       --without-xcomposite \
       --without-xcursor \
