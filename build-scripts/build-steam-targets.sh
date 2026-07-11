@@ -145,6 +145,14 @@ bash "$STEP_SCRIPT" "${EXTRA_STEP_ARGS[@]}" --configure
 echo "Building lsteamclient only (Proton 9 steam_helper uses jsoncpp with a missing json_tool.h; steam.exe is version-independent and shipped separately)..."
 make -j"$JOBS" lsteamclient/all
 
+# Build ntdll + wow64 so the FEX-unixlib loader changes (dlls/ntdll/unix/loader.c,
+# dlls/ntdll/unix/virtual.c, dlls/wow64/virtual.c and the include/ enum additions)
+# are actually compiled for arm64ec in CI. Only meaningful for aarch64/arm64ec.
+if [ "$ARTIFACT_ARCH" = "arm64ec" ]; then
+  echo "Building ntdll + wow64 (compiles the FEX-unixlib load-by-name loader)..."
+  make -j"$JOBS" dlls/ntdll/all dlls/wow64/all
+fi
+
 ARTIFACT_DIR="$OUTPUT_ROOT/$ARTIFACT_ARCH"
 mkdir -p "$ARTIFACT_DIR"
 
@@ -183,6 +191,12 @@ STEAM_HELPER_OK=0
 
 collect_dir "lsteamclient" "lsteamclient" && LSTEAMCLIENT_OK=1 || true
 collect_dir "steam_helper" "steam_helper" && STEAM_HELPER_OK=1 || true
+
+# Capture the FEX-unixlib loader binaries when built (arm64ec ntdll/wow64).
+if [ "$ARTIFACT_ARCH" = "arm64ec" ]; then
+  collect_dir "dlls/ntdll" "ntdll" || true
+  collect_dir "dlls/wow64" "wow64" || true
+fi
 
 if [ "$LSTEAMCLIENT_OK" -ne 1 ]; then
   echo "Error: no lsteamclient artifact was produced." >&2

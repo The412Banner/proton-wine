@@ -214,6 +214,7 @@ extern NTSTATUS exec_wineloader( char **argv, int socketfd, const pe_image_info_
 extern NTSTATUS load_builtin( const pe_image_info_t *image_info, WCHAR *filename, USHORT machine,
                               SECTION_IMAGE_INFORMATION *info, void **module, SIZE_T *size,
                               ULONG_PTR limit_low, ULONG_PTR limit_high );
+extern NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret );
 extern BOOL is_builtin_path( const UNICODE_STRING *path, WORD *machine );
 extern NTSTATUS load_main_exe( const WCHAR *name, const char *unix_name, const WCHAR *curdir,
                                USHORT load_machine, WCHAR **image, void **module );
