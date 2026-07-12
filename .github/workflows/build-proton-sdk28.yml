@@ -241,7 +241,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-24.04
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/proton_11.0')) || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/proton_11.0')
     
     steps:
       - name: Download all artifacts
