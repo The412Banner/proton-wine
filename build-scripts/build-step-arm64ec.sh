@@ -14,9 +14,23 @@ export LLVM_MINGW_TOOLCHAIN="$HOME/toolchains/llvm-mingw-20250920-ucrt-ubuntu-22
 export TARGET=aarch64-linux-android28
 export PATH=$LLVM_MINGW_TOOLCHAIN:$PATH
 
-export CC=$TOOLCHAIN/$TARGET-clang
-export AS=$CC
-export CXX=$TOOLCHAIN/$TARGET-clang++
+# ccache: cache compiled objects so re-runs with unchanged Wine source skip recompilation. Unix side:
+# wrap the full-path NDK clang. PE side (--with-mingw=clang, resolved via PATH): masquerade clang/clang++
+# with ccache symlinks placed first on PATH, so Wine's cross-compiler calls go through ccache too.
+if command -v ccache >/dev/null 2>&1; then
+  export CCACHE_DIR="${CCACHE_DIR:-$HOME/.ccache}"
+  ccache -M 3G >/dev/null 2>&1 || true
+  mkdir -p "$HOME/ccache-bin"
+  ln -sf "$(command -v ccache)" "$HOME/ccache-bin/clang"
+  ln -sf "$(command -v ccache)" "$HOME/ccache-bin/clang++"
+  export PATH="$HOME/ccache-bin:$PATH"
+  export CC="ccache $TOOLCHAIN/$TARGET-clang"
+  export CXX="ccache $TOOLCHAIN/$TARGET-clang++"
+else
+  export CC=$TOOLCHAIN/$TARGET-clang
+  export CXX=$TOOLCHAIN/$TARGET-clang++
+fi
+export AS=$TOOLCHAIN/$TARGET-clang
 export AR=$TOOLCHAIN/llvm-ar
 export LD=$TOOLCHAIN/ld
 export RANLIB=$TOOLCHAIN/llvm-ranlib
