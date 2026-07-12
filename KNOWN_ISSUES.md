@@ -1,42 +1,39 @@
 # Known Issues
 
-## x86_64 Proton 11 under box64 — GUI apps don't display (use arm64ec)
+## x86_64 Proton 11 — file-manager desktop doesn't open under box64 (use arm64ec)
 
 **Affected:** the **`proton-11.0-1-x86_64-*.wcp`** assets, run through **box64** on ARM Android devices.
 The **arm64ec** assets (native ARM Wine + FEX) are **not** affected and are the recommended runtime.
 
 ### Symptom
-Booting an x86_64 container starts, but the Winlator launcher chain
-(`explorer → winhandler.exe → wfm.exe`) never shows a window — the file manager doesn't open,
-automatically or manually. Games launched by shortcut are affected the same way (the launcher can't
-bring up the guest UI).
+Booting an x86_64 container reaches the Wine desktop (wallpaper + Start button render), but the
+Winlator file manager (`wfm.exe`) never opens — automatically or manually. Games launched by shortcut
+are affected the same way.
 
-### Diagnosis
-Captured with Wine debug (`warn,err,fixme,module,seh`) + box64 logs on a 39-bit-VA Android device,
-box64 **v0.4.3** (also reproduced on 0.4.1):
+### Diagnosis (device-verified 2026-07-12)
+This was investigated extensively with Wine debug (`+service`, `+rpc`, `+ole`, `+relay`) and box64 logs.
+Key findings — **it is NOT a box64/seccomp problem** (that was ruled out):
 
-- `err:seh:install_bpf … not installing seccomp` — Proton 11's Wine installs a **seccomp BPF syscall
-  filter** for its PE→unix syscall dispatch. Under box64 it can't ("native libs loaded at low
-  addresses"; the device exposes only **39-bit** address space).
-- box64 `Warning, cannot pre-load libandroid-sysvshm.so` / `libfakeinput.so` — Winlator's shared-memory
-  (X display) and input-injection helper libs aren't preloaded into the emulated process.
-- `wfm.exe` **loads** (`build_module loaded C:\windows\wfm.exe`), then throws
-  **`RPC_S_SERVER_UNAVAILABLE` (0x6ba) ×13** and immediately `LdrUnloadDll`s → the process exits with
-  no window.
-
-### Root cause
-Proton 11's seccomp-based syscall/service machinery is **incompatible with box64's own syscall
-emulation** on a 39-bit Android VA layout. Wine's service/RPC layer half-starts, so GUI apps that talk
-to it (`wfm.exe`, shortcut launches) die with "RPC server unavailable." This is **not**:
-- a `wfm.exe` problem — it's a valid x86_64 binary and it loads;
-- a build/strip/packaging problem — the arm64ec build boots and runs from the same source tree, and the
-  x86_64 `.wcp` is byte-valid (installs and Wine boots).
+- **box64 is fine.** The Service Control Manager RPC works (`OpenSCManagerW`/`OpenServiceW` succeed over
+  `\\.\pipe\svcctl`), box64 spawns processes correctly, and box64 version/preset/dynarec settings make
+  no difference (STABILITY = EXTREME = same result). The `install_bpf … not installing seccomp` message
+  is non-fatal (Wine continues without seccomp) and is **not** the cause.
+- **Real bug found:** the x86_64 container ships with essential Wine services **disabled** — `RpcSs`
+  (`Start=dword:4`) and `PlugPlay` — a side-effect of the container's **ESSENTIAL** Startup Selection
+  (`WineUtils.changeServicesStatus` sets `Start=4` for those in ESSENTIAL/AGGRESSIVE mode). This causes
+  `StartServiceW(RpcSs)` → `ERROR_SERVICE_DISABLED (0x422)` and `RPC_S_SERVER_UNAVAILABLE`. Switching the
+  container to **NORMAL** Startup Selection re-enables the services (verified: rpcss starts, PlugPlay
+  connects, RPC errors drop to ~0).
+- **But that did not fix the symptom** — even with every service running, `wfm.exe` still doesn't
+  display its window, with no crash and no error. The remaining cause is `wfm.exe`-specific and was not
+  resolved; the effort/payoff (x86_64-under-box64 is slower than arm64ec) did not justify a deeper dig.
 
 ### Workaround
-Use the **arm64ec** `.wcp` (`proton-11.0-1-arm64ec-*.wcp`). It's the native, FEX-based runtime and the
-one Bannerlator/Winlator-bionic apps are built around.
+Use the **arm64ec** `.wcp` (`proton-11.0-1-arm64ec-*.wcp`) — native, FEX-based, faster, and the runtime
+these builds are designed around. If a container is stuck on the x86_64 desktop, setting its Startup
+Selection to **NORMAL** at least restores the Wine services (RpcSs/PlugPlay), though the file manager
+may still not auto-open.
 
 ### Status
-Open. Getting the x86_64/box64 path working is a separate task — see the fix directions in the tracking
-notes (box64 version/env parity with a known-good box64 Proton 11 setup, preloading the Winlator
-sysvshm/fakeinput libs, and/or a Wine build that doesn't require seccomp under box64).
+**Parked.** box64 exonerated; a real service-config bug identified and worked around; the residual
+wfm.exe display issue is unresolved and low-priority. arm64ec is the recommended runtime.
