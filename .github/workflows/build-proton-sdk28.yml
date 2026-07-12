@@ -106,6 +106,9 @@ jobs:
           path: wine-tools
           key: wine-tools-${{ hashFiles('configure.ac', 'configure') }}
 
+      - name: Install ccache
+        run: sudo apt-get update && sudo apt-get install -y ccache
+
       # ccache — caches compiled objects across runs. Exact key (per-commit) = full warm restore on a
       # re-run of the same commit; restore-keys pull the newest prior cache so an unchanged-source rebuild
       # is near-instant. ccache self-validates staleness, so a rolling restore is safe.
