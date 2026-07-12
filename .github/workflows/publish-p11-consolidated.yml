@@ -55,10 +55,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          # arm64ec only: box64 users already have the fast-yield x86_64 build.
+          # Both arches × both SDKs, .wcp only (zstd, stripped). The .wcp.xz variant is no longer
+          # published — the .wcp is what the emulator apps install, and it now decompresses fast (zstd).
           for sdk in sdk28 sdk35; do
-            cp "dl/$sdk/proton-arm64ec/proton-11.0-1-arm64ec.wcp"                 "release/proton-11.0-1-arm64ec-$sdk.wcp"
-            cp "dl/$sdk/proton-wine-arm64ec/proton-wine-11.0-1-arm64ec.wcp.xz"    "release/proton-wine-11.0-1-arm64ec-$sdk.wcp.xz"
+            cp "dl/$sdk/proton-arm64ec/proton-11.0-1-arm64ec.wcp"    "release/proton-11.0-1-arm64ec-$sdk.wcp"
+            cp "dl/$sdk/proton-x86_64/proton-11.0-1-x86_64.wcp"      "release/proton-11.0-1-x86_64-$sdk.wcp"
           done
           echo "Assets to publish:"
           ls -lah release/

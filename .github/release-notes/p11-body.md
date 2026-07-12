@@ -1,6 +1,8 @@
-# 🍷 Proton 11.0-1 — FEX unixlib support · arm64ec (bionic)
+# 🍷 Proton 11.0-1 — FEX unixlib support · arm64ec + x86_64 (bionic)
 
-Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android bionic** for **arm64ec** — a drop-in Wine/Proton runtime for Winlator-bionic emulators, now with the **FEX unixlib loader** built in.
+Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android bionic** for **arm64ec and x86_64** — a drop-in Wine/Proton runtime for Winlator-bionic emulators, now with the **FEX unixlib loader** built in.
+
+> 🪶 **Smaller & faster to install:** these builds are compiled `-g0` (no debug info) and **stripped**, cutting the installed tree from ~2 GB to **~730 MB** and the download to **~80 MB**. The `.wcp` is now **zstd**-packed, so it decompresses far faster than the old xz (the app auto-detects, no change needed). Assets: `arm64ec` + `x86_64`, for **SDK 28** (Android 9+) and **SDK 35** (Android 15 / 16 KB pages).
 
 ---
 

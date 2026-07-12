@@ -27,9 +27,13 @@ export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
 export ACLOCAL_PATH=$deps/lib/aclocal:$deps/share/aclocal
 export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
 
-export C_OPTS="-march=x86-64 -mtune=generic -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+# -g0 = don't emit debug info (the bulk of the tree size); -O2 = normal release optimisation.
+# Applied to the unix side via CFLAGS and to the x86_64 PE side via CROSSCFLAGS.
+# (A post-install llvm-strip pass in --install trims the remaining symbol tables.)
+export C_OPTS="-march=x86-64 -mtune=generic -g0 -O2 -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
 export CFLAGS=$C_OPTS
 export CXXFLAGS=$C_OPTS
+export CROSSCFLAGS="-g0 -O2"
 export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
 
 export FREETYPE_CFLAGS="-I$deps/include/freetype2"
@@ -273,6 +277,19 @@ do
     cp -r $install_dir/bin/notepad $OUTPUT_DIR/bin
     cp -r $install_dir/lib/wine  $OUTPUT_DIR/lib
     cp -r $install_dir/share/wine  $OUTPUT_DIR/share
+
+    # Strip the packaged binaries to shrink the tree. llvm-strip ($STRIP) handles PE (x86_64/i386) +
+    # ELF. --strip-all keeps the PE export directory + ELF .dynsym (so DLLs still resolve and .so still
+    # loads); falls back to --strip-debug. Non-fatal per file so an unexpected format can't fail the build.
+    echo "Stripping binaries with llvm-strip to shrink the tree..."
+    before_mb=$(du -sm "$OUTPUT_DIR" 2>/dev/null | cut -f1)
+    find "$OUTPUT_DIR/lib" "$OUTPUT_DIR/bin" -type f \
+      \( -name '*.dll' -o -name '*.exe' -o -name '*.drv' -o -name '*.so' -o -name 'wine' -o -name 'wine-preloader' \) \
+      -print0 2>/dev/null | while IFS= read -r -d '' f; do
+        "$STRIP" --strip-all "$f" 2>/dev/null || "$STRIP" --strip-debug "$f" 2>/dev/null || true
+      done
+    after_mb=$(du -sm "$OUTPUT_DIR" 2>/dev/null | cut -f1)
+    echo "OUTPUT tree: ${before_mb}MB -> ${after_mb}MB after strip."
 	# symlinking wine binaries to $install_dir/bin
     ln -sf ../lib/wine/x86_64-unix/wine "$install_dir/bin/wine"
     ln -sf ../lib/wine/x86_64-unix/wine "$OUTPUT_DIR/bin/wine"

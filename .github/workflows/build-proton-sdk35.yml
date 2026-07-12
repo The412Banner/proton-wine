@@ -204,10 +204,12 @@ jobs:
           
           cd $OUTPUT_DIR
           
-          # Create Proton WCP - txz format
+          # Create Proton WCP - zstd (tar.zst) for fast in-app install. The app's ContentsManager
+          # tries XZ then falls back to ZSTD, so a zstd .wcp installs with no app change and decompresses
+          # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar cJf proton-11.0-1-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
+          tar -I 'zstd -T0 -19' -cf proton-11.0-1-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
           mv proton-11.0-1-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
           
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
