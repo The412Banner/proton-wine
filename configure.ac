@@ -3760,6 +3760,11 @@ dnl Main ignore file
 WINE_IGNORE_FILE(TAGS)
 WINE_IGNORE_FILE(tags)
 WINE_IGNORE_FILE(config.log)
+WINE_IGNORE_FILE(include/config.h.in~)
+WINE_IGNORE_FILE(configure)
+WINE_IGNORE_FILE(configure~)
+WINE_IGNORE_FILE(wine-tools/*)
+WINE_IGNORE_FILE(.idea)
 
 if test "x$enable_tools" != xno
 then
