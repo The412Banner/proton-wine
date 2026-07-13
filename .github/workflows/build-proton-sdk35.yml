@@ -262,7 +262,9 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-24.04
-    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/proton_10.0')) || github.event_name == 'workflow_dispatch'
+    # Hard-disabled: a push to proton_10.0 must NOT auto-cut a per-sdk release (wrong tag/body). Releases
+    # are produced only by an explicit `gh release create`. Build artifacts are still uploaded as before.
+    if: false
 
     steps:
       - name: Download all artifacts
