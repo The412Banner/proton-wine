@@ -19,7 +19,14 @@ done
 
 tools/make_requests
 tools/make_specfiles
-dlls/winevulkan/make_vulkan -x vk.xml -X video.xml
+# Regenerate the winevulkan thunks only if the Vulkan XML registry is vendored (Valve's proton
+# tree ships vk.xml/video.xml at the repo root; upstream wine-10.6 does not). Vanilla already
+# commits the generated vulkan_thunks.c/loader_thunks.h, so skipping regen is safe here.
+if [ -f vk.xml ]; then
+    dlls/winevulkan/make_vulkan -x vk.xml -X video.xml
+else
+    echo "vk.xml not vendored (vanilla wine) - keeping committed winevulkan thunks, skipping regen"
+fi
 
 if [ $APPLY_ANDROID_PATCH -eq 1 ]; then
     echo "Applying Android patch to configure.ac..."
