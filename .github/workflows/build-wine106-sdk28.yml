@@ -124,6 +124,25 @@ jobs:
       - name: Install
         run: bash build-scripts/build-step-arm64ec.sh --install
 
+      - name: Verify wine tree is real (fail on hollow build)
+        run: |
+          set -e
+          OUT="$HOME/compiled-files-aarch64"
+          echo "=== tree sizes ==="; du -sh "$OUT"/bin "$OUT"/lib "$OUT"/share 2>/dev/null || true
+          unixdir="$OUT/lib/wine/aarch64-unix"
+          fail=0
+          [ -d "$unixdir" ] || { echo "MISSING aarch64-unix dir"; fail=1; }
+          [ -s "$unixdir/ntdll.so" ] || { echo "MISSING/empty ntdll.so"; fail=1; }
+          [ -s "$unixdir/wine" ]     || { echo "MISSING/empty unix wine loader"; fail=1; }
+          [ -s "$OUT/lib/wine/aarch64-windows/ntdll.dll" ] || { echo "MISSING/empty arm64ec ntdll.dll"; fail=1; }
+          so_count=$(find "$unixdir" -name '*.so' 2>/dev/null | wc -l)
+          pe_count=$(find "$OUT/lib/wine/aarch64-windows" -name '*.dll' 2>/dev/null | wc -l)
+          echo "aarch64-unix .so=$so_count ; aarch64-windows .dll=$pe_count"
+          [ "$so_count" -ge 10 ] || { echo "too few unix .so ($so_count)"; fail=1; }
+          [ "$pe_count" -ge 50 ] || { echo "too few arm64ec PE dll ($pe_count)"; fail=1; }
+          [ "$fail" = 0 ] || { echo "HOLLOW BUILD - refusing to package"; exit 1; }
+          echo "wine tree looks real."
+
       - name: Download prefixPack.txz
         run: |
           wget https://github.com/GameNative/bionic-prefix-files/raw/main/prefixPack-arm64ec.txz -O $GITHUB_WORKSPACE/prefixPack.txz

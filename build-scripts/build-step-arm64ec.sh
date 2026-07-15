@@ -231,7 +231,7 @@ do
 
       # fexcore patch
       "arm64ec/dlls_ntdll_loader_c.patch"
-      "arm64ec/dlls_ntdll_unix_loader_c.patch"
+      # DROPPED(vanilla): "arm64ec/dlls_ntdll_unix_loader_c.patch"
       "arm64ec/loader_wine_inf_in.patch"
       "test-bylaws/programs_services_services_c.patch"
       "test-bylaws/dlls_winecrt0_arm64ec_c.patch"
@@ -252,7 +252,7 @@ do
       "test-bylaws/dlls_ntdll_unix_signal_arm64_c.patch"
       "test-bylaws/dlls_ntdll_unix_signal_arm_c.patch"
       "test-bylaws/dlls_ntdll_unix_signal_i386_c.patch"
-      "test-bylaws/dlls_ntdll_unix_unix_private_h.patch"
+      # DROPPED(vanilla): "test-bylaws/dlls_ntdll_unix_unix_private_h.patch"
       "test-bylaws/dlls_ntdll_ntdll_spec.patch"
       "test-bylaws/dlls_ntdll_ntdll_misc_h.patch"
       "test-bylaws/dlls_wow64_process_c.patch"
@@ -266,15 +266,15 @@ do
       # 4. Server and Threading Infrastructure
       "test-bylaws/dlls_ntdll_unix_thread_c.patch"
       "test-bylaws/server_process_c.patch"
-      "test-bylaws/server_thread_h.patch"
+      # DROPPED(vanilla): "test-bylaws/server_thread_h.patch"
       "test-bylaws/server_thread_c.patch"
       "test-bylaws/server_mapping_c.patch"
 
       # 5. Internal Headers
-      "test-bylaws/include_winternl_h.patch"
+      # DROPPED(vanilla): "test-bylaws/include_winternl_h.patch"
 
       # 5a. FEX unixlib load-by-name (MemoryWineLoadUnixLibByName = 1002)
-      "test-bylaws/include_wine_unixlib_h.patch"
+      # DROPPED(vanilla): "test-bylaws/include_wine_unixlib_h.patch"
 
       # 6. build vcruntime140_1 with aarch64
       "test-bylaws/dlls_vcruntime140_1_vcruntime140_1_spec.patch"
@@ -286,7 +286,7 @@ do
     # Vanilla wine-10.6 base: the proton_10.0 bionic patch set was authored against Valve's
     # proton_10.0 tree, so on pure upstream 10.6 some hunks land only with line offset/fuzz and a
     # number are already upstream (arm64ec was largely mainlined by 10.6). Apply tolerantly and
-    # never fail the build on a single patch: git apply (exact) -> patch --fuzz=3 (offset/fuzz)
+    # never fail the build on a single patch: git apply (exact) -> patch --fuzz=2 (offset/fuzz; fuzz=3 mis-placed inserts)
     # -> log SKIPPED. Load-bearing patches are verified separately in the build log.
     applied=0; fuzzed=0; skipped=0
     for patch in "${PATCHES[@]}"; do
@@ -295,10 +295,10 @@ do
       if git apply "$pf" 2>/dev/null; then
         # git apply is atomic (all-or-nothing) -> a clean exact apply, no partial state.
         echo "APPLIED  $patch"; applied=$((applied+1))
-      elif patch -p1 --fuzz=3 --forward --dry-run <"$pf" >/dev/null 2>&1; then
+      elif patch -p1 --fuzz=2 --forward --dry-run <"$pf" >/dev/null 2>&1; then
         # Dry-run gate FIRST: only real-apply when every hunk succeeds, so a partially-applying
         # patch (some hunks land, some reject) never leaks a half-patched file into the build.
-        patch -p1 --fuzz=3 --forward --no-backup-if-mismatch -r /dev/null <"$pf" >/dev/null 2>&1
+        patch -p1 --fuzz=2 --forward --no-backup-if-mismatch -r /dev/null <"$pf" >/dev/null 2>&1
         echo "FUZZED   $patch"; fuzzed=$((fuzzed+1))
       else
         echo "SKIPPED  $patch (does not apply cleanly to vanilla 10.6 - left untouched)"; skipped=$((skipped+1))
@@ -315,7 +315,7 @@ do
     rm -rf $OUTPUT_DIR/lib
     rm -rf $OUTPUT_DIR/share
     rm -rf $install_dir
-    make -j$(nproc)
+    make -j$(nproc) || { echo "BUILD FAILED (make=$?)"; exit 1; }
   fi
 
   if [ "$arg" == "--install" ]
@@ -325,7 +325,7 @@ do
     mkdir -p $OUTPUT_DIR/lib
     mkdir -p $OUTPUT_DIR/share
     mkdir -p $install_dir
-    make install -j$(nproc)
+    make install -j$(nproc) || { echo "INSTALL FAILED (make install=$?)"; exit 1; }
     cp -r $install_dir/bin/wine* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/reg* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/msi* $OUTPUT_DIR/bin
