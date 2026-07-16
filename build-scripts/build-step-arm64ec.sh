@@ -202,6 +202,9 @@ do
       "common/dlls_ntdll_unix_virtual_bionic_c.patch"
       # restore Proton win32u display mode-emulation dropped by going vanilla (fixes desktop geometry)
       "common/dlls_win32u_sysparams_c.patch"
+      # arm64ec x64 exception dispatch: extended-context (XSTATE) support - fixes SEH-heavy x64 games
+      "common/dlls_ntdll_signal_arm64ec_xstate_c.patch"
+      "common/dlls_ntdll_signal_x86_64_xstate_c.patch"
       # DROPPED(FEX-cluster): "arm64ec/dlls_ntdll_unix_virtual_c.patch"
 
       # syscall Patches (use test-bylaws below)
