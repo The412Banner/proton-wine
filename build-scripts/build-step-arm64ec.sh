@@ -346,5 +346,17 @@ do
       done
     after_mb=$(du -sm "$OUTPUT_DIR" 2>/dev/null | cut -f1)
     echo "OUTPUT tree: ${before_mb}MB -> ${after_mb}MB after strip."
+
+    # CRITICAL: the new-layout wine loader lives at lib/wine/aarch64-unix/{wine,wine-preloader};
+    # bin/wine must be a symlink to it (all the bin/* tool stubs point at bin/wine). The proton_10.0
+    # --install did NOT create these, so bin/wine was ABSENT -> every bin/* symlink dangled and the
+    # app's `exec .../bin/wine` failed with ENOENT (looked like a boot crash but wine never ran).
+    # Mirror the proton_11.0 --install and create them explicitly (idempotent).
+    ln -sf ../lib/wine/aarch64-unix/wine           "$install_dir/bin/wine"
+    ln -sf ../lib/wine/aarch64-unix/wine           "$OUTPUT_DIR/bin/wine"
+    ln -sf ../lib/wine/aarch64-unix/wine-preloader "$install_dir/bin/wine-preloader"
+    ln -sf ../lib/wine/aarch64-unix/wine-preloader "$OUTPUT_DIR/bin/wine-preloader"
+    echo "Created bin/wine + bin/wine-preloader loader symlinks:"
+    ls -la "$OUTPUT_DIR/bin/wine" "$OUTPUT_DIR/bin/wine-preloader"
   fi
 done

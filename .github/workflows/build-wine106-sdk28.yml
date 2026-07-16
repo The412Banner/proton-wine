@@ -134,6 +134,10 @@ jobs:
           [ -d "$unixdir" ] || { echo "MISSING aarch64-unix dir"; fail=1; }
           [ -s "$unixdir/ntdll.so" ] || { echo "MISSING/empty ntdll.so"; fail=1; }
           [ -s "$unixdir/wine" ]     || { echo "MISSING/empty unix wine loader"; fail=1; }
+          # bin/wine + bin/wine-preloader must be resolvable symlinks to the loader (the app
+          # execs bin/wine). -e follows the symlink, so a dangling link fails here too.
+          [ -e "$OUT/bin/wine" ]           || { echo "MISSING/dangling bin/wine"; fail=1; }
+          [ -e "$OUT/bin/wine-preloader" ] || { echo "MISSING/dangling bin/wine-preloader"; fail=1; }
           [ -s "$OUT/lib/wine/aarch64-windows/ntdll.dll" ] || { echo "MISSING/empty arm64ec ntdll.dll"; fail=1; }
           so_count=$(find "$unixdir" -name '*.so' 2>/dev/null | wc -l)
           pe_count=$(find "$OUT/lib/wine/aarch64-windows" -name '*.dll' 2>/dev/null | wc -l)
