@@ -205,6 +205,8 @@ do
       # arm64ec x64 exception dispatch: extended-context (XSTATE) support - fixes SEH-heavy x64 games
       "common/dlls_ntdll_signal_arm64ec_xstate_c.patch"
       "common/dlls_ntdll_signal_x86_64_xstate_c.patch"
+      # arm64ec: advertise x86 AVX xstate config so RtlLocateExtendedFeature2(AVX) is non-zero
+      "common/dlls_ntdll_unix_system_xstate_config_c.patch"
       # DROPPED(FEX-cluster): "arm64ec/dlls_ntdll_unix_virtual_c.patch"
 
       # syscall Patches (use test-bylaws below)

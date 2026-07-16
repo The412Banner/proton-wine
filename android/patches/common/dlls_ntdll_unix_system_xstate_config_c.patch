@@ -1,0 +1,47 @@
+diff --git a/dlls/ntdll/unix/system.c b/dlls/ntdll/unix/system.c
+index cbd27d09..798a533e 100644
+--- a/dlls/ntdll/unix/system.c
++++ b/dlls/ntdll/unix/system.c
+@@ -1370,6 +1370,32 @@ static void init_tsc_frequency(void)
+ 
+ #endif
+ 
++#ifdef __aarch64__
++/******************************************************************
++ *		init_arm64ec_xstate_config
++ *
++ * On arm64ec the guest is x86-64 (run via FEX), but the native arm64 host has no XSAVE, so wine's
++ * normal CPUID-based path leaves SharedUserData->XState empty: RtlLocateExtendedFeature2(feature_id
++ * XSTATE_AVX) then returns length 0, and an x64 exception carrying AVX/extended context can't be
++ * located/sized -> invalid frame -> "unable to dispatch exception". Advertise the standard x86
++ * legacy-FP / SSE / AVX xstate layout so the extended context is describable (matches Proton).
++ */
++static void init_arm64ec_xstate_config( XSTATE_CONFIGURATION *xstate )
++{
++    xstate->EnabledFeatures = (1 << XSTATE_LEGACY_FLOATING_POINT) | (1 << XSTATE_LEGACY_SSE) | (1 << XSTATE_AVX);
++    xstate->EnabledVolatileFeatures = xstate->EnabledFeatures;
++    xstate->AllFeatureSize = 0x340;
++    xstate->OptimizedSave = 0;
++    xstate->CompactionEnabled = 0;
++    xstate->Features[0].Size = xstate->AllFeatures[0] = offsetof(XSAVE_FORMAT, XmmRegisters);
++    xstate->Features[1].Size = xstate->AllFeatures[1] = sizeof(M128A) * 16;
++    xstate->Features[1].Offset = xstate->Features[0].Size;
++    xstate->Features[2].Offset = 0x240;
++    xstate->Features[2].Size = 0x100;
++    xstate->Size = 0x340;
++}
++#endif
++
+ /******************************************************************
+  *		init_cpu_info
+  *
+@@ -1406,6 +1432,9 @@ void init_cpu_info(void)
+ #endif
+     peb->NumberOfProcessors = cpu_info.MaximumProcessors = num;
+     get_cpuinfo( &cpu_info );
++#ifdef __aarch64__
++    init_arm64ec_xstate_config( &user_shared_data->XState );
++#endif
+     TRACE( "<- CPU arch %d, level %d, rev %d, features 0x%x\n",
+            (int)cpu_info.ProcessorArchitecture, (int)cpu_info.ProcessorLevel,
+            (int)cpu_info.ProcessorRevision, (int)cpu_info.ProcessorFeatureBits );
