@@ -198,6 +198,8 @@ do
 
       # address space patches
       "common/loader_preloader_c.patch"
+      # bionic/arm64ec host-page-size fix for alloc_virtual_heap (from proton_11.0 delta + heap round)
+      "common/dlls_ntdll_unix_virtual_bionic_c.patch"
       # DROPPED(FEX-cluster): "arm64ec/dlls_ntdll_unix_virtual_c.patch"
 
       # syscall Patches (use test-bylaws below)

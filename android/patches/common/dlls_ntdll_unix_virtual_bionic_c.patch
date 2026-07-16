@@ -1,0 +1,31 @@
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index ca5d50b0..903db349 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -179,9 +179,15 @@ static void *address_space_start = (void *)0x110000; /* keep DOS area clear */
+ static void *address_space_start = (void *)0x10000;
+ #endif
+ #ifdef _WIN64
++#ifdef __ANDROID__
++static void *address_space_limit = (void *)0x7fffff0000;  /* top of the total available address space (bionic) */
++static void *user_space_limit    = (void *)0x7fffff0000;  /* top of the user address space (bionic) */
++static void *working_set_limit   = (void *)0x7fffff0000;  /* top of the current working set (bionic) */
++#else
+ static void *address_space_limit = (void *)0x7fffffff0000;  /* top of the total available address space */
+ static void *user_space_limit    = (void *)0x7fffffff0000;  /* top of the user address space */
+ static void *working_set_limit   = (void *)0x7fffffff0000;  /* top of the current working set */
++#endif
+ #else
+ static void *address_space_limit = (void *)0xc0000000;
+ static void *user_space_limit    = (void *)0x7fff0000;
+@@ -3503,6 +3509,10 @@ void virtual_init(void)
+ #else
+     size = 2 * view_block_size + (1U << (32 - page_shift));
+ #endif
++    /* bionic/arm64ec: host_page_size is a runtime value (sysconf) and the pages_vprot table size
++     * above is not guaranteed host-page-aligned, which trips alloc_virtual_heap's
++     * assert( !(size & host_page_mask) ). Round the initial heap up to the host page size. */
++    size = ROUND_SIZE( 0, size, host_page_mask );
+     view_block_start = alloc_virtual_heap( size );
+     assert( view_block_start != MAP_FAILED );
+     view_block_end = view_block_start + view_block_size / sizeof(*view_block_start);
