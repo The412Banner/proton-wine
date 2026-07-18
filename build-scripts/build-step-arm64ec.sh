@@ -63,6 +63,30 @@ export GSTREAMER_LIBS="-L$deps/lib -lgstgl-1.0 -lgstapp-1.0 -lgstvideo-1.0 -lgst
 export FFMPEG_CFLAGS="-I$deps/include/libavutil -I$deps/include/libavcodec -I$deps/include/libavformat"
 export FFMPEG_LIBS="-L$deps/lib -lavutil -lavcodec -lavformat"
 
+# Wayland driver deps (winewayland.drv). The bionic aarch64 libs+headers are vendored in
+# android/wayland-deps and staged into $deps by the workflow. Like the other deps above we
+# set *_CFLAGS/_LIBS explicitly so configure uses them directly instead of pkg-config (whose
+# .pc prefix points at an absolute Termux path that doesn't exist on the CI host). The host
+# wayland-scanner (x86_64) is found on PATH via AC_PATH_PROG.
+export WAYLAND_CLIENT_CFLAGS="-I$deps/include"
+export WAYLAND_CLIENT_LIBS="-L$deps/lib -lwayland-client"
+export WAYLAND_EGL_CFLAGS="-I$deps/include"
+export WAYLAND_EGL_LIBS="-L$deps/lib -lwayland-egl"
+export XKBCOMMON_CFLAGS="-I$deps/include"
+export XKBCOMMON_LIBS="-L$deps/lib -lxkbcommon"
+export XKBREGISTRY_CFLAGS="-I$deps/include"
+export XKBREGISTRY_LIBS="-L$deps/lib -lxkbregistry"
+
+# Stage the vendored wayland/xkb bionic deps into the sysroot (idempotent; only if present so
+# a stripped checkout still builds the non-wayland path).
+_WLD="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/android/wayland-deps/usr"
+if [ -d "$_WLD" ]; then
+  mkdir -p "$deps/lib/pkgconfig" "$deps/include"
+  cp -rn "$_WLD/lib/." "$deps/lib/" 2>/dev/null || true
+  cp -rn "$_WLD/include/." "$deps/include/" 2>/dev/null || true
+  echo "Staged vendored wayland/xkb deps into $deps"
+fi
+
 for arg in "$@"
 do
   if [ "$arg" == "--enable-16kb-pages" ];
@@ -150,7 +174,7 @@ do
       --without-v4l2 \
       --without-vosk \
       --with-vulkan \
-      --without-wayland \
+      --with-wayland \
       --without-xcomposite \
       --without-xfixes \
       --without-xinerama \
@@ -289,6 +313,15 @@ do
     cp -r $install_dir/bin/notepad $OUTPUT_DIR/bin
     cp -r $install_dir/lib/wine  $OUTPUT_DIR/lib
     cp -r $install_dir/share/wine  $OUTPUT_DIR/share
+
+    # Bundle winewayland.so's runtime deps into the wcp lib/ so the driver can load even where
+    # the imagefs doesn't (yet) ship them. Vendored bionic aarch64 libs from android/wayland-deps.
+    _WLD="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/android/wayland-deps/usr/lib"
+    if [ -d "$_WLD" ]; then
+      cp -n "$_WLD"/libwayland-client.so "$_WLD"/libwayland-egl.so \
+            "$_WLD"/libxkbcommon.so "$_WLD"/libxkbregistry.so "$OUTPUT_DIR/lib/" 2>/dev/null || true
+      echo "Bundled wayland/xkb runtime libs into wcp lib/"
+    fi
 
     # Strip the packaged binaries to shrink the tree. llvm-strip ($STRIP) is arm64ec/COFF-aware AND
     # handles ELF, so it strips both the PE DLLs/EXEs and the unix .so loaders. --strip-all keeps the
