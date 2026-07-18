@@ -1,0 +1,10 @@
+prefix=/data/data/com.termux/files/usr
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: xkbregistry
+Description: XKB API to query available rules, models, layouts, variants and options
+Version: 1.13.1
+Requires.private: libxml-2.0
+Libs: -L${libdir} -lxkbregistry
+Cflags: -I${includedir}
