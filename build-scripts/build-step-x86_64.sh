@@ -154,8 +154,8 @@ do
       --without-xcomposite \
       --without-xfixes \
       --without-xinerama \
-      --without-xrandr \
-      --without-xrender \
+      --with-xrandr \
+      --with-xrender \
       --without-xshape \
       --without-xshm \
       --without-xxf86vm
