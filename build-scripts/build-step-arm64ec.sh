@@ -262,6 +262,12 @@ do
 
     echo "----------------------------------------"
     echo "Done applying patches."
+
+    # GE-Proton game-fixes tier, layered AFTER the bionic patches (verified to
+    # apply cleanly on the bionic-patched tree in this order). Hard-fails on any
+    # reject so CI surfaces the conflict.
+    echo "Applying GE-Proton patches..."
+    ./build-scripts/apply-ge-patches.sh
   fi
 
   if [ "$arg" == "--build" ]
