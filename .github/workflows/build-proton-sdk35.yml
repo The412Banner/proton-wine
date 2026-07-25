@@ -181,9 +181,9 @@ jobs:
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
-            "versionName": "11.0-3-ge-${ARCH_NAME}",
-            "versionCode": 113,
-            "description": "Proton 11.0-3-ge ${ARCH_NAME} (bionic) — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-3 game-fixes (battlenet, maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
+            "versionName": "11.0-3-${ARCH_NAME}",
+            "versionCode": 4,
+            "description": "Proton 11.0-3 ${ARCH_NAME} (bionic) — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-3 game-fixes (battlenet, maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
             "files": [],
             "wine": {
               "binPath": "bin",
@@ -226,8 +226,8 @@ jobs:
           # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar -I 'zstd -T0 -19' -cf proton-11.0-3-ge-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
-          mv proton-11.0-3-ge-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
+          tar -I 'zstd -T0 -19' -cf proton-11.0-3-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
+          mv proton-11.0-3-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
           
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
           cp $GITHUB_WORKSPACE/profile-wine.json profile.json
@@ -247,7 +247,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-${{ env.ARCH_NAME }}
-          path: proton-11.0-3-ge-${{ env.ARCH_NAME }}.wcp
+          path: proton-11.0-3-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
       
       - name: Upload Wine build artifacts for ${{ matrix.arch }}
@@ -308,8 +308,8 @@ jobs:
             
             ### WCP Files
             **Proton Type:**
-            - `proton-11.0-3-ge-x86_64.wcp` - For GameNative
-            - `proton-11.0-3-ge-arm64ec.wcp` - For GameNative
+            - `proton-11.0-3-x86_64.wcp` - For GameNative
+            - `proton-11.0-3-arm64ec.wcp` - For GameNative
             
             **Wine Type:**
             - `proton-wine-11.0-1-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
