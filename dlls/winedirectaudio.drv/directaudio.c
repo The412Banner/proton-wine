@@ -382,25 +382,26 @@ static void read_config_from_env(struct directaudio_stream *stream)
 {
     const char *e;
 
-    /* NONE keeps AAudio capacity large enough to honour big guest buffers,
+    /* Engine-scoped keys per the app's NO-BLEED audio contract: the DirectAudio
+     * engine tag is DIRECT, so config arrives as BANNER_AUDIO_DIRECT_* in the
+     * container/shortcut env (perf is 0=NONE, 1=LOW_LATENCY, 2=POWER_SAVING).
+     * NONE keeps AAudio capacity large enough to honour big guest buffers,
      * matching the device-proven ALSA/PA adaptive result. */
     stream->aa_perf = AAUDIO_PERFORMANCE_MODE_NONE;
     stream->adaptive = TRUE;
     stream->target_buf_frames = 0;
     stream->max_buf_frames = 0;
 
-    if ((e = getenv("BANNER_AUDIO_PERF")))
+    if ((e = getenv("BANNER_AUDIO_DIRECT_PERF")))
     {
-        if (!strcmp(e, "lowlat") || !strcmp(e, "1"))
-            stream->aa_perf = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
-        else if (!strcmp(e, "powersave") || !strcmp(e, "2"))
-            stream->aa_perf = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
-        else
-            stream->aa_perf = AAUDIO_PERFORMANCE_MODE_NONE;
+        int v = atoi(e);
+        if (v == 1) stream->aa_perf = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+        else if (v == 2) stream->aa_perf = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
+        else stream->aa_perf = AAUDIO_PERFORMANCE_MODE_NONE;
     }
-    if ((e = getenv("BANNER_AUDIO_ADAPTIVE"))) stream->adaptive = e[0] != '0';
-    if ((e = getenv("BANNER_AUDIO_BUFTARGET"))) stream->target_buf_frames = atoi(e);
-    if ((e = getenv("BANNER_AUDIO_MAXBUF"))) stream->max_buf_frames = atoi(e);
+    if ((e = getenv("BANNER_AUDIO_DIRECT_ADAPTIVE"))) stream->adaptive = atoi(e) != 0;
+    if ((e = getenv("BANNER_AUDIO_DIRECT_BF"))) stream->target_buf_frames = atoi(e);
+    if ((e = getenv("BANNER_AUDIO_DIRECT_MBF"))) stream->max_buf_frames = atoi(e);
 }
 
 static NTSTATUS unix_process_attach(void *args)
