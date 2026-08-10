@@ -1041,7 +1041,47 @@ static NTSTATUS unix_is_started(void *args)
 
 static NTSTATUS unix_get_prop_value(void *args)
 {
+    /* PKEY_AudioEndpoint_* live under this fmtid; {...},3 = PhysicalSpeakers. */
+    static const GUID PKEY_AudioEndpoint_GUID = {
+        0x1da5d803, 0xd492, 0x4edd, {0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e}
+    };
+    static const PROPERTYKEY devicepath_key = {
+        {0xb3f8fa53, 0x0004, 0x438e, {0x90, 0x03, 0x51, 0xa4, 0x6e, 0x13, 0x9b, 0xfc}}, 2
+    };
     struct get_prop_value_params *params = args;
+
+    /* Games (e.g. DiRT 3) refuse to call IAudioClient::Initialize until they can
+     * read PhysicalSpeakers from the endpoint, so (like winealsa/winepulse) we
+     * must supply it (winecoreaudio's E_NOTIMPL stub hangs those titles here). */
+    if (params->flow == eRender &&
+        IsEqualGUID(&params->prop->fmtid, &PKEY_AudioEndpoint_GUID) &&
+        params->prop->pid == 3)
+    {
+        params->value->vt = VT_UI4;
+        params->value->ulVal = KSAUDIO_SPEAKER_STEREO; /* our AAudio endpoint is stereo */
+        params->result = S_OK;
+        return STATUS_SUCCESS;
+    }
+
+    if (IsEqualPropertyKey(*params->prop, devicepath_key))
+    {
+        static const WCHAR path[] =
+            {'{','1','}','.','R','O','O','T','\\','M','E','D','I','A','\\','0','0','0','0',0};
+        UINT len = ARRAYSIZE(path);
+
+        if (*params->buffer_size < len * sizeof(WCHAR))
+        {
+            *params->buffer_size = len * sizeof(WCHAR);
+            params->result = E_NOT_SUFFICIENT_BUFFER;
+            return STATUS_SUCCESS;
+        }
+        params->value->vt = VT_LPWSTR;
+        params->value->pwszVal = params->buffer;
+        memcpy(params->buffer, path, len * sizeof(WCHAR));
+        params->result = S_OK;
+        return STATUS_SUCCESS;
+    }
+
     params->result = E_NOTIMPL;
     return STATUS_SUCCESS;
 }
@@ -1501,6 +1541,17 @@ static NTSTATUS unix_wow64_set_event_handle(void *args)
 
 static NTSTATUS unix_wow64_get_prop_value(void *args)
 {
+    struct propvariant32
+    {
+        WORD vt;
+        WORD pad1, pad2, pad3;
+        union
+        {
+            ULONG ulVal;
+            PTR32 ptr;
+            ULARGE_INTEGER uhVal;
+        };
+    } *value32;
     struct
     {
         PTR32 device;
@@ -1512,13 +1563,35 @@ static NTSTATUS unix_wow64_get_prop_value(void *args)
         PTR32 buffer;
         PTR32 buffer_size;
     } *params32 = args;
+    PROPVARIANT value;
     struct get_prop_value_params params =
     {
         .device = ULongToPtr(params32->device),
         .flow = params32->flow,
+        .guid = ULongToPtr(params32->guid),
+        .prop = ULongToPtr(params32->prop),
+        .value = &value,
+        .buffer = ULongToPtr(params32->buffer),
+        .buffer_size = ULongToPtr(params32->buffer_size)
     };
     unix_get_prop_value(&params);
     params32->result = params.result;
+    if (SUCCEEDED(params.result))
+    {
+        value32 = UlongToPtr(params32->value);
+        value32->vt = value.vt;
+        switch (value.vt)
+        {
+        case VT_UI4:
+            value32->ulVal = value.ulVal;
+            break;
+        case VT_LPWSTR:
+            value32->ptr = params32->buffer;
+            break;
+        default:
+            FIXME("Unhandled vt %04x\n", value.vt);
+        }
+    }
     return STATUS_SUCCESS;
 }
 
