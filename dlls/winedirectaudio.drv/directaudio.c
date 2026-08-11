@@ -92,6 +92,11 @@ struct directaudio_stream
     /* route-follow reopen guard */
     int need_reopen;
 
+    /* in-process mixer voice state */
+    int in_mixer;        /* registered with the shared output mixer */
+    double rs_pos;       /* fractional resample read position (voice rate != 48k) */
+    BOOL is_float;       /* source samples are 32-bit float (else PCM by wBitsPerSample) */
+
     /* measurement */
     unsigned int cb_count;
 };
@@ -199,109 +204,208 @@ static aaudio_format_t fmt_to_aaudio(const WAVEFORMATEX *fmt)
     return AAUDIO_FORMAT_UNSPECIFIED;
 }
 
-static void apply_gains(struct directaudio_stream *stream, void *data, int32_t frames)
-{
-    UINT32 ch = stream->fmt->nChannels, i;
-    int32_t f;
+/* ---- in-process software mixer -------------------------------------------
+ * DirectAudio opens exactly ONE AAudio output stream for the whole process and
+ * sums every guest render stream ("voice") into it, instead of one AAudio stream
+ * per guest stream. Many concurrent AAudio streams, each fed by its own callback
+ * under box64/FEX load, drift and underrun independently and phase at
+ * AudioFlinger - heard as choppy/echo on multi-stream games (DiRT Showdown opens
+ * 5). One mixed output = one callback and one buffer to keep full, with the final
+ * hardware mix still done by AudioFlinger. This is what pulse/alsa get from their
+ * daemon's mixer, but done in-process here with no daemon and no IPC.
+ * Output is fixed 48 kHz / float / stereo (our advertised shared mix format);
+ * each voice is format-converted, channel down/up-mixed to stereo, and linearly
+ * resampled if its rate differs, as it is summed in. */
 
-    if (stream->aa_format == AAUDIO_FORMAT_PCM_FLOAT)
+#define MIX_OUT_RATE     48000
+#define MIX_OUT_CHANNELS 2
+#define MIX_MAX_VOICES   64
+
+struct directaudio_mixer
+{
+    pthread_mutex_t lock;
+    AAudioStream *aq;
+    struct directaudio_stream *voices[MIX_MAX_VOICES];
+    int nvoices;
+    aaudio_performance_mode_t perf;
+    BOOL adaptive;
+    int32_t max_buf_frames, target_buf_frames;
+    int32_t last_xrun;
+    int need_reopen;
+    unsigned int cb_count;
+};
+
+static struct directaudio_mixer g_mixer = { PTHREAD_MUTEX_INITIALIZER };
+
+/* one source sample of channel c -> float in [-1,1] */
+static inline float samp_to_float(const struct directaudio_stream *v, const BYTE *frame, int c)
+{
+    if (v->is_float)
+        return ((const float *)frame)[c];
+
+    switch (v->fmt->wBitsPerSample)
     {
-        float *p = data;
-        for (f = 0; f < frames; f++)
-            for (i = 0; i < ch; i++)
-                *p++ *= stream->vols[i < 8 ? i : 7];
+    case 16: return ((const INT16 *)frame)[c] * (1.0f / 32768.0f);
+    case 32: return ((const INT32 *)frame)[c] * (1.0f / 2147483648.0f);
+    case 8:  return (((const BYTE *)frame)[c] - 128) * (1.0f / 128.0f);
+    case 24:
+    {
+        const BYTE *p = frame + c * 3;
+        INT32 s = p[0] | (p[1] << 8) | (p[2] << 16);
+        if (s & 0x800000) s |= ~0xffffff;
+        return s * (1.0f / 8388608.0f);
     }
-    else if (stream->aa_format == AAUDIO_FORMAT_PCM_I16)
-    {
-        INT16 *p = data;
-        for (f = 0; f < frames; f++)
-            for (i = 0; i < ch; i++)
-            {
-                int v = (int)(*p * stream->vols[i < 8 ? i : 7]);
-                if (v > 32767) v = 32767;
-                else if (v < -32768) v = -32768;
-                *p++ = (INT16)v;
-            }
+    default: return 0.0f;
     }
 }
 
-/* AAudio pulls data from us on its high-priority audio thread. */
-static aaudio_data_callback_result_t aaudio_data_cb(AAudioStream *aq, void *user,
-                                                    void *audioData, int32_t numFrames)
+/* down/up-mix an N-channel source frame to stereo. WAVEFORMATEX channel order:
+ * mono; L R; 5.1 = FL FR C LFE BL BR; 7.1 = FL FR C LFE BL BR SL SR. */
+static inline void downmix_stereo(int ch, const float *s, float *L, float *R)
 {
-    struct directaudio_stream *stream = user;
-    UINT32 to_copy_bytes, to_copy_frames, chunk_bytes, lcl_offs_bytes;
-
-    pthread_mutex_lock(&stream->lock);
-
-    if (stream->playing)
+    const float c = 0.7071f;
+    switch (ch)
     {
-        lcl_offs_bytes = stream->lcl_offs_frames * stream->fmt->nBlockAlign;
-        to_copy_frames = min((UINT32)numFrames, stream->held_frames);
-        to_copy_bytes = to_copy_frames * stream->fmt->nBlockAlign;
-
-        chunk_bytes = (stream->bufsize_frames - stream->lcl_offs_frames) * stream->fmt->nBlockAlign;
-
-        if (to_copy_bytes > chunk_bytes)
-        {
-            memcpy(audioData, stream->local_buffer + lcl_offs_bytes, chunk_bytes);
-            memcpy((BYTE *)audioData + chunk_bytes, stream->local_buffer, to_copy_bytes - chunk_bytes);
-        }
-        else
-            memcpy(audioData, stream->local_buffer + lcl_offs_bytes, to_copy_bytes);
-
-        stream->lcl_offs_frames += to_copy_frames;
-        stream->lcl_offs_frames %= stream->bufsize_frames;
-        stream->held_frames -= to_copy_frames;
+    case 1:  *L = *R = s[0]; return;
+    case 2:  *L = s[0]; *R = s[1]; return;
+    case 3:  *L = s[0]; *R = s[1]; return;                    /* 2.1: drop LFE */
+    case 4:  *L = s[0] + c*s[2]; *R = s[1] + c*s[3]; return;  /* quad */
+    case 6:  *L = s[0] + c*s[2] + c*s[4];                     /* 5.1 */
+             *R = s[1] + c*s[2] + c*s[5]; return;
+    case 8:  *L = s[0] + c*s[2] + c*s[4] + c*s[6];            /* 7.1 */
+             *R = s[1] + c*s[2] + c*s[5] + c*s[7]; return;
+    default: *L = s[0]; *R = (ch > 1) ? s[1] : s[0]; return;
     }
-    else
-        to_copy_bytes = to_copy_frames = 0;
+}
 
-    if ((UINT32)numFrames > to_copy_frames)
-        silence_buffer(stream, (BYTE *)audioData + to_copy_bytes, numFrames - to_copy_frames);
+/* read the voice frame at (lcl_offs+idx), down-mixed to stereo float */
+static inline void voice_frame_stereo(struct directaudio_stream *v, UINT32 idx,
+                                      float *L, float *R)
+{
+    UINT32 pos = (v->lcl_offs_frames + idx) % v->bufsize_frames;
+    const BYTE *frame = v->local_buffer + (size_t)pos * v->fmt->nBlockAlign;
+    int ch = v->fmt->nChannels, c;
+    float s[8];
 
-    if (stream->vols_active)
-        apply_gains(stream, audioData, numFrames);
+    if (ch > 8) ch = 8;
+    for (c = 0; c < ch; c++)
+    {
+        float val = samp_to_float(v, frame, c);
+        if (v->vols_active) val *= v->vols[c < 8 ? c : 7];
+        s[c] = val;
+    }
+    downmix_stereo(ch, s, L, R);
+}
 
-    /* Adaptive: grow the device buffer by a burst whenever the xrun count
-     * climbs, capped at max_buf_frames (or capacity). Cheap and callback-safe. */
-    if (stream->adaptive)
+/* sum one voice into the stereo float mix buffer (out holds numFrames*2 floats) */
+static void mix_voice(struct directaudio_stream *v, float *out, int32_t numFrames)
+{
+    pthread_mutex_lock(&v->lock);
+
+    if (!v->playing || v->held_frames == 0)
+    {
+        pthread_mutex_unlock(&v->lock);
+        return;
+    }
+
+    if (v->aa_rate == MIX_OUT_RATE)
+    {
+        UINT32 n = min((UINT32)numFrames, v->held_frames), f;
+        for (f = 0; f < n; f++)
+        {
+            float L, R;
+            voice_frame_stereo(v, f, &L, &R);
+            out[2*f]     += L;
+            out[2*f + 1] += R;
+        }
+        v->lcl_offs_frames = (v->lcl_offs_frames + n) % v->bufsize_frames;
+        v->held_frames -= n;
+    }
+    else /* linear resample voice rate -> 48 kHz */
+    {
+        double ratio = (double)v->aa_rate / MIX_OUT_RATE;
+        int32_t f, consumed;
+        for (f = 0; f < numFrames; f++)
+        {
+            UINT32 i0 = (UINT32)v->rs_pos;
+            float L0, R0, L1, R1;
+            double frac;
+
+            if (i0 + 1 >= v->held_frames) break;   /* ran dry - remaining stays silent */
+            voice_frame_stereo(v, i0, &L0, &R0);
+            voice_frame_stereo(v, i0 + 1, &L1, &R1);
+            frac = v->rs_pos - i0;
+            out[2*f]     += (float)(L0 + (L1 - L0) * frac);
+            out[2*f + 1] += (float)(R0 + (R1 - R0) * frac);
+            v->rs_pos += ratio;
+        }
+        consumed = (int32_t)v->rs_pos;
+        if (consumed > (int32_t)v->held_frames) consumed = v->held_frames;
+        if (consumed > 0)
+        {
+            v->lcl_offs_frames = (v->lcl_offs_frames + consumed) % v->bufsize_frames;
+            v->held_frames -= consumed;
+            v->rs_pos -= consumed;
+        }
+        if (v->held_frames == 0) v->rs_pos = 0.0;  /* resync fraction on underrun */
+    }
+
+    pthread_mutex_unlock(&v->lock);
+}
+
+/* AAudio pulls from the single mixed output on its high-priority audio thread. */
+static aaudio_data_callback_result_t mixer_cb(AAudioStream *aq, void *user,
+                                              void *audioData, int32_t numFrames)
+{
+    struct directaudio_mixer *mx = user;
+    float *out = audioData;
+    int32_t i, n2 = numFrames * MIX_OUT_CHANNELS;
+
+    memset(out, 0, (size_t)n2 * sizeof(float));
+
+    pthread_mutex_lock(&mx->lock);
+    for (i = 0; i < mx->nvoices; i++)
+        mix_voice(mx->voices[i], out, numFrames);
+    pthread_mutex_unlock(&mx->lock);
+
+    for (i = 0; i < n2; i++)
+    {
+        if (out[i] > 1.0f) out[i] = 1.0f;
+        else if (out[i] < -1.0f) out[i] = -1.0f;
+    }
+
+    /* Adaptive: grow the single output's buffer by a burst on each xrun climb,
+     * capped at max_buf_frames (or capacity). One output = one xrun source. */
+    if (mx->adaptive)
     {
         int32_t xruns = AAudioStream_getXRunCount(aq);
-        if (xruns > stream->last_xrun)
+        if (xruns > mx->last_xrun)
         {
             int32_t burst = AAudioStream_getFramesPerBurst(aq);
             int32_t cur = AAudioStream_getBufferSizeInFrames(aq);
             int32_t cap = AAudioStream_getBufferCapacityInFrames(aq);
             int32_t want = cur + (burst > 0 ? burst : 1);
 
-            if (stream->max_buf_frames > 0 && want > stream->max_buf_frames)
-                want = stream->max_buf_frames;
+            if (mx->max_buf_frames > 0 && want > mx->max_buf_frames) want = mx->max_buf_frames;
             if (want > cap) want = cap;
-            if (want > cur)
-            {
-                AAudioStream_setBufferSizeInFrames(aq, want);
-                TRACE("grow: xruns %d->%d buf %d->%d cap %d\n",
-                      stream->last_xrun, xruns, cur, want, cap);
-            }
-            stream->last_xrun = xruns;
+            if (want > cur) AAudioStream_setBufferSizeInFrames(aq, want);
+            mx->last_xrun = xruns;
         }
     }
 
-    if (TRACE_ON(directaudio) && !(++stream->cb_count % 1000))
-        TRACE("hb: cb=%u held=%u buf=%d cap=%d xruns=%d\n", stream->cb_count,
-              stream->held_frames, AAudioStream_getBufferSizeInFrames(aq),
-              AAudioStream_getBufferCapacityInFrames(aq), AAudioStream_getXRunCount(aq));
+    if (TRACE_ON(directaudio) && !(++mx->cb_count % 1000))
+        TRACE("mix hb: cb=%u voices=%d buf=%d cap=%d xruns=%d\n", mx->cb_count, mx->nvoices,
+              AAudioStream_getBufferSizeInFrames(aq), AAudioStream_getBufferCapacityInFrames(aq),
+              AAudioStream_getXRunCount(aq));
 
-    pthread_mutex_unlock(&stream->lock);
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
-static void *reopen_thread(void *user);
+static void *mixer_reopen_thread(void *user);
 
-static void aaudio_error_cb(AAudioStream *aq, void *user, aaudio_result_t error)
+static void mixer_error_cb(AAudioStream *aq, void *user, aaudio_result_t error)
 {
-    struct directaudio_stream *stream = user;
+    struct directaudio_mixer *mx = user;
     int expected = 0;
 
     if (error != AAUDIO_ERROR_DISCONNECTED)
@@ -309,19 +413,20 @@ static void aaudio_error_cb(AAudioStream *aq, void *user, aaudio_result_t error)
 
     /* Route change (headphone/BT/HDMI). AAudio requires the reopen to happen on
      * another thread, never inside this callback. */
-    if (__atomic_compare_exchange_n(&stream->need_reopen, &expected, 1, 0,
+    if (__atomic_compare_exchange_n(&mx->need_reopen, &expected, 1, 0,
                                     __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
     {
         pthread_t th;
-        WARN("route change (err=%d) - reopening AAudio stream\n", error);
-        if (pthread_create(&th, NULL, reopen_thread, stream))
-            __atomic_store_n(&stream->need_reopen, 0, __ATOMIC_SEQ_CST);
+        WARN("route change (err=%d) - reopening mixer output\n", error);
+        if (pthread_create(&th, NULL, mixer_reopen_thread, mx))
+            __atomic_store_n(&mx->need_reopen, 0, __ATOMIC_SEQ_CST);
         else
             pthread_detach(th);
     }
 }
 
-static aaudio_result_t open_aaudio(struct directaudio_stream *stream, AAudioStream **out)
+/* open the one shared AAudio output: 48 kHz / float / stereo */
+static aaudio_result_t mixer_open_stream(struct directaudio_mixer *mx, AAudioStream **out)
 {
     AAudioStreamBuilder *builder = NULL;
     AAudioStream *aq = NULL;
@@ -333,25 +438,18 @@ static aaudio_result_t open_aaudio(struct directaudio_stream *stream, AAudioStre
 
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
     AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_SHARED);
-    AAudioStreamBuilder_setPerformanceMode(builder, stream->aa_perf);
-    AAudioStreamBuilder_setFormat(builder, stream->aa_format);
-    AAudioStreamBuilder_setChannelCount(builder, stream->aa_channels);
-    AAudioStreamBuilder_setSampleRate(builder, stream->aa_rate);
-    AAudioStreamBuilder_setDataCallback(builder, aaudio_data_cb, stream);
-    AAudioStreamBuilder_setErrorCallback(builder, aaudio_error_cb, stream);
+    AAudioStreamBuilder_setPerformanceMode(builder, mx->perf);
+    AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
+    AAudioStreamBuilder_setChannelCount(builder, MIX_OUT_CHANNELS);
+    AAudioStreamBuilder_setSampleRate(builder, MIX_OUT_RATE);
+    AAudioStreamBuilder_setDataCallback(builder, mixer_cb, mx);
+    AAudioStreamBuilder_setErrorCallback(builder, mixer_error_cb, mx);
 
-    /* Request generous buffer CAPACITY up front. AAudio's default capacity is
-     * only ~2 bursts (~80 ms); BOTH the initial buffer size and the adaptive
-     * grow-on-xrun are hard-capped at capacity, which is far too small to ride
-     * out the callback jitter of a heavy box64/FEX + DXVK guest - that shows up
-     * as choppy audio (device-observed on DiRT Showdown). Ask for real headroom
-     * (BANNER_AUDIO_DIRECT_MBF if set, else ~250 ms) so the adaptive path has
-     * room to grow into. Capacity is a builder-time property; it cannot be set
-     * after openStream, which is why no env knob alone could fix this. */
+    /* Capacity headroom so adaptive has room to grow (builder-time only). One
+     * output = far fewer xruns than N per-stream outputs, so a moderate initial
+     * buffer stays low-latency. BANNER_AUDIO_DIRECT_MBF/_BF override. */
     {
-        int32_t cap_req = stream->max_buf_frames > 0
-                          ? stream->max_buf_frames
-                          : stream->aa_rate / 4; /* ~250 ms */
+        int32_t cap_req = mx->max_buf_frames > 0 ? mx->max_buf_frames : MIX_OUT_RATE / 4; /* ~250 ms */
         if (cap_req > 0)
             AAudioStreamBuilder_setBufferCapacityInFrames(builder, cap_req);
     }
@@ -361,20 +459,14 @@ static aaudio_result_t open_aaudio(struct directaudio_stream *stream, AAudioStre
     if (r != AAUDIO_OK || !aq)
         return r != AAUDIO_OK ? r : AAUDIO_ERROR_INTERNAL;
 
-    /* Start with a comfortable buffer rather than AAudio's ~2-burst default, so
-     * playback is smooth immediately instead of only after adaptive has grown.
-     * BANNER_AUDIO_DIRECT_BF overrides; default ~100 ms. Adaptive still grows
-     * further (up to capacity) if xruns persist. */
     {
         int32_t cap = AAudioStream_getBufferCapacityInFrames(aq);
-        int32_t want = stream->target_buf_frames > 0
-                       ? stream->target_buf_frames
-                       : stream->aa_rate / 10; /* ~100 ms */
+        int32_t want = mx->target_buf_frames > 0 ? mx->target_buf_frames : MIX_OUT_RATE / 16; /* ~60 ms */
         if (want > cap) want = cap;
         if (want > 0)
             AAudioStream_setBufferSizeInFrames(aq, want);
     }
-    stream->last_xrun = AAudioStream_getXRunCount(aq);
+    mx->last_xrun = AAudioStream_getXRunCount(aq);
 
     r = AAudioStream_requestStart(aq);
     if (r != AAUDIO_OK)
@@ -383,8 +475,7 @@ static aaudio_result_t open_aaudio(struct directaudio_stream *stream, AAudioStre
         return r;
     }
 
-    TRACE("open: fmt=%d ch=%d rate=%d perf=%d burst=%d buf=%d cap=%d\n",
-          stream->aa_format, stream->aa_channels, stream->aa_rate, stream->aa_perf,
+    TRACE("mixer open: 48000/float/2ch perf=%d burst=%d buf=%d cap=%d\n", mx->perf,
           AAudioStream_getFramesPerBurst(aq), AAudioStream_getBufferSizeInFrames(aq),
           AAudioStream_getBufferCapacityInFrames(aq));
 
@@ -392,20 +483,20 @@ static aaudio_result_t open_aaudio(struct directaudio_stream *stream, AAudioStre
     return AAUDIO_OK;
 }
 
-static void *reopen_thread(void *user)
+static void *mixer_reopen_thread(void *user)
 {
-    struct directaudio_stream *stream = user;
+    struct directaudio_mixer *mx = user;
     AAudioStream *old = NULL, *neu = NULL;
 
-    if (open_aaudio(stream, &neu) == AAUDIO_OK)
+    if (mixer_open_stream(mx, &neu) == AAUDIO_OK)
     {
-        pthread_mutex_lock(&stream->lock);
-        old = stream->aq;
-        stream->aq = neu;
-        pthread_mutex_unlock(&stream->lock);
+        pthread_mutex_lock(&mx->lock);
+        old = mx->aq;
+        mx->aq = neu;
+        pthread_mutex_unlock(&mx->lock);
     }
     else
-        WARN("route-change reopen failed; keeping old stream\n");
+        WARN("mixer route-change reopen failed; keeping old stream\n");
 
     /* close() blocks until the old stream's in-flight callback returns; do it
      * outside the lock so the callback can drain. */
@@ -413,11 +504,62 @@ static void *reopen_thread(void *user)
     {
         AAudioStream_requestStop(old);
         AAudioStream_close(old);
-        TRACE("reopened AAudio stream on route change\n");
+        TRACE("reopened mixer output on route change\n");
     }
 
-    __atomic_store_n(&stream->need_reopen, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&mx->need_reopen, 0, __ATOMIC_SEQ_CST);
     return NULL;
+}
+
+/* open the shared output on the first voice, using that voice's env-derived config */
+static aaudio_result_t mixer_ensure_open(struct directaudio_mixer *mx,
+                                         const struct directaudio_stream *cfg)
+{
+    if (mx->aq)
+        return AAUDIO_OK;
+    mx->perf = cfg->aa_perf;
+    mx->adaptive = cfg->adaptive;
+    mx->max_buf_frames = cfg->max_buf_frames;
+    mx->target_buf_frames = cfg->target_buf_frames;
+    return mixer_open_stream(mx, &mx->aq);
+}
+
+static aaudio_result_t mixer_add_voice(struct directaudio_mixer *mx, struct directaudio_stream *v)
+{
+    aaudio_result_t r;
+
+    pthread_mutex_lock(&mx->lock);
+    r = mixer_ensure_open(mx, v);
+    if (r == AAUDIO_OK)
+    {
+        if (mx->nvoices < MIX_MAX_VOICES)
+        {
+            v->rs_pos = 0.0;
+            v->in_mixer = 1;
+            mx->voices[mx->nvoices++] = v;
+        }
+        else
+            r = AAUDIO_ERROR_NO_MEMORY;
+    }
+    pthread_mutex_unlock(&mx->lock);
+    return r;
+}
+
+static void mixer_remove_voice(struct directaudio_mixer *mx, struct directaudio_stream *v)
+{
+    int i;
+
+    pthread_mutex_lock(&mx->lock);
+    for (i = 0; i < mx->nvoices; i++)
+    {
+        if (mx->voices[i] == v)
+        {
+            mx->voices[i] = mx->voices[--mx->nvoices];
+            break;
+        }
+    }
+    v->in_mixer = 0;
+    pthread_mutex_unlock(&mx->lock);
 }
 
 static void read_config_from_env(struct directaudio_stream *stream)
@@ -582,12 +724,22 @@ static NTSTATUS unix_create_stream(void *args)
         goto end;
     }
 
-    stream->aa_format = fmt_to_aaudio(stream->fmt);
-    if (stream->aa_format == AAUDIO_FORMAT_UNSPECIFIED)
+    /* The mixer converts any PCM(8/16/24/32)/float source to the shared output
+     * format as it sums it in, so accept the full set mmdevapi validated - not
+     * only the AAudio-native ones. */
     {
-        params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
-        goto end;
+        const WAVEFORMATEXTENSIBLE *fex = (const WAVEFORMATEXTENSIBLE *)stream->fmt;
+        stream->is_float = stream->fmt->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+            (stream->fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+             IsEqualGUID(&fex->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT));
+        if (stream->fmt->wBitsPerSample != 8 && stream->fmt->wBitsPerSample != 16 &&
+            stream->fmt->wBitsPerSample != 24 && stream->fmt->wBitsPerSample != 32)
+        {
+            params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
+            goto end;
+        }
     }
+    stream->aa_format = stream->is_float ? AAUDIO_FORMAT_PCM_FLOAT : AAUDIO_FORMAT_UNSPECIFIED;
     stream->aa_channels = stream->fmt->nChannels;
     stream->aa_rate = stream->fmt->nSamplesPerSec;
 
@@ -606,11 +758,12 @@ static NTSTATUS unix_create_stream(void *args)
     }
     silence_buffer(stream, stream->local_buffer, stream->bufsize_frames);
 
-    /* We play continuously; stream->playing gates real audio vs. silence. */
-    r = open_aaudio(stream, &stream->aq);
+    /* Register as a mixer voice; the shared output opens on the first voice.
+     * stream->playing gates real audio vs. silence in the mix. */
+    r = mixer_add_voice(&g_mixer, stream);
     if (r != AAUDIO_OK)
     {
-        WARN("AAudio open failed: %d\n", r);
+        WARN("mixer add voice failed: %d\n", r);
         params->result = AUDCLNT_E_DEVICE_INVALIDATED;
         goto end;
     }
@@ -619,11 +772,8 @@ static NTSTATUS unix_create_stream(void *args)
 end:
     if (FAILED(params->result))
     {
-        if (stream->aq)
-        {
-            AAudioStream_requestStop(stream->aq);
-            AAudioStream_close(stream->aq);
-        }
+        if (stream->in_mixer)
+            mixer_remove_voice(&g_mixer, stream);
         if (stream->local_buffer)
         {
             size = 0;
@@ -656,11 +806,8 @@ static NTSTATUS unix_release_stream(void *args)
         NtClose(params->timer_thread);
     }
 
-    if (stream->aq)
-    {
-        AAudioStream_requestStop(stream->aq);
-        AAudioStream_close(stream->aq);
-    }
+    if (stream->in_mixer)
+        mixer_remove_voice(&g_mixer, stream);
 
     if (stream->local_buffer)
     {
@@ -812,7 +959,7 @@ static NTSTATUS unix_get_latency(void *args)
     int32_t buf_frames;
 
     pthread_mutex_lock(&stream->lock);
-    buf_frames = stream->aq ? AAudioStream_getBufferSizeInFrames(stream->aq) : 0;
+    buf_frames = g_mixer.aq ? AAudioStream_getBufferSizeInFrames(g_mixer.aq) : 0;
     if (buf_frames < 0) buf_frames = 0;
     /* pretend we process audio in Period chunks, so max latency includes it */
     *params->latency = muldiv(buf_frames, 10000000, stream->fmt->nSamplesPerSec) + stream->period;
@@ -1216,7 +1363,7 @@ static NTSTATUS unix_set_event_handle(void *args)
     HRESULT hr = S_OK;
 
     pthread_mutex_lock(&stream->lock);
-    if (!stream->aq)
+    if (!stream->in_mixer)
         hr = AUDCLNT_E_DEVICE_INVALIDATED;
     else if (!(stream->flags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK))
         hr = AUDCLNT_E_EVENTHANDLE_NOT_EXPECTED;
