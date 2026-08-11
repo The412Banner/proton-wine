@@ -106,6 +106,26 @@ static NTSTATUS unix_not_implemented(void *args)
     return STATUS_SUCCESS;
 }
 
+/* We provide no MIDI backend, but mmdevapi's midMessage/modMessage leave the
+ * notify_context on the stack UNINITIALISED and fire notify_client() whenever
+ * notify->send_notify is non-zero. A plain not-implemented stub never clears it,
+ * so we would deliver a bogus DriverCallback (garbage msg/params) into the guest
+ * during its legacy-winmm probe - which winealsa/winepulse never do because
+ * their handlers always set send_notify = FALSE. Mirror that here. */
+static NTSTATUS unix_midi_out_message(void *args)
+{
+    struct midi_out_message_params *params = args;
+    if (params->notify) params->notify->send_notify = FALSE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_midi_in_message(void *args)
+{
+    struct midi_in_message_params *params = args;
+    if (params->notify) params->notify->send_notify = FALSE;
+    return STATUS_SUCCESS;
+}
+
 static struct directaudio_stream *handle_get_stream(stream_handle h)
 {
     return (struct directaudio_stream *)(UINT_PTR)h;
@@ -1223,8 +1243,8 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_not_implemented,        /* midi_get_driver */
     unix_not_implemented,        /* midi_init */
     unix_not_implemented,        /* midi_release */
-    unix_not_implemented,        /* midi_out_message */
-    unix_not_implemented,        /* midi_in_message */
+    unix_midi_out_message,       /* midi_out_message */
+    unix_midi_in_message,        /* midi_in_message */
     unix_not_implemented,        /* midi_notify_wait */
     unix_not_implemented,        /* aux_message */
 };
@@ -1656,6 +1676,28 @@ static NTSTATUS unix_wow64_get_prop_value(void *args)
     return STATUS_SUCCESS;
 }
 
+/* wow64 counterpart of unix_midi_{out,in}_message: the 32-bit game (DiRT 3) hits
+ * this path. Clear the 32-bit notify_context's send_notify (its first field) so
+ * mmdevapi does not fire a garbage notify_client callback into the guest. Both
+ * midi_out and midi_in share this param layout. */
+static NTSTATUS unix_wow64_midi_message(void *args)
+{
+    struct
+    {
+        UINT dev_id;
+        UINT msg;
+        UINT user;
+        UINT param_1;
+        UINT param_2;
+        PTR32 err;
+        PTR32 notify;
+    } *params32 = args;
+
+    if (params32->notify)
+        *(BOOL *)ULongToPtr(params32->notify) = FALSE; /* send_notify is field 0 */
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
 {
     unix_process_attach,
@@ -1691,8 +1733,8 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     unix_not_implemented,        /* midi_get_driver */
     unix_not_implemented,        /* midi_init */
     unix_not_implemented,        /* midi_release */
-    unix_not_implemented,        /* midi_out_message */
-    unix_not_implemented,        /* midi_in_message */
+    unix_midi_out_message,       /* midi_out_message */
+    unix_midi_in_message,        /* midi_in_message */
     unix_not_implemented,        /* midi_notify_wait */
     unix_not_implemented,        /* aux_message */
 };
