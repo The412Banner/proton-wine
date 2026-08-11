@@ -1115,9 +1115,15 @@ static NTSTATUS unix_get_prop_value(void *args)
 
     if (IsEqualPropertyKey(*params->prop, devicepath_key))
     {
-        static const WCHAR path[] =
+        /* Each endpoint must present a UNIQUE device-instance path; a real system
+         * never gives two endpoints the same one. Our render and capture devices
+         * differ only by flow, so key the trailing instance id on that. */
+        static const WCHAR path_out[] =
             {'{','1','}','.','R','O','O','T','\\','M','E','D','I','A','\\','0','0','0','0',0};
-        UINT len = ARRAYSIZE(path);
+        static const WCHAR path_in[] =
+            {'{','1','}','.','R','O','O','T','\\','M','E','D','I','A','\\','0','0','0','1',0};
+        const WCHAR *path = (params->flow == eCapture) ? path_in : path_out;
+        UINT len = ARRAYSIZE(path_out);
 
         if (*params->buffer_size < len * sizeof(WCHAR))
         {
