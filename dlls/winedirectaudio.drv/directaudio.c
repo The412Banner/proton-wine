@@ -443,16 +443,24 @@ static NTSTATUS unix_test_connect(void *args)
 
 static NTSTATUS unix_get_endpoint_ids(void *args)
 {
-    static const WCHAR ep_name[] = {'D','i','r','e','c','t','A','u','d','i','o',0};
-    static const char ep_dev[] = "aaudio";
+    static const WCHAR ep_name_out[] = {'D','i','r','e','c','t','A','u','d','i','o',0};
+    static const WCHAR ep_name_in[] =
+        {'D','i','r','e','c','t','A','u','d','i','o',' ','I','n','p','u','t',0};
+    static const char ep_dev_out[] = "aaudio";
+    static const char ep_dev_in[] = "aaudio_in";
     struct get_endpoint_ids_params *params = args;
-    unsigned int name_bytes = sizeof(ep_name);
-    unsigned int dev_bytes = sizeof(ep_dev);
+    BOOL capture = params->flow == eCapture;
+    const WCHAR *ep_name = capture ? ep_name_in : ep_name_out;
+    const char *ep_dev = capture ? ep_dev_in : ep_dev_out;
+    unsigned int name_bytes = capture ? sizeof(ep_name_in) : sizeof(ep_name_out);
+    unsigned int dev_bytes = capture ? sizeof(ep_dev_in) : sizeof(ep_dev_out);
     unsigned int needed, offset;
     struct endpoint *endpoint = params->endpoints;
 
     params->default_idx = 0;
-    params->num = (params->flow == eRender) ? 1 : 0; /* capture not yet supported */
+    /* Expose one render AND one capture endpoint. Games (DiRT 3) enumerate a
+     * default capture device during audio init and stall if none exists. */
+    params->num = (params->flow == eRender || params->flow == eCapture) ? 1 : 0;
 
     TRACE("get_endpoint_ids: flow=%d -> num=%u\n", params->flow, params->num);
 
@@ -680,7 +688,7 @@ static NTSTATUS unix_is_format_supported(void *args)
         return STATUS_SUCCESS;
     }
 
-    if (params->flow != eRender)
+    if (params->flow != eRender && params->flow != eCapture)
     {
         params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
         return STATUS_SUCCESS;
