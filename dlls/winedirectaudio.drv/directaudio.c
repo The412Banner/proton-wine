@@ -680,6 +680,7 @@ static NTSTATUS unix_is_format_supported(void *args)
 {
     struct is_format_supported_params *params = args;
     const WAVEFORMATEX *fmt = params->fmt_in;
+    aaudio_format_t aafmt;
 
     if (!fmt || (fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
                  fmt->cbSize < sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)))
@@ -694,16 +695,36 @@ static NTSTATUS unix_is_format_supported(void *args)
         return STATUS_SUCCESS;
     }
 
-    if (fmt_to_aaudio(fmt) == AAUDIO_FORMAT_UNSPECIFIED ||
-        fmt->nChannels < 1 || fmt->nChannels > 8 ||
+    aafmt = fmt_to_aaudio(fmt);
+
+    if (fmt->nChannels < 1 || fmt->nChannels > 8 ||
         fmt->nSamplesPerSec < 8000 || fmt->nSamplesPerSec > 192000)
+    {
+        /* No backend, exclusive or shared, can satisfy a nonsensical layout. */
         params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
-    else
-        params->result = S_OK;
+    }
+    else if (params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
+    {
+        /* Exclusive streams hand the guest format straight to AAudio with no
+         * conversion, so we can only honour what AAudio opens natively. */
+        params->result = (aafmt != AAUDIO_FORMAT_UNSPECIFIED)
+                         ? S_OK : AUDCLNT_E_UNSUPPORTED_FORMAT;
+    }
+    else /* AUDCLNT_SHAREMODE_SHARED */
+    {
+        /* Shared: mmdevapi already validated the layout before calling us.
+         * Report S_OK for formats create_stream can open directly on AAudio,
+         * and S_FALSE for the rest (e.g. 8-bit / 24-bit) so mmdevapi returns
+         * our AAudio mix format as the closest match and the guest re-initialises
+         * with a format we can play. A hard AUDCLNT_E_UNSUPPORTED_FORMAT here
+         * makes games treat the endpoint as broken and drop to legacy winmm,
+         * which is exactly what stalled DiRT 3's boot. */
+        params->result = (aafmt != AAUDIO_FORMAT_UNSPECIFIED) ? S_OK : S_FALSE;
+    }
 
     TRACE("is_format_supported: share=%d tag=%#x ch=%u rate=%u bits=%u aafmt=%d -> %#x\n",
           params->share, fmt->wFormatTag, fmt->nChannels, (unsigned)fmt->nSamplesPerSec,
-          fmt->wBitsPerSample, fmt_to_aaudio(fmt), (unsigned)params->result);
+          fmt->wBitsPerSample, aafmt, (unsigned)params->result);
     return STATUS_SUCCESS;
 }
 
