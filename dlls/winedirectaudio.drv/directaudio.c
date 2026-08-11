@@ -712,14 +712,21 @@ static NTSTATUS unix_is_format_supported(void *args)
     }
     else /* AUDCLNT_SHAREMODE_SHARED */
     {
-        /* Shared: mmdevapi already validated the layout before calling us.
-         * Report S_OK for formats create_stream can open directly on AAudio,
-         * and S_FALSE for the rest (e.g. 8-bit / 24-bit) so mmdevapi returns
-         * our AAudio mix format as the closest match and the guest re-initialises
-         * with a format we can play. A hard AUDCLNT_E_UNSUPPORTED_FORMAT here
-         * makes games treat the endpoint as broken and drop to legacy winmm,
-         * which is exactly what stalled DiRT 3's boot. */
-        params->result = (aafmt != AAUDIO_FORMAT_UNSPECIFIED) ? S_OK : S_FALSE;
+        /* Shared mode goes through mmdevapi's mixer, which converts the guest
+         * format to our AAudio mix format - exactly like the winealsa/winepulse
+         * software-mixer backends. So report S_OK for any layout mmdevapi has
+         * already validated, INCLUDING formats AAudio cannot open natively
+         * (8-bit / 24-bit PCM): the guest only uses these to probe device
+         * capability and always initialises the stream with the float mix
+         * format (device-verified against DiRT 3's WASAPI negotiation). Both
+         * known-good backends answer S_OK here; returning anything weaker
+         * (S_FALSE, and certainly a hard AUDCLNT_E_UNSUPPORTED_FORMAT) makes the
+         * game judge the endpoint incapable and fall back to legacy winmm, which
+         * is what stalled DiRT 3's boot on the two prior builds.
+         * TODO: if a title ever *initialises* a shared stream with a non-native
+         * format, create_stream must convert it to the mix format rather than
+         * fail; no observed title does this yet. */
+        params->result = S_OK;
     }
 
     TRACE("is_format_supported: share=%d tag=%#x ch=%u rate=%u bits=%u aafmt=%d -> %#x\n",
