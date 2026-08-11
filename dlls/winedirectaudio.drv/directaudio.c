@@ -340,17 +340,39 @@ static aaudio_result_t open_aaudio(struct directaudio_stream *stream, AAudioStre
     AAudioStreamBuilder_setDataCallback(builder, aaudio_data_cb, stream);
     AAudioStreamBuilder_setErrorCallback(builder, aaudio_error_cb, stream);
 
+    /* Request generous buffer CAPACITY up front. AAudio's default capacity is
+     * only ~2 bursts (~80 ms); BOTH the initial buffer size and the adaptive
+     * grow-on-xrun are hard-capped at capacity, which is far too small to ride
+     * out the callback jitter of a heavy box64/FEX + DXVK guest - that shows up
+     * as choppy audio (device-observed on DiRT Showdown). Ask for real headroom
+     * (BANNER_AUDIO_DIRECT_MBF if set, else ~250 ms) so the adaptive path has
+     * room to grow into. Capacity is a builder-time property; it cannot be set
+     * after openStream, which is why no env knob alone could fix this. */
+    {
+        int32_t cap_req = stream->max_buf_frames > 0
+                          ? stream->max_buf_frames
+                          : stream->aa_rate / 4; /* ~250 ms */
+        if (cap_req > 0)
+            AAudioStreamBuilder_setBufferCapacityInFrames(builder, cap_req);
+    }
+
     r = AAudioStreamBuilder_openStream(builder, &aq);
     AAudioStreamBuilder_delete(builder);
     if (r != AAUDIO_OK || !aq)
         return r != AAUDIO_OK ? r : AAUDIO_ERROR_INTERNAL;
 
-    if (stream->target_buf_frames > 0)
+    /* Start with a comfortable buffer rather than AAudio's ~2-burst default, so
+     * playback is smooth immediately instead of only after adaptive has grown.
+     * BANNER_AUDIO_DIRECT_BF overrides; default ~100 ms. Adaptive still grows
+     * further (up to capacity) if xruns persist. */
     {
         int32_t cap = AAudioStream_getBufferCapacityInFrames(aq);
-        int32_t want = stream->target_buf_frames;
+        int32_t want = stream->target_buf_frames > 0
+                       ? stream->target_buf_frames
+                       : stream->aa_rate / 10; /* ~100 ms */
         if (want > cap) want = cap;
-        AAudioStream_setBufferSizeInFrames(aq, want);
+        if (want > 0)
+            AAudioStream_setBufferSizeInFrames(aq, want);
     }
     stream->last_xrun = AAudioStream_getXRunCount(aq);
 
