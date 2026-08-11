@@ -458,9 +458,14 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
     struct endpoint *endpoint = params->endpoints;
 
     params->default_idx = 0;
-    /* Expose one render AND one capture endpoint. Games (DiRT 3) enumerate a
-     * default capture device during audio init and stall if none exists. */
-    params->num = (params->flow == eRender || params->flow == eCapture) ? 1 : 0;
+    /* Expose a render endpoint only. Capture (mic) is a later phase: create_stream
+     * returns DEVICE_INVALIDATED for eCapture, so advertising a capture endpoint the
+     * game can enumerate but never open makes it abandon audio init entirely and boot
+     * to a black screen. A fresh same-setup winealsa capture that BOOTS exposes zero
+     * capture endpoints and DiRT 3 initialises render fine, confirming no mic device is
+     * needed. (The earlier assumption that a missing capture endpoint caused the hang
+     * was wrong - that hang was the PhysicalSpeakers E_NOTIMPL gate, fixed separately.) */
+    params->num = (params->flow == eRender) ? 1 : 0;
 
     TRACE("get_endpoint_ids: flow=%d -> num=%u\n", params->flow, params->num);
 
