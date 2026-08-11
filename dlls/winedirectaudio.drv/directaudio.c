@@ -454,6 +454,8 @@ static NTSTATUS unix_get_endpoint_ids(void *args)
     params->default_idx = 0;
     params->num = (params->flow == eRender) ? 1 : 0; /* capture not yet supported */
 
+    TRACE("get_endpoint_ids: flow=%d -> num=%u\n", params->flow, params->num);
+
     if (params->num == 0)
     {
         params->result = S_OK;
@@ -490,6 +492,10 @@ static NTSTATUS unix_create_stream(void *args)
     aaudio_result_t r;
     SIZE_T size;
     int i;
+
+    TRACE("create_stream: flow=%d share=%d flags=%#x tag=%#x ch=%u rate=%u bits=%u\n",
+          params->flow, params->share, (unsigned)params->flags, params->fmt->wFormatTag,
+          params->fmt->nChannels, (unsigned)params->fmt->nSamplesPerSec, params->fmt->wBitsPerSample);
 
     params->result = S_OK;
 
@@ -657,6 +663,7 @@ static NTSTATUS unix_get_mix_format(void *args)
     params->fmt->Samples.wValidBitsPerSample = params->fmt->Format.wBitsPerSample;
     params->fmt->Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
 
+    TRACE("get_mix_format: flow=%d -> 48000/32f/2ch\n", params->flow);
     params->result = S_OK;
     return STATUS_SUCCESS;
 }
@@ -686,6 +693,9 @@ static NTSTATUS unix_is_format_supported(void *args)
     else
         params->result = S_OK;
 
+    TRACE("is_format_supported: share=%d tag=%#x ch=%u rate=%u bits=%u aafmt=%d -> %#x\n",
+          params->share, fmt->wFormatTag, fmt->nChannels, (unsigned)fmt->nSamplesPerSec,
+          fmt->wBitsPerSample, fmt_to_aaudio(fmt), (unsigned)params->result);
     return STATUS_SUCCESS;
 }
 
@@ -695,6 +705,7 @@ static NTSTATUS unix_get_device_period(void *args)
 
     if (params->def_period) *params->def_period = def_period;
     if (params->min_period) *params->min_period = min_period;
+    TRACE("get_device_period: flow=%d def=%d min=%d\n", params->flow, (int)def_period, (int)min_period);
     params->result = S_OK;
     return STATUS_SUCCESS;
 }
@@ -1049,6 +1060,9 @@ static NTSTATUS unix_get_prop_value(void *args)
         {0xb3f8fa53, 0x0004, 0x438e, {0x90, 0x03, 0x51, 0xa4, 0x6e, 0x13, 0x9b, 0xfc}}, 2
     };
     struct get_prop_value_params *params = args;
+
+    TRACE("get_prop_value: flow=%d prop=%s,%u\n", params->flow,
+          wine_dbgstr_guid(&params->prop->fmtid), params->prop->pid);
 
     /* Games (e.g. DiRT 3) refuse to call IAudioClient::Initialize until they can
      * read PhysicalSpeakers from the endpoint, so (like winealsa/winepulse) we
