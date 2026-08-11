@@ -445,11 +445,10 @@ static aaudio_result_t mixer_open_stream(struct directaudio_mixer *mx, AAudioStr
     AAudioStreamBuilder_setDataCallback(builder, mixer_cb, mx);
     AAudioStreamBuilder_setErrorCallback(builder, mixer_error_cb, mx);
 
-    /* Capacity headroom so adaptive has room to grow (builder-time only). One
-     * output = far fewer xruns than N per-stream outputs, so a moderate initial
-     * buffer stays low-latency. BANNER_AUDIO_DIRECT_MBF/_BF override. */
+    /* Capacity headroom so adaptive has room to grow above even the "safe" preset
+     * (~160 ms). Builder-time only. BANNER_AUDIO_DIRECT_MBF overrides. */
     {
-        int32_t cap_req = mx->max_buf_frames > 0 ? mx->max_buf_frames : MIX_OUT_RATE / 4; /* ~250 ms */
+        int32_t cap_req = mx->max_buf_frames > 0 ? mx->max_buf_frames : MIX_OUT_RATE * 350 / 1000; /* ~350 ms */
         if (cap_req > 0)
             AAudioStreamBuilder_setBufferCapacityInFrames(builder, cap_req);
     }
@@ -461,7 +460,7 @@ static aaudio_result_t mixer_open_stream(struct directaudio_mixer *mx, AAudioStr
 
     {
         int32_t cap = AAudioStream_getBufferCapacityInFrames(aq);
-        int32_t want = mx->target_buf_frames > 0 ? mx->target_buf_frames : MIX_OUT_RATE / 16; /* ~60 ms */
+        int32_t want = mx->target_buf_frames > 0 ? mx->target_buf_frames : MIX_OUT_RATE / 10; /* ~100 ms */
         if (want > cap) want = cap;
         if (want > 0)
             AAudioStream_setBufferSizeInFrames(aq, want);
@@ -566,24 +565,32 @@ static void read_config_from_env(struct directaudio_stream *stream)
 {
     const char *e;
 
-    /* Engine-scoped keys per the app's NO-BLEED audio contract: the DirectAudio
-     * engine tag is DIRECT, so config arrives as BANNER_AUDIO_DIRECT_* in the
-     * container/shortcut env (perf is 0=NONE, 1=LOW_LATENCY, 2=POWER_SAVING).
-     * NONE keeps AAudio capacity large enough to honour big guest buffers,
-     * matching the device-proven ALSA/PA adaptive result. */
-    stream->aa_perf = AAUDIO_PERFORMANCE_MODE_NONE;
+    int tier = 1; /* preset intent: 0=safe/big-buffer, 1=balanced, 2=low-latency/small */
+
+    /* DirectAudio ALWAYS uses AAudio's LOW_LATENCY path. Device finding: under
+     * box64/FEX + DXVK load the LOW_LATENCY high-priority audio thread stays
+     * scheduled and crackle-free, while NONE / POWER_SAVING run a normal-priority
+     * thread that the guest preempts -> skips (the "no crackle" preset was the
+     * SKIPPIEST). So the BANNER_AUDIO_DIRECT_PERF preset value no longer selects
+     * an AAudio perf mode - it selects the starting BUFFER SIZE (latency vs.
+     * headroom), all on the low-latency path. Adaptive still grows on xrun. */
+    stream->aa_perf = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
     stream->adaptive = TRUE;
     stream->target_buf_frames = 0;
     stream->max_buf_frames = 0;
 
-    if ((e = getenv("BANNER_AUDIO_DIRECT_PERF")))
-    {
-        int v = atoi(e);
-        if (v == 1) stream->aa_perf = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
-        else if (v == 2) stream->aa_perf = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
-        else stream->aa_perf = AAUDIO_PERFORMANCE_MODE_NONE;
-    }
+    if ((e = getenv("BANNER_AUDIO_DIRECT_PERF"))) tier = atoi(e);
     if ((e = getenv("BANNER_AUDIO_DIRECT_ADAPTIVE"))) stream->adaptive = atoi(e) != 0;
+
+    /* preset tier -> starting buffer (ms). Bigger absorbs multi-voice transients
+     * (a menu sound over music); smaller is lower latency. Explicit BF overrides. */
+    switch (tier)
+    {
+    case 2:  stream->target_buf_frames = MIX_OUT_RATE *  60 / 1000; break; /* low latency */
+    case 0:  stream->target_buf_frames = MIX_OUT_RATE * 160 / 1000; break; /* safe */
+    default: stream->target_buf_frames = MIX_OUT_RATE * 100 / 1000; break; /* balanced */
+    }
+
     if ((e = getenv("BANNER_AUDIO_DIRECT_BF"))) stream->target_buf_frames = atoi(e);
     if ((e = getenv("BANNER_AUDIO_DIRECT_MBF"))) stream->max_buf_frames = atoi(e);
 }
@@ -1055,11 +1062,15 @@ static NTSTATUS unix_timer_loop(void *args)
     struct timer_loop_params *params = args;
     struct directaudio_stream *stream = handle_get_stream(params->stream);
     LARGE_INTEGER delay, next, last;
-    int adjust;
+    int adjust, log_ctr = 0, log_every;
 
     delay.QuadPart = -stream->period;
     NtQueryPerformanceCounter(&last, NULL);
     next.QuadPart = last.QuadPart + stream->period;
+
+    /* iterations ~= 2 s, for the periodic skip-monitor log below */
+    log_every = (int)(20000000 / (stream->period > 0 ? stream->period : 100000));
+    if (log_every < 1) log_every = 1;
 
     while (!stream->please_quit)
     {
@@ -1076,6 +1087,23 @@ static NTSTATUS unix_timer_loop(void *args)
 
         delay.QuadPart = -(stream->period + adjust);
         next.QuadPart += stream->period;
+
+        /* Skip monitor: the AAudio callback can't TRACE (native thread, no TEB),
+         * so the mixer's cumulative xrun (skip) count is logged HERE, from this
+         * Wine timer thread. Only the current lead voice logs, ~every 2 s, so a
+         * captured trace shows how many skips accumulated during play - the signal
+         * for tuning the buffer. Gated on TRACE_ON so it is free otherwise. */
+        if (TRACE_ON(directaudio) && ++log_ctr >= log_every)
+        {
+            log_ctr = 0;
+            pthread_mutex_lock(&g_mixer.lock);
+            if (g_mixer.aq && g_mixer.nvoices > 0 && g_mixer.voices[0] == stream)
+                TRACE("mixer live: xruns=%d buf=%d cap=%d voices=%d\n",
+                      AAudioStream_getXRunCount(g_mixer.aq),
+                      AAudioStream_getBufferSizeInFrames(g_mixer.aq),
+                      AAudioStream_getBufferCapacityInFrames(g_mixer.aq), g_mixer.nvoices);
+            pthread_mutex_unlock(&g_mixer.lock);
+        }
     }
 
     return STATUS_SUCCESS;
