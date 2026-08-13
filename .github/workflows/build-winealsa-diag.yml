@@ -1,0 +1,152 @@
+name: build winealsa (GoW-diag hot-swap artifacts)
+
+# Builds ONLY dlls/winealsa.drv (instrumented with logcat "WineALSA" probes) from
+# THIS branch, reusing the repo's exact bionic/arm64ec toolchain (NDK r27d + bylaws
+# llvm-mingw), the same way build-winealsa-diag's sibling DirectAudio driver CI does.
+# Produces the hot-swap pair the device Proton layer wants:
+#   winealsa.drv  (arm64ec PE)   +   winealsa.so  (unixlib)
+# for 4KB (SDK28) and 16KB (SDK35) page devices. Purpose: trace God of War's WASAPI
+# call sequence on winealsa (which BOOTS) to diff against DirectAudio's (which hangs).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ winealsa-gow-diag ]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: arm64ec-sdk28   # 4KB-page devices (AYANEO Pocket FIT)
+            page_flag: ""
+          - label: arm64ec-sdk35   # 16KB-page devices
+            page_flag: "--enable-16kb-pages"
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h | head -2
+
+      - name: Checkout instrumented Wine tree (this branch)
+        uses: actions/checkout@v4
+        with:
+          path: wine
+          submodules: recursive
+
+      - name: Set up build environment
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git wget curl unzip flex bison gettext \
+            autoconf automake libtool pkg-config mingw-w64 \
+            gcc-multilib g++-multilib ccache \
+            libfreetype6-dev libfreetype6-dev:i386 \
+            libpng-dev libpng-dev:i386 zlib1g-dev zlib1g-dev:i386
+
+      - name: Download termuxfs (aarch64)
+        run: |
+          mkdir -p $HOME/termuxfs/aarch64 && cd $HOME/termuxfs/aarch64
+          wget -q https://github.com/GameNative/termux-on-gha/releases/download/build-20260218/termuxfs-aarch64.tar
+          tar -xf termuxfs-aarch64.tar
+
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: ~/Android/Sdk/ndk/27.3.13750724
+          key: android-ndk-r27d
+      - name: Set up Android NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/Android/Sdk/ndk && cd $HOME/Android/Sdk/ndk
+          wget -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+          unzip -q android-ndk-r27d-linux.zip
+          mv android-ndk-r27d 27.3.13750724
+
+      - name: Cache LLVM MinGW toolchain
+        id: cache-llvm-mingw
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchains/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64
+          key: bylaws-llvm-mingw-20250920
+      - name: Set up LLVM MinGW toolchain
+        if: steps.cache-llvm-mingw.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/toolchains && cd $HOME/toolchains
+          wget -q https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+          tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+
+      - name: Autogen
+        working-directory: wine
+        run: bash build-scripts/build-step0-autogen.sh
+
+      - name: Cache wine-tools
+        id: cache-wine-tools
+        uses: actions/cache@v4
+        with:
+          path: wine/wine-tools
+          key: wine-tools-winealsa-diag-${{ hashFiles('wine/configure.ac') }}
+      - name: Build wine-tools
+        if: steps.cache-wine-tools.outputs.cache-hit != 'true'
+        working-directory: wine
+        run: bash build-scripts/build-step0.sh
+
+      - name: Cache ccache (${{ matrix.label }})
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-winealsa-${{ matrix.label }}-${{ github.sha }}
+          restore-keys: |
+            ccache-winealsa-${{ matrix.label }}-
+
+      - name: Build sysvshm (satisfies configure's --with-xshm requirement)
+        working-directory: wine
+        run: bash build-scripts/build-step-arm64ec.sh --build-sysvshm
+
+      - name: Configure + build ONLY the winealsa driver
+        working-directory: wine
+        shell: bash
+        run: |
+          set -eo pipefail
+          # `source` so the arm64ec toolchain env the script exports persists into
+          # this shell for the targeted make below (same pattern as the DA driver CI).
+          source build-scripts/build-step-arm64ec.sh ${{ matrix.page_flag }} --configure
+          # Discover the exact winealsa build targets from the generated Makefile. The
+          # PE lives in an arch-prefixed subdir (e.g. arm64ec-windows/); the unixlib .so
+          # sits at the module-dir root.
+          mapfile -t TGTS < <(grep -oE "dlls/winealsa\.drv/([A-Za-z0-9_-]+/)?winealsa\.(drv|so)" Makefile | sort -u)
+          echo "discovered targets:"; printf '  %s\n' "${TGTS[@]}"
+          test "${#TGTS[@]}" -ge 2   # expect at least the PE + the unixlib
+          echo "::group::make winealsa"
+          make -j"$(nproc)" "${TGTS[@]}"
+          echo "::endgroup::"
+          echo "=== winealsa build products ==="
+          find dlls/winealsa.drv -name 'winealsa.*' ! -name '*.c' ! -name '*.in' -exec ls -la {} +
+
+      - name: Collect + strip artifacts
+        working-directory: wine
+        run: |
+          set -e
+          STRIP="$HOME/Android/Sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          OUT="$GITHUB_WORKSPACE/out/${{ matrix.label }}"
+          mkdir -p "$OUT"
+          PE=$(find . -type f -name 'winealsa.drv' | head -1)
+          SO=$(find . -type f -name 'winealsa.so'  | head -1)
+          echo "PE=$PE"; echo "SO=$SO"
+          test -n "$PE" && test -n "$SO"   # fail loudly if either is missing
+          cp -v "$PE" "$SO" "$OUT/"
+          "$STRIP" --strip-all "$OUT/winealsa.drv" 2>/dev/null || true
+          "$STRIP" --strip-all "$OUT/winealsa.so"  2>/dev/null || true
+          echo "--- artifacts (${{ matrix.label }}) ---"; ls -la "$OUT"
+          file "$OUT"/* || true
+
+      - name: Upload hot-swap artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: winealsa-${{ matrix.label }}
+          path: out/${{ matrix.label }}/*
+          retention-days: 14

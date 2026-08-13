@@ -45,6 +45,14 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(alsa);
 
+/* --- DirectAudio GoW-diff instrumentation (logcat, no WINEDEBUG so FUSE-safe) ---
+ * Mirrors the DirectAudio feat/diagnostics "game ..." probe set so a GoW run on
+ * winealsa (which BOOTS) can be diffed against DirectAudio's (which hangs). The
+ * first lifecycle call winealsa makes that DirectAudio never reaches = the trigger
+ * GoW waits on. Same tag style: `logcat -s WineALSA:I`. Remove before any merge. */
+#include <android/log.h>
+#define AL_LOG(...) __android_log_print(ANDROID_LOG_INFO, "WineALSA", __VA_ARGS__)
+
 struct alsa_stream
 {
     snd_pcm_t *pcm_handle;
@@ -508,6 +516,8 @@ static NTSTATUS alsa_get_endpoint_ids(void *args)
     struct endpoint *endpoint;
     int err, card;
 
+    AL_LOG("game get_endpoint_ids: flow=%d", params->flow);
+
     card = -1;
 
     endpoints_info.num = endpoints_info.size = 0;
@@ -572,6 +582,8 @@ static NTSTATUS alsa_get_endpoint_ids(void *args)
     } else
         params->result = S_OK;
 
+    AL_LOG("game get_endpoint_ids: flow=%d -> num=%u default_idx=%u result=0x%x",
+            params->flow, params->num, params->default_idx, params->result);
     return STATUS_SUCCESS;
 }
 
@@ -808,6 +820,11 @@ static NTSTATUS alsa_create_stream(void *args)
     int err;
     SIZE_T size;
 
+    AL_LOG("game create_stream: flow=%d share=%d flags=0x%x period=%lld dur=%lld tag=%#x ch=%u rate=%u bits=%u",
+            params->flow, params->share, params->flags, (long long)params->period,
+            (long long)params->duration, params->fmt->wFormatTag, params->fmt->nChannels,
+            params->fmt->nSamplesPerSec, params->fmt->wBitsPerSample);
+
     params->result = S_OK;
 
     stream = calloc(1, sizeof(*stream));
@@ -1031,6 +1048,8 @@ exit:
         *params->stream = (stream_handle)(UINT_PTR)stream;
     }
 
+    AL_LOG("game create_stream DONE: result=0x%x stream=%llx", params->result,
+            (unsigned long long)(FAILED(params->result) ? 0 : (UINT_PTR)stream));
     return STATUS_SUCCESS;
 }
 
@@ -1039,6 +1058,9 @@ static NTSTATUS alsa_release_stream(void *args)
     struct release_stream_params *params = args;
     struct alsa_stream *stream = handle_get_stream(params->stream);
     SIZE_T size;
+
+    AL_LOG("game release_stream: stream=%llx timer_thread=%p",
+            (unsigned long long)params->stream, params->timer_thread);
 
     if(params->timer_thread){
         stream->please_quit = TRUE;
@@ -1535,6 +1557,9 @@ static NTSTATUS alsa_start(void *args)
     struct start_params *params = args;
     struct alsa_stream *stream = handle_get_stream(params->stream);
 
+    AL_LOG("game start: stream=%llx flags=0x%x event=%p started=%d",
+            (unsigned long long)params->stream, stream->flags, stream->event, stream->started);
+
     alsa_lock(stream);
 
     if((stream->flags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) && !stream->event)
@@ -1636,6 +1661,9 @@ static NTSTATUS alsa_timer_loop(void *args)
     LARGE_INTEGER delay, next;
     int adjust;
 
+    AL_LOG("game timer_loop START: stream=%llx period=%lld",
+            (unsigned long long)params->stream, (long long)stream->mmdev_period_rt);
+
     alsa_lock(stream);
 
     delay.QuadPart = -stream->mmdev_period_rt;
@@ -1673,6 +1701,11 @@ static NTSTATUS alsa_get_render_buffer(void *args)
     struct alsa_stream *stream = handle_get_stream(params->stream);
     UINT32 write_pos, frames = params->frames;
     SIZE_T size;
+    static unsigned grb_n;
+
+    if(grb_n < 8){ grb_n++;
+        AL_LOG("game get_render_buffer#%u: stream=%llx frames=%u",
+                grb_n, (unsigned long long)params->stream, params->frames); }
 
     alsa_lock(stream);
 
@@ -1871,9 +1904,15 @@ static NTSTATUS alsa_is_format_supported(void *args)
     int err;
     int alsa_channels, alsa_channel_map[32];
 
+    AL_LOG("game is_format_supported: flow=%d share=%d tag=%#x ch=%u rate=%u bits=%u",
+            params->flow, params->share, params->fmt_in->wFormatTag, params->fmt_in->nChannels,
+            params->fmt_in->nSamplesPerSec, params->fmt_in->wBitsPerSample);
+
     params->result = alsa_open_device(params->device, params->flow, &pcm_handle, &hw_params);
-    if(FAILED(params->result))
+    if(FAILED(params->result)){
+        AL_LOG("game is_format_supported: open FAIL -> result=0x%x", params->result);
         return STATUS_SUCCESS;
+    }
 
     if((err = snd_pcm_hw_params_any(pcm_handle, hw_params)) < 0){
         params->result = AUDCLNT_E_DEVICE_INVALIDATED;
@@ -1937,6 +1976,9 @@ exit:
     free(hw_params);
     snd_pcm_close(pcm_handle);
 
+    AL_LOG("game is_format_supported: flow=%d share=%d tag=%#x ch=%u rate=%u bits=%u -> result=0x%x",
+            params->flow, params->share, params->fmt_in->wFormatTag, params->fmt_in->nChannels,
+            params->fmt_in->nSamplesPerSec, params->fmt_in->wBitsPerSample, params->result);
     return STATUS_SUCCESS;
 }
 
@@ -2054,6 +2096,9 @@ exit:
     free(hw_params);
     snd_pcm_close(pcm_handle);
 
+    AL_LOG("game get_mix_format: flow=%d -> %u/%u/%uch result=0x%x", params->flow,
+            params->fmt->Format.nSamplesPerSec, params->fmt->Format.wBitsPerSample,
+            params->fmt->Format.nChannels, params->result);
     return STATUS_SUCCESS;
 }
 
@@ -2068,6 +2113,8 @@ static NTSTATUS alsa_get_device_period(void *args)
 
     params->result = S_OK;
 
+    AL_LOG("game get_device_period: flow=%d def=%lld min=%lld", params->flow,
+            (long long)def_period, (long long)min_period);
     return STATUS_SUCCESS;
 }
 
@@ -2080,6 +2127,8 @@ static NTSTATUS alsa_get_buffer_size(void *args)
 
     *params->frames = stream->bufsize_frames;
 
+    AL_LOG("game get_buffer_size: stream=%llx frames=%u",
+            (unsigned long long)params->stream, *params->frames);
     return alsa_unlock_result(stream, &params->result, S_OK);
 }
 
@@ -2101,6 +2150,8 @@ static NTSTATUS alsa_get_latency(void *args)
         *params->latency = muldiv(stream->alsa_period_frames, 10000000, stream->fmt->nSamplesPerSec)
             + stream->mmdev_period_rt;
 
+    AL_LOG("game get_latency: stream=%llx latency=%lld",
+            (unsigned long long)params->stream, (long long)*params->latency);
     return alsa_unlock_result(stream, &params->result, S_OK);
 }
 
@@ -2114,6 +2165,9 @@ static NTSTATUS alsa_get_current_padding(void *args)
     /* padding is solely updated at callback time in shared mode */
     *params->padding = stream->held_frames;
 
+    { static unsigned pad_n; if(pad_n < 8){ pad_n++;
+        AL_LOG("game get_current_padding#%u: stream=%llx pad=%u",
+                pad_n, (unsigned long long)params->stream, *params->padding); } }
     return alsa_unlock_result(stream, &params->result, S_OK);
 }
 
@@ -2142,6 +2196,8 @@ static NTSTATUS alsa_get_frequency(void *args)
     else
         *freq = stream->fmt->nSamplesPerSec;
 
+    AL_LOG("game get_frequency: stream=%llx freq=%llu share=%d",
+            (unsigned long long)params->stream, (unsigned long long)*freq, stream->share);
     return alsa_unlock_result(stream, &params->result, S_OK);
 }
 
@@ -2194,6 +2250,10 @@ static NTSTATUS alsa_get_position(void *args)
     else
         *params->pos = position;
 
+    { static unsigned gpos_n; if(gpos_n < 8){ gpos_n++;
+        AL_LOG("game get_position#%u: stream=%llx pos=%llu",
+                gpos_n, (unsigned long long)params->stream, (unsigned long long)*params->pos); } }
+
     if(params->qpctime){
         LARGE_INTEGER stamp, freq;
         NtQueryPerformanceCounter(&stamp, &freq);
@@ -2232,6 +2292,8 @@ static NTSTATUS alsa_set_event_handle(void *args)
 
     stream->event = params->event;
 
+    AL_LOG("game set_event_handle: stream=%llx event=%p",
+            (unsigned long long)params->stream, params->event);
     return alsa_unlock_result(stream, &params->result, S_OK);
 }
 
@@ -2242,6 +2304,9 @@ static NTSTATUS alsa_is_started(void *args)
 
     alsa_lock(stream);
 
+    { static unsigned iss_n; if(iss_n < 8){ iss_n++;
+        AL_LOG("game is_started#%u: stream=%llx started=%d",
+                iss_n, (unsigned long long)params->stream, stream->started); } }
     return alsa_unlock_result(stream, &params->result, stream->started ? S_OK : S_FALSE);
 }
 
@@ -2301,6 +2366,8 @@ static NTSTATUS alsa_get_prop_value(void *args)
     static const PROPERTYKEY devicepath_key = { /* undocumented? - {b3f8fa53-0004-438e-9003-51a46e139bfc},2 */
         {0xb3f8fa53, 0x0004, 0x438e, {0x90, 0x03, 0x51, 0xa4, 0x6e, 0x13, 0x9b, 0xfc}}, 2
     };
+
+    AL_LOG("game get_prop_value: flow=%d pid=%u", params->flow, prop->pid);
 
     if(IsEqualPropertyKey(*prop, devicepath_key))
     {
