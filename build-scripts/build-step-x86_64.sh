@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Fail hard on any command error. Note: `set -e` does NOT cover commands inside
+# `if` bodies below, so the critical steps (configure / git apply / make) also
+# carry explicit `|| exit $?` — without this a failing `make` used to be masked
+# by the trailing `if [ "$arg" == "--install" ]; then ... fi` returning 0, so
+# CI shipped a broken (skeleton) wcp while reporting success.
+set -eo pipefail
+
 export ARCH="x86_64"
 export WIN_ARCH="x86_64,i386"
 export OUTPUT_DIR="$HOME/compiled-files-x86_64"
@@ -158,7 +165,8 @@ do
       --with-xrender \
       --without-xshape \
       --without-xshm \
-      --without-xxf86vm
+      --without-xxf86vm \
+      || exit $?
 
     echo "Applying patches..."
 
@@ -232,7 +240,7 @@ do
 
     for patch in "${PATCHES[@]}"; do
 #      if git apply --check ./android/patches/$patch 2>/dev/null; then
-        git apply ./android/patches/$patch
+        git apply ./android/patches/$patch || exit $?
 #      fi
     done
   fi
@@ -244,7 +252,7 @@ do
     rm -rf $OUTPUT_DIR/lib
     rm -rf $OUTPUT_DIR/share
     rm -rf $install_dir
-    make -j$(nproc)
+    make -j$(nproc) || exit $?
   fi
 
   if [ "$arg" == "--install" ]
@@ -254,7 +262,7 @@ do
     mkdir -p $OUTPUT_DIR/lib
     mkdir -p $OUTPUT_DIR/share
     mkdir -p $install_dir
-    make install -j$(nproc)
+    make install -j$(nproc) || exit $?
     cp -r $install_dir/bin/wine* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/reg* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/msi* $OUTPUT_DIR/bin
