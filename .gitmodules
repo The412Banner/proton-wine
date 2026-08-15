@@ -1,0 +1,3 @@
+[submodule "dlls/winedirectaudio.drv"]
+	path = dlls/winedirectaudio.drv
+	url = https://github.com/The412Banner/directaudio
