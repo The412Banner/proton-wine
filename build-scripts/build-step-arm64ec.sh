@@ -327,6 +327,11 @@ do
       echo "FATAL: one or more Android bug-fixes failed to apply; refusing to build a silently-broken layer."; exit 1
     fi
     echo "All Android bug-fixes + DirectAudio v1.3.1 verified present in the tree."
+
+    # GE-Proton game-fixes tier (GE-Proton10-34), layered AFTER the bionic/android
+    # patches. apply-ge-patches.sh is generic + fail-hard so CI surfaces any reject.
+    echo "Applying GE-Proton patches..."
+    ./build-scripts/apply-ge-patches.sh
   fi
 
   if [ "$arg" == "--build" ]
