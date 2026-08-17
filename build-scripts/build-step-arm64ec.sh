@@ -188,6 +188,10 @@ do
       "dlls_ntdll_unix_sync.c.patch"
       "dlls_ntdll_unix_virtual.c.patch"
 
+      # Android bionic locale bring-up: force LC_ALL=C.UTF-8 before locale init
+      # (bionic ships no locale data beyond C/C.UTF-8).
+      "dlls_ntdll_unix_env.c.patch"
+
       # unixlib load-by-name (MemoryWineLoadUnixLibByName) for FEX companion unixlib
       "dlls_ntdll_unix_unix_private.h.patch"
       "dlls_wow64_virtual.c.patch"
@@ -197,6 +201,9 @@ do
 	  
 	  # opengl32
 	  "dlls_opengl32_unix_wgl.c.patch"
+
+      # shell32: guard bare drive-root (D:\ / D:) FO_COPY between roots
+      "dlls_shell32_shlfileop.c.patch"
 
       # user32 / clipboard
       "dlls_user32_Makefile.in.patch"
@@ -262,6 +269,49 @@ do
 
     echo "----------------------------------------"
     echo "Done applying patches."
+
+    # ---------------------------------------------------------------------
+    # HARD post-apply verification.
+    #
+    # The apply loop above is fail-SOFT: a patch whose context has drifted is
+    # reported as "SKIPPED" and the build continues GREEN. That is how a
+    # critical Android fix can silently no-op (e.g. GE-11.0-5 shipped without
+    # the noexec/force_anon fix). git-apply success is ALSO not proof for a
+    # graft that lives inside a larger multi-hunk patch, since a single hunk
+    # can fuzz away while the file still "applies".
+    #
+    # So we grep the ACTUAL post-apply source for a code token unique to each
+    # of the three Android fixes and abort the build if any is missing.
+    # ---------------------------------------------------------------------
+    echo "Verifying Android bug-fixes actually landed in the tree..."
+    verify_fail=0
+
+    # Fix #1: noexec / force_anon (Dragon Age SD-card boot). Grafted into
+    # dlls_ntdll_unix_virtual.c.patch; the symbol only exists once applied.
+    if ! grep -q 'force_anon' dlls/ntdll/unix/virtual.c; then
+      echo "FATAL: force_anon not present in dlls/ntdll/unix/virtual.c (Fix #1 noexec/force_anon did NOT apply)"
+      verify_fail=1
+    fi
+
+    # Fix #2: shell32 bare drive-root FO_COPY guard. 'dir_len' is a code token
+    # introduced only by dlls_shell32_shlfileop.c.patch.
+    if ! grep -q 'dir_len' dlls/shell32/shlfileop.c; then
+      echo "FATAL: dir_len guard not present in dlls/shell32/shlfileop.c (Fix #2 drive-root copy guard did NOT apply)"
+      verify_fail=1
+    fi
+
+    # Fix #3: LC_ALL=C.UTF-8 bionic locale default.
+    if ! grep -q '"C.UTF-8"' dlls/ntdll/unix/env.c; then
+      echo "FATAL: LC_ALL=C.UTF-8 default not present in dlls/ntdll/unix/env.c (Fix #3 locale bring-up did NOT apply)"
+      verify_fail=1
+    fi
+
+    if [ "$verify_fail" != "0" ]; then
+      echo "FATAL: one or more Android bug-fixes failed to apply; refusing to build a silently-broken layer."
+      exit 1
+    fi
+    echo "All three Android bug-fixes verified present in the tree."
+    echo "----------------------------------------"
 
     # GE-Proton game-fixes tier, layered AFTER the bionic patches (verified to
     # apply cleanly on the bionic-patched tree in this order). Hard-fails on any
