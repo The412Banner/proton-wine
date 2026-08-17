@@ -208,6 +208,11 @@ do
       "common/loader_preloader_c.patch"
       "x86_64/dlls_ntdll_unix_virtual_c.patch"
 
+      # Android bionic bug-fixes (shell32 drive-root copy guard;
+      # LC_ALL=C.UTF-8 locale bring-up)
+      "common/dlls_shell32_shlfileop_c.patch"
+      "common/dlls_ntdll_unix_env_c.patch"
+
       # syscall Patches
       "x86_64/dlls_ntdll_unix_signal_x86_64_c.patch"
 
@@ -243,6 +248,32 @@ do
         git apply ./android/patches/$patch || exit $?
 #      fi
     done
+
+    # ---------------------------------------------------------------------
+    # HARD post-apply verification. The p10 loop already fail-hards on a patch
+    # that does not apply, but a graft inside a larger multi-hunk patch can
+    # still fuzz away while the file "applies". Grep the ACTUAL post-apply
+    # source for a token unique to each Android fix + DirectAudio 1.3.1; abort
+    # the build if any is missing.
+    # ---------------------------------------------------------------------
+    echo "Verifying Android bug-fixes actually landed in the tree..."
+    verify_fail=0
+    if ! grep -q 'force_anon' dlls/ntdll/unix/virtual.c; then
+      echo "FATAL: force_anon not present in dlls/ntdll/unix/virtual.c (noexec/force_anon did NOT apply)"; verify_fail=1
+    fi
+    if ! grep -q 'dir_len' dlls/shell32/shlfileop.c; then
+      echo "FATAL: dir_len guard not present in dlls/shell32/shlfileop.c (drive-root copy guard did NOT apply)"; verify_fail=1
+    fi
+    if ! grep -q '"C.UTF-8"' dlls/ntdll/unix/env.c; then
+      echo "FATAL: LC_ALL=C.UTF-8 default not present in dlls/ntdll/unix/env.c (locale bring-up did NOT apply)"; verify_fail=1
+    fi
+    if ! grep -q 'BANNER_AUDIO_DIRECT_RUNTIME' dlls/winedirectaudio.drv/directaudio.c; then
+      echo "FATAL: BANNER_AUDIO_DIRECT_RUNTIME not present in dlls/winedirectaudio.drv/directaudio.c (DirectAudio is NOT v1.3.1)"; verify_fail=1
+    fi
+    if [ "$verify_fail" != "0" ]; then
+      echo "FATAL: one or more Android bug-fixes failed to apply; refusing to build a silently-broken layer."; exit 1
+    fi
+    echo "All Android bug-fixes + DirectAudio v1.3.1 verified present in the tree."
   fi
 
   if [ "$arg" == "--build" ]
