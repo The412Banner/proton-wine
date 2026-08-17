@@ -306,6 +306,14 @@ do
       verify_fail=1
     fi
 
+    # DirectAudio v1.3.1: the vendored driver source must be the 1.3.1 build.
+    # BANNER_AUDIO_DIRECT_RUNTIME (live in-game config mailbox) exists only in
+    # the >=1.3 driver; the old v1 driver we used to ship lacks it.
+    if ! grep -q 'BANNER_AUDIO_DIRECT_RUNTIME' dlls/winedirectaudio.drv/directaudio.c; then
+      echo "FATAL: BANNER_AUDIO_DIRECT_RUNTIME not present in dlls/winedirectaudio.drv/directaudio.c (DirectAudio is NOT the v1.3.1 build)"
+      verify_fail=1
+    fi
+
     if [ "$verify_fail" != "0" ]; then
       echo "FATAL: one or more Android bug-fixes failed to apply; refusing to build a silently-broken layer."
       exit 1

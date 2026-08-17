@@ -2,7 +2,7 @@ MODULE    = winedirectaudio.drv
 UNIXLIB   = winedirectaudio.so
 IMPORTS   = uuid ole32 user32 advapi32
 DELAYIMPORTS = winmm
-UNIX_LIBS = $(AAUDIO_LIBS) $(PTHREAD_LIBS)
+UNIX_LIBS = $(AAUDIO_LIBS) $(PTHREAD_LIBS) -llog
 
 SOURCES = \
 	directaudio.c
