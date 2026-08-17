@@ -205,6 +205,10 @@ do
       # shell32: guard bare drive-root (D:\ / D:) FO_COPY between roots
       "dlls_shell32_shlfileop.c.patch"
 
+      # winegstreamer: skip the Proton audio converter when mediaconv is off
+      # (symmetric to the video-converter skip) so native avdec_wmav2 decodes WMA
+      "dlls_winegstreamer_wg_parser.c.patch"
+
       # user32 / clipboard
       "dlls_user32_Makefile.in.patch"
       "dlls_win32u_clipboard.c.patch"
@@ -311,6 +315,14 @@ do
     # the >=1.3 driver; the old v1 driver we used to ship lacks it.
     if ! grep -q 'BANNER_AUDIO_DIRECT_RUNTIME' dlls/winedirectaudio.drv/directaudio.c; then
       echo "FATAL: BANNER_AUDIO_DIRECT_RUNTIME not present in dlls/winedirectaudio.drv/directaudio.c (DirectAudio is NOT the v1.3.1 build)"
+      verify_fail=1
+    fi
+
+    # winegstreamer FMV: the symmetric audio-converter skip must be present so
+    # WMA cutscene audio routes to native avdec_wmav2 instead of the failing
+    # Proton audio converter (whole pipeline would otherwise fail -> skipped FMV).
+    if ! grep -q 'Proton audio converter with rate fixup' dlls/winegstreamer/wg_parser.c; then
+      echo "FATAL: audio-converter skip not present in dlls/winegstreamer/wg_parser.c (FMV audio fix did NOT apply)"
       verify_fail=1
     fi
 
