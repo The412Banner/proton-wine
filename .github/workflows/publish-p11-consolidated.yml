@@ -1,85 +1,54 @@
-name: Publish Proton 11.0-1 (consolidated)
+name: Publish bionic layers bundle
 
-# Manual-only. Pulls the already-built wcp artifacts from the two build runs
-# (sdk28 + sdk35) entirely on the GitHub runner and cuts ONE release with all
-# 8 assets (arm64ec + x86_64, .wcp + .wcp.xz, per sdk flavor). No source is
-# rebuilt and no artifact leaves the runner.
+# Manual-only. Pulls the already-built arm64ec .wcp from the 10 build runs
+# (5 layers x sdk28/sdk35) entirely on the GitHub runner, renames each to a
+# unique name, attaches all 10 to the existing draft release, and publishes it.
+# Nothing is rebuilt and no artifact leaves the runner.
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag to create (e.g. build-p11-YYYYMMDD)'
-        required: true
-      target_commitish:
-        description: 'Ref/branch/SHA to tag the release at (e.g. proton_11.0 or a full SHA). Explicit — never defaults to the repo default branch.'
-        required: true
-      sdk28_run_id:
-        description: 'Run ID of the SDK 28 build to pull artifacts from'
-        required: true
-      sdk35_run_id:
-        description: 'Run ID of the SDK 35 build to pull artifacts from'
-        required: true
-      prerelease:
-        description: 'Mark the release as a prerelease'
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: build-bionic-layers-20260817-arihany
     steps:
-      - name: Checkout (for release notes)
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.target_commitish }}
-
-      - name: Download SDK 28 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          run-id: ${{ github.event.inputs.sdk28_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: dl/sdk28
-
-      - name: Download SDK 35 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          run-id: ${{ github.event.inputs.sdk35_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: dl/sdk35
-
-      - name: Collect and rename the 4 arm64ec assets
+      - name: Download 10 arm64ec artifacts and rename
         run: |
           set -euo pipefail
+          # run-id -> unique release asset name (proton-arm64ec artifact per run)
+          ids=(32024170376 32024173270 32025505346 32025507283 32025623928 32025627702 32028190731 32028193030 32030797485 32030799661)
+          names=(GE-proton-11.0-5-arm64ec-sdk28.wcp GE-proton-11.0-5-arm64ec-sdk35.wcp \
+                 GE-proton-11.0-3-arm64ec-sdk28.wcp GE-proton-11.0-3-arm64ec-sdk35.wcp \
+                 proton-11.0-1-arm64ec-sdk28.wcp proton-11.0-1-arm64ec-sdk35.wcp \
+                 proton-10.0-4-arm64ec-sdk28.wcp proton-10.0-4-arm64ec-sdk35.wcp \
+                 GE-proton-10.0-34-arm64ec-sdk28.wcp GE-proton-10.0-34-arm64ec-sdk35.wcp)
           mkdir -p release
-          # Both arches × both SDKs, .wcp only (zstd, stripped). The .wcp.xz variant is no longer
-          # published — the .wcp is what the emulator apps install, and it now decompresses fast (zstd).
-          for sdk in sdk28 sdk35; do
-            cp "dl/$sdk/proton-arm64ec/proton-11.0-1-arm64ec.wcp"    "release/proton-11.0-1-arm64ec-$sdk.wcp"
-            cp "dl/$sdk/proton-x86_64/proton-11.0-1-x86_64.wcp"      "release/proton-11.0-1-x86_64-$sdk.wcp"
+          for i in "${!ids[@]}"; do
+            id="${ids[$i]}"; name="${names[$i]}"
+            echo "== run $id -> $name =="
+            gh run download "$id" -R "$REPO" -n proton-arm64ec -D "dl/$id"
+            f=$(ls "dl/$id"/*.wcp)
+            cp "$f" "release/$name"
           done
-          echo "Assets to publish:"
-          ls -lah release/
-          count=$(ls -1 release/ | wc -l)
-          echo "asset count = $count"
-          test "$count" -eq 4
+          echo "Assets to publish:"; ls -lah release/
+          test "$(ls -1 release/*.wcp | wc -l)" -eq 10
 
-      - name: Create consolidated release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attach to existing draft and publish
         run: |
           set -euo pipefail
-          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
-            REL_FLAGS="--prerelease"
-          else
-            REL_FLAGS="--latest"
-          fi
-          gh release create "${{ github.event.inputs.tag }}" release/* \
-            --repo "${{ github.repository }}" \
-            --target "${{ github.event.inputs.target_commitish }}" \
-            --title "Proton Wine 11.0-1 (${{ github.event.inputs.tag }})" \
-            --notes-file .github/release-notes/p11-body.md \
-            $REL_FLAGS
+          gh release upload "$TAG" release/*.wcp -R "$REPO" --clobber
+          n=$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets | length')
+          echo "attached assets = $n"
+          test "$n" -eq 10
+          gh release edit "$TAG" -R "$REPO" --draft=false
+          echo "== final release state =="
+          gh release view "$TAG" -R "$REPO" --json isDraft,url,tagName,assets \
+            --jq '{draft:.isDraft, url:.url, tag:.tagName, count:(.assets|length), names:[.assets[].name]}'
