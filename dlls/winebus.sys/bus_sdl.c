@@ -199,6 +199,29 @@ static void set_hat_value(struct unix_device *iface, int index, int value)
     hid_device_set_hatswitch_y(iface, index, y);
 }
 
+/* Proton-9 arm64ec controller-crash mitigation.
+ *
+ * Wine 9.0's hidparse.sys/hidclass.sys predate the "multiple top-level
+ * collections" / report-descriptor parsing rework that landed during the
+ * 9.x->10.0 cycle. On a gamepad whose winebus report descriptor also carries
+ * the PID/force-feedback output reports (extra report IDs + nested PID
+ * collections, added by descriptor_add_haptic below), Wine 9.0 builds bad
+ * preparsed data; xinput1_3 then dereferences a null it is handed on the first
+ * state read -> "read of null+0x14c in xinput1_3". The same pad works on the
+ * Wine-11 P11 layer (which has the rework). See report.
+ *
+ * Backporting the rework is entangled (hidparse +162 / hidclass +595, cross
+ * file). This gate instead presents an INPUT-ONLY descriptor (no PID/FFB), so
+ * Wine 9.0 parses a single simple input report and reading no longer crashes.
+ * Trade-off: HID force-feedback/rumble via the PID path is disabled on P9.
+ * Default ON for this build; set PROTON9_HID_FFB=1 to restore the old behavior.
+ */
+static BOOL proton9_disable_hid_ffb(void)
+{
+    const char *e = getenv("PROTON9_HID_FFB");
+    return !e || e[0] == '0';
+}
+
 static BOOL descriptor_add_haptic(struct sdl_device *impl, BOOL force)
 {
     USHORT i, count = 0;
@@ -383,7 +406,8 @@ static NTSTATUS build_joystick_report_descriptor(struct unix_device *iface)
     if (!hid_device_end_input_report(iface))
         return STATUS_NO_MEMORY;
 
-    if (!descriptor_add_haptic(impl, physical_usage.Usage == HID_USAGE_SIMULATION_AUTOMOBILE_SIMULATION_DEVICE))
+    if (!proton9_disable_hid_ffb() &&
+        !descriptor_add_haptic(impl, physical_usage.Usage == HID_USAGE_SIMULATION_AUTOMOBILE_SIMULATION_DEVICE))
         return STATUS_NO_MEMORY;
 
     if (!hid_device_end_report_descriptor(iface))
@@ -437,7 +461,7 @@ static NTSTATUS build_controller_report_descriptor(struct unix_device *iface)
     if (!hid_device_end_input_report(iface))
         return STATUS_NO_MEMORY;
 
-    if (!descriptor_add_haptic(impl, FALSE))
+    if (!proton9_disable_hid_ffb() && !descriptor_add_haptic(impl, FALSE))
         return STATUS_NO_MEMORY;
 
     if (!hid_device_end_report_descriptor(iface))
