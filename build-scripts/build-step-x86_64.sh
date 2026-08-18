@@ -198,6 +198,16 @@ do
     check_marker "C.UTF-8 locale default (env.c)" dlls/ntdll/unix/env.c 'setenv\( "LC_ALL", "C.UTF-8", 0 \)'
     # 4. fast-yield gate (dlls/ntdll/unix/sync.c)
     check_marker "WINE_FAST_YIELD gate (sync.c)" dlls/ntdll/unix/sync.c 'WINE_FAST_YIELD'
+    # 4b. Controller input: xinput must be the stock HID (winexinput.sys) reader,
+    # NOT the legacy winlator UDP-socket variant (SERVER_PORT / GET_GAMEPAD), whose
+    # Java-side endpoint Bannerlator does not serve -> zero controller input.
+    check_marker "stock HID xinput (main.c opens device)" dlls/xinput1_3/main.c 'CreateFileW'
+    if grep -qE 'SERVER_PORT|REQUEST_CODE_GET_GAMEPAD|recvfrom' dlls/xinput1_3/main.c; then
+        echo "GUARD FAILED: xinput1_3/main.c still has the winlator UDP-socket input path" >&2
+        guard_fail=1
+    else
+        echo "  OK: no legacy UDP-socket input path in xinput1_3/main.c"
+    fi
     # 5. XRandR/XRender enabled in this build script (self-check)
     check_marker "--with-xrandr flag" build-scripts/build-step-x86_64.sh '^\s*--with-xrandr \\'
     check_marker "--with-xrender flag" build-scripts/build-step-x86_64.sh '^\s*--with-xrender \\'
