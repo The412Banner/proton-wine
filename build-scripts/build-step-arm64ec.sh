@@ -126,7 +126,7 @@ do
       --with-pthread \
       --without-pulse \
       --without-sane \
-      --without-sdl \
+      --with-sdl \
       --without-udev \
       --without-unwind \
       --without-usb \
@@ -291,6 +291,16 @@ do
     check_marker "C.UTF-8 locale default (env.c)" dlls/ntdll/unix/env.c 'setenv\( "LC_ALL", "C.UTF-8", 0 \)'
     # 5. fast-yield gate (dlls/ntdll/unix/sync.c)
     check_marker "WINE_FAST_YIELD gate (sync.c)" dlls/ntdll/unix/sync.c 'WINE_FAST_YIELD'
+    # 6. Controller input: xinput must be the stock HID (winexinput.sys) reader,
+    # NOT the legacy winlator UDP-socket variant (SERVER_PORT 7949 / GET_GAMEPAD),
+    # whose Java-side endpoint Bannerlator does not serve -> zero controller input.
+    check_marker "stock HID xinput (main.c opens device)" dlls/xinput1_3/main.c 'CreateFileW'
+    if grep -qE 'SERVER_PORT|REQUEST_CODE_GET_GAMEPAD|recvfrom' dlls/xinput1_3/main.c; then
+        echo "GUARD FAILED: xinput1_3/main.c still has the winlator UDP-socket input path" >&2
+        guard_fail=1
+    else
+        echo "  OK: no legacy UDP-socket input path in xinput1_3/main.c"
+    fi
     # 4. XRandR/XRender enabled in this build script (self-check)
     check_marker "--with-xrandr flag" build-scripts/build-step-arm64ec.sh '^\s*--with-xrandr \\'
     check_marker "--with-xrender flag" build-scripts/build-step-arm64ec.sh '^\s*--with-xrender \\'
@@ -301,6 +311,10 @@ do
     if [ -f include/config.h ]; then
         check_marker "SONAME_LIBXRANDR detected (config.h)" include/config.h '^#define[[:space:]]+SONAME_LIBXRANDR[[:space:]]'
         check_marker "SONAME_LIBXRENDER detected (config.h)" include/config.h '^#define[[:space:]]+SONAME_LIBXRENDER[[:space:]]'
+        # Controller input: winebus needs the SDL2 enumeration backend (Android has
+        # no udev). --with-sdl is a silent no-op if configure can't find the SDL2
+        # soname, which would ship a winebus.so with no backend and zero gamepads.
+        check_marker "SONAME_LIBSDL2 detected (config.h)" include/config.h '^#define[[:space:]]+SONAME_LIBSDL2[[:space:]]'
     else
         echo "GUARD FAILED: include/config.h not found after configure" >&2
         guard_fail=1
