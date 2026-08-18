@@ -8,7 +8,7 @@ name: Build Proton 9 arm64ec (SDK 28)
 
 on:
   push:
-    branches: [ feat/p9-fexunixlib ]
+    branches: [ feat/p9-fexunixlib, feat/p9-arihany-parity ]
   workflow_dispatch:
 
 jobs:

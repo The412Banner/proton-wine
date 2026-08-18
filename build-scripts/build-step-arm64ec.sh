@@ -137,8 +137,8 @@ do
       --without-xcursor \
       --without-xfixes \
       --without-xinerama \
-      --without-xrandr \
-      --without-xrender \
+      --with-xrandr \
+      --with-xrender \
       --without-xshape \
       --without-xshm \
       --without-xxf86vm
@@ -259,6 +259,56 @@ do
         git apply ./android/patches/$patch
 #      fi
     done
+
+    # ------------------------------------------------------------------
+    # Arihany-parity source-presence guards.
+    #
+    # NOTE: the PATCHES array above targets ./android/patches/, which does
+    # NOT exist on this branch, so every git apply above is a fail-soft
+    # no-op. The Wine-9 arm64ec tree is instead PRE-PATCHED at the source
+    # level. The five arihany-parity changes are therefore baked directly
+    # into the source (not applied as patches). These guards hard-fail the
+    # build if any of those edits is missing, so a bad rebase/merge can
+    # never silently ship an unpatched .wcp.
+    # ------------------------------------------------------------------
+    echo "Verifying arihany-parity source edits are present..."
+    guard_fail=0
+    check_marker() {
+        # $1 = human label, $2 = file, $3 = grep -E pattern
+        if grep -qE "$3" "$2"; then
+            echo "  OK: $1"
+        else
+            echo "GUARD FAILED: $1 -- marker missing in $2" >&2
+            guard_fail=1
+        fi
+    }
+    # 1. Arihany #1 force_anon / noexec (dlls/ntdll/unix/virtual.c)
+    check_marker "force_anon (virtual.c)" dlls/ntdll/unix/virtual.c 'BOOL force_anon'
+    # 2. Arihany #2 shlfileop bare-drive-root guard (dlls/shell32/shlfileop.c)
+    check_marker "drive-root guard (shlfileop.c)" dlls/shell32/shlfileop.c 'bare drive root'
+    # 3. Arihany #3 LC_ALL=C.UTF-8 default (dlls/ntdll/unix/env.c)
+    check_marker "C.UTF-8 locale default (env.c)" dlls/ntdll/unix/env.c 'setenv\( "LC_ALL", "C.UTF-8", 0 \)'
+    # 5. fast-yield gate (dlls/ntdll/unix/sync.c)
+    check_marker "WINE_FAST_YIELD gate (sync.c)" dlls/ntdll/unix/sync.c 'WINE_FAST_YIELD'
+    # 4. XRandR/XRender enabled in this build script (self-check)
+    check_marker "--with-xrandr flag" build-scripts/build-step-arm64ec.sh '^\s*--with-xrandr \\'
+    check_marker "--with-xrender flag" build-scripts/build-step-arm64ec.sh '^\s*--with-xrender \\'
+    # 4b. Confirm configure actually DETECTED the XRandR/XRender sonames, i.e.
+    # winex11 will compile the real xrandr backend (not the "XRandR support not
+    # compiled in" stub). --with-xrandr alone is a silent no-op if the Xrender
+    # soname is not found, so this catches a missing/renamed sysroot lib.
+    if [ -f include/config.h ]; then
+        check_marker "SONAME_LIBXRANDR detected (config.h)" include/config.h '^#define[[:space:]]+SONAME_LIBXRANDR[[:space:]]'
+        check_marker "SONAME_LIBXRENDER detected (config.h)" include/config.h '^#define[[:space:]]+SONAME_LIBXRENDER[[:space:]]'
+    else
+        echo "GUARD FAILED: include/config.h not found after configure" >&2
+        guard_fail=1
+    fi
+    if [ "$guard_fail" -ne 0 ]; then
+        echo "ERROR: one or more arihany-parity source edits are missing; refusing to build." >&2
+        exit 1
+    fi
+    echo "All arihany-parity source edits verified."
   fi
 
   if [ "$arg" == "--build" ]

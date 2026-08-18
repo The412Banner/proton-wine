@@ -946,12 +946,30 @@ static void add_file_to_entry(FILE_ENTRY *feFile, LPCWSTR szFile)
     if (ptr)
     {
         dwLen = ptr - szFile + 1;
+
+        /* For a bare drive root ("D:\" or "\") keep the trailing root backslash
+         * in szDirectory; otherwise it becomes a bogus drive-relative spec
+         * ("D:") and do_copy_move misbuilds paths when FO_COPY copies between
+         * two drive roots (e.g. C:\ -> D:\). */
+        if (ptr == szFile || (ptr == szFile + 2 && szFile[1] == ':'))
+            dwLen++;
+
         feFile->szDirectory = malloc(dwLen * sizeof(WCHAR));
         lstrcpynW(feFile->szDirectory, szFile, dwLen);
 
-        dwLen = lstrlenW(feFile->szFullPath) - dwLen + 1;
+        dwLen = lstrlenW(ptr + 1) + 1; /* component after the backslash */
         feFile->szFilename = malloc(dwLen * sizeof(WCHAR));
         lstrcpyW(feFile->szFilename, ptr + 1); /* skip over backslash */
+    }
+    else
+    {
+        /* No path separator at all (e.g. a bare drive spec "D:"): never leave
+         * szDirectory / szFilename NULL, or do_copy_move's unconditional copy
+         * of to->szDirectory faults when copying between drive roots. */
+        feFile->szDirectory = malloc(dwLen * sizeof(WCHAR));
+        lstrcpyW(feFile->szDirectory, szFile);
+        feFile->szFilename = malloc(dwLen * sizeof(WCHAR));
+        lstrcpyW(feFile->szFilename, szFile);
     }
     feFile->bFromWildcard = FALSE;
 }
