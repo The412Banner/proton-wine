@@ -1585,6 +1585,7 @@ struct x11drv_window_surface
     COLORREF              color_key;
     HRGN                  region;
     void                 *bits;
+    unsigned int          flush_count; /* diagnostics: WINE_TRAYWND_LOG flush counter */
 #ifdef HAVE_LIBXXSHM
     XShmSegmentInfo       shminfo;
 #endif
@@ -1945,6 +1946,30 @@ static void x11drv_surface_flush( struct window_surface *window_surface )
         TRACE( "flushing %p %dx%d bounds %s bits %p\n",
                surface, coords.width, coords.height,
                wine_dbgstr_rect( &surface->bounds ), surface->bits );
+
+        /* Opt-in content diagnostics (WINE_TRAYWND_LOG=1): sample surface pixels so we
+         * can tell content-drawn-but-not-presented from content-never-drawn. Logs the
+         * flush counter, the dirty bounds, and 5 pixels sampled across the middle row. */
+        {
+            static int traywnd_log = -1;
+            if (traywnd_log == -1) traywnd_log = getenv( "WINE_TRAYWND_LOG" ) != NULL;
+            if (traywnd_log && surface->image->bits_per_pixel == 32)
+            {
+                const ULONG *px = (const ULONG *)surface->bits;
+                int stride = surface->image->bytes_per_line / 4;
+                int my = (coords.visrect.top + coords.visrect.bottom) / 2;
+                int w = coords.width, s0 = my * stride;
+                surface->flush_count++;
+                ERR( "TRAYWND-FLUSH win %lx #%u size %dx%d bounds %s visrect %s "
+                     "px[y=%d]: %08lx %08lx %08lx %08lx %08lx\n",
+                     surface->window, surface->flush_count, coords.width, coords.height,
+                     wine_dbgstr_rect( &surface->bounds ), wine_dbgstr_rect( &coords.visrect ),
+                     my,
+                     w > 0 ? px[s0 + w/6]   : 0, w > 0 ? px[s0 + w/3]   : 0,
+                     w > 0 ? px[s0 + w/2]   : 0, w > 0 ? px[s0 + 2*w/3] : 0,
+                     w > 0 ? px[s0 + 5*w/6] : 0 );
+            }
+        }
 
         if (surface->is_argb || surface->color_key != CLR_INVALID) update_surface_region( surface );
 
