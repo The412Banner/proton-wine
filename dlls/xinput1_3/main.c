@@ -773,8 +773,14 @@ static LRESULT CALLBACK xinput_devnotify_wndproc(HWND hwnd, UINT msg, WPARAM wpa
 
 static DWORD WINAPI hid_update_thread_proc(void *param)
 {
-    struct xinput_controller *devices[XUSER_MAX_COUNT + 1];
-    HANDLE events[XUSER_MAX_COUNT + 1];
+    /* This loop registers TWO wait objects per controller (read_event and
+     * write_event), so the arrays must hold 2 * XUSER_MAX_COUNT slots plus the
+     * trailing update_event. The original XUSER_MAX_COUNT + 1 sizing overflowed
+     * events[] once 3+ controllers were present (e.g. joy.cpl's DInput+XInput
+     * dual enumeration), smashing the adjacent stack and leaving devices[ret/2]
+     * pointing at a clobbered/NULL entry -> null deref in hid_update_thread_proc. */
+    struct xinput_controller *devices[2 * XUSER_MAX_COUNT + 1];
+    HANDLE events[2 * XUSER_MAX_COUNT + 1];
     DWORD i, count = 1, ret = WAIT_TIMEOUT;
     DEV_BROADCAST_DEVICEINTERFACE_W filter =
     {
@@ -809,8 +815,13 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
         if (ret == WAIT_TIMEOUT) update_controller_list();
         if (ret < count - 1)
         {
-            if (ret % 2) write_controller_state( devices[ret / 2] );
-            else read_controller_state( devices[ret / 2] );
+            struct xinput_controller *device = devices[ret / 2];
+            /* Defensive: never dereference a NULL/half-initialized slot. */
+            if (device)
+            {
+                if (ret % 2) write_controller_state( device );
+                else read_controller_state( device );
+            }
         }
 
         count = 0;
