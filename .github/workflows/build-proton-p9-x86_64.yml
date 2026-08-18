@@ -1,0 +1,264 @@
+name: Build Proton 9 x86_64 (box64)
+
+# Full x86_64 Proton 9 build -> installable Bannerlator/GameNative .wcp.
+# This is the box64 runtime path (whole Wine translated by box64), the x86_64
+# sibling of proton-9.0-arm64ec. Source tree = Pipetto-crypto/wine
+# proton-9.0-x86_64, which is pre-patched at source level (no ./android/patches),
+# plus the five arch-agnostic feature edits baked in this branch:
+#   force_anon/noexec, drive-root copy, LC_ALL=C.UTF-8, WINE_FAST_YIELD gate,
+#   and --with-xrandr/--with-xrender.
+#
+# Artifact-only: there is NO release/publish job here on purpose.
+# Matrix builds sdk28 (4K page, primary) and sdk35 (16K page).
+
+on:
+  push:
+    branches: [ feat/p9-x86_64 ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        sdk: [28, 35]
+      fail-fast: false
+
+    env:
+      ARCH_NAME: x86_64
+
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set 16KB-page flag for SDK 35
+        run: |
+          if [ "${{ matrix.sdk }}" == "35" ]; then
+            echo "PAGE_FLAG=--enable-16kb-pages" >> $GITHUB_ENV
+          else
+            echo "PAGE_FLAG=" >> $GITHUB_ENV
+          fi
+
+      - name: Set up build environment
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            wget \
+            curl \
+            unzip \
+            flex \
+            bison \
+            gettext \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            mingw-w64 \
+            gcc-multilib \
+            g++-multilib \
+            libfreetype6-dev \
+            libfreetype6-dev:i386 \
+            libpng-dev \
+            libpng-dev:i386 \
+            zlib1g-dev \
+            zlib1g-dev:i386
+
+      - name: Download and extract termuxfs for x86_64
+        run: |
+          mkdir -p $HOME/termuxfs/x86_64
+          cd $HOME/termuxfs/x86_64
+          wget https://github.com/GameNative/termux-on-gha/releases/download/build-20260218/termuxfs-x86_64.tar
+          tar -xf termuxfs-x86_64.tar
+          ls -la $HOME/termuxfs/x86_64/
+
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: ~/Android/Sdk/ndk/27.3.13750724
+          key: android-ndk-r27d
+
+      - name: Set up Android NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/Android/Sdk/ndk
+          cd $HOME/Android/Sdk/ndk
+          wget https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+          unzip -q android-ndk-r27d-linux.zip
+          mv android-ndk-r27d 27.3.13750724
+
+      - name: Cache LLVM MinGW toolchain
+        id: cache-llvm-mingw
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchains/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64
+          key: bylaws-llvm-mingw-20250920
+
+      - name: Set up LLVM MinGW toolchain
+        if: steps.cache-llvm-mingw.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/toolchains
+          cd $HOME/toolchains
+          wget https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+          tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+
+      - name: Run autogen.sh
+        run: |
+          set -eo pipefail
+          bash autogen.sh
+
+      - name: Cache wine-tools
+        id: cache-wine-tools
+        uses: actions/cache@v4
+        with:
+          path: wine-tools
+          key: wine-tools-p9-x86_64-${{ matrix.sdk }}-${{ hashFiles('configure.ac', 'configure') }}
+
+      - name: Install ccache
+        run: sudo apt-get update && sudo apt-get install -y ccache
+
+      # ccache — caches compiled objects across runs. Exact key (per-commit) = full warm restore on a
+      # re-run of the same commit; restore-keys pull the newest prior cache so an unchanged-source rebuild
+      # is near-instant. ccache self-validates staleness, so a rolling restore is safe.
+      - name: Cache ccache (sdk${{ matrix.sdk }})
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-p9-x86_64-${{ matrix.sdk }}-${{ github.sha }}
+          restore-keys: |
+            ccache-p9-x86_64-${{ matrix.sdk }}-
+
+      - name: Build wine-tools (step 0)
+        if: steps.cache-wine-tools.outputs.cache-hit != 'true'
+        run: |
+          set -eo pipefail
+          bash build-scripts/build-step0.sh
+
+      - name: Configure build (verifies feature source edits)
+        run: |
+          set -eo pipefail
+          bash build-scripts/build-step-x86_64.sh $PAGE_FLAG --configure
+
+      - name: Build Proton 9 x86_64 (full make)
+        run: |
+          set -eo pipefail
+          bash build-scripts/build-step-x86_64.sh $PAGE_FLAG --build
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s || true
+
+      - name: Install Proton 9 x86_64
+        run: |
+          set -eo pipefail
+          bash build-scripts/build-step-x86_64.sh $PAGE_FLAG --install
+
+      - name: Assert critical guest programs are present
+        run: |
+          set -eo pipefail
+          GUEST_DIR="$HOME/compiled-files-x86_64/lib/wine/x86_64-windows"
+          echo "Checking guest programs in: $GUEST_DIR"
+          missing=0
+          for exe in wineboot.exe start.exe explorer.exe services.exe; do
+            if [ ! -f "$GUEST_DIR/$exe" ]; then
+              echo "ERROR: missing critical guest program: $exe" >&2
+              missing=1
+            else
+              echo "  found: $exe"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "ERROR: install tree is incomplete (see missing programs above)." >&2
+            echo "Refusing to package an unbootable .wcp." >&2
+            ls -la "$GUEST_DIR" || true
+            exit 1
+          fi
+          echo "All critical guest programs present."
+
+      - name: Verify shipped .so carries no debug/symtab sections
+        run: |
+          set -eo pipefail
+          SO="$HOME/compiled-files-x86_64/lib/wine/x86_64-unix/ntdll.so"
+          if [ ! -f "$SO" ]; then
+            echo "ERROR: expected unix .so not found: $SO" >&2
+            ls -la "$HOME/compiled-files-x86_64/lib/wine/x86_64-unix/" || true
+            exit 1
+          fi
+          echo "Section headers of $(basename "$SO"):"
+          readelf -S "$SO" | grep -E '\.debug|\.symtab' || true
+          dbg=$(readelf -S "$SO" 2>/dev/null | grep -cE '\.debug|\.symtab' || true)
+          echo "debug/symtab section count in ntdll.so = $dbg"
+          if [ "$dbg" -ne 0 ]; then
+            echo "ERROR: shipped .so still carries $dbg debug/symtab section(s); strip pass failed." >&2
+            exit 1
+          fi
+          echo "OK: no .debug/.symtab sections in shipped .so."
+
+      - name: Download prefixPack.txz (x86_64, version-agnostic)
+        run: |
+          wget https://github.com/GameNative/bionic-prefix-files/raw/main/prefixPack-x86_64.txz \
+            -O $GITHUB_WORKSPACE/prefixPack.txz
+          ls -lh $GITHUB_WORKSPACE/prefixPack.txz
+
+      - name: Generate profile.json
+        run: |
+          cat > $GITHUB_WORKSPACE/profile.json << 'EOF'
+          {
+            "type": "Proton",
+            "versionName": "9.0-x86_64",
+            "versionCode": 0,
+            "description": "Proton 9.0 x86_64 (bionic) - box64 runtime path. Pipetto-crypto Wine-9 x86_64 + fast-yield gate + force_anon/noexec + drive-root + C.UTF-8 + XRandR/XRender. General coverage; box64 is less device-proven on this stack than the arm64ec/FEX path.",
+            "files": [],
+            "wine": {
+              "binPath": "bin",
+              "libPath": "lib",
+              "prefixPack": "prefixPack.txz"
+            }
+          }
+          EOF
+          cat $GITHUB_WORKSPACE/profile.json
+
+      - name: Package Proton 9 x86_64 .wcp (zstd inside)
+        run: |
+          set -eo pipefail
+          OUTPUT_DIR="$HOME/compiled-files-x86_64"
+          cd "$OUTPUT_DIR"
+          cp $GITHUB_WORKSPACE/prefixPack.txz .
+          cp $GITHUB_WORKSPACE/profile.json .
+          # zstd inside the .wcp (NOT renamed to .tzst). The app's ContentsManager
+          # sniffs the zstd magic (28 b5 2f fd) and installs fast. -T0 all cores, -19 high ratio.
+          tar -I 'zstd -T0 -19' -cf proton-9.0-x86_64.wcp bin lib share prefixPack.txz profile.json
+          mv proton-9.0-x86_64.wcp $GITHUB_WORKSPACE/
+          ls -lh $GITHUB_WORKSPACE/proton-9.0-x86_64.wcp
+
+      - name: Verify .wcp is zstd-compressed (magic 28 b5 2f fd)
+        run: |
+          set -eo pipefail
+          WCP="$GITHUB_WORKSPACE/proton-9.0-x86_64.wcp"
+          magic=$(od -An -tx1 -N4 "$WCP" | tr -d ' \n')
+          echo "wcp leading bytes: $magic (expect 28b52ffd)"
+          if [ "$magic" != "28b52ffd" ]; then
+            echo "ERROR: .wcp is not zstd-compressed (magic=$magic); ContentsManager fast-install would fail." >&2
+            exit 1
+          fi
+          echo "OK: .wcp is zstd-inside."
+
+      - name: Upload Proton 9 x86_64 .wcp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proton-9.0-x86_64-sdk${{ matrix.sdk }}
+          path: proton-9.0-x86_64.wcp
+          retention-days: 30
