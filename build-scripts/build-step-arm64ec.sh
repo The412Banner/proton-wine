@@ -33,6 +33,7 @@ export CXXFLAGS=$C_OPTS
 export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
 
 export FREETYPE_CFLAGS="-I$deps/include/freetype2"
+export FONTCONFIG_LIBS="-L$deps/lib -lfontconfig -lfreetype -lexpat"
 export PULSE_CFLAGS="-I$deps/include/pulse"
 export PULSE_LIBS="-L$deps/lib/pulseaudio -lpulse"
 export SDL2_CFLAGS="-I$deps/include/SDL2"
@@ -103,8 +104,8 @@ do
       --without-cups \
       --without-dbus \
       --without-ffmpeg \
-      --without-fontconfig \
-      --without-freetype \
+      --with-fontconfig \
+      --with-freetype \
       --without-gcrypt \
       --without-gettext \
       --with-gettextpo=no \
