@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [aarch64]
       fail-fast: false
     
     steps:
@@ -181,9 +181,9 @@ jobs:
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
-            "versionName": "11.0-5-${ARCH_NAME}",
-            "versionCode": 6,
-            "description": "Proton 11.0-5 ${ARCH_NAME} (bionic) — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-5 game-fixes (battlenet, maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + DirectAudio v1.3.1 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
+            "versionName": "11.0-5-${ARCH_NAME}-vmemtest",
+            "versionCode": 7,
+            "description": "Proton 11.0-5 ${ARCH_NAME} (bionic) — TEST layer: adds WINEVMEMMAXSIZE ntdll cap (rejects single VA allocations larger than the env-var MB value; inert when unset) so heavy titles (Deus Ex: Mankind Divided) fail the oversized ~489 GB reservation gracefully instead of OOM. Same as GE-Proton 11.0-5 vc6 otherwise — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-5 game-fixes (battlenet, maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + DirectAudio v1.3.1 + Android fixes. Requires the app to inject WINEVMEMMAXSIZE. Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
             "files": [],
             "wine": {
               "binPath": "bin",
