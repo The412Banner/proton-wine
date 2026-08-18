@@ -256,6 +256,29 @@ jobs:
           fi
           echo "OK: .wcp is zstd-inside."
 
+      - name: Verify unix loader is a real file inside the .wcp (box64 needs bin/wine)
+        run: |
+          set -eo pipefail
+          WCP="$GITHUB_WORKSPACE/proton-9.0-x86_64.wcp"
+          echo "bin/wine + bin/wine-preloader entries in the archive:"
+          listing=$(tar -I zstd -tvf "$WCP" 2>/dev/null | grep -E ' bin/wine(-preloader)?$' || true)
+          echo "$listing"
+          fail=0
+          for l in wine wine-preloader; do
+            row=$(printf '%s\n' "$listing" | grep -E " bin/$l\$" | head -1)
+            if [ -z "$row" ]; then
+              echo "ERROR: bin/$l is not present in the .wcp" >&2; fail=1; continue
+            fi
+            # tar tv shows 'l' in column 1 for a symlink and '-' for a regular file.
+            case "$row" in
+              l*) echo "ERROR: bin/$l is a SYMLINK in the .wcp (dangling loader -> box64 'File not found')" >&2; fail=1;;
+              -*) echo "  OK: bin/$l is a regular file in the .wcp";;
+              *)  echo "ERROR: bin/$l has unexpected type: $row" >&2; fail=1;;
+            esac
+          done
+          [ "$fail" -eq 0 ] || { echo "ERROR: unix loader not shipped as real bin/ files; refusing to publish." >&2; exit 1; }
+          echo "OK: bin/wine and bin/wine-preloader are real loader ELFs in the .wcp."
+
       - name: Upload Proton 9 x86_64 .wcp artifact
         uses: actions/upload-artifact@v4
         with:

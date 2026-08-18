@@ -238,7 +238,9 @@ do
     mkdir -p $install_dir
     make install -j$(nproc)
     echo "Copying files..."
-    cp -r $install_dir/bin/wine* $OUTPUT_DIR/bin
+    # -L dereferences: if make install placed bin/wine as a symlink into
+    # lib/wine/x86_64-unix/, copy the real loader ELF here (never a symlink).
+    cp -rL $install_dir/bin/wine* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/reg* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/msi* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/notepad $OUTPUT_DIR/bin
@@ -257,12 +259,34 @@ do
       done
     after_mb=$(du -sm "$OUTPUT_DIR" 2>/dev/null | cut -f1)
     echo "OUTPUT tree: ${before_mb}MB -> ${after_mb}MB after strip."
-    # symlinking wine binaries to $install_dir/bin
-    ln -sf ../lib/wine/x86_64-unix/wine "$install_dir/bin/wine"
-    ln -sf ../lib/wine/x86_64-unix/wine "$OUTPUT_DIR/bin/wine"
-    ln -sf ../lib/wine/x86_64-unix/wine-preloader "$OUTPUT_DIR/bin/wine-preloader"
-    ln -sf ../lib/wine/x86_64-unix/wine-preloader "$install_dir/bin/wine-preloader"
-    echo "Wine loader symlinks:"
-    ls -la "$OUTPUT_DIR/bin/wine" "$OUTPUT_DIR/bin/wine-preloader"
+
+    # The unix loader (bin/wine) and its preloader (bin/wine-preloader) MUST ship
+    # as REAL ELF binaries in bin/, exactly like build-step-arm64ec.sh keeps them
+    # (working arm64ec wcp: bin/wine is a real ~10KB loader, no lib/wine/*-unix/wine).
+    # A prior P11-derived version symlinked bin/wine -> lib/wine/x86_64-unix/wine,
+    # but make install never places the loader there, so the link dangled and box64
+    # reported: "Error: File is not found. (wine)". No symlinking here; hard-fail if
+    # either loader is missing or is a symlink so an unlaunchable .wcp can't ship.
+    echo "Verifying unix loader binaries are real files in bin/..."
+    loader_fail=0
+    for l in wine wine-preloader; do
+      if [ -L "$OUTPUT_DIR/bin/$l" ]; then
+        echo "ERROR: $OUTPUT_DIR/bin/$l is a symlink; must be a real loader ELF" >&2
+        ls -la "$OUTPUT_DIR/bin/$l" >&2
+        loader_fail=1
+      elif [ ! -f "$OUTPUT_DIR/bin/$l" ]; then
+        echo "ERROR: $OUTPUT_DIR/bin/$l is missing after install" >&2
+        loader_fail=1
+      else
+        echo "  OK: bin/$l is a real file ($(stat -c%s "$OUTPUT_DIR/bin/$l") bytes)"
+      fi
+    done
+    if [ "$loader_fail" -ne 0 ]; then
+      echo "Loader binaries found in the install tree (for diagnosis):" >&2
+      find "$install_dir" -type f \( -name wine -o -name wine-preloader -o -name wine64 \) -exec ls -la {} + >&2 2>/dev/null || true
+      echo "ERROR: unix loader not packaged as real bin/ ELFs; refusing to ship an unlaunchable .wcp." >&2
+      exit 1
+    fi
+    echo "Unix loader binaries present as real files in bin/."
   fi
 done
