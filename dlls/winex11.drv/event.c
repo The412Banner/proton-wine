@@ -1003,8 +1003,10 @@ static BOOL X11DRV_Expose( HWND hwnd, XEvent *xev )
             else NtGdiOffsetRgn( surface_region, data->whole_rect.left - data->client_rect.left,
                                  data->whole_rect.top - data->client_rect.top );
 
-            if (data->vis.visualid != default_visual.visualid)
-                data->surface->funcs->flush( data->surface );
+            /* Re-present the exposed region for every visual, not only non-default
+             * ones. A painted-once always-on-top popup (Shell_TrayWnd) is otherwise
+             * never re-flushed by winex11 when uncovered on the external compositor. */
+            data->surface->funcs->flush( data->surface );
         }
         OffsetRect( &rect, data->whole_rect.left - data->client_rect.left,
                     data->whole_rect.top - data->client_rect.top );
