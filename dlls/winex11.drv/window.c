@@ -1488,6 +1488,55 @@ static int skip_iconify( Display *display )
 }
 
 /***********************************************************************
+ *     traywnd_debug_enabled
+ *
+ * Opt-in diagnostics for the always-on-top panel (Shell_TrayWnd) present bug.
+ * Enable with WINE_TRAYWND_LOG=1. Zero cost when unset.
+ */
+static BOOL traywnd_debug_enabled(void)
+{
+    static int cached = -1;
+    if (cached == -1) cached = getenv( "WINE_TRAYWND_LOG" ) != NULL;
+    return cached;
+}
+
+static BOOL is_shell_traywnd( HWND hwnd )
+{
+    static const WCHAR traywnd[] = {'S','h','e','l','l','_','T','r','a','y','W','n','d',0};
+    WCHAR buf[16];
+    UNICODE_STRING str = { .Buffer = buf, .MaximumLength = sizeof(buf) };
+    return NtUserGetClassName( hwnd, FALSE, &str ) && !wcscmp( buf, traywnd );
+}
+
+/***********************************************************************
+ *     present_whole_surface
+ *
+ * Force the entire current window-surface content to be presented to its X
+ * window. The legacy default-visual path only ever relies on win32u's deferred
+ * flush at map / expose / position-change time (the explicit flush there was
+ * gated to non-default visuals only). A window that paints once and then stays
+ * static - most notably explorer's always-on-top Shell_TrayWnd taskbar - can be
+ * left showing its creation-time (1x1 / empty) content on a headless X server +
+ * external compositor, because the deferred flush does not reliably re-present
+ * it after the create-empty -> resize-to-full-width -> map sequence. Presenting
+ * the whole surface here (for every visual) closes that gap. It is an extra
+ * blit of already-correct pixels, so it is safe for other windows.
+ */
+static void present_whole_surface( struct window_surface *surface )
+{
+    RECT full;
+
+    if (!surface) return;
+
+    SetRect( &full, 0, 0, surface->rect.right - surface->rect.left,
+             surface->rect.bottom - surface->rect.top );
+    surface->funcs->lock( surface );
+    add_bounds_rect( surface->funcs->get_bounds( surface ), &full );
+    surface->funcs->unlock( surface );
+    surface->funcs->flush( surface );
+}
+
+/***********************************************************************
  *     map_window
  */
 static void map_window( HWND hwnd, DWORD new_style )
@@ -1515,8 +1564,11 @@ static void map_window( HWND hwnd, DWORD new_style )
             if (new_style & WS_MINIMIZE && !skip_iconify( data->display ))
                 XIconifyWindow( data->display, data->whole_window, data->vis.screen );
             XFlush( data->display );
-            if (data->surface && data->vis.visualid != default_visual.visualid)
-                data->surface->funcs->flush( data->surface );
+            /* Present the whole surface right after mapping, for every visual
+             * (was previously gated to non-default visuals only). Fixes an
+             * always-on-top popup - Shell_TrayWnd - showing creation-time content. */
+            if (data->surface)
+                present_whole_surface( data->surface );
         }
         else set_xembed_flags( data, XEMBED_MAPPED );
 
@@ -3450,8 +3502,21 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags,
     restack_windows( data, prev_window );
 
     XFlush( data->display );  /* make sure changes are done before we start painting again */
-    if (data->surface && data->vis.visualid != default_visual.visualid)
+    /* When the window is shown, has its frame changed, or is resized, force a full
+     * re-present for every visual instead of relying on win32u's deferred flush.
+     * Otherwise keep the cheap non-default-visual-only flush for steady-state moves. */
+    if (data->surface && (swp_flags & (SWP_SHOWWINDOW | SWP_FRAMECHANGED)))
+        present_whole_surface( data->surface );
+    else if (data->surface && data->vis.visualid != default_visual.visualid)
         data->surface->funcs->flush( data->surface );
+
+    if (traywnd_debug_enabled() && is_shell_traywnd( hwnd ))
+        ERR( "TRAYWND hwnd %p whole_window %lx whole_rect %s window_rect %s mapped %u visible %u "
+             "surface %p surface_rect %s vis_depth %d default_visual %u swp_flags %08x\n",
+             hwnd, data->whole_window, wine_dbgstr_rect( &data->whole_rect ),
+             wine_dbgstr_rect( rectWindow ), data->mapped, !!(new_style & WS_VISIBLE),
+             data->surface, data->surface ? wine_dbgstr_rect( &data->surface->rect ) : "(none)",
+             data->vis.depth, data->vis.visualid == default_visual.visualid, swp_flags );
 
     release_win_data( data );
     if (needs_resize) sync_gl_drawable( hwnd, FALSE );
