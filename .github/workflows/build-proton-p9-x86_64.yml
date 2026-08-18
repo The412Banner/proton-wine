@@ -137,9 +137,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-p9-x86_64-${{ matrix.sdk }}-${{ github.sha }}
+          key: ccache-p9x86-${{ matrix.sdk }}-${{ github.sha }}
           restore-keys: |
-            ccache-p9-x86_64-${{ matrix.sdk }}-
+            ccache-p9x86-${{ matrix.sdk }}-
 
       - name: Build wine-tools (step 0)
         if: steps.cache-wine-tools.outputs.cache-hit != 'true'
