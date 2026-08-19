@@ -18,13 +18,13 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
-      TAG: build-bionic-layers-20260817-arihany
+      TAG: build-bionic-layers-20260819-vmem
     steps:
       - name: Download 10 arm64ec artifacts and rename
         run: |
           set -euo pipefail
           # run-id -> unique release asset name (proton-arm64ec artifact per run)
-          ids=(32024170376 32024173270 32025505346 32025507283 32025623928 32025627702 32028190731 32028193030 32030797485 32030799661)
+          ids=(32251006861 32251009585 32248126312 32248128964 32252398979 32248133546 32248136029 32248138313 32248140642 32248142991)
           names=(GE-proton-11.0-5-arm64ec-sdk28.wcp GE-proton-11.0-5-arm64ec-sdk35.wcp \
                  GE-proton-11.0-3-arm64ec-sdk28.wcp GE-proton-11.0-3-arm64ec-sdk35.wcp \
                  proton-11.0-1-arm64ec-sdk28.wcp proton-11.0-1-arm64ec-sdk35.wcp \
@@ -48,7 +48,7 @@ jobs:
           n=$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets | length')
           echo "attached assets = $n"
           test "$n" -eq 10
-          gh release edit "$TAG" -R "$REPO" --draft=false
+          gh release edit "$TAG" -R "$REPO" --draft=false --latest --prerelease=false
           echo "== final release state =="
           gh release view "$TAG" -R "$REPO" --json isDraft,url,tagName,assets \
             --jq '{draft:.isDraft, url:.url, tag:.tagName, count:(.assets|length), names:[.assets[].name]}'
