@@ -1541,7 +1541,10 @@ static void fs_hack_setup_gamma_shader( struct wgl_context *ctx, const struct op
     funcs->p_glDeleteShader( fshader );
     funcs->p_glDeleteShader( vshader );
 
-    funcs->p_glGenBuffers( 1, &ctx->gamma_ramp );
+    if (ctx->is_core)
+        funcs->p_glGenBuffers( 1, &ctx->gamma_ramp );
+    else
+        ctx->gamma_ramp = 0x10001;
     funcs->p_glBindBuffer( GL_UNIFORM_BUFFER, ctx->gamma_ramp );
     funcs->p_glBufferData( GL_UNIFORM_BUFFER, sizeof(float) * 4 * GAMMA_RAMP_SIZE, default_gamma_ramp, GL_DYNAMIC_DRAW );
 
@@ -1873,6 +1876,12 @@ BOOL wrap_wglSwapBuffers( TEB *teb, HDC hdc )
         /* default implementation: implicitly flush the context */
         flush_context( teb, funcs->p_glFlush );
     }
+    else
+    {
+        /* Drawable could've changed in p_wglSwapBuffers(). */
+        pop_default_fbo( teb );
+        pop_default_fbo_buffers( teb );
+    }
 
     return ret;
 }
@@ -2185,6 +2194,8 @@ void resolve_default_fbo( TEB *teb )
     GLint curr_draw_buffer, curr_read_buffer, curr_read_fbo, curr_draw_fbo;
     const struct opengl_funcs *funcs = teb->glTable;
     struct opengl_drawable *drawable;
+    GLint color_encoding = 0;
+    GLboolean fb_srgb;
     struct context *ctx;
     RECT rect;
 
@@ -2214,8 +2225,20 @@ void resolve_default_fbo( TEB *teb )
     funcs->p_glBindFramebuffer( GL_DRAW_FRAMEBUFFER, drawable->read_fbo );
     funcs->p_glReadBuffer( curr_read_buffer );
     funcs->p_glDrawBuffer( curr_read_buffer );
+
+    funcs->p_glGetNamedFramebufferAttachmentParameteriv( drawable->read_fbo, curr_read_buffer,
+                                                         GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING, &color_encoding);
+    fb_srgb = funcs->p_glIsEnabled( GL_FRAMEBUFFER_SRGB );
+    if (color_encoding == GL_SRGB && !fb_srgb)
+        funcs->p_glEnable( GL_FRAMEBUFFER_SRGB );
+    else if (color_encoding != GL_SRGB && fb_srgb)
+        funcs->p_glDisable( GL_FRAMEBUFFER_SRGB );
     funcs->p_glBlitFramebuffer( 0, 0, rect.right, rect.bottom, 0, 0, rect.right, rect.bottom,
                                 GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST );
+    if (fb_srgb && color_encoding != GL_SRGB)
+        funcs->p_glEnable( GL_FRAMEBUFFER_SRGB );
+    else if (!fb_srgb && color_encoding == GL_SRGB)
+        funcs->p_glDisable( GL_FRAMEBUFFER_SRGB );
     funcs->p_glBindFramebuffer( GL_READ_FRAMEBUFFER, curr_read_fbo );
     funcs->p_glBindFramebuffer( GL_DRAW_FRAMEBUFFER, curr_draw_fbo );
     funcs->p_glReadBuffer( curr_read_buffer );

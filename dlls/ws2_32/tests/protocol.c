@@ -2637,7 +2637,7 @@ static void test_gethostbyname(void)
     for (count = 0; addr_list[count] != NULL; count++)
     {
         char *ip = inet_ntoa(*addr_list[count]);
-        if (!strcmp(ip, "127.0.0.1"))
+        if (!strcmp(ip, "127.0.0.1") || !strcmp(ip, "127.12.34.56") /* Wine hack loopback addr substitute */)
             local_ip = TRUE;
         if (winetest_debug > 1) trace("%s\n", ip);
     }

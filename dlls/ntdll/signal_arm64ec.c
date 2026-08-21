@@ -89,8 +89,16 @@ static inline BOOL enter_syscall_callback(void)
 
 static inline void leave_syscall_callback(void)
 {
-    get_arm64ec_cpu_area()->InSyscallCallback = 0;
-    if (get_arm64ec_cpu_area()->SuspendDoorbell && *get_arm64ec_cpu_area()->SuspendDoorbell) arm64ec_suspend_point();
+    CHPE_V2_CPU_AREA_INFO *cpu_area = get_arm64ec_cpu_area();
+    CONTEXT ctx;
+
+    cpu_area->InSyscallCallback = 0;
+
+    if (cpu_area->SuspendDoorbell && *cpu_area->SuspendDoorbell)
+    {
+        RtlCaptureContext( &ctx );
+        if (*cpu_area->SuspendDoorbell) NtContinue( &ctx, FALSE );
+    }
 }
 
 /**********************************************************************
@@ -811,12 +819,15 @@ NTSTATUS SYSCALL_API NtReadFile( HANDLE handle, HANDLE event, PIO_APC_ROUTINE ap
     if (pBTCpu64NotifyReadFile && enter_syscall_callback())
     {
         pBTCpu64NotifyReadFile( handle, buffer, length, FALSE, 0 );
-        status = syscall_NtReadFile( handle, event, apc, apc_user, io, buffer, length, offset, key );
-        if (pBTCpu64NotifyReadFile) pBTCpu64NotifyReadFile( handle, buffer, length, TRUE, status );
         leave_syscall_callback();
-        return status;
     }
-    return syscall_NtReadFile( handle, event, apc, apc_user, io, buffer, length, offset, key );
+    status = syscall_NtReadFile( handle, event, apc, apc_user, io, buffer, length, offset, key );
+    if (pBTCpu64NotifyReadFile && enter_syscall_callback())
+    {
+        pBTCpu64NotifyReadFile( handle, buffer, length, TRUE, status );
+        leave_syscall_callback();
+    }
+    return status;
 }
 
 NTSTATUS SYSCALL_API NtSetContextThread( HANDLE handle, const CONTEXT *context )
@@ -1430,7 +1441,8 @@ static void __attribute__((used)) capture_context( CONTEXT *context, UINT cpsr, 
     /* unwind one level to get register values from caller function */
     unwind_context = *context;
     unwind_one_frame( &unwind_context );
-    memcpy( &context->Rax, &unwind_context.Rax, offsetof(CONTEXT,FltSave) - offsetof(CONTEXT,Rax) );
+    if (!RtlIsEcCode( unwind_context.Rip ))
+        memcpy( &context->Rax, &unwind_context.Rax, offsetof(CONTEXT,FltSave) - offsetof(CONTEXT,Rax) );
 }
 
 /***********************************************************************
@@ -2056,8 +2068,12 @@ void __attribute((naked)) RtlRaiseException( EXCEPTION_RECORD *rec )
          "add x0, sp, #0x20\n\t"
          "bl \"#RtlCaptureContext\"\n\t"
          "add x1, sp, #0x20\n\t"       /* context pointer */
+         "add x0, x1, #0x4d0\n\t"      /* orig stack pointer */
+         "str x0, [x1, #0x98]\n\t"     /* context->Rsp */
          "ldr x0, [sp, #0x10]\n\t"     /* rec */
-         "ldr x2, [x1, #0xf8]\n\t"     /* context->Rip */
+         "str x0, [x1, #0x80]\n\t"     /* context->Rcx */
+         "ldr x2, [sp, #0x08]\n\t"     /* return address */
+         "str x2, [x1, #0xf8]\n\t"     /* context->Rip */
          "str x2, [x0, #0x10]\n\t"     /* rec->ExceptionAddress */
          "ldr w2, [x1, #0x30]\n\t"     /* context->ContextFlags */
          "orr w2, w2, #0x20000000\n\t" /* CONTEXT_UNWOUND_TO_CALL */

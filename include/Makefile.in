@@ -105,6 +105,7 @@ SOURCES = \
 	cryptdlg.h \
 	cryptuiapi.h \
 	cryptxml.h \
+	ctffunc.idl \
 	ctfutb.idl \
 	ctxtcall.idl \
 	custcntl.h \
@@ -1030,6 +1031,7 @@ SOURCES = \
 	winsock.h \
 	winsock2.h \
 	winspool.h \
+	winsqlite/winsqlite3.h \
 	winstring.h \
 	winsvc.h \
 	winsxs.idl \

@@ -29,6 +29,7 @@
 #include "winuser.h"
 #include "winreg.h"
 #include "ole2.h"
+#include "pathcch.h"
 #include "ks.h"
 #include "ksmedia.h"
 #include "amvideo.h"
@@ -270,6 +271,13 @@ static void check_platform_lock_count_(unsigned int line, unsigned int expected)
         count = -1;
 
     ok_(__FILE__, line)(count == expected, "Unexpected lock count %d.\n", count);
+}
+
+static void path_copy_replace_filename(WCHAR *dst_path, size_t size, const WCHAR *src_path, const WCHAR *filename)
+{
+    lstrcpyW(dst_path, src_path);
+    PathCchRemoveFileSpec(dst_path, size);
+    PathCchAppend(dst_path, size, filename);
 }
 
 struct d3d9_surface_readback
@@ -1272,6 +1280,30 @@ static void test_source_resolver(void)
     ULONG refcount;
     BOOL ret;
 
+    static const struct
+    {
+        const WCHAR *chars;
+        UINT win_error;
+        BOOL todo;
+    }
+    leading_char_tests[] =
+    {
+        {L"/",            ERROR_SUCCESS},
+        {L"//",           ERROR_SUCCESS},
+        {L"///",          ERROR_SUCCESS},
+        {L"/////",        ERROR_SUCCESS},
+        {L":",            ERROR_INVALID_NAME, TRUE},
+        {L"::",           ERROR_PATH_NOT_FOUND},
+        {L":::::",        ERROR_PATH_NOT_FOUND},
+        {L"/file://",     ERROR_INVALID_NAME, TRUE},
+        {L"//file://",    ERROR_BAD_NETPATH, TRUE},
+        {L"///file://",   ERROR_INVALID_NAME, TRUE},
+        {L"/////file://", ERROR_BAD_NETPATH, TRUE},
+        {L":file://",     ERROR_INVALID_NAME, TRUE},
+        {L"::file://",    ERROR_PATH_NOT_FOUND},
+        {L":::::file://", ERROR_PATH_NOT_FOUND},
+    };
+
     if (!pMFCreateSourceResolver)
     {
         win_skip("MFCreateSourceResolver() not found\n");
@@ -1336,6 +1368,24 @@ static void test_source_resolver(void)
     if (SUCCEEDED(hr))
         WaitForSingleObject(callback->event, INFINITE);
 
+    /* With leading forward slashes or colons. */
+    for (i = 0; i < ARRAY_SIZE(leading_char_tests); ++i)
+    {
+        winetest_push_context("test %d", i);
+
+        lstrcpyW(pathW, leading_char_tests[i].chars);
+        lstrcatW(pathW, filename);
+
+        hr = IMFSourceResolver_CreateObjectFromURL(resolver, pathW, MF_RESOLUTION_BYTESTREAM, NULL, &obj_type,
+                (IUnknown **)&stream);
+        todo_wine_if(leading_char_tests[i].todo)
+        ok(hr == HRESULT_FROM_WIN32(leading_char_tests[i].win_error), "Unexpected hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+            IMFByteStream_Release(stream);
+
+        winetest_pop_context();
+    }
+
     /* With explicit scheme. */
     lstrcpyW(pathW, fileschemeW);
     lstrcatW(pathW, filename);
@@ -1347,6 +1397,65 @@ static void test_source_resolver(void)
 
     /* We have to create a new bytestream here, because all following
      * calls to CreateObjectFromByteStream will fail. */
+    hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, filename, &stream);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    path_copy_replace_filename(pathW, ARRAY_SIZE(pathW), filename, L"noextension");
+
+    hr = IMFSourceResolver_CreateObjectFromByteStream(resolver, stream, pathW, MF_RESOLUTION_MEDIASOURCE, NULL,
+            &obj_type, (IUnknown **)&mediasource);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (SUCCEEDED(hr))
+    {
+        IMFMediaSource_Shutdown(mediasource);
+        IMFMediaSource_Release(mediasource);
+    }
+    IMFByteStream_Release(stream);
+
+    hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, filename, &stream);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    /* MF_RESOLUTION_CONTENT_DOES_NOT_HAVE_TO_MATCH_EXTENSION_OR_MIME_TYPE is not required if mime mismatches. */
+    hr = IMFByteStream_QueryInterface(stream, &IID_IMFAttributes, (void **)&attributes);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFAttributes_SetString(attributes, &MF_BYTESTREAM_CONTENT_TYPE, L"video/avi");
+    ok(hr == S_OK, "Failed to set string value, hr %#lx.\n", hr);
+    IMFAttributes_Release(attributes);
+
+    hr = IMFSourceResolver_CreateObjectFromByteStream(resolver, stream, pathW, MF_RESOLUTION_MEDIASOURCE, NULL,
+            &obj_type, (IUnknown **)&mediasource);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFMediaSource_Shutdown(mediasource);
+    IMFMediaSource_Release(mediasource);
+    IMFByteStream_Release(stream);
+
+    hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, filename, &stream);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    path_copy_replace_filename(pathW, ARRAY_SIZE(pathW), filename, L"temp.foo");
+
+    hr = IMFSourceResolver_CreateObjectFromByteStream(resolver, stream, pathW, MF_RESOLUTION_MEDIASOURCE, NULL,
+            &obj_type, (IUnknown **)&mediasource);
+    todo_wine
+    ok(hr == MF_E_UNSUPPORTED_BYTESTREAM_TYPE, "Unexpected hr %#lx.\n", hr);
+    if (SUCCEEDED(hr))
+    {
+        IMFMediaSource_Shutdown(mediasource);
+        IMFMediaSource_Release(mediasource);
+    }
+    IMFByteStream_Release(stream);
+
+    hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, filename, &stream);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IMFSourceResolver_CreateObjectFromByteStream(resolver, stream, pathW,
+            MF_RESOLUTION_MEDIASOURCE | MF_RESOLUTION_CONTENT_DOES_NOT_HAVE_TO_MATCH_EXTENSION_OR_MIME_TYPE,
+            NULL, &obj_type, (IUnknown **)&mediasource);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFMediaSource_Shutdown(mediasource);
+    IMFMediaSource_Release(mediasource);
+    IMFByteStream_Release(stream);
+
     hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, filename, &stream);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -1703,6 +1812,8 @@ static void test_source_resolver(void)
             (void **)&scheme_handler);
     ok(hr == S_OK, "Failed to create handler object, hr %#lx.\n", hr);
 
+    lstrcpyW(pathW, fileschemeW);
+    lstrcatW(pathW, filename);
     cancel_cookie = NULL;
     hr = IMFSchemeHandler_BeginCreateObject(scheme_handler, pathW, MF_RESOLUTION_MEDIASOURCE, NULL, &cancel_cookie,
             &callback2->IMFAsyncCallback_iface, (IUnknown *)scheme_handler);
@@ -2972,7 +3083,6 @@ static void test_MFCreateMFByteStreamOnStream(void)
 
 static void test_file_stream(void)
 {
-    static const WCHAR newfilename[] = L"new.mp4";
     IMFByteStream *bytestream, *bytestream2;
     QWORD bytestream_length, position;
     IMFAttributes *attributes = NULL;
@@ -3070,8 +3180,11 @@ static void test_file_stream(void)
 
     IMFByteStream_Release(bytestream);
 
+    GetTempPathW(ARRAY_SIZE(pathW), pathW);
+    lstrcatW(pathW, L"new.mp4");
+
     hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST,
-                      MF_FILEFLAGS_NONE, newfilename, &bytestream);
+                      MF_FILEFLAGS_NONE, pathW, &bytestream);
     ok(hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND), "Unexpected hr %#lx.\n", hr);
 
     hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_EXIST,
@@ -3079,31 +3192,32 @@ static void test_file_stream(void)
     ok(hr == HRESULT_FROM_WIN32(ERROR_FILE_EXISTS), "Unexpected hr %#lx.\n", hr);
 
     hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_EXIST,
-                      MF_FILEFLAGS_NONE, newfilename, &bytestream);
+                      MF_FILEFLAGS_NONE, pathW, &bytestream);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-    hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, newfilename, &bytestream2);
+    hr = MFCreateFile(MF_ACCESSMODE_READ, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, pathW, &bytestream2);
     ok(hr == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION), "Unexpected hr %#lx.\n", hr);
 
-    hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, newfilename, &bytestream2);
+    hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_NONE, pathW, &bytestream2);
     ok(hr == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION), "Unexpected hr %#lx.\n", hr);
 
     hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_ALLOW_WRITE_SHARING,
-            newfilename, &bytestream2);
+            pathW, &bytestream2);
     ok(hr == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION), "Unexpected hr %#lx.\n", hr);
 
     IMFByteStream_Release(bytestream);
 
     hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_NOT_EXIST,
-                      MF_FILEFLAGS_ALLOW_WRITE_SHARING, newfilename, &bytestream);
+                      MF_FILEFLAGS_ALLOW_WRITE_SHARING, pathW, &bytestream);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     /* Opening the file again fails even though MF_FILEFLAGS_ALLOW_WRITE_SHARING is set. */
     hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_NOT_EXIST, MF_FILEFLAGS_ALLOW_WRITE_SHARING,
-            newfilename, &bytestream2);
+            pathW, &bytestream2);
     ok(hr == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION), "Unexpected hr %#lx.\n", hr);
 
     IMFByteStream_Release(bytestream);
+    DeleteFileW(pathW);
 
     /* Explicit file: scheme */
     lstrcpyW(pathW, fileschemeW);
@@ -3118,8 +3232,6 @@ static void test_file_stream(void)
 
     hr = MFShutdown();
     ok(hr == S_OK, "Failed to shut down, hr %#lx.\n", hr);
-
-    DeleteFileW(newfilename);
 }
 
 static void test_system_memory_buffer(void)

@@ -151,6 +151,7 @@ extern BOOL get_scroll_info( HWND hwnd, INT bar, SCROLLINFO *info );
 extern void handle_scroll_event( HWND hwnd, INT bar, UINT msg, POINT pt );
 extern LRESULT scroll_bar_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                                        BOOL ansi );
+extern int set_scroll_info( HWND hwnd, INT bar, const SCROLLINFO *info, BOOL redraw );
 extern void set_standard_scroll_painted( HWND hwnd, int bar, BOOL painted );
 extern void track_scroll_bar( HWND hwnd, int scrollbar, POINT pt );
 
@@ -312,6 +313,7 @@ extern void map_window_region( HWND from, HWND to, HRGN hrgn );
 extern BOOL screen_to_client( HWND hwnd, POINT *pt );
 extern LONG_PTR set_window_long( HWND hwnd, INT offset, UINT size, LONG_PTR newval,
                                  BOOL ansi );
+extern void set_window_normal_placement( HWND hwnd, RECT rect );
 extern BOOL set_window_pos( WINDOWPOS *winpos, int parent_x, int parent_y );
 extern UINT set_window_style_bits( HWND hwnd, UINT set_bits, UINT clear_bits );
 extern void update_window_state( HWND hwnd );

@@ -211,7 +211,7 @@
 @ stub ADL2_Desktop_PrimaryInfo_Get
 @ stub ADL2_Desktop_TextureState_Get
 @ stub ADL2_Desktop_Texture_Enable
-@ stub ADL2_Device_PMLog_Device_Create
+@ cdecl ADL2_Device_PMLog_Device_Create(ptr long ptr)
 @ stub ADL2_Device_PMLog_Device_Destroy
 @ stub ADL2_DisplayScaling_Set
 @ stub ADL2_Display_AdapterID_Get
@@ -548,12 +548,12 @@
 @ stub ADL2_OverdriveN_SystemClocksX2_Set
 @ stub ADL2_OverdriveN_SystemClocks_Get
 @ stub ADL2_OverdriveN_SystemClocks_Set
-@ stub ADL2_OverdriveN_Temperature_Get
+@ cdecl ADL2_OverdriveN_Temperature_Get(ptr long long ptr)
 @ stub ADL2_OverdriveN_Test_Set
 @ stub ADL2_OverdriveN_ThrottleNotification_Get
 @ stub ADL2_OverdriveN_ZeroRPMFan_Get
 @ stub ADL2_OverdriveN_ZeroRPMFan_Set
-@ stub ADL2_Overdrive_Caps
+@ cdecl ADL2_Overdrive_Caps(ptr long ptr ptr ptr)
 @ stub ADL2_PPLogSettings_Get
 @ stub ADL2_PPLogSettings_Set
 @ stub ADL2_PPW_Caps

@@ -895,6 +895,7 @@ static VkResult win32u_vkCreateDevice( VkPhysicalDevice client_physical_device, 
     unsigned int queue_count, props_count, i;
     struct vulkan_device *device;
     struct mempool pool = {0};
+    VkPhysicalDeviceFeatures features = {0};
     VkResult res;
 
     if (TRACE_ON(vulkan))
@@ -916,7 +917,6 @@ static VkResult win32u_vkCreateDevice( VkPhysicalDevice client_physical_device, 
     device->queue_props = (void *)(device->queues + queue_count);
 
 {
-        VkPhysicalDeviceFeatures features = {0};
         VkPhysicalDeviceFeatures2 *features2;
 
         /* Enable shaderStorageImageWriteWithoutFormat for fshack
@@ -3213,9 +3213,21 @@ static VkResult win32u_vkQueueSubmit( VkQueue client_queue, uint32_t count, cons
             switch ((*next)->sType)
             {
             case VK_STRUCTURE_TYPE_D3D12_FENCE_SUBMIT_INFO_KHR:
-                FIXME( "VK_STRUCTURE_TYPE_D3D12_FENCE_SUBMIT_INFO_KHR not implemented!\n" );
+            {
+                VkD3D12FenceSubmitInfoKHR *info = (VkD3D12FenceSubmitInfoKHR *)*next;
+
+                if (timeline->sType == VK_STRUCTURE_TYPE_D3D12_FENCE_SUBMIT_INFO_KHR)
+                    ERR( "Duplicated d3d12 fence submit info.\n" );
+                else if (timeline->sType)
+                    FIXME( "Both d3d12 fence and timeline submit info.\n" );
+                timeline->sType = info->sType;
+                timeline->waitSemaphoreValueCount = info->waitSemaphoreValuesCount;
+                timeline->pWaitSemaphoreValues = info->pWaitSemaphoreValues;
+                timeline->signalSemaphoreValueCount = info->signalSemaphoreValuesCount;
+                timeline->pSignalSemaphoreValues = info->pSignalSemaphoreValues;
                 *next = (*next)->pNext; next = &prev;
                 break;
+            }
             case VK_STRUCTURE_TYPE_DEVICE_GROUP_SUBMIT_INFO:
                 device_group = (VkDeviceGroupSubmitInfo *)*next;
                 break;
@@ -3225,7 +3237,11 @@ static VkResult win32u_vkQueueSubmit( VkQueue client_queue, uint32_t count, cons
             case VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR: break;
             case VK_STRUCTURE_TYPE_PROTECTED_SUBMIT_INFO: break;
             case VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO:
-                if (timeline->sType) ERR( "Duplicated timeline semaphore submit info!\n" );
+                if (timeline->sType == VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO)
+                    ERR( "Duplicated timeline semaphore submit info.\n" );
+                else if (timeline->sType)
+                    FIXME( "Both d3d12 fence and timeline submit info.\n" );
+
                 *timeline = *(VkTimelineSemaphoreSubmitInfo *)*next;
                 *next = (*next)->pNext; next = &prev; /* remove it from the chain, we'll add it back below */
                 break;
@@ -3567,6 +3583,7 @@ static VkResult win32u_vkImportSemaphoreWin32HandleKHR( VkDevice client_device, 
     VkImportSemaphoreFdInfoKHR fd_info = {.sType = VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR};
     struct vulkan_device *device = vulkan_device_from_handle( client_device );
     struct semaphore *semaphore = semaphore_from_handle( handle_info->semaphore );
+    struct vulkan_instance *instance = device->physical_device->instance;
     D3DKMT_HANDLE local, global = 0;
     VkResult res = VK_SUCCESS;
     HANDLE shared = NULL;
@@ -3599,7 +3616,35 @@ static VkResult win32u_vkImportSemaphoreWin32HandleKHR( VkDevice client_device, 
     }
 
     if ((fd_info.fd = d3dkmt_object_get_fd( local )) < 0) res = VK_ERROR_INVALID_EXTERNAL_HANDLE;
-    else
+    if (!res && handle_info->handleType == VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT)
+    {
+        /* Recreate semaphore to make sure it has timeline type. */
+        VkSemaphoreTypeCreateInfo type_info =
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+        };
+        VkSemaphoreCreateInfo create_info =
+        {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = &type_info,
+        };
+        VkSemaphore new_semaphore;
+
+        if ((res = device->p_vkCreateSemaphore( device->host.device, &create_info, NULL, &new_semaphore )))
+        {
+            ERR( "Failed to create timeline semaphore, vr %d.\n", res );
+        }
+        else
+        {
+            instance->p_remove_object( instance, &semaphore->obj.obj );
+            device->p_vkDestroySemaphore( device->host.device, semaphore->obj.host.semaphore, NULL );
+            semaphore->obj.host.semaphore = new_semaphore;
+            instance->p_insert_object( instance, &semaphore->obj.obj );
+        }
+    }
+
+    if (!res)
     {
         fd_info.handleType = get_host_external_semaphore_type();
         fd_info.semaphore = semaphore->obj.host.semaphore;

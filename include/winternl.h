@@ -201,8 +201,9 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS
     ULONG               LoaderThreads;
 } RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
 
-/* value for Flags field (FIXME: not the correct name) */
-#define PROCESS_PARAMS_FLAG_NORMALIZED 1
+/* value for Flags field (FIXME: not the correct names) */
+#define PROCESS_PARAMS_FLAG_NORMALIZED        0x00000001
+#define PROCESS_PARAMS_IMAGE_KEY_MISSING      0x00004000
 
 typedef struct _PEB_LDR_DATA
 {
@@ -2036,14 +2037,7 @@ typedef enum _PROCESSINFOCLASS {
     ProcessWineUnixDebuggerPid = 1100,
     ProcessWineUnixPid = 1101,
 #endif
-    ProcessFexHardwareTso = 2000,
-    ProcessFexUnalignAtomic,
 } PROCESSINFOCLASS;
-
-// These match the prctl flag values
-#define FEX_UNALIGN_ATOMIC_EMULATE       (1ULL << 0)
-#define FEX_UNALIGN_ATOMIC_BACKPATCH     (1ULL << 1)
-#define FEX_UNALIGN_ATOMIC_STRICT_SPLIT_LOCKS    (1ULL << 2)
 
 #define MEM_EXECUTE_OPTION_DISABLE   0x01
 #define MEM_EXECUTE_OPTION_ENABLE    0x02
@@ -2466,7 +2460,6 @@ typedef enum _MEMORY_INFORMATION_CLASS {
     MemoryWineUnixFuncs = 1000,
     MemoryWineUnixWow64Funcs,
 #endif
-    MemoryFexStatsShm = 2000,
 } MEMORY_INFORMATION_CLASS;
 
 typedef struct _MEMORY_SECTION_NAME
@@ -2532,12 +2525,6 @@ typedef struct _MEMORY_IMAGE_INFORMATION
         };
     };
 } MEMORY_IMAGE_INFORMATION, *PMEMORY_IMAGE_INFORMATION;
-
-typedef struct _MEMORY_FEX_STATS_SHM_INFORMATION
-{
-    void *shm_base;
-    SIZE_T map_size;
-} MEMORY_FEX_STATS_SHM_INFORMATION, *PMEMORY_FEX_STATS_SHM_INFORMATION;
 
 typedef enum _MUTANT_INFORMATION_CLASS
 {

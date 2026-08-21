@@ -4176,8 +4176,7 @@ BOOL WINAPI InternetCheckConnectionW( LPCWSTR lpszUrl, DWORD dwFlags, DWORD dwRe
 
   if (dwFlags & FLAG_ICC_FORCE_CONNECTION)
   {
-      struct sockaddr_storage saddr;
-      int sa_len = sizeof(saddr);
+      struct server_addr *addr;
       WCHAR *host_z;
       int fd;
       BOOL b;
@@ -4186,18 +4185,18 @@ BOOL WINAPI InternetCheckConnectionW( LPCWSTR lpszUrl, DWORD dwFlags, DWORD dwRe
       if (!host_z)
           return FALSE;
 
-      b = GetAddress(host_z, port, (struct sockaddr *)&saddr, &sa_len, NULL);
+      b = GetAddress(host_z, port, &addr);
       free(host_z);
       if(!b)
           goto End;
       init_winsock();
-      fd = socket(saddr.ss_family, SOCK_STREAM, 0);
+      fd = create_connect_socket(addr, AF_UNSPEC, INFINITE, NULL, 0);
       if (fd != -1)
       {
-          if (connect(fd, (struct sockaddr *)&saddr, sa_len) == 0)
-              rc = TRUE;
+          rc = TRUE;
           closesocket(fd);
       }
+      free(addr);
   }
   else
   {

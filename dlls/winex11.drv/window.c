@@ -596,8 +596,21 @@ static void sync_window_input_shape( struct x11drv_win_data *data )
 {
 #ifdef HAVE_LIBXSHAPE
     DWORD ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
+    char const *sgi;
 
     if (!data->whole_window) return;
+
+    /* HACK for bug 27151 - TBH: Task Bar Hero (3678970) does not take input
+     *
+     * The game constantly calls GetCursorPos() to check if the cursor position is inside its window.
+     * If so, it removes WS_EX_TRANSPARENT and thus input gets allowed. However, GetCursorPos()
+     * doesn't work reliably, especially on Wayland. On Wayland, the cursor needs to be on an X11
+     * window that takes input for the cursor position to be updated. When the cursor is on a Wayland
+     * window, XQueryPointer() doesn't work and no XI_RawMotion event for the root window is sent so
+     * the cursor position becomes stale. This hack rejects setting an empty input shape for the
+     * window so that it can get input.
+     */
+    if ((sgi = getenv( "SteamGameId" )) && !strcmp( sgi, "3678970" )) return;
 
     if (ex_style & WS_EX_TRANSPARENT)
     {
@@ -985,7 +998,11 @@ static void set_size_hints( struct x11drv_win_data *data, DWORD style )
         }
         else size_hints->win_gravity = NorthWestGravity;
 
-        if (!is_window_resizable( data, style ))
+        /* HACK: gamescope heavily relies on normal size hints to decide which size to configure
+         * the window after it is being mapped. Request normal size hints on every window that
+         * isn't minimized or maximized, so that it more likely uses the correct size.
+         */
+        if (!is_window_resizable( data, style ) || X11DRV_HasWindowManager( "steamcompmgr" ))
         {
             size_hints->max_width = data->rects.visible.right - data->rects.visible.left;
             size_hints->max_height = data->rects.visible.bottom - data->rects.visible.top;
@@ -1793,9 +1810,32 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
      * to WithdrawnState first, then to NormalState */
     if (data->managed && MAKELONG(old_state, new_state) == MAKELONG(IconicState, NormalState))
     {
+        /* Previous IconicState request is still pending, wait for it to complete so that there is no
+         * unexpected IconicState WM_STATE notify that will override the NormalState soon to be queued */
+        if (data->wm_state_serial) return;
+
         WARN( "window %p/%lx is iconic, remapping to workaround Mutter issues.\n", data->hwnd, data->whole_window );
         window_set_wm_state( data, WithdrawnState, FALSE );
         window_set_wm_state( data, NormalState, activate );
+        return;
+    }
+    /* Bug 27190 - XCOM® 2 (268500) Keyboard Controls Not Working
+     *
+     * On older Mutter and forks before Mutter commit 3218626d, handling the first MapRequest will
+     * unminimize the window even though XWMHints.initial_state is set to IconicState. WM_STATE will
+     * then be set to NormalState instead of IconicState as a result. Thus, we could be waiting for
+     * a IconicState that never comes. On Mutter, the bug has been fixed for more than three years.
+     * So enable this hack for Muffin on Cinnamon desktop only. Other Mutter forks don't seem to
+     * have a meaningful user base. The PR for Muffin is at https://github.com/linuxmint/muffin/pull/826.
+     * Remove this hack when the fix has been widely deployed.
+     */
+    else if (X11DRV_HasWindowManager( "Mutter (Muffin)" ) && data->managed
+             && MAKELONG(old_state, new_state) == MAKELONG(WithdrawnState, IconicState))
+    {
+        WARN( "window %p/%lx is in WithdrawnState requesting IconicState, change to NormalState "
+              "first to workaround a bug on older Muffin on Cinnamon desktop.\n", data->hwnd, data->whole_window );
+        window_set_wm_state( data, NormalState, FALSE );
+        window_set_wm_state( data, IconicState, FALSE );
         return;
     }
 
@@ -1941,8 +1981,9 @@ static UINT window_update_client_state( struct x11drv_win_data *data )
         }
         else if (old_style & (WS_MINIMIZE | WS_MAXIMIZE))
         {
+            BOOL activate = (old_style & (WS_MINIMIZE | WS_VISIBLE)) == (WS_MINIMIZE | WS_VISIBLE);
             TRACE( "restoring win %p/%lx\n", data->hwnd, data->whole_window );
-            return SC_RESTORE;
+            return MAKELONG(SC_RESTORE, activate);
         }
     }
     if (!(old_style & WS_MINIMIZE) && (new_style & WS_MINIMIZE))
@@ -3607,6 +3648,7 @@ static int use_force_below_hack(void)
         cached = sgi && (
                  !strcmp(sgi, "1293830")
                  || !strcmp(sgi, "1551360")
+		 || !strcmp(sgi, "2483190")
                  );
     }
     return cached;
@@ -3673,6 +3715,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
         {
             WARN( "%p/%#lx setting force_below_hack.\n", hwnd, data->whole_window );
             data->force_below_hack = 1;
+            if (X11DRV_HasWindowManager( "steamcompmgr" )) new_style &= ~WS_VISIBLE;
         }
     }
 
@@ -3681,6 +3724,32 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
         release_win_data( data );
         return;
     }
+
+    /* Hack for bug 26914 Resident Evil 2 (883710) window invisible on the screen with Mutter Wayland
+     *
+     * The root cause is a Mutter Wayland bug. However, until the fix for Mutter is widely deployed,
+     * We need a hack to get games working.
+     *
+     * The bug happens because Mutter Wayland can enter a state where _XWAYLAND_ALLOW_COMMITS stays
+     * at 0, the meaning of which is to block any new content from being displayed on the screen.
+     * The changes WM_STATE before XReconfigureWMWindow() so the bug doesn't get triggered.
+     *
+     * The deadlock can happen according to the following events:
+     * <1> Application -> Disable decorations, so a window has only one actor.
+     * <2> Application -> Call XReconfigureWMWindow() to resize the window.
+     * <3> Mutter -> meta_window_x11_move_resize_internal() calls meta_window_x11_freeze_commits()
+     *     because of the size change.
+     * <4> Application -> Call XWithdrawWindow() to hide the window.
+     * <5> Mutter -> Destroy the actor of the window.
+     * <6> Mutter -> meta_window_actor_x11_after_paint() returns early because meta_window_actor_is_destroyed()
+     *     returns TRUE. _XWAYLAND_ALLOW_COMMITS stays at 0, which blocks new actor for XWayland.
+     * <7> Application -> Calls XMapWindow() and starts painting.
+     * <8> Mutter -> _XWAYLAND_ALLOW_COMMITS is 0, so no new actor is created for the paint. No new
+     *     actor for the window, so _XWAYLAND_ALLOW_COMMITS stays at 0. Thus, a deadlock and the
+     *     window stays invisible.
+     */
+    if (X11DRV_HasWindowManager( "Mutter" ) && get_desired_wm_state( new_style, new_rects ) == WithdrawnState)
+        window_set_wm_state( data, WithdrawnState, 0 );
 
     /* don't change position if we are about to minimize or maximize a managed window */
     if (!(data->managed && (swp_flags & SWP_STATECHANGED) && (new_style & (WS_MINIMIZE|WS_MAXIMIZE)))

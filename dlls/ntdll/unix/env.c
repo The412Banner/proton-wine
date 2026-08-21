@@ -744,7 +744,11 @@ static void init_locale(void)
     if (!unix_to_win_locale( ctype, system_locale )) system_locale[0] = 0;
     TRACE_(nls)( "Unix LC_CTYPE is %s, setting system locale to %s\n", debugstr_a(ctype), debugstr_a(user_locale) );
 
-    if (main_argc > 1 && strstr(main_argv[1], "start_protected_game.exe"))
+    if (main_argc > 1 && (
+            strstr(main_argv[1], "start_protected_game.exe")
+            || strstr(main_argv[1], "RocketLeague_EAC.exe")
+            || ((p = getenv( "SteamGameId" )) && !strcmp( p, "2221490" ) && !strcmp( main_argv[1], "-public_key_store_address" ))
+       ))
     {
         FIXME( "HACK setting EN locale.\n" );
         messages = "en-US";
@@ -1796,6 +1800,7 @@ static void load_global_options( const UNICODE_STRING *image )
             peb->NtGlobalFlag = get_dword_option( key, globalflagW, peb->NtGlobalFlag );
             NtClose( key );
         }
+        else peb->ProcessParameters->Flags |= PROCESS_PARAMS_IMAGE_KEY_MISSING;
         NtClose( attr.RootDirectory );
     }
 }

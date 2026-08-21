@@ -317,6 +317,9 @@ const char *debugstr_propvariant(const PROPVARIANT *propvar, BOOL ratio)
 void check_attributes_(const char *file, int line, IMFAttributes *attributes,
         const struct attribute_desc *desc, ULONG limit)
 {
+    UINT32 ch, sample_size, alignment, samples_per_sec, bytes_per_sec;
+    IMFMediaType *media_type;
+    GUID major, subtype;
     PROPVARIANT value;
     int i, ret;
     HRESULT hr;
@@ -334,6 +337,32 @@ void check_attributes_(const char *file, int line, IMFAttributes *attributes,
                 debugstr_a(desc[i].name), value.vt, debugstr_propvariant(&value, desc[i].ratio));
         PropVariantClear(&value);
     }
+
+    if (FAILED(IMFAttributes_QueryInterface(attributes, &IID_IMFMediaType, (void **)&media_type)))
+        return;
+
+    /* Check consistency of some float/PCM media type attributes */
+
+    hr = IMFMediaType_GetMajorType(media_type, &major);
+    ok_(__FILE__, line)(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaType_GetGUID(media_type, &MF_MT_SUBTYPE, &subtype);
+    ok_(__FILE__, line)(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    if (IsEqualGUID(&major, &MFMediaType_Audio)
+            && (IsEqualGUID(&subtype, &MFAudioFormat_Float) || IsEqualGUID(&subtype, &MFAudioFormat_PCM))
+            && SUCCEEDED(IMFMediaType_GetUINT32(media_type, &MF_MT_AUDIO_NUM_CHANNELS, &ch))
+            && SUCCEEDED(IMFMediaType_GetUINT32(media_type, &MF_MT_AUDIO_BITS_PER_SAMPLE, &sample_size)))
+    {
+        UINT bytes_per_sample = ch * sample_size / CHAR_BIT;
+
+        if (SUCCEEDED(IMFMediaType_GetUINT32(media_type, &MF_MT_AUDIO_BLOCK_ALIGNMENT, &alignment)))
+            ok_(__FILE__, line)(alignment == bytes_per_sample, "Unexpected alignment %u\n", alignment);
+        if (SUCCEEDED(IMFMediaType_GetUINT32(media_type, &MF_MT_AUDIO_SAMPLES_PER_SECOND, &samples_per_sec))
+                && SUCCEEDED(IMFMediaType_GetUINT32(media_type, &MF_MT_AUDIO_AVG_BYTES_PER_SECOND, &bytes_per_sec)))
+            ok_(__FILE__, line)(bytes_per_sec == bytes_per_sample * samples_per_sec, "Unexpected bytes_per_sec %u\n", bytes_per_sec);
+    }
+
+    IMFMediaType_Release(media_type);
 }
 
 struct transform_info
@@ -6267,6 +6296,10 @@ static void test_audio_convert(void)
     check_mft_set_output_type(transform, output_type_desc, S_OK);
     check_mft_get_output_current_type_(__LINE__, transform, expect_output_type_desc, FALSE, TRUE);
 
+    check_mft_set_input_type(transform, input_type_desc, S_OK);
+    /* setting the input type does not set the output type to null */
+    check_mft_get_output_current_type_(__LINE__, transform, expect_output_type_desc, FALSE, TRUE);
+
     check_mft_get_input_stream_info(transform, S_OK, &input_info);
     check_mft_get_output_stream_info(transform, S_OK, &output_info);
 
@@ -6323,6 +6356,15 @@ static void test_audio_convert(void)
     ok(length == 0, "got length %lu\n", length);
     ret = IMFSample_Release(output_sample);
     ok(ret == 0, "Release returned %lu\n", ret);
+
+    /* setting the input type to null does not set the output type to null */
+    hr = IMFTransform_SetInputType(transform, 0, NULL, 0);
+    ok(hr == S_OK, "SetInputType returned %#lx\n", hr);
+    hr = IMFTransform_GetInputCurrentType(transform, 0, &media_type);
+    ok(hr == MF_E_TRANSFORM_TYPE_NOT_SET, "GetInputCurrentType returned hr %#lx.\n", hr);
+    hr = IMFTransform_GetOutputCurrentType(transform, 0, &media_type);
+    ok(hr == S_OK, "GetOutputCurrentType returned hr %#lx.\n", hr);
+    IMFMediaType_Release(media_type);
 
     ret = IMFTransform_Release(transform);
     ok(ret == 0, "Release returned %lu\n", ret);

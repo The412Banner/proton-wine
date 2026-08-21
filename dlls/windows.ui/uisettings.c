@@ -235,14 +235,16 @@ DEFINE_IINSPECTABLE( uisettings2, IUISettings2, struct uisettings, IUISettings_i
 static HRESULT WINAPI uisettings2_get_TextScaleFactor( IUISettings2 *iface, DOUBLE *value )
 {
     FIXME( "iface %p, value %p stub!\n", iface, value );
-    return E_NOTIMPL;
+    *value = 1.0;
+    return S_OK;
 }
 
 static HRESULT WINAPI uisettings2_add_TextScaleFactorChanged( IUISettings2 *iface, ITypedEventHandler_UISettings_IInspectable *handler,
         EventRegistrationToken *cookie )
 {
     FIXME( "iface %p, handler %p, cookie %p stub!\n", iface, handler, cookie );
-    return E_NOTIMPL;
+    *cookie = dummy_cookie;
+    return S_OK;
 }
 
 static HRESULT WINAPI uisettings2_remove_TextScaleFactorChanged( IUISettings2 *iface, EventRegistrationToken cookie )

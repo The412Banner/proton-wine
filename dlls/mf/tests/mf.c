@@ -3113,6 +3113,8 @@ struct test_grabber_callback
     IMFCollection *samples;
     HANDLE ready_event;
     HANDLE done_event;
+
+    BOOL shutdown;
 };
 
 static struct test_grabber_callback *impl_from_IMFSampleGrabberSinkCallback(IMFSampleGrabberSinkCallback *iface)
@@ -3227,6 +3229,8 @@ static HRESULT WINAPI test_grabber_callback_OnProcessSample(IMFSampleGrabberSink
 
 static HRESULT WINAPI test_grabber_callback_OnShutdown(IMFSampleGrabberSinkCallback *iface)
 {
+    struct test_grabber_callback *grabber = impl_from_IMFSampleGrabberSinkCallback(iface);
+    grabber->shutdown = TRUE;
     return S_OK;
 }
 
@@ -3259,6 +3263,27 @@ static IMFSampleGrabberSinkCallback *create_test_grabber_callback(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     return &grabber->IMFSampleGrabberSinkCallback_iface;
+}
+
+static struct test_grabber_callback *create_activated_test_grabber_callback(IMFMediaType *output_type,
+        IMFStreamSink **stream_sink)
+{
+    struct test_grabber_callback *grabber_callback;
+    IMFActivate *sink_activate;
+    IMFMediaSink *sink;
+    HRESULT hr;
+
+    grabber_callback = impl_from_IMFSampleGrabberSinkCallback(create_test_grabber_callback());
+    hr = MFCreateSampleGrabberSinkActivate(output_type, &grabber_callback->IMFSampleGrabberSinkCallback_iface, &sink_activate);
+    ok(hr == S_OK, "Failed to create grabber sink, hr %#lx.\n", hr);
+    hr = IMFActivate_ActivateObject(sink_activate, &IID_IMFMediaSink, (void **)&sink);
+    ok(hr == S_OK, "Failed to activate, hr %#lx.\n", hr);
+    IMFActivate_Release(sink_activate);
+    hr = IMFMediaSink_GetStreamSinkByIndex(sink, 0, stream_sink);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFMediaSink_Release(sink);
+
+    return grabber_callback;
 }
 
 static HRESULT WINAPI testshutdown_QueryInterface(IMFShutdown *iface, REFIID riid, void **obj)
@@ -3823,6 +3848,7 @@ static void test_sample_grabber(void)
     hr = IMFMediaSink_GetCharacteristics(sink, &flags);
     ok(hr == S_OK, "Failed to get sink flags, hr %#lx.\n", hr);
     ok(flags & MEDIASINK_FIXED_STREAMS, "Unexpected flags %#lx.\n", flags);
+    ok(!(flags & MEDIASINK_CAN_PREROLL), "Unexpected flags %#lx.\n", flags);
 
     hr = IMFMediaSink_GetStreamSinkCount(sink, &count);
     ok(hr == S_OK, "Failed to get stream count, hr %#lx.\n", hr);
@@ -4306,7 +4332,8 @@ static void test_sample_grabber_is_mediatype_supported(void)
 }
 
 /* create a test topology with the specified source, sink, and option MFT. Return duration if required */
-static IMFTopology *create_test_topology_unk(IMFMediaSource *source, IUnknown *sink, IUnknown *mft, UINT64 *duration)
+static IMFTopology *create_test_topology_unk_noshutdown(IMFMediaSource *source, IUnknown *sink, IUnknown *mft,
+        UINT64 *duration, UINT noshutdown_on_remove)
 {
     IMFTopologyNode *src_node, *sink_node, *mft_node;
     IMFPresentationDescriptor *pd;
@@ -4358,6 +4385,11 @@ static IMFTopology *create_test_topology_unk(IMFMediaSource *source, IUnknown *s
     ok(hr == S_OK, "Failed to set object, hr %#lx.\n", hr);
     hr = IMFTopologyNode_SetUINT32(sink_node, &MF_TOPONODE_CONNECT_METHOD, MF_CONNECT_ALLOW_DECODER);
     ok(hr == S_OK, "Failed to set connect method, hr %#lx.\n", hr);
+    if (noshutdown_on_remove != UINT_MAX)
+    {
+        hr = IMFTopologyNode_SetUINT32(sink_node, &MF_TOPONODE_NOSHUTDOWN_ON_REMOVE, noshutdown_on_remove);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    }
     hr = IMFTopology_SetUINT32(topology, &MF_TOPOLOGY_ENUMERATE_SOURCE_TYPES, TRUE);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -4366,6 +4398,11 @@ static IMFTopology *create_test_topology_unk(IMFMediaSource *source, IUnknown *s
     IMFTopologyNode_Release(src_node);
     IMFTopologyNode_Release(sink_node);
     return topology;
+}
+
+static IMFTopology *create_test_topology_unk(IMFMediaSource *source, IUnknown *sink, IUnknown *mft, UINT64 *duration)
+{
+    return create_test_topology_unk_noshutdown(source, (IUnknown*)sink, mft, duration, UINT_MAX);
 }
 
 static IMFTopology *create_test_topology(IMFMediaSource *source, IMFActivate *sink_activate, UINT64 *duration)
@@ -4474,6 +4511,7 @@ static void test_sample_grabber_orientation(GUID subtype)
 
     hr = IMFMediaSession_Shutdown(session);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(grabber_callback->shutdown, "Media sink is not shut down.\n");
     hr = IMFMediaSource_Shutdown(source);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = IMFActivate_ShutdownObject(sink_activate);
@@ -6842,13 +6880,11 @@ static void test_h264_output_alignment(void)
     IMFTopology *topology, *resolved_topology;
     struct test_callback *test_callback;
     IMFMediaTypeHandler *handler;
-    IMFActivate *sink_activate;
     IMFTopoLoader *topo_loader;
     IMFStreamSink *stream_sink;
     IMFAsyncCallback *callback;
     IMFMediaType *output_type;
     IMFMediaSession *session;
-    IMFMediaSink *media_sink;
     IMFTransform *transform;
     IMFMediaSource *source;
     PROPVARIANT propvar;
@@ -6868,21 +6904,15 @@ static void test_h264_output_alignment(void)
         return;
     }
 
-    grabber_callback = impl_from_IMFSampleGrabberSinkCallback(create_test_grabber_callback());
-    grabber_callback->ready_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-    ok(!!grabber_callback->ready_event, "CreateEventW failed, error %lu\n", GetLastError());
-
     hr = MFCreateMediaType(&output_type);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     init_media_type(output_type, video_nv12_desc, -1);
-    hr = MFCreateSampleGrabberSinkActivate(output_type, &grabber_callback->IMFSampleGrabberSinkCallback_iface, &sink_activate);
-    ok(hr == S_OK, "Failed to create grabber sink, hr %#lx.\n", hr);
-    IMFMediaType_Release(output_type);
 
-    IMFActivate_ActivateObject(sink_activate, &IID_IMFMediaSink, (void **)&media_sink);
-    hr = IMFMediaSink_GetStreamSinkByIndex(media_sink, 0, &stream_sink);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    IMFActivate_Release(sink_activate);
+    grabber_callback = create_activated_test_grabber_callback(output_type, &stream_sink);
+    IMFMediaType_Release(output_type);
+    grabber_callback->ready_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ok(!!grabber_callback->ready_event, "CreateEventW failed, error %lu\n", GetLastError());
+
     topology = create_test_topology_unk(source, (IUnknown *)stream_sink, NULL, NULL);
     hr = MFCreateTopoLoader(&topo_loader);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
@@ -6955,7 +6985,6 @@ static void test_h264_output_alignment(void)
     IMFAsyncCallback_Release(callback);
     IMFMediaSession_Release(session);
     IMFStreamSink_Release(stream_sink);
-    IMFMediaSink_Release(media_sink);
     IMFSampleGrabberSinkCallback_Release(&grabber_callback->IMFSampleGrabberSinkCallback_iface);
     IMFMediaSource_Release(source);
 
@@ -7104,12 +7133,14 @@ static void test_media_session_Start(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = wait_media_event(session, callback, MESessionClosed, 1000, &propvar);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!grabber_callback->shutdown, "Media sink was shut down.\n");
 
     /* Media session is shut down */
     hr = IMFMediaSource_Shutdown(source);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = IMFMediaSession_Shutdown(session);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(grabber_callback->shutdown, "Media sink is not shut down.\n");
 
     propvar.vt = VT_I8;
     propvar.hVal.QuadPart = 10000000;
@@ -7188,8 +7219,10 @@ static void test_media_session_Start(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = wait_media_event(session, callback, MESessionClosed, 1000, &propvar);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!grabber_callback->shutdown, "Media sink was shut down.\n");
     hr = IMFMediaSession_Shutdown(session);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(grabber_callback->shutdown, "Media sink is not shut down.\n");
     hr = IMFMediaSource_Shutdown(source);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -7404,6 +7437,7 @@ static void test_media_session_source_shutdown(void)
 
         IMFMediaSource_Release(source);
 
+        ok(!grabber_callback->shutdown, "Media sink was shut down.\n");
         IMFActivate_ShutdownObject(sink_activate);
         IMFActivate_Release(sink_activate);
         IMFSampleGrabberSinkCallback_Release(&grabber_callback->IMFSampleGrabberSinkCallback_iface);
@@ -7637,6 +7671,7 @@ static void test_media_session_Close(void)
 
     hr = IMFMediaSession_Shutdown(session);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(grabber_callback->shutdown, "Media sink is not shut down.\n");
 
     IMFPresentationClock_Release(presentation_clock);
     IMFAsyncCallback_Release(callback);
@@ -7779,6 +7814,7 @@ static void test_media_session_thinning(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = IMFMediaSession_Shutdown(session);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(grabber_callback->shutdown, "Media sink is not shut down.\n");
     hr = IMFMediaSource_Shutdown(source);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
@@ -7795,6 +7831,8 @@ static void test_media_session_thinning(void)
 struct test_transform
 {
     IMFTransform IMFTransform_iface;
+    IMFMediaEventGenerator IMFMediaEventGenerator_iface;
+    IMFShutdown IMFShutdown_iface;
     LONG refcount;
 
     const MFT_OUTPUT_STREAM_INFO *output_stream_info;
@@ -7808,11 +7846,47 @@ struct test_transform
     IMFMediaType *output_type;
 
     IMFSample *output;
+
+    IMFAttributes *attributes;
+    IMFMediaEventQueue *event_queue;
+    BOOL async;
+    BOOL streaming;
+    BOOL pending_input;
+    BOOL drain;
+    BOOL is_shut_down;
 };
+
+#define test_transform_check_unlocked(a) test_transform_check_unlocked_(__LINE__, a)
+static void test_transform_check_unlocked_(int line, struct test_transform *transform)
+{
+    UINT32 unlock;
+    HRESULT hr;
+
+    if (!transform->async)
+        return;
+    hr = IMFAttributes_GetUINT32(transform->attributes, &MF_TRANSFORM_ASYNC_UNLOCK, &unlock);
+    ok_(__FILE__, line)(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok_(__FILE__, line)(unlock, "Transform is locked.\n");
+}
 
 static struct test_transform *test_transform_from_IMFTransform(IMFTransform *iface)
 {
     return CONTAINING_RECORD(iface, struct test_transform, IMFTransform_iface);
+}
+
+static struct test_transform *test_transform_from_IMFMediaEventGenerator(IMFMediaEventGenerator *iface)
+{
+    return CONTAINING_RECORD(iface, struct test_transform, IMFMediaEventGenerator_iface);
+}
+
+static struct test_transform *test_transform_from_IMFShutdown(IMFShutdown *iface)
+{
+    return CONTAINING_RECORD(iface, struct test_transform, IMFShutdown_iface);
+}
+
+static HRESULT test_transform_queue_event(struct test_transform *transform, MediaEventType type)
+{
+    return IMFMediaEventQueue_QueueEventParamVar(transform->event_queue, type, &GUID_NULL, S_OK, NULL);
 }
 
 static HRESULT WINAPI test_transform_QueryInterface(IMFTransform *iface, REFIID iid, void **out)
@@ -7822,13 +7896,24 @@ static HRESULT WINAPI test_transform_QueryInterface(IMFTransform *iface, REFIID 
     if (IsEqualGUID(iid, &IID_IUnknown)
             || IsEqualGUID(iid, &IID_IMFTransform))
     {
-        IMFTransform_AddRef(&transform->IMFTransform_iface);
         *out = &transform->IMFTransform_iface;
-        return S_OK;
+    }
+    else if (transform->async && IsEqualIID(iid, &IID_IMFMediaEventGenerator))
+    {
+        *out = &transform->IMFMediaEventGenerator_iface;
+    }
+    else if (transform->async && IsEqualIID(iid, &IID_IMFShutdown))
+    {
+        *out = &transform->IMFShutdown_iface;
+    }
+    else
+    {
+        *out = NULL;
+        return E_NOINTERFACE;
     }
 
-    *out = NULL;
-    return E_NOINTERFACE;
+    IUnknown_AddRef((IUnknown *)*out);
+    return S_OK;
 }
 
 static ULONG WINAPI test_transform_AddRef(IMFTransform *iface)
@@ -7849,6 +7934,13 @@ static ULONG WINAPI test_transform_Release(IMFTransform *iface)
             IMFMediaType_Release(transform->input_type);
         if (transform->output_type)
             IMFMediaType_Release(transform->output_type);
+        if (transform->async)
+        {
+            if (!transform->is_shut_down)
+                IMFShutdown_Shutdown(&transform->IMFShutdown_iface);
+            IMFAttributes_Release(transform->attributes);
+            IMFMediaEventQueue_Release(transform->event_queue);
+        }
         free(transform);
     }
 
@@ -7890,6 +7982,8 @@ static HRESULT WINAPI test_transform_GetOutputStreamInfo(IMFTransform *iface, DW
 {
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
 
+    test_transform_check_unlocked(transform);
+
     ok(!!transform->output_stream_info, "Unexpected %s iface %p call.\n", __func__, iface);
     if (!transform->output_stream_info)
         return E_NOTIMPL;
@@ -7900,7 +7994,14 @@ static HRESULT WINAPI test_transform_GetOutputStreamInfo(IMFTransform *iface, DW
 
 static HRESULT WINAPI test_transform_GetAttributes(IMFTransform *iface, IMFAttributes **attributes)
 {
-    return E_NOTIMPL;
+    struct test_transform *transform = test_transform_from_IMFTransform(iface);
+
+    if (!transform->async)
+        return E_NOTIMPL;
+
+    *attributes = transform->attributes;
+    IMFAttributes_AddRef(*attributes);
+    return S_OK;
 }
 
 static HRESULT WINAPI test_transform_GetInputStreamAttributes(IMFTransform *iface, DWORD id, IMFAttributes **attributes)
@@ -7946,6 +8047,8 @@ static HRESULT WINAPI test_transform_GetOutputAvailableType(IMFTransform *iface,
 {
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
 
+    test_transform_check_unlocked(transform);
+
     if (index >= transform->output_count)
     {
         *type = NULL;
@@ -7960,6 +8063,9 @@ static HRESULT WINAPI test_transform_GetOutputAvailableType(IMFTransform *iface,
 static HRESULT WINAPI test_transform_SetInputType(IMFTransform *iface, DWORD id, IMFMediaType *type, DWORD flags)
 {
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
+
+    test_transform_check_unlocked(transform);
+
     if (flags & MFT_SET_TYPE_TEST_ONLY)
         return S_OK;
     if (transform->input_type)
@@ -7972,6 +8078,9 @@ static HRESULT WINAPI test_transform_SetInputType(IMFTransform *iface, DWORD id,
 static HRESULT WINAPI test_transform_SetOutputType(IMFTransform *iface, DWORD id, IMFMediaType *type, DWORD flags)
 {
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
+
+    test_transform_check_unlocked(transform);
+
     if (flags & MFT_SET_TYPE_TEST_ONLY)
         return S_OK;
     if (transform->output_type)
@@ -7984,6 +8093,9 @@ static HRESULT WINAPI test_transform_SetOutputType(IMFTransform *iface, DWORD id
 static HRESULT WINAPI test_transform_GetInputCurrentType(IMFTransform *iface, DWORD id, IMFMediaType **type)
 {
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
+
+    test_transform_check_unlocked(transform);
+
     if (!(*type = transform->input_type))
         return MF_E_TRANSFORM_TYPE_NOT_SET;
     IMFMediaType_AddRef(*type);
@@ -7993,6 +8105,9 @@ static HRESULT WINAPI test_transform_GetInputCurrentType(IMFTransform *iface, DW
 static HRESULT WINAPI test_transform_GetOutputCurrentType(IMFTransform *iface, DWORD id, IMFMediaType **type)
 {
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
+
+    test_transform_check_unlocked(transform);
+
     if (!(*type = transform->output_type))
         return MF_E_TRANSFORM_TYPE_NOT_SET;
     IMFMediaType_AddRef(*type);
@@ -8026,9 +8141,15 @@ static HRESULT WINAPI test_transform_ProcessEvent(IMFTransform *iface, DWORD id,
 DEFINE_EXPECT(test_transform_ProcessMessage_BEGIN_STREAMING);
 DEFINE_EXPECT(test_transform_ProcessMessage_START_OF_STREAM);
 DEFINE_EXPECT(test_transform_ProcessMessage_FLUSH);
+DEFINE_EXPECT(test_transform_ProcessInput);
+DEFINE_EXPECT(test_transform_ProcessOutput);
 
 static HRESULT WINAPI test_transform_ProcessMessage(IMFTransform *iface, MFT_MESSAGE_TYPE message, ULONG_PTR param)
 {
+    struct test_transform *transform = test_transform_from_IMFTransform(iface);
+
+    test_transform_check_unlocked(transform);
+
     switch (message)
     {
     case MFT_MESSAGE_NOTIFY_BEGIN_STREAMING:
@@ -8039,30 +8160,58 @@ static HRESULT WINAPI test_transform_ProcessMessage(IMFTransform *iface, MFT_MES
     case MFT_MESSAGE_NOTIFY_START_OF_STREAM:
         CHECK_EXPECT(test_transform_ProcessMessage_START_OF_STREAM);
         add_object_state(&actual_object_state_record, MFT_START);
+        if (transform->async)
+        {
+            transform->streaming = TRUE;
+            transform->pending_input = TRUE;
+            SET_EXPECT(test_transform_ProcessInput);
+            return test_transform_queue_event(transform, METransformNeedInput);
+        }
         return S_OK;
 
     case MFT_MESSAGE_COMMAND_FLUSH:
+        if (transform->output)
+        {
+            IMFSample_Release(transform->output);
+            transform->output = NULL;
+        }
         CHECK_EXPECT(test_transform_ProcessMessage_FLUSH);
         add_object_state(&actual_object_state_record, MFT_FLUSH);
         return S_OK;
 
-    default:
-        ok(0, "Unexpected %s call %#x.\n", __func__, message);
-        return E_NOTIMPL;
-    }
-}
+    case MFT_MESSAGE_COMMAND_DRAIN:
+        if (transform->async)
+        {
+            if (!transform->pending_input && !transform->output)
+                return test_transform_queue_event(transform, METransformDrainComplete);
+            transform->drain = TRUE;
+            return S_OK;
+        }
+        break;
 
-DEFINE_EXPECT(test_transform_ProcessInput);
-DEFINE_EXPECT(test_transform_ProcessOutput);
+    case MFT_MESSAGE_NOTIFY_END_STREAMING:
+        if (transform->async)
+            return S_OK;
+        break;
+
+    default:
+        break;
+    }
+
+    ok(0, "Unexpected %s call %#x.\n", __func__, message);
+    return E_NOTIMPL;
+}
 
 static HRESULT WINAPI test_transform_ProcessInput(IMFTransform *iface, DWORD id, IMFSample *sample, DWORD flags)
 {
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
     HRESULT hr;
 
+    test_transform_check_unlocked(transform);
+
     if (expect_test_transform_ProcessInput)
     {
-        if (transform->output)
+        if (transform->output || (transform->async && !transform->pending_input))
         {
             hr = MF_E_NOTACCEPTING;
         }
@@ -8070,6 +8219,12 @@ static HRESULT WINAPI test_transform_ProcessInput(IMFTransform *iface, DWORD id,
         {
             IMFSample_AddRef(transform->output = sample);
             hr = S_OK;
+
+            if (transform->async)
+            {
+                transform->pending_input = FALSE;
+                hr = test_transform_queue_event(transform, METransformHaveOutput);
+            }
         }
     }
     else
@@ -8089,6 +8244,8 @@ static HRESULT WINAPI test_transform_ProcessOutput(IMFTransform *iface, DWORD fl
     struct test_transform *transform = test_transform_from_IMFTransform(iface);
     HRESULT hr;
 
+    test_transform_check_unlocked(transform);
+
     if (expect_test_transform_ProcessOutput)
     {
         if (transform->output)
@@ -8097,10 +8254,25 @@ static HRESULT WINAPI test_transform_ProcessOutput(IMFTransform *iface, DWORD fl
             data->pSample = transform->output;
             transform->output = NULL;
             hr = S_OK;
+
+            if (transform->async)
+            {
+                if (transform->drain)
+                {
+                    hr = test_transform_queue_event(transform, METransformDrainComplete);
+                    transform->drain = FALSE;
+                }
+                else if (transform->streaming)
+                {
+                    transform->pending_input = TRUE;
+                    SET_EXPECT(test_transform_ProcessInput);
+                    hr = test_transform_queue_event(transform, METransformNeedInput);
+                }
+            }
         }
         else
         {
-            hr = MF_E_TRANSFORM_NEED_MORE_INPUT;
+            hr = transform->async ? E_UNEXPECTED : MF_E_TRANSFORM_NEED_MORE_INPUT;
         }
     }
     else
@@ -8144,14 +8316,125 @@ static const IMFTransformVtbl test_transform_vtbl =
     test_transform_ProcessOutput,
 };
 
+static HRESULT WINAPI test_transform_events_QueryInterface(IMFMediaEventGenerator *iface, REFIID iid, void **out)
+{
+    struct test_transform *transform = test_transform_from_IMFMediaEventGenerator(iface);
+    return IMFTransform_QueryInterface(&transform->IMFTransform_iface, iid, out);
+}
+
+static ULONG WINAPI test_transform_events_AddRef(IMFMediaEventGenerator *iface)
+{
+    struct test_transform *transform = test_transform_from_IMFMediaEventGenerator(iface);
+    return IMFTransform_AddRef(&transform->IMFTransform_iface);
+}
+
+static ULONG WINAPI test_transform_events_Release(IMFMediaEventGenerator *iface)
+{
+    struct test_transform *transform = test_transform_from_IMFMediaEventGenerator(iface);
+    return IMFTransform_Release(&transform->IMFTransform_iface);
+}
+
+static HRESULT WINAPI test_transform_events_GetEvent(IMFMediaEventGenerator *iface, DWORD flags, IMFMediaEvent **event)
+{
+    struct test_transform *transform = test_transform_from_IMFMediaEventGenerator(iface);
+    return IMFMediaEventQueue_GetEvent(transform->event_queue, flags, event);
+}
+
+static HRESULT WINAPI test_transform_events_BeginGetEvent(IMFMediaEventGenerator *iface, IMFAsyncCallback *callback,
+        IUnknown *state)
+{
+    struct test_transform *transform = test_transform_from_IMFMediaEventGenerator(iface);
+    return IMFMediaEventQueue_BeginGetEvent(transform->event_queue, callback, state);
+}
+
+static HRESULT WINAPI test_transform_events_EndGetEvent(IMFMediaEventGenerator *iface, IMFAsyncResult *result,
+        IMFMediaEvent **event)
+{
+    struct test_transform *transform = test_transform_from_IMFMediaEventGenerator(iface);
+    return IMFMediaEventQueue_EndGetEvent(transform->event_queue, result, event);
+}
+
+static HRESULT WINAPI test_transform_events_QueueEvent(IMFMediaEventGenerator *iface, MediaEventType event_type,
+        REFGUID ext_type, HRESULT hr, const PROPVARIANT *value)
+{
+    struct test_transform *transform = test_transform_from_IMFMediaEventGenerator(iface);
+    return IMFMediaEventQueue_QueueEventParamVar(transform->event_queue, event_type, ext_type, hr, value);
+}
+
+static const IMFMediaEventGeneratorVtbl test_transform_events_vtbl =
+{
+    test_transform_events_QueryInterface,
+    test_transform_events_AddRef,
+    test_transform_events_Release,
+    test_transform_events_GetEvent,
+    test_transform_events_BeginGetEvent,
+    test_transform_events_EndGetEvent,
+    test_transform_events_QueueEvent,
+};
+
+static HRESULT WINAPI test_transform_shutdown_QueryInterface(IMFShutdown *iface, REFIID iid, void **out)
+{
+    struct test_transform *transform = test_transform_from_IMFShutdown(iface);
+    return IMFTransform_QueryInterface(&transform->IMFTransform_iface, iid, out);
+}
+
+static ULONG WINAPI test_transform_shutdown_AddRef(IMFShutdown *iface)
+{
+    struct test_transform *transform = test_transform_from_IMFShutdown(iface);
+    return IMFTransform_AddRef(&transform->IMFTransform_iface);
+}
+
+static ULONG WINAPI test_transform_shutdown_Release(IMFShutdown *iface)
+{
+    struct test_transform *transform = test_transform_from_IMFShutdown(iface);
+    return IMFTransform_Release(&transform->IMFTransform_iface);
+}
+
+static HRESULT WINAPI test_transform_shutdown_Shutdown(IMFShutdown *iface)
+{
+    struct test_transform *transform = test_transform_from_IMFShutdown(iface);
+
+    IMFMediaEventQueue_Shutdown(transform->event_queue);
+    transform->is_shut_down = TRUE;
+
+    return S_OK;
+}
+
+static HRESULT WINAPI test_transform_shutdown_GetShutdownStatus(IMFShutdown *iface, MFSHUTDOWN_STATUS *status)
+{
+    struct test_transform *transform = test_transform_from_IMFShutdown(iface);
+    HRESULT hr = S_OK;
+
+    if (!status)
+        return E_INVALIDARG;
+
+    if (transform->is_shut_down)
+        *status = MFSHUTDOWN_COMPLETED;
+    else
+        hr = MF_E_INVALIDREQUEST;
+
+    return hr;
+}
+
+static const IMFShutdownVtbl test_transform_shutdown_vtbl =
+{
+    test_transform_shutdown_QueryInterface,
+    test_transform_shutdown_AddRef,
+    test_transform_shutdown_Release,
+    test_transform_shutdown_Shutdown,
+    test_transform_shutdown_GetShutdownStatus,
+};
+
 static HRESULT WINAPI test_transform_create(UINT input_count, IMFMediaType **input_types,
-        UINT output_count, IMFMediaType **output_types, BOOL d3d_aware, IMFTransform **out)
+        UINT output_count, IMFMediaType **output_types, BOOL d3d_aware, BOOL async, IMFTransform **out)
 {
     struct test_transform *transform;
 
     if (!(transform = calloc(1, sizeof(*transform))))
         return E_OUTOFMEMORY;
     transform->IMFTransform_iface.lpVtbl = &test_transform_vtbl;
+    transform->IMFMediaEventGenerator_iface.lpVtbl = async ? &test_transform_events_vtbl : NULL;
+    transform->IMFShutdown_iface.lpVtbl = async ? &test_transform_shutdown_vtbl : NULL;
     transform->refcount = 1;
 
     transform->input_count = input_count;
@@ -8162,6 +8445,20 @@ static HRESULT WINAPI test_transform_create(UINT input_count, IMFMediaType **inp
     transform->output_types = output_types;
     transform->output_type = output_types[0];
     IMFMediaType_AddRef(transform->output_type);
+
+    if ((transform->async = async))
+    {
+        HRESULT hr = MFCreateAttributes(&transform->attributes, 3);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = IMFAttributes_SetUINT32(transform->attributes, &MF_TRANSFORM_ASYNC, TRUE);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = IMFAttributes_SetUINT32(transform->attributes, &MF_TRANSFORM_ASYNC_UNLOCK, FALSE);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = IMFAttributes_SetUINT32(transform->attributes, &MFT_SUPPORT_DYNAMIC_FORMAT_CHANGE, TRUE);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = MFCreateEventQueue(&transform->event_queue);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    }
 
     *out = &transform->IMFTransform_iface;
     return S_OK;
@@ -8219,7 +8516,7 @@ static void test_media_session_seek(void)
     hr = IMFMediaType_SetUINT64(type, &MF_MT_FRAME_SIZE, (UINT64)640 << 32 | 480);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     mft = NULL;
-    hr = test_transform_create(1, &type, 1, &type, FALSE, &mft);
+    hr = test_transform_create(1, &type, 1, &type, FALSE, FALSE, &mft);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     test_transform_set_output_stream_info(mft, &output_stream_info);
     IMFMediaType_Release(type);
@@ -8480,6 +8777,338 @@ static void test_media_session_invalid_topology(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 }
 
+static void test_media_session_sink_shutdown(void)
+{
+    media_type_desc video_rgb32_desc =
+    {
+        ATTR_GUID(MF_MT_MAJOR_TYPE, MFMediaType_Video),
+        ATTR_GUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32),
+    };
+    struct test_grabber_callback *grabber_callback, *grabber_callbacks[3];
+    IMFAsyncCallback *callback;
+    IMFStreamSink *stream_sink;
+    IMFActivate *sink_activate;
+    IMFMediaType *output_type;
+    IMFMediaSession *session;
+    IMFMediaSource *source;
+    IMFTopology *topology;
+    PROPVARIANT propvar;
+    HRESULT hr;
+    LONG ref;
+    UINT i;
+
+    hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
+    ok(hr == S_OK, "Failed to start up, hr %#lx.\n", hr);
+
+    hr = MFCreateMediaType(&output_type);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    init_media_type(output_type, video_rgb32_desc, -1);
+
+    callback = create_test_callback(TRUE);
+
+    /* Sinks are always shut down on session shutdown, but never before.
+     * MF_TOPONODE_NOSHUTDOWN_ON_REMOVE is ignored. */
+
+    for (i = 0; i < 4; ++i)
+    {
+        winetest_push_context("Test %u", i);
+
+        if (!(source = create_media_source(L"test.mp4", L"video/mp4")))
+        {
+            todo_wine /* Gitlab CI Debian runner */
+            win_skip("MP4 media source is not supported, skipping tests.\n");
+            goto done;
+        }
+
+        hr = MFCreateMediaSession(NULL, &session);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        if (i & 2)
+        {
+            grabber_callback = impl_from_IMFSampleGrabberSinkCallback(create_test_grabber_callback());
+            hr = MFCreateSampleGrabberSinkActivate(output_type, &grabber_callback->IMFSampleGrabberSinkCallback_iface, &sink_activate);
+            ok(hr == S_OK, "Failed to create grabber sink, hr %#lx.\n", hr);
+            topology = create_test_topology_unk_noshutdown(source, (IUnknown *)sink_activate, NULL, NULL, i & 1);
+            IMFActivate_Release(sink_activate);
+        }
+        else
+        {
+            grabber_callback = create_activated_test_grabber_callback(output_type, &stream_sink);
+            topology = create_test_topology_unk_noshutdown(source, (IUnknown *)stream_sink, NULL, NULL, i & 1);
+            IMFStreamSink_Release(stream_sink);
+        }
+
+        hr = IMFMediaSession_SetTopology(session, 0, topology);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        IMFTopology_Release(topology);
+
+        propvar.vt = VT_EMPTY;
+        hr = IMFMediaSession_Start(session, &GUID_NULL, &propvar);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = wait_media_event(session, callback, MESessionStarted, 5000, &propvar);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = IMFMediaSession_Stop(session);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = wait_media_event_until_blocking(session, callback, MESessionStopped, 1000, &propvar);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_CLEAR_CURRENT, NULL);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &propvar);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        PropVariantClear(&propvar);
+        ok(!grabber_callback->shutdown, "Media sink was shut down.\n");
+
+        hr = IMFMediaSession_ClearTopologies(session);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &propvar);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(!grabber_callback->shutdown, "Media sink was shut down.\n");
+
+        hr = IMFMediaSession_Close(session);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        hr = wait_media_event(session, callback, MESessionClosed, 1000, &propvar);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(!grabber_callback->shutdown, "Media sink was shut down.\n");
+
+        hr = IMFMediaSession_Shutdown(session);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(grabber_callback->shutdown, "Media sink is not shut down.\n");
+        IMFSampleGrabberSinkCallback_Release(&grabber_callback->IMFSampleGrabberSinkCallback_iface);
+
+        hr = IMFMediaSource_Shutdown(source);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+        Sleep(20);
+        ref = IMFMediaSession_Release(session);
+        ok(!ref, "Unexpected refcount %ld.\n", ref);
+        ref = IMFMediaSource_Release(source);
+        ok(!ref, "Unexpected refcount %ld.\n", ref);
+
+        winetest_pop_context();
+    }
+
+    if (!(source = create_media_source(L"test.mp4", L"video/mp4")))
+    {
+        todo_wine /* Gitlab CI Debian runner */
+        win_skip("MP4 media source is not supported, skipping tests.\n");
+        goto done;
+    }
+
+    /* Sinks in queued topologies are not shut down until session shutdown. */
+
+    hr = MFCreateMediaSession(NULL, &session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    for (i = 0; i < 2; ++i)
+    {
+        grabber_callbacks[i] = create_activated_test_grabber_callback(output_type, &stream_sink);
+        topology = create_test_topology_unk_noshutdown(source, (IUnknown *)stream_sink, NULL, NULL, 0);
+        IMFStreamSink_Release(stream_sink);
+
+        hr = IMFMediaSession_SetTopology(session, 0, topology);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        IMFTopology_Release(topology);
+    }
+
+    grabber_callbacks[2] = impl_from_IMFSampleGrabberSinkCallback(create_test_grabber_callback());
+    hr = MFCreateSampleGrabberSinkActivate(output_type, &grabber_callbacks[2]->IMFSampleGrabberSinkCallback_iface, &sink_activate);
+    ok(hr == S_OK, "Failed to create grabber sink, hr %#lx.\n", hr);
+    topology = create_test_topology_unk_noshutdown(source, (IUnknown *)sink_activate, NULL, NULL, 0);
+    IMFActivate_Release(sink_activate);
+
+    hr = IMFMediaSession_SetTopology(session, 0, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFTopology_Release(topology);
+
+    propvar.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &propvar);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = wait_media_event(session, callback, MESessionStarted, 5000, &propvar);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IMFMediaSession_Close(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionClosed, 1000, &propvar);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    for (i = 0; i < ARRAY_SIZE(grabber_callbacks); ++i)
+        ok(!grabber_callbacks[i]->shutdown, "Media sink %u was shut down.\n", i);
+
+    hr = IMFMediaSession_Shutdown(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    for (i = 0; i < ARRAY_SIZE(grabber_callbacks); ++i)
+    {
+        ok(grabber_callbacks[i]->shutdown, "Media sink %u is not shut down.\n", i);
+        IMFSampleGrabberSinkCallback_Release(&grabber_callbacks[i]->IMFSampleGrabberSinkCallback_iface);
+    }
+
+    hr = IMFMediaSource_Shutdown(source);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    Sleep(20);
+    ref = IMFMediaSession_Release(session);
+    ok(!ref, "Unexpected refcount %ld.\n", ref);
+
+    ref = IMFMediaSource_Release(source);
+    ok(!ref, "Unexpected refcount %ld.\n", ref);
+
+    /* Unexpected source shutdown does not shut down sinks.
+     * NOTE: Source re-use is broken in Wine, for more reasons than
+     * just errors from multiple event subscription. */
+
+    if (!(source = create_media_source(L"test.mp4", L"video/mp4")))
+    {
+        todo_wine /* Gitlab CI Debian runner */
+        win_skip("MP4 media source is not supported, skipping tests.\n");
+        goto done;
+    }
+
+    hr = MFCreateMediaSession(NULL, &session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    grabber_callback = create_activated_test_grabber_callback(output_type, &stream_sink);
+    topology = create_test_topology_unk(source, (IUnknown *)stream_sink, NULL, NULL);
+    IMFStreamSink_Release(stream_sink);
+
+    hr = IMFMediaSession_SetTopology(session, 0, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFTopology_Release(topology);
+
+    propvar.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &propvar);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = wait_media_event(session, callback, MESessionStarted, 5000, &propvar);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IMFMediaSource_Shutdown(source);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!grabber_callback->shutdown, "Media sink was shut down.\n");
+
+    hr = IMFMediaSession_Shutdown(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(grabber_callback->shutdown, "Media sink is not shut down.\n");
+    IMFSampleGrabberSinkCallback_Release(&grabber_callback->IMFSampleGrabberSinkCallback_iface);
+
+    IMFMediaSession_Release(session);
+    IMFMediaSource_Release(source);
+
+done:
+    IMFAsyncCallback_Release(callback);
+    IMFMediaType_Release(output_type);
+
+    hr = MFShutdown();
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+}
+
+static void test_async_transform(void)
+{
+    media_type_desc video_nv12_desc =
+    {
+        ATTR_GUID(MF_MT_MAJOR_TYPE, MFMediaType_Video),
+        ATTR_GUID(MF_MT_SUBTYPE, MFVideoFormat_NV12),
+    };
+    MFT_OUTPUT_STREAM_INFO output_stream_info = {0};
+    struct test_grabber_callback *grabber_callback;
+    struct test_transform *transform;
+    IMFActivate *sink_activate;
+    IMFAsyncCallback *callback;
+    IMFMediaType *output_type;
+    PROPVARIANT propvar = {0};
+    IMFMediaSession *session;
+    IMFTransform *mft = NULL;
+    IMFMediaSource *source;
+    IMFTopology *topology;
+    HRESULT hr;
+    DWORD ret;
+    UINT i;
+
+    hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
+    ok(hr == S_OK, "Failed to start up, hr %#lx.\n", hr);
+
+    if (!(source = create_media_source(L"test.mp4", L"video/mp4")))
+    {
+        todo_wine /* Gitlab CI Debian runner */
+        win_skip("MP4 media source is not supported, skipping tests.\n");
+        MFShutdown();
+        return;
+    }
+
+    grabber_callback = impl_from_IMFSampleGrabberSinkCallback(create_test_grabber_callback());
+    grabber_callback->ready_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ok(!!grabber_callback->ready_event, "CreateEventW failed, error %lu\n", GetLastError());
+
+    hr = MFCreateMediaType(&output_type);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    init_media_type(output_type, video_nv12_desc, -1);
+    hr = MFCreateSampleGrabberSinkActivate(output_type, &grabber_callback->IMFSampleGrabberSinkCallback_iface, &sink_activate);
+    ok(hr == S_OK, "Failed to create grabber sink, hr %#lx.\n", hr);
+
+    memset(&actual_object_state_record, 0, sizeof(actual_object_state_record));
+    SET_EXPECT(test_transform_ProcessMessage_START_OF_STREAM);
+    SET_EXPECT(test_transform_ProcessMessage_BEGIN_STREAMING);
+    SET_EXPECT(test_transform_ProcessOutput);
+    SET_EXPECT(test_transform_ProcessMessage_FLUSH);
+
+    hr = test_transform_create(1, &output_type, 1, &output_type, FALSE, TRUE, &mft);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    test_transform_set_output_stream_info(mft, &output_stream_info);
+
+    hr = MFCreateMediaSession(NULL, &session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    topology = create_test_topology_unk(source, (IUnknown *)sink_activate, (IUnknown *)mft, NULL);
+    hr = IMFMediaSession_SetTopology(session, 0, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    IMFTopology_Release(topology);
+    IMFActivate_Release(sink_activate);
+
+    callback = create_test_callback(TRUE);
+    propvar.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &propvar);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStarted, 1000, &propvar);
+
+    /* Check for repeated sample delivery */
+    for (i = 0, ret = WAIT_OBJECT_0; i < 10 && ret == WAIT_OBJECT_0; ++i)
+    {
+        ret = WaitForSingleObject(grabber_callback->ready_event, 1000);
+        ok(ret == WAIT_OBJECT_0, "WaitForSingleObject returned %lu\n", ret);
+    }
+
+    transform = test_transform_from_IMFTransform(mft);
+    ok(transform->streaming, "Transform is not streaming.\n");
+
+    hr = IMFMediaSession_Stop(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaSession_Close(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionClosed, 1000, &propvar);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ok(!transform->is_shut_down, "Transform was shut down.\n");
+
+    hr = IMFMediaSource_Shutdown(source);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaSession_Shutdown(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    ok(transform->is_shut_down, "Transform was not shut down.\n");
+
+    IMFTransform_Release(mft);
+    IMFMediaType_Release(output_type);
+    IMFAsyncCallback_Release(callback);
+    IMFMediaSession_Release(session);
+    IMFSampleGrabberSinkCallback_Release(&grabber_callback->IMFSampleGrabberSinkCallback_iface);
+    IMFMediaSource_Release(source);
+
+    hr = MFShutdown();
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+}
+
 START_TEST(mf)
 {
     init_functions();
@@ -8519,4 +9148,6 @@ START_TEST(mf)
     test_media_session_source_shutdown();
     test_media_session_thinning();
     test_media_session_seek();
+    test_media_session_sink_shutdown();
+    test_async_transform();
 }

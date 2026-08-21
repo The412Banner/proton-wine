@@ -318,6 +318,8 @@ typedef struct ADLAdapterODClockInfo
     ADLODClockSetting sEngineClock;
 } ADLAdapterODClockInfo;
 
+typedef unsigned int ADL_D3DKMT_HANDLE;
+
 static const ADLVersionsInfo version = {
     "99.19.02-230831a-396538C-AMD-Software-Adrenalin-Edition",
     "",
@@ -459,7 +461,7 @@ static int init_info(ADL_CONTEXT_HANDLE ctx)
         if (CM_Locate_DevNodeW(&devinst, instance_id, 0))
             continue;
         size = sizeof(ctx->gpus[i].luid);
-        if (CM_Get_DevNode_PropertyW(devinst, &DEVPROPKEY_GPU_LUID, &type, &ctx->gpus[ctx->gpu_count].luid, &size, 0))
+        if (CM_Get_DevNode_PropertyW(devinst, &DEVPROPKEY_GPU_LUID, &type, (BYTE *)&ctx->gpus[ctx->gpu_count].luid, &size, 0))
             continue;
 
         ++ctx->gpu_count;
@@ -1148,5 +1150,31 @@ int CDECL ADL_Display_ODClockInfo_Get(int adapter_index, ADLAdapterODClockInfo *
     clock_info->sMemoryClock.iCurrentClock = 210000;
     clock_info->sMemoryClock.iRequestedClock = 210000;
     clock_info->sEngineClock = clock_info->sMemoryClock;
+    return ADL_OK;
+}
+
+int CDECL ADL2_Device_PMLog_Device_Create(ADL_CONTEXT_HANDLE ctx, int adapter_index, ADL_D3DKMT_HANDLE *device)
+{
+    FIXME("ctx %p, adapter_index %d, device %p stub.\n", ctx, adapter_index, device);
+
+    return ADL_ERR_NOT_SUPPORTED;
+}
+
+int CDECL ADL2_Overdrive_Caps(ADL_CONTEXT_HANDLE ctx, int adapter_index, int *supported, int *enabled, int *version)
+{
+    FIXME("ctx %p, adapter_index %d, supported %p, enabled %p, version %p stub.\n",
+            ctx, adapter_index, supported, enabled, version);
+
+    *supported = 0;
+    *enabled = 0;
+    *version = 0;
+    return ADL_ERR_NOT_SUPPORTED;
+}
+
+int CDECL ADL2_OverdriveN_Temperature_Get(ADL_CONTEXT_HANDLE ctx, int adapter_index, int type, int *temperature)
+{
+    FIXME("ctx %p, adapter_index %d, type %d, temperature %p.\n", ctx, adapter_index, type, temperature);
+
+    *temperature = 65000; /* 65C */
     return ADL_OK;
 }

@@ -653,6 +653,7 @@ enum wine_internal_message
     WM_WINE_SETPIXELFORMAT,
     WM_WINE_GETSCROLLBARINFO,
     WM_WINE_GETSCROLLINFO,
+    WM_WINE_SETSCROLLINFO,
     WM_WINE_FIRST_DRIVER_MSG = 0x80001000,  /* range of messages reserved for the USER driver */
     WM_WINE_CLIPCURSOR = 0x80001ff0, /* internal driver notification messages */
     WM_WINE_SETCURSOR,
@@ -922,6 +923,7 @@ W32KAPI BOOL    WINAPI NtUserHiliteMenuItem( HWND hwnd, HMENU handle, UINT item,
 W32KAPI NTSTATUS WINAPI NtUserInitializeClientPfnArrays( const ntuser_client_func_ptr *client_procsA,
                                                          const ntuser_client_func_ptr *client_procsW,
                                                          const ntuser_client_func_ptr *client_workers, HINSTANCE user_module );
+W32KAPI BOOL    WINAPI NtUserInitializeTouchInjection( UINT max_count, UINT mode );
 W32KAPI HICON   WINAPI NtUserInternalGetWindowIcon( HWND hwnd, UINT type );
 W32KAPI INT     WINAPI NtUserInternalGetWindowText( HWND hwnd, WCHAR *text, INT count );
 W32KAPI BOOL    WINAPI NtUserIsChildWindowDpiMessageEnabled( HWND hwnd );

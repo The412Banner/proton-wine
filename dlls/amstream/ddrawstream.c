@@ -1060,6 +1060,7 @@ static HRESULT WINAPI ddraw_sink_ReceiveConnection(IPin *iface, IPin *peer, cons
     DWORD width;
     DWORD height;
     DDPIXELFORMAT pf = {sizeof(DDPIXELFORMAT)};
+    HRESULT hr;
 
     TRACE("stream %p, peer %p, mt %p.\n", stream, peer, mt);
     strmbase_dump_media_type(mt);
@@ -1137,6 +1138,21 @@ static HRESULT WINAPI ddraw_sink_ReceiveConnection(IPin *iface, IPin *peer, cons
         return VFW_E_INVALID_DIRECTION;
     }
 
+    if (video_info->bmiHeader.biHeight > 0)
+    {
+        AM_MEDIA_TYPE top_down_mt;
+        CopyMediaType(&top_down_mt, mt);
+        ((VIDEOINFOHEADER*)top_down_mt.pbFormat)->bmiHeader.biHeight = -height;
+        hr = IPin_QueryAccept(peer, &top_down_mt);
+        FreeMediaType(&top_down_mt);
+        if (hr != S_OK)
+        {
+            TRACE("Rejecting filter that can't produce top-down images.\n");
+            LeaveCriticalSection(&stream->cs);
+            return VFW_E_TYPE_NOT_ACCEPTED;
+        }
+    }
+
     CopyMediaType(&stream->mt, mt);
     IPin_AddRef(stream->peer = peer);
 
@@ -1161,7 +1177,9 @@ static HRESULT WINAPI ddraw_sink_Disconnect(IPin *iface)
     if (!stream->peer)
     {
         LeaveCriticalSection(&stream->cs);
-        return S_FALSE;
+        /* The MS documentation for IPin::Disconnect says to return S_FALSE
+         * when not connected, but the MS implementation returns S_OK */
+        return S_OK;
     }
 
     IPin_Release(stream->peer);
