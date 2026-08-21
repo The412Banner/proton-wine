@@ -1,6 +1,6 @@
-# 🍷 Proton 11.0-1 — FEX unixlib support · arm64ec + x86_64 (bionic)
+# 🍷 Proton 11.0-2 — FEX unixlib support · arm64ec + x86_64 (bionic)
 
-Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android bionic** for **arm64ec and x86_64** — a drop-in Wine/Proton runtime for Winlator-bionic emulators, now with the **FEX unixlib loader** built in.
+Stock **Valve Proton 11.0-2** (final), recompiled from source against **Android bionic** for **arm64ec and x86_64** — a drop-in Wine/Proton runtime for Winlator-bionic emulators, now with the **FEX unixlib loader** built in.
 
 > 🪶 **Smaller & faster to install:** these builds are compiled `-g0` (no debug info) and **stripped**, cutting the installed tree from ~2 GB to **~730 MB** and the download to **~80 MB**. The `.wcp` is now **zstd**-packed, so it decompresses far faster than the old xz (the app auto-detects, no change needed). Assets: `arm64ec` + `x86_64`, for **SDK 28** (Android 9+) and **SDK 35** (Android 15 / 16 KB pages).
 
@@ -9,7 +9,7 @@ Stock **Valve Proton 11.0-1** (final), recompiled from source against **Android 
 ## ✨ What it provides / does
 
 - 🎮 **Runs Windows games on Android** (arm64ec) — via Wine + FEX or wowbox64
-- 🆕 **Latest Valve Proton 11.0-1 base** — not an old snapshot
+- 🆕 **Latest Valve Proton 11.0-2 base** — not an old snapshot
 - ⚡ **Fast-yield gate** — opt-in (`WINE_FAST_YIELD=1`) fix for the bug that pins one CPU core at 100%; better perf/battery
 - 🪝 **FEX unixlib loader** — can load FEX's native `.so` add-on (the new thing we built); future-proofs you for when FEX makes it required
 - 📁 **Auto-finds the FEX `.so`** — searches the right folder on its own, so **no app change needed**
@@ -58,6 +58,6 @@ Look for the `-unix` assets on the latest build, e.g. `FEX-…-Nightly-…-unix.
 
 ---
 
-*Base: Valve `proton-11.0-1` (final) · Wine unix side built with Android NDK r27d · DLL trees: `aarch64-windows` (arm64ec) + `i386-windows` + `x86_64-windows`.*
+*Base: Valve `proton-11.0-2` (final) · Wine unix side built with Android NDK r27d · DLL trees: `aarch64-windows` (arm64ec) + `i386-windows` + `x86_64-windows`.*
 
 

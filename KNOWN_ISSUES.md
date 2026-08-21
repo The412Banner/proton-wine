@@ -2,7 +2,7 @@
 
 ## x86_64 Proton 11 — file-manager desktop doesn't open under box64 (use arm64ec)
 
-**Affected:** the **`proton-11.0-1-x86_64-*.wcp`** assets, run through **box64** on ARM Android devices.
+**Affected:** the **`proton-11.0-2-x86_64-*.wcp`** assets, run through **box64** on ARM Android devices.
 The **arm64ec** assets (native ARM Wine + FEX) are **not** affected and are the recommended runtime.
 
 ### Symptom
@@ -29,7 +29,7 @@ Key findings — **it is NOT a box64/seccomp problem** (that was ruled out):
   resolved; the effort/payoff (x86_64-under-box64 is slower than arm64ec) did not justify a deeper dig.
 
 ### Workaround
-Use the **arm64ec** `.wcp` (`proton-11.0-1-arm64ec-*.wcp`) — native, FEX-based, faster, and the runtime
+Use the **arm64ec** `.wcp` (`proton-11.0-2-arm64ec-*.wcp`) — native, FEX-based, faster, and the runtime
 these builds are designed around. If a container is stuck on the x86_64 desktop, setting its Startup
 Selection to **NORMAL** at least restores the Wine services (RpcSs/PlugPlay), though the file manager
 may still not auto-open.

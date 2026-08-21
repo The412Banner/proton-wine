@@ -188,7 +188,7 @@ diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
      if (res == STATUS_SUCCESS)
      {
          /* file mappings must always be accessible */
-@@ -6651,6 +6700,37 @@ NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
+@@ -6613,6 +6613,37 @@ NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
              }
              return STATUS_INVALID_HANDLE;
  
@@ -223,6 +223,6 @@ diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
 +            }
 +            return STATUS_INVALID_HANDLE;
 +
-         case MemoryFexStatsShm:
- #if defined(linux) && defined(__aarch64__)
-             return get_memory_fex_stats_shm( process, addr, buffer, len, res_len );
+         default:
+             FIXME("(%p,%p,info_class=%d,%p,%ld,%p) Unknown information class\n",
+                   process, addr, info_class, buffer, len, res_len);

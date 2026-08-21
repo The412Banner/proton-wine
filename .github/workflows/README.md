@@ -77,12 +77,12 @@ Build artifacts are:
 **Output Files**
 
 **Proton Type (for GameNative):**
-- `proton-11.0-1-x86_64.wcp` - x86_64 Proton wcp
-- `proton-11.0-1-arm64ec.wcp` - arm64ec Proton wcp
+- `proton-11.0-2-x86_64.wcp` - x86_64 Proton wcp
+- `proton-11.0-2-arm64ec.wcp` - arm64ec Proton wcp
 
 **Wine Type (for Winlator CMOD & Ludashi):**
-- `proton-wine-11.0-1-x86_64.wcp.xz` - x86_64 Wine wcp.xz
-- `proton-wine-11.0-1-arm64ec.wcp.xz` - arm64ec Wine wcp.xz
+- `proton-wine-11.0-2-x86_64.wcp.xz` - x86_64 Wine wcp.xz
+- `proton-wine-11.0-2-arm64ec.wcp.xz` - arm64ec Wine wcp.xz
 
 ## Build Scripts Used
 

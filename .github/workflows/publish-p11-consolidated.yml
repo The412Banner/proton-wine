@@ -1,4 +1,4 @@
-name: Publish Proton 11.0-1 (consolidated)
+name: Publish Proton 11.0-2 (consolidated)
 
 # Manual-only. Pulls the already-built wcp artifacts from the two build runs
 # (sdk28 + sdk35) entirely on the GitHub runner and cuts ONE release with all
@@ -58,8 +58,8 @@ jobs:
           # Both arches × both SDKs, .wcp only (zstd, stripped). The .wcp.xz variant is no longer
           # published — the .wcp is what the emulator apps install, and it now decompresses fast (zstd).
           for sdk in sdk28 sdk35; do
-            cp "dl/$sdk/proton-arm64ec/proton-11.0-1-arm64ec.wcp"    "release/proton-11.0-1-arm64ec-$sdk.wcp"
-            cp "dl/$sdk/proton-x86_64/proton-11.0-1-x86_64.wcp"      "release/proton-11.0-1-x86_64-$sdk.wcp"
+            cp "dl/$sdk/proton-arm64ec/proton-11.0-2-arm64ec.wcp"    "release/proton-11.0-2-arm64ec-$sdk.wcp"
+            cp "dl/$sdk/proton-x86_64/proton-11.0-2-x86_64.wcp"      "release/proton-11.0-2-x86_64-$sdk.wcp"
           done
           echo "Assets to publish:"
           ls -lah release/
@@ -80,6 +80,6 @@ jobs:
           gh release create "${{ github.event.inputs.tag }}" release/* \
             --repo "${{ github.repository }}" \
             --target "${{ github.event.inputs.target_commitish }}" \
-            --title "Proton Wine 11.0-1 (${{ github.event.inputs.tag }})" \
+            --title "Proton Wine 11.0-2 (${{ github.event.inputs.tag }})" \
             --notes-file .github/release-notes/p11-body.md \
             $REL_FLAGS
