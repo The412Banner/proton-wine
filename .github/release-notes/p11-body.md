@@ -16,7 +16,7 @@ Stock **Valve Proton 11.0-2** (final), recompiled from source against **Android 
 - 🧩 **Works with any FEXCore version** — not locked to one
 - 🎞️ **Video / FMV** — ships `winedmo` (built against **ffmpeg-8**); actual decoding needs the emulator app's imagefs to supply the ffmpeg-8 libs (current Bannerlator / WinNative do), else it falls back to gstreamer.
 - 🖼️ **Graphics via DXVK / VKD3D → Vulkan** (Turnip / Adreno)
-- 🔄 **esync + fsync + ntsync** — modern threading for heavy games
+- 🔄 **esync + fsync** — modern threading for heavy games
 - 🤖 **Bionic** — works on **Bannerlator**, **WinNative**, and other Winlator-bionic apps
 
 > **In one sentence:** it's your current, sync-modern, fast-yield-capable Proton 11 that **also loads the FEX unixlib on its own with no app changes** — the build that keeps working when FEX makes the unixlib mandatory.
