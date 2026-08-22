@@ -1,0 +1,20 @@
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index c8ca97d21a..5773ba76d0 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -51,6 +51,7 @@ static const WORD current_machine = IMAGE_FILE_MACHINE_ARMNT;
+ static const WORD current_machine = IMAGE_FILE_MACHINE_ARM64;
+ #endif
+ extern WORD native_machine;
++extern int get_inproc_alert_fd(void);  /* sync.c; non-static for esync.c */
+ 
+ static const BOOL is_win64 = (sizeof(void *) > sizeof(int));
+ 
+@@ -115,6 +116,7 @@ struct thread_data
+     void        *start;             /* thread entry point */
+     void        *param;             /* thread entry point parameter */
+     struct list  entry;             /* entry in TEB list */
++    int         *fsync_apc_futex;   /* fsync: per-thread APC alert futex */
+     char         debug_info[0x800]; /* debug_info structure */
+     char         signal_stack[];    /* signal stack */
+     /* char kernel_stack[] */
