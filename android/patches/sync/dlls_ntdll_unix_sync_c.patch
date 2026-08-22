@@ -1,5 +1,5 @@
 diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
-index 0127a05301..f51cd5a58e 100644
+index 0127a05301..46b3e1d260 100644
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
 @@ -72,6 +72,9 @@
@@ -12,7 +12,7 @@ index 0127a05301..f51cd5a58e 100644
  WINE_DEFAULT_DEBUG_CHANNEL(sync);
  
  HANDLE keyed_event = 0;
-@@ -763,6 +766,11 @@ void close_inproc_sync( HANDLE handle )
+@@ -763,6 +766,16 @@ void close_inproc_sync( HANDLE handle )
  {
      struct inproc_sync *cache;
  
@@ -21,10 +21,15 @@ index 0127a05301..f51cd5a58e 100644
 +        fsync_close( handle );
 +        return;
 +    }
++    else if (do_esync())
++    {
++        esync_close( handle );
++        return;
++    }
      if (inproc_device_fd < 0) return;
      if ((cache = get_cached_inproc_sync( handle )))
      {
-@@ -778,6 +786,8 @@ static NTSTATUS inproc_release_semaphore( HANDLE handle, ULONG count, ULONG *pre
+@@ -778,6 +791,8 @@ static NTSTATUS inproc_release_semaphore( HANDLE handle, ULONG count, ULONG *pre
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -33,7 +38,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_SEMAPHORE, SEMAPHORE_MODIFY_STATE, &stack, &sync ))) return ret;
      ret = linux_release_semaphore_obj( sync->fd, count, prev_count );
-@@ -790,6 +800,8 @@ static NTSTATUS inproc_query_semaphore( HANDLE handle, SEMAPHORE_BASIC_INFORMATI
+@@ -790,6 +805,8 @@ static NTSTATUS inproc_query_semaphore( HANDLE handle, SEMAPHORE_BASIC_INFORMATI
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -42,7 +47,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_SEMAPHORE, SEMAPHORE_QUERY_STATE, &stack, &sync ))) return ret;
      ret = linux_query_semaphore_obj( sync->fd, info );
-@@ -802,6 +814,8 @@ static NTSTATUS inproc_set_event( HANDLE handle, LONG *prev_state )
+@@ -802,6 +819,8 @@ static NTSTATUS inproc_set_event( HANDLE handle, LONG *prev_state )
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -51,7 +56,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
      ret = linux_set_event_obj( sync->fd, prev_state );
-@@ -814,6 +828,8 @@ static NTSTATUS inproc_reset_event( HANDLE handle, LONG *prev_state )
+@@ -814,6 +833,8 @@ static NTSTATUS inproc_reset_event( HANDLE handle, LONG *prev_state )
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -60,7 +65,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
      ret = linux_reset_event_obj( sync->fd, prev_state );
-@@ -826,6 +842,8 @@ static NTSTATUS inproc_pulse_event( HANDLE handle, LONG *prev_state )
+@@ -826,6 +847,8 @@ static NTSTATUS inproc_pulse_event( HANDLE handle, LONG *prev_state )
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -69,7 +74,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
      ret = linux_pulse_event_obj( sync->fd, prev_state );
-@@ -838,6 +856,8 @@ static NTSTATUS inproc_query_event( HANDLE handle, EVENT_BASIC_INFORMATION *info
+@@ -838,6 +861,8 @@ static NTSTATUS inproc_query_event( HANDLE handle, EVENT_BASIC_INFORMATION *info
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -78,7 +83,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_QUERY_STATE, &stack, &sync ))) return ret;
      ret = linux_query_event_obj( sync->fd, info );
-@@ -850,6 +870,8 @@ static NTSTATUS inproc_release_mutex( HANDLE handle, LONG *prev_count )
+@@ -850,6 +875,8 @@ static NTSTATUS inproc_release_mutex( HANDLE handle, LONG *prev_count )
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -87,7 +92,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_MUTEX, 0, &stack, &sync ))) return ret;
      ret = linux_release_mutex_obj( sync->fd, prev_count );
-@@ -862,6 +884,8 @@ static NTSTATUS inproc_query_mutex( HANDLE handle, MUTANT_BASIC_INFORMATION *inf
+@@ -862,6 +889,8 @@ static NTSTATUS inproc_query_mutex( HANDLE handle, MUTANT_BASIC_INFORMATION *inf
      struct inproc_sync stack, *sync;
      NTSTATUS ret;
  
@@ -96,7 +101,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_MUTEX, MUTANT_QUERY_STATE, &stack, &sync ))) return ret;
      ret = linux_query_mutex_obj( sync->fd, info );
-@@ -869,7 +893,7 @@ static NTSTATUS inproc_query_mutex( HANDLE handle, MUTANT_BASIC_INFORMATION *inf
+@@ -869,7 +898,7 @@ static NTSTATUS inproc_query_mutex( HANDLE handle, MUTANT_BASIC_INFORMATION *inf
      return ret;
  }
  
@@ -105,7 +110,7 @@ index 0127a05301..f51cd5a58e 100644
  {
      struct thread_data *data = get_thread_data();
      obj_handle_t token;
-@@ -884,8 +908,12 @@ static int get_inproc_alert_fd(void)
+@@ -884,8 +913,12 @@ static int get_inproc_alert_fd(void)
          {
              if (!server_call_unlocked( req ))
              {
@@ -120,7 +125,7 @@ index 0127a05301..f51cd5a58e 100644
              }
          }
          SERVER_END_REQ;
-@@ -903,6 +931,8 @@ static NTSTATUS inproc_wait( DWORD count, const HANDLE *handles, WAIT_TYPE type,
+@@ -903,6 +936,8 @@ static NTSTATUS inproc_wait( DWORD count, const HANDLE *handles, WAIT_TYPE type,
      int objs[ARRAY_SIZE(syncs)], alert_fd = 0;
      NTSTATUS ret;
  
@@ -129,7 +134,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
  
      assert( count <= ARRAY_SIZE(syncs) );
-@@ -931,6 +961,8 @@ static NTSTATUS inproc_signal_and_wait( HANDLE signal, HANDLE wait,
+@@ -931,6 +966,8 @@ static NTSTATUS inproc_signal_and_wait( HANDLE signal, HANDLE wait,
      int alert_fd = 0;
      NTSTATUS ret;
  
@@ -138,23 +143,7 @@ index 0127a05301..f51cd5a58e 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
  
      if ((ret = get_inproc_sync( signal, INPROC_SYNC_UNKNOWN, 0, &stack_signal, &signal_sync ))) return ret;
-@@ -965,6 +997,7 @@ done:
- NTSTATUS WINAPI NtCreateSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr,
-                                    LONG initial, LONG max )
- {
-+    if (do_esync()) return esync_create_semaphore( handle, access, attr, initial, max );
-     unsigned int ret;
-     data_size_t len;
-     struct object_attributes *objattr;
-@@ -997,6 +1030,7 @@ NTSTATUS WINAPI NtCreateSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJ
-  */
- NTSTATUS WINAPI NtOpenSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr )
- {
-+    if (do_esync()) return esync_open_semaphore( handle, access, attr );
-     unsigned int ret;
- 
-     TRACE( "access %#x, name %s\n", access, attr ? debugstr_us(attr->ObjectName) : "(null)" );
-@@ -1025,6 +1059,7 @@ NTSTATUS WINAPI NtOpenSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJEC
+@@ -1025,6 +1062,7 @@ NTSTATUS WINAPI NtOpenSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJEC
  NTSTATUS WINAPI NtQuerySemaphore( HANDLE handle, SEMAPHORE_INFORMATION_CLASS class,
                                    void *info, ULONG len, ULONG *ret_len )
  {
@@ -162,7 +151,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
      SEMAPHORE_BASIC_INFORMATION *out = info;
  
-@@ -1064,6 +1099,7 @@ NTSTATUS WINAPI NtQuerySemaphore( HANDLE handle, SEMAPHORE_INFORMATION_CLASS cla
+@@ -1064,6 +1102,7 @@ NTSTATUS WINAPI NtQuerySemaphore( HANDLE handle, SEMAPHORE_INFORMATION_CLASS cla
   */
  NTSTATUS WINAPI NtReleaseSemaphore( HANDLE handle, ULONG count, ULONG *previous )
  {
@@ -170,23 +159,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
  
      TRACE( "handle %p, count %u, prev_count %p\n", handle, count, previous );
-@@ -1091,6 +1127,7 @@ NTSTATUS WINAPI NtReleaseSemaphore( HANDLE handle, ULONG count, ULONG *previous
- NTSTATUS WINAPI NtCreateEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr,
-                                EVENT_TYPE type, BOOLEAN state )
- {
-+    if (do_esync()) return esync_create_event( handle, access, attr, type, state );
-     unsigned int ret;
-     data_size_t len;
-     struct object_attributes *objattr;
-@@ -1123,6 +1160,7 @@ NTSTATUS WINAPI NtCreateEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_
-  */
- NTSTATUS WINAPI NtOpenEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr )
- {
-+    if (do_esync()) return esync_open_event( handle, access, attr );
-     unsigned int ret;
- 
-     TRACE( "access %#x, name %s\n", access, attr ? debugstr_us(attr->ObjectName) : "(null)" );
-@@ -1150,6 +1188,7 @@ NTSTATUS WINAPI NtOpenEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_AT
+@@ -1150,6 +1189,7 @@ NTSTATUS WINAPI NtOpenEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_AT
   */
  NTSTATUS WINAPI NtSetEvent( HANDLE handle, LONG *prev_state )
  {
@@ -194,7 +167,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
  
      TRACE( "handle %p, prev_state %p\n", handle, prev_state );
-@@ -1183,6 +1222,7 @@ NTSTATUS WINAPI NtSetEventBoostPriority( HANDLE handle )
+@@ -1183,6 +1223,7 @@ NTSTATUS WINAPI NtSetEventBoostPriority( HANDLE handle )
   */
  NTSTATUS WINAPI NtResetEvent( HANDLE handle, LONG *prev_state )
  {
@@ -202,7 +175,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
  
      TRACE( "handle %p, prev_state %p\n", handle, prev_state );
-@@ -1217,6 +1257,7 @@ NTSTATUS WINAPI NtClearEvent( HANDLE handle )
+@@ -1217,6 +1258,7 @@ NTSTATUS WINAPI NtClearEvent( HANDLE handle )
   */
  NTSTATUS WINAPI NtPulseEvent( HANDLE handle, LONG *prev_state )
  {
@@ -210,7 +183,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
  
      TRACE( "handle %p, prev_state %p\n", handle, prev_state );
-@@ -1242,6 +1283,7 @@ NTSTATUS WINAPI NtPulseEvent( HANDLE handle, LONG *prev_state )
+@@ -1242,6 +1284,7 @@ NTSTATUS WINAPI NtPulseEvent( HANDLE handle, LONG *prev_state )
  NTSTATUS WINAPI NtQueryEvent( HANDLE handle, EVENT_INFORMATION_CLASS class,
                                void *info, ULONG len, ULONG *ret_len )
  {
@@ -218,23 +191,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
      EVENT_BASIC_INFORMATION *out = info;
  
-@@ -1282,6 +1324,7 @@ NTSTATUS WINAPI NtQueryEvent( HANDLE handle, EVENT_INFORMATION_CLASS class,
- NTSTATUS WINAPI NtCreateMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr,
-                                 BOOLEAN owned )
- {
-+    if (do_esync()) return esync_create_mutex( handle, access, attr, owned );
-     unsigned int ret;
-     data_size_t len;
-     struct object_attributes *objattr;
-@@ -1312,6 +1355,7 @@ NTSTATUS WINAPI NtCreateMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT
-  */
- NTSTATUS WINAPI NtOpenMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr )
- {
-+    if (do_esync()) return esync_open_mutex( handle, access, attr );
-     unsigned int ret;
- 
-     TRACE( "access %#x, name %s\n", access, attr ? debugstr_us(attr->ObjectName) : "(null)" );
-@@ -1339,6 +1383,7 @@ NTSTATUS WINAPI NtOpenMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT_A
+@@ -1339,6 +1382,7 @@ NTSTATUS WINAPI NtOpenMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT_A
   */
  NTSTATUS WINAPI NtReleaseMutant( HANDLE handle, LONG *prev_count )
  {
@@ -242,7 +199,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
  
      TRACE( "handle %p, prev_count %p\n", handle, prev_count );
-@@ -1363,6 +1408,7 @@ NTSTATUS WINAPI NtReleaseMutant( HANDLE handle, LONG *prev_count )
+@@ -1363,6 +1407,7 @@ NTSTATUS WINAPI NtReleaseMutant( HANDLE handle, LONG *prev_count )
  NTSTATUS WINAPI NtQueryMutant( HANDLE handle, MUTANT_INFORMATION_CLASS class,
                                 void *info, ULONG len, ULONG *ret_len )
  {
@@ -250,7 +207,7 @@ index 0127a05301..f51cd5a58e 100644
      unsigned int ret;
      MUTANT_BASIC_INFORMATION *out = info;
  
-@@ -2303,6 +2349,7 @@ NTSTATUS WINAPI NtQueryTimer( HANDLE handle, TIMER_INFORMATION_CLASS class,
+@@ -2303,6 +2348,7 @@ NTSTATUS WINAPI NtQueryTimer( HANDLE handle, TIMER_INFORMATION_CLASS class,
  NTSTATUS WINAPI NtWaitForMultipleObjects( DWORD count, const HANDLE *handles, WAIT_TYPE type,
                                            BOOLEAN alertable, const LARGE_INTEGER *timeout )
  {
@@ -258,7 +215,7 @@ index 0127a05301..f51cd5a58e 100644
      union select_op select_op;
      UINT i, flags = SELECT_INTERRUPTIBLE;
      unsigned int ret;
-@@ -2370,6 +2417,7 @@ NTSTATUS WINAPI NtWaitForSingleObject( HANDLE handle, BOOLEAN alertable, const L
+@@ -2370,6 +2416,7 @@ NTSTATUS WINAPI NtWaitForSingleObject( HANDLE handle, BOOLEAN alertable, const L
  NTSTATUS WINAPI NtSignalAndWaitForSingleObject( HANDLE signal, HANDLE wait,
                                                  BOOLEAN alertable, const LARGE_INTEGER *timeout )
  {
@@ -266,7 +223,7 @@ index 0127a05301..f51cd5a58e 100644
      union select_op select_op;
      UINT flags = SELECT_INTERRUPTIBLE;
      NTSTATUS ret;
-@@ -2423,6 +2471,18 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
+@@ -2423,6 +2470,18 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
      /* if alertable, we need to query the server */
      if (alertable)
      {
