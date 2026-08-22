@@ -1,11 +1,26 @@
 diff --git a/server/protocol.def b/server/protocol.def
-index a9be0a16eb..6e4a4449b3 100644
+index a9be0a16eb..a8b39eb529 100644
 --- a/server/protocol.def
 +++ b/server/protocol.def
-@@ -4222,12 +4222,29 @@ enum inproc_sync_type
+@@ -4222,12 +4222,44 @@ enum inproc_sync_type
      INPROC_SYNC_SEMAPHORE = 4,
  };
  
++/* esync definitions (eventfd-based sync; classic self-contained backend, proven
++ * on this hardware — Proton runs it by default). Its own object type + protocol
++ * requests, independent of the inproc_sync/fsync path. */
++enum esync_type
++{
++    ESYNC_SEMAPHORE = 1,
++    ESYNC_AUTO_EVENT,
++    ESYNC_MANUAL_EVENT,
++    ESYNC_MUTEX,
++    ESYNC_AUTO_SERVER,
++    ESYNC_MANUAL_SERVER,
++    ESYNC_QUEUE,
++};
++#define ESYNC_USED_BY_SERVER 0x7eadeeee
++
 +/* fsync definitions (futex-based in-process sync; engages when the host kernel
 + * provides futex_waitv, otherwise the server-side path is used) */
 +#define FSYNC_SHM_PAGE_SIZE 0x10000
@@ -32,7 +47,7 @@ index a9be0a16eb..6e4a4449b3 100644
  @END
  
  
-@@ -4235,6 +4252,7 @@ enum inproc_sync_type
+@@ -4235,6 +4267,7 @@ enum inproc_sync_type
  @REQ(get_inproc_alert_fd)
  @REPLY
      obj_handle_t handle;        /* alert fd is in flight with this handle */
@@ -40,7 +55,7 @@ index a9be0a16eb..6e4a4449b3 100644
  @END
  
  
-@@ -4338,3 +4356,10 @@ enum inproc_sync_type
+@@ -4338,3 +4371,10 @@ enum inproc_sync_type
  @REPLY
      obj_handle_t        handle;         /* handle to the ALPC port */
  @END

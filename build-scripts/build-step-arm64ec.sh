@@ -202,7 +202,15 @@ do
       "sync/dlls_ntdll_unix_unix_private_h.patch"   # + fsync_apc_futex field on struct thread_data
       "sync/create_server_fsync_c.patch"            # wineserver fsync shm + handler (new file)
       "sync/create_server_fsync_h.patch"
-      "sync/server_protocol_def.patch"              # + fsync_free_shm_idx, enum fsync_type, sync_shm_idx
+      # ESYNC (eventfd, proven on-device) — 11.x-anchored inproc-integrated esync from
+      # proton_11.0-2 (blob matches our overlay's bionic esync patches). Reuses the same
+      # inproc_sync framework as fsync; the sync.c/inproc_sync.c/server integration patches
+      # below now carry BOTH fsync + esync branches. Runtime prefers esync on this hardware.
+      "sync/create_dlls_ntdll_unix_esync_c.patch"   # ntdll client esync backend (new file)
+      "sync/create_dlls_ntdll_unix_esync_h.patch"
+      "sync/create_server_esync_c.patch"            # wineserver esync shm (new file)
+      "sync/create_server_esync_h.patch"
+      "sync/server_protocol_def.patch"              # + fsync_free_shm_idx, enum fsync_type/esync_type, ESYNC_USED_BY_SERVER, sync_shm_idx
       "sync/dlls_ntdll_Makefile_in.patch"           # compile unix/fsync.c
       "sync/server_Makefile_in.patch"               # compile server/fsync.c
       "sync/dlls_ntdll_unix_sync_c.patch"           # do_fsync() dispatch in inproc_* + NtDelayExecution
