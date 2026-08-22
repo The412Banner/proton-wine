@@ -1,8 +1,8 @@
 diff --git a/dlls/winepulse.drv/pulse.c b/dlls/winepulse.drv/pulse.c
-index 85062ea..5380f3c 100644
+index ef13a1ed0bb..1ad29870a25 100644
 --- a/dlls/winepulse.drv/pulse.c
 +++ b/dlls/winepulse.drv/pulse.c
-@@ -268,8 +268,10 @@ static NTSTATUS pulse_process_attach(void *args)
+@@ -243,8 +243,10 @@ static NTSTATUS pulse_process_attach(void *args)
      pthread_mutexattr_t attr;
  
      pthread_mutexattr_init(&attr);
@@ -13,10 +13,10 @@ index 85062ea..5380f3c 100644
  
      if (pthread_mutex_init(&pulse_mutex, &attr) != 0)
          pthread_mutex_init(&pulse_mutex, NULL);
-@@ -317,9 +319,13 @@ static NTSTATUS pulse_main_loop(void *args)
+@@ -282,9 +284,13 @@ static void pulse_main_loop(void *args)
      pulse_ml = pa_mainloop_new();
      pa_mainloop_set_poll_func(pulse_ml, pulse_poll_func, NULL);
-     NtSetEvent(params->event, NULL);
+     NtSetEvent(event, NULL);
 +#ifdef __ANDROID__
 +    pa_mainloop_run(pulse_ml, &ret);
 +#else
@@ -26,22 +26,4 @@ index 85062ea..5380f3c 100644
 +#endif
      pa_mainloop_free(pulse_ml);
      pulse_unlock();
-     return STATUS_SUCCESS;
-@@ -1732,6 +1738,17 @@ static void pulse_add_stream_to_period(struct pulse_stream *stream)
-     period->timer_last_time = pa_rtclock_now();
-     period->time_event = pa_context_rttime_new(pulse_ctx, period->timer_last_time + period->period,
-             pa_streams_timer_cb, period);
-+
-+    // GN Patch
-+    if (!period->time_event)
-+    {
-+        WARN("Failed to create timer event, timer callbacks disabled (box64 < 0.4.0?)\n");
-+        list_remove(&period->entry);
-+        free(period);
-+        stream->period = NULL;
-+        return;
-+    }
-+
-     api = pa_mainloop_get_api(pulse_ml);
-     api->time_set_destroy(period->time_event, pa_streams_timer_cb_destroy);
-     TRACE("Created period %p.\n", period);
+     PsTerminateSystemThread( 0 );
