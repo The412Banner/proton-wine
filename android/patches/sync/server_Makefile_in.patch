@@ -1,0 +1,12 @@
+diff --git a/server/Makefile.in b/server/Makefile.in
+index 0dd53951c4..48693aeaea 100644
+--- a/server/Makefile.in
++++ b/server/Makefile.in
+@@ -16,6 +16,7 @@ SOURCES = \
+ 	event.c \
+ 	fd.c \
+ 	file.c \
++	fsync.c \
+ 	handle.c \
+ 	hook.c \
+ 	inproc_sync.c \

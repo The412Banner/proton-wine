@@ -1,0 +1,53 @@
+diff --git a/server/protocol.def b/server/protocol.def
+index a9be0a16eb..6e4a4449b3 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -4222,12 +4222,29 @@ enum inproc_sync_type
+     INPROC_SYNC_SEMAPHORE = 4,
+ };
+ 
++/* fsync definitions (futex-based in-process sync; engages when the host kernel
++ * provides futex_waitv, otherwise the server-side path is used) */
++#define FSYNC_SHM_PAGE_SIZE 0x10000
++#define FSYNC_USED_BY_SERVER 0x7eadfeef
++
++enum fsync_type
++{
++    FSYNC_SEMAPHORE = 1,
++    FSYNC_AUTO_EVENT,
++    FSYNC_MANUAL_EVENT,
++    FSYNC_MUTEX,
++    FSYNC_AUTO_SERVER,
++    FSYNC_MANUAL_SERVER,
++    FSYNC_QUEUE,
++};
++
+ /* Get the in-process synchronization fd associated with the waitable handle */
+ @REQ(get_inproc_sync_fd)
+     obj_handle_t handle;        /* handle to the object */
+ @REPLY
+     int           type;         /* inproc sync type */
+     unsigned int access;        /* handle access rights */
++    unsigned int sync_shm_idx;  /* fsync: shm index of the object */
+ @END
+ 
+ 
+@@ -4235,6 +4252,7 @@ enum inproc_sync_type
+ @REQ(get_inproc_alert_fd)
+ @REPLY
+     obj_handle_t handle;        /* alert fd is in flight with this handle */
++    unsigned int sync_shm_idx;  /* fsync: shm index of the alert object */
+ @END
+ 
+ 
+@@ -4338,3 +4356,10 @@ enum inproc_sync_type
+ @REPLY
+     obj_handle_t        handle;         /* handle to the ALPC port */
+ @END
++
++
++/* Free an fsync shm index when its object is destroyed */
++@REQ(fsync_free_shm_idx)
++    unsigned int shm_idx;       /* shm index to free */
++@REPLY
++@END

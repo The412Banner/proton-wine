@@ -1,0 +1,143 @@
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index 0127a05301..998b5f1c81 100644
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -72,6 +72,8 @@
+ #include "wine/debug.h"
+ #include "unix_private.h"
+ 
++#include "fsync.h"
++
+ WINE_DEFAULT_DEBUG_CHANNEL(sync);
+ 
+ HANDLE keyed_event = 0;
+@@ -763,6 +765,11 @@ void close_inproc_sync( HANDLE handle )
+ {
+     struct inproc_sync *cache;
+ 
++    if (do_fsync())
++    {
++        fsync_close( handle );
++        return;
++    }
+     if (inproc_device_fd < 0) return;
+     if ((cache = get_cached_inproc_sync( handle )))
+     {
+@@ -778,6 +785,8 @@ static NTSTATUS inproc_release_semaphore( HANDLE handle, ULONG count, ULONG *pre
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_release_semaphore( handle, count, prev_count );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_SEMAPHORE, SEMAPHORE_MODIFY_STATE, &stack, &sync ))) return ret;
+     ret = linux_release_semaphore_obj( sync->fd, count, prev_count );
+@@ -790,6 +799,8 @@ static NTSTATUS inproc_query_semaphore( HANDLE handle, SEMAPHORE_BASIC_INFORMATI
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_query_semaphore( handle, info );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_SEMAPHORE, SEMAPHORE_QUERY_STATE, &stack, &sync ))) return ret;
+     ret = linux_query_semaphore_obj( sync->fd, info );
+@@ -802,6 +813,8 @@ static NTSTATUS inproc_set_event( HANDLE handle, LONG *prev_state )
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_set_event( handle, prev_state );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
+     ret = linux_set_event_obj( sync->fd, prev_state );
+@@ -814,6 +827,8 @@ static NTSTATUS inproc_reset_event( HANDLE handle, LONG *prev_state )
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_reset_event( handle, prev_state );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
+     ret = linux_reset_event_obj( sync->fd, prev_state );
+@@ -826,6 +841,8 @@ static NTSTATUS inproc_pulse_event( HANDLE handle, LONG *prev_state )
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_pulse_event( handle, prev_state );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
+     ret = linux_pulse_event_obj( sync->fd, prev_state );
+@@ -838,6 +855,8 @@ static NTSTATUS inproc_query_event( HANDLE handle, EVENT_BASIC_INFORMATION *info
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_query_event( handle, info );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_QUERY_STATE, &stack, &sync ))) return ret;
+     ret = linux_query_event_obj( sync->fd, info );
+@@ -850,6 +869,8 @@ static NTSTATUS inproc_release_mutex( HANDLE handle, LONG *prev_count )
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_release_mutex( handle, prev_count );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_MUTEX, 0, &stack, &sync ))) return ret;
+     ret = linux_release_mutex_obj( sync->fd, prev_count );
+@@ -862,6 +883,8 @@ static NTSTATUS inproc_query_mutex( HANDLE handle, MUTANT_BASIC_INFORMATION *inf
+     struct inproc_sync stack, *sync;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_query_mutex( handle, info );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+     if ((ret = get_inproc_sync( handle, INPROC_SYNC_MUTEX, MUTANT_QUERY_STATE, &stack, &sync ))) return ret;
+     ret = linux_query_mutex_obj( sync->fd, info );
+@@ -884,8 +907,12 @@ static int get_inproc_alert_fd(void)
+         {
+             if (!server_call_unlocked( req ))
+             {
+-                data->alert_fd = fd = wine_server_receive_fd( &token );
+-                assert( token == reply->handle );
++                if (do_fsync()) data->alert_fd = fd = reply->sync_shm_idx;
++                else
++                {
++                    data->alert_fd = fd = wine_server_receive_fd( &token );
++                    assert( token == reply->handle );
++                }
+             }
+         }
+         SERVER_END_REQ;
+@@ -903,6 +930,8 @@ static NTSTATUS inproc_wait( DWORD count, const HANDLE *handles, WAIT_TYPE type,
+     int objs[ARRAY_SIZE(syncs)], alert_fd = 0;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_wait_objects( count, handles, type != WaitAll, alertable, timeout );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+ 
+     assert( count <= ARRAY_SIZE(syncs) );
+@@ -931,6 +960,8 @@ static NTSTATUS inproc_signal_and_wait( HANDLE signal, HANDLE wait,
+     int alert_fd = 0;
+     NTSTATUS ret;
+ 
++    if (do_fsync()) return fsync_signal_and_wait( signal, wait, alertable, timeout );
++
+     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
+ 
+     if ((ret = get_inproc_sync( signal, INPROC_SYNC_UNKNOWN, 0, &stack_signal, &signal_sync ))) return ret;
+@@ -2423,6 +2454,12 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
+     /* if alertable, we need to query the server */
+     if (alertable)
+     {
++        if (do_fsync())
++        {
++            NTSTATUS ret = fsync_wait_objects( 0, NULL, TRUE, TRUE, timeout );
++            if (ret != STATUS_NOT_IMPLEMENTED)
++                return ret;
++        }
+         /* Since server_wait will result in an unconditional implicit yield,
+            we never return STATUS_NO_YIELD_PERFORMED */
+         if ((status = server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout )) == STATUS_TIMEOUT)

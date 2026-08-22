@@ -1,0 +1,23 @@
+diff --git a/server/main.c b/server/main.c
+index 46419a09cb..7f3930ed31 100644
+--- a/server/main.c
++++ b/server/main.c
+@@ -41,6 +41,8 @@
+ #include "request.h"
+ #include "unicode.h"
+ 
++#include "fsync.h"
++
+ /* command-line options */
+ int debug_level = 0;
+ int foreground = 0;
+@@ -259,6 +261,9 @@ int main( int argc, char *argv[] )
+     sock_init();
+     open_master_socket();
+ 
++    if (do_fsync())
++        fsync_init();
++
+     if (debug_level) fprintf( stderr, "wineserver: starting (pid=%ld)\n", (long) getpid() );
+     set_current_time();
+     init_signals();

@@ -188,11 +188,27 @@ do
       # sdl patch
       "common/dlls_winebus_sys_bus_sdl_c.patch"
 
-      # shm_utils
-      "common/dlls_ntdll_unix_esync_c.patch"
-      "common/dlls_ntdll_unix_fsync_c.patch"
-      "common/server_esync_c.patch"
-      "common/server_fsync_c.patch"
+      # FSYNC SYNC PORT (futex-based in-process sync onto 11.16's ntsync server).
+      # The 4 orphaned bionic esync/fsync overlay patches (common/*_esync_c/*_fsync_c)
+      # target a staging-created base that no longer exists -> DROPPED. Instead, the
+      # sync/ set below creates fsync.c/h (ntdll + server) from the proton_11.0-2
+      # lineage, wires the wineserver protocol (fsync_free_shm_idx + enum fsync_type,
+      # regenerated via make_requests after the loop), and adds the do_fsync() client
+      # dispatch + server object handling. esync is intentionally NOT ported (proton's
+      # own esync is vestigial: it references an undefined create_esync request); fsync
+      # is the backend that engages on kernels with futex_waitv. ntsync stays upstream.
+      "sync/create_dlls_ntdll_unix_fsync_c.patch"   # ntdll client fsync backend (new file)
+      "sync/create_dlls_ntdll_unix_fsync_h.patch"
+      "sync/create_server_fsync_c.patch"            # wineserver fsync shm + handler (new file)
+      "sync/create_server_fsync_h.patch"
+      "sync/server_protocol_def.patch"              # + fsync_free_shm_idx, enum fsync_type, sync_shm_idx
+      "sync/dlls_ntdll_Makefile_in.patch"           # compile unix/fsync.c
+      "sync/server_Makefile_in.patch"               # compile server/fsync.c
+      "sync/dlls_ntdll_unix_sync_c.patch"           # do_fsync() dispatch in inproc_* + NtDelayExecution
+      "sync/dlls_ntdll_unix_server_c.patch"         # init_first_thread: FSYNC_USED_BY_SERVER + fsync_init
+      "sync/server_main_c.patch"                    # fsync_init() at server startup
+      "sync/server_thread_c.patch"                  # init_first_thread + get_inproc_alert_fd fsync
+      "sync/server_inproc_sync_c.patch"             # create/signal/reset/abandon fsync branches
 
       # winex11
       "common/dlls_winex11_drv_bitblt_c.patch"
@@ -331,6 +347,18 @@ do
     done
     echo "----------------------------------------"
     echo "Patch summary: applied=$applied fuzzed=$fuzzed skipped=$skipped"
+
+    # SYNC PORT: the fsync patches add a new wineserver protocol request
+    # (fsync_free_shm_idx) + enum fsync_type to server/protocol.def. The build does
+    # NOT auto-regenerate the protocol, so regenerate it explicitly from the patched
+    # protocol.def. make_requests is a standalone perl script that rewrites
+    # include/wine/server_protocol.h + server/request_handlers.h + server/trace.c
+    # (appends the new request, bumps SERVER_PROTOCOL_VERSION). Idempotent; only runs
+    # when the fsync request is actually present so a non-sync build is unaffected.
+    if grep -q "fsync_free_shm_idx" server/protocol.def 2>/dev/null; then
+      echo "Regenerating wineserver protocol (make_requests) after protocol.def fsync patch..."
+      perl ./tools/make_requests || { echo "make_requests FAILED"; exit 1; }
+    fi
   fi
 
   if [ "$arg" == "--build" ]
