@@ -118,6 +118,7 @@ do
       --disable-amd_ags_x64 \
       --enable-wineandroid_drv=no \
       --disable-tests \
+      --with-aaudio \
       --with-alsa \
       --without-capi \
       --without-coreaudio \

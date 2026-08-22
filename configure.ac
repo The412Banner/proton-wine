@@ -27,6 +27,7 @@ AC_ARG_ENABLE(silent-rules, AS_HELP_STRING([--enable-silent-rules],[use silent b
 AC_ARG_ENABLE(werror, AS_HELP_STRING([--enable-werror],[treat compilation warnings as errors]))
 
 AC_ARG_WITH(alsa,      AS_HELP_STRING([--without-alsa],[do not use the Alsa sound support]))
+AC_ARG_WITH(aaudio,    AS_HELP_STRING([--without-aaudio],[do not use the Android AAudio sound support]))
 AC_ARG_WITH(capi,      AS_HELP_STRING([--without-capi],[do not use CAPI (ISDN support)]))
 AC_ARG_WITH(coreaudio, AS_HELP_STRING([--without-coreaudio],[do not use the CoreAudio sound support]))
 AC_ARG_WITH(cups,      AS_HELP_STRING([--without-cups],[do not use CUPS]))
@@ -1127,6 +1128,7 @@ case $host_os in
 esac
 
 enable_winecoreaudio_drv=${enable_winecoreaudio_drv:-no}
+enable_winedirectaudio_drv=${enable_winedirectaudio_drv:-no}
 enable_wineandroid_drv=${enable_wineandroid_drv:-no}
 enable_winemac_drv=${enable_winemac_drv:-no}
 
@@ -1779,6 +1781,14 @@ WINE_NOTICE_WITH(gstreamer,[test "x$ac_glib2_broken" != xyes -a "x$ac_cv_func_gs
                  [gstreamer-1.0 base plugins ${notice_platform}development files not found, GStreamer won't be supported.],
                  [enable_winegstreamer])
 
+dnl **** Check for AAudio (Android native audio) for the DirectAudio driver ****
+if test "x$with_aaudio" != "xno"
+then
+    AC_CHECK_HEADER([aaudio/AAudio.h],
+        [AC_SUBST(AAUDIO_LIBS,"-laaudio")
+         enable_winedirectaudio_drv=${enable_winedirectaudio_drv:-yes}])
+fi
+
 dnl **** Check for ALSA 1.x ****
 AC_SUBST(ALSA_LIBS,"")
 if test "x$with_alsa" != "xno"
@@ -1937,8 +1947,8 @@ WINE_NOTICE_WITH(netapi,[test "x$ac_cv_lib_soname_netapi" = "x"],
 
 
 dnl **** Check for any sound system ****
-if test "x$enable_winealsa_drv$enable_winecoreaudio_drv$enable_winepulse_drv$enable_wineoss_drv$enable_wineandroid_drv" = xnonononono -a \
-        "x$with_alsa$with_coreaudio$with_oss$with_pulse" != xnononono
+if test "x$enable_winealsa_drv$enable_winecoreaudio_drv$enable_winedirectaudio_drv$enable_winepulse_drv$enable_wineoss_drv$enable_wineandroid_drv" = xnononononono -a \
+        "x$with_alsa$with_aaudio$with_coreaudio$with_oss$with_pulse" != xnonononono
 then
     WINE_WARNING([No sound system was found. Windows applications will be silent.])
 fi
@@ -3407,6 +3417,7 @@ WINE_CONFIG_MAKEFILE(dlls/wineoss.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps16.drv16)
 WINE_CONFIG_MAKEFILE(dlls/winepulse.drv)
+WINE_CONFIG_MAKEFILE(dlls/winedirectaudio.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineusb.sys)
 WINE_CONFIG_MAKEFILE(dlls/winevulkan)
 WINE_CONFIG_MAKEFILE(dlls/winewayland.drv)

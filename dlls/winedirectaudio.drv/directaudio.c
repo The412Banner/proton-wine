@@ -1,0 +1,2604 @@
+/*
+ * Unixlib for the DirectAudio driver (native Wine -> Android AAudio).
+ *
+ * mmdevapi owns IAudioClient/IAudioRenderClient; this backend only implements
+ * the mmdevapi driver unixlib vtable (see ../mmdevapi/unixlib.h) against AAudio,
+ * with no PulseAudio daemon and no ALSA aserver in the path.
+ *
+ * Structure and the mmdevapi ring-buffer bookkeeping are modelled on
+ * winecoreaudio.drv (single native backend, render callback ~ AAudio callback);
+ * the CoreAudio device layer is replaced with AAudio.
+ *
+ * Copyright (C) 2026 The412Banner <205237651+The412Banner@users.noreply.github.com>
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+#if 0
+#pragma makedep unix
+#endif
+
+#include "config.h"
+
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <time.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <android/log.h>
+
+/* Blank the API-availability annotation before including AAudio.h so the API-28
+ * AAudioStreamBuilder_setUsage we weak-guard below is not emitted as a STRONG
+ * undefined symbol: this unixlib is linked -z now, so a strong ref to a symbol
+ * that API 26/27 libaaudio does not export would fail the whole .so load
+ * (DirectAudio dead on Android 8.x). */
+#undef __INTRODUCED_IN
+#define __INTRODUCED_IN(api_level)
+#include <aaudio/AAudio.h>
+#include <android/api-level.h>
+
+/* setUsage is API 28+. Redeclared weak so the linker leaves its address NULL on
+ * older libaaudio instead of failing dlopen; the guard in mixer_open_stream only
+ * calls it when present AND api_level >= 28 (per GN review). */
+extern __attribute__((weak)) void AAudioStreamBuilder_setUsage(AAudioStreamBuilder *builder,
+                                                               aaudio_usage_t usage);
+
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
+#include "windef.h"
+#include "winbase.h"
+#include "winnls.h"
+#include "winreg.h"
+#include "winternl.h"
+#include "mmdeviceapi.h"
+#include "initguid.h"
+#include "audioclient.h"
+#include "wine/debug.h"
+#include "wine/unixlib.h"
+
+#include "../mmdevapi/unixlib.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(directaudio);
+
+struct directaudio_stream
+{
+    pthread_mutex_t lock;
+    AAudioStream *aq;             /* current AAudio output stream */
+
+    EDataFlow flow;
+    DWORD flags;
+    AUDCLNT_SHAREMODE share;
+    HANDLE event;
+
+    BOOL playing, please_quit;
+    REFERENCE_TIME period;
+    UINT32 period_frames;
+    UINT32 bufsize_frames;
+    UINT32 lcl_offs_frames, held_frames, wri_offs_frames, tmp_buffer_frames;
+    UINT64 written_frames;
+    INT32 getbuf_last;
+    WAVEFORMATEX *fmt;
+    BYTE *local_buffer, *tmp_buffer;
+
+    /* AAudio open parameters, kept so the stream can be re-opened on a route
+     * change (headphone/BT/HDMI) without losing the guest's negotiated format. */
+    aaudio_format_t aa_format;
+    int32_t aa_channels, aa_rate;
+    aaudio_performance_mode_t aa_perf;
+    aaudio_sharing_mode_t aa_share;
+
+    /* adaptive buffer control (ported from the ALSA/PA adaptive stacks) */
+    BOOL adaptive;
+    BOOL decay;                  /* let a grown buffer come back down when calm */
+    int32_t target_buf_frames;   /* initial buffer target, 0 = leave default */
+    int32_t max_buf_frames;      /* cap for adaptive growth, 0 = capacity */
+    int32_t target_ms, max_ms;   /* same two in ms; win over the frame forms */
+    int32_t last_xrun;
+
+    /* software gain (AAudio NDK has no per-stream volume) */
+    float vols[8];
+    BOOL vols_active;
+
+    /* route-follow reopen guard */
+    int need_reopen;
+
+    /* in-process mixer voice state */
+    int in_mixer;        /* registered with the shared output mixer */
+    double rs_pos;       /* fractional resample read position (voice rate != 48k) */
+    BOOL is_float;       /* source samples are 32-bit float (else PCM by wBitsPerSample) */
+
+    /* measurement */
+    unsigned int cb_count;
+};
+
+/* The device period reported to the guest. NOT const: it is half of the latency
+ * the guest sees (get_latency returns buffer + period) and games size their own
+ * buffers from it, so it is env-tunable via BANNER_AUDIO_DIRECT_PERIOD_MS. Read
+ * once at process attach - get_device_period is asked before any stream exists,
+ * so this cannot live in the per-stream config. */
+static REFERENCE_TIME def_period = 100000;   /* 10 ms in 100 ns units */
+static REFERENCE_TIME min_period = 50000;    /*  5 ms */
+
+static ULONG_PTR zero_bits = 0;
+
+static NTSTATUS unix_not_implemented(void *args)
+{
+    return STATUS_SUCCESS;
+}
+
+/* ---------------------------------------------------------------------------
+ * MIDI driver delegation. THIS IS LOAD-BEARING - do not "simplify" it back to a
+ * not-implemented stub.
+ *
+ * mmdevapi picks the MIDI driver in init_driver() (dlls/mmdevapi/main.c):
+ *
+ *     midi_drvname[0] = 0;
+ *     wine_unix_call( midi_get_driver, midi_drvname );
+ *     if (midi_drvname[0]) load_driver( midi_drvname, &midi_driver );
+ *     else                 midi_driver = drvs;      <-- US
+ *
+ * With midi_get_driver stubbed, midi_drvname stays empty and DirectAudio becomes
+ * its OWN MIDI driver. DriverProc(DRV_LOAD) then calls midi_init (also stubbed,
+ * so `err` keeps its pre-set DRV_SUCCESS) and spawns notify_thread():
+ *
+ *     while (1) {
+ *         MIDI_CALL( midi_notify_wait, &params );
+ *         if (quit) break;                          <-- `quit` is UNINITIALISED
+ *         if (notify.send_notify) notify_client(&notify);
+ *     }
+ *
+ * midi_notify_wait is contractually BLOCKING (winealsa's alsa_midi_notify_wait
+ * waits on a real event and sets *quit on shutdown). A stub that returns
+ * STATUS_SUCCESS immediately and never writes *quit turns that into a TIGHT
+ * INFINITE LOOP: one core pegged forever, hammering the PE->Unix boundary.
+ *
+ * DEVICE-PROVEN 2026-08-13: this is what black-screened God of War on
+ * DirectAudio while audio played perfectly. The spinning thread showed up as
+ * `mmdevapi_midi_n` holding 34079 of the process's 34314 utime jiffies - which
+ * is exactly the "0 fps / GPU 0% / CPU 17%" signature (one pegged core of eight)
+ * that was previously misread as "the main thread is deadlocked". It had nothing
+ * to do with AAudio, which is why moving AAudio out of process never helped.
+ *
+ * Fix = do what winepulse.drv does: delegate MIDI to winealsa.drv, which has a
+ * real blocking implementation. If winealsa fails to load, mmdevapi leaves
+ * midi_driver zeroed and DriverProc returns early - no thread, no spin. Safe
+ * either way. */
+static NTSTATUS unix_midi_get_driver(void *args)
+{
+    static const WCHAR driver[] = {'a','l','s','a',0};
+
+    memcpy(args, driver, sizeof(driver));
+    return STATUS_SUCCESS;
+}
+
+/* Defence in depth: if DirectAudio ever does end up as the MIDI driver anyway,
+ * exit the notify loop on the first iteration instead of spinning forever. */
+static NTSTATUS unix_midi_notify_wait(void *args)
+{
+    struct midi_notify_wait_params *params = args;
+
+    if (params->quit) *params->quit = TRUE;
+    if (params->notify) params->notify->send_notify = FALSE;
+    return STATUS_SUCCESS;
+}
+
+/* We provide no MIDI backend, but mmdevapi's midMessage/modMessage leave the
+ * notify_context on the stack UNINITIALISED and fire notify_client() whenever
+ * notify->send_notify is non-zero. A plain not-implemented stub never clears it,
+ * so we would deliver a bogus DriverCallback (garbage msg/params) into the guest
+ * during its legacy-winmm probe - which winealsa/winepulse never do because
+ * their handlers always set send_notify = FALSE. Mirror that here. */
+static NTSTATUS unix_midi_out_message(void *args)
+{
+    struct midi_out_message_params *params = args;
+    if (params->notify) params->notify->send_notify = FALSE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_midi_in_message(void *args)
+{
+    struct midi_in_message_params *params = args;
+    if (params->notify) params->notify->send_notify = FALSE;
+    return STATUS_SUCCESS;
+}
+
+static struct directaudio_stream *handle_get_stream(stream_handle h)
+{
+    return (struct directaudio_stream *)(UINT_PTR)h;
+}
+
+/* copied from kernelbase */
+static int muldiv(int a, int b, int c)
+{
+    LONGLONG ret;
+
+    if (!c) return -1;
+
+    if (c < 0)
+    {
+        a = -a;
+        c = -c;
+    }
+
+    if ((a < 0 && b < 0) || (a >= 0 && b >= 0))
+        ret = (((LONGLONG)a * b) + (c / 2)) / c;
+    else
+        ret = (((LONGLONG)a * b) - (c / 2)) / c;
+
+    if (ret > 2147483647 || ret < -2147483647) return -1;
+    return ret;
+}
+
+static WAVEFORMATEX *clone_format(const WAVEFORMATEX *fmt)
+{
+    WAVEFORMATEX *ret;
+    size_t size;
+
+    if (fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE)
+        size = sizeof(WAVEFORMATEXTENSIBLE);
+    else
+        size = sizeof(WAVEFORMATEX);
+
+    ret = malloc(size);
+    if (!ret) return NULL;
+
+    memcpy(ret, fmt, size);
+    ret->cbSize = size - sizeof(WAVEFORMATEX);
+    return ret;
+}
+
+static void silence_buffer(struct directaudio_stream *stream, BYTE *buffer, UINT32 frames)
+{
+    WAVEFORMATEXTENSIBLE *fmtex = (WAVEFORMATEXTENSIBLE *)stream->fmt;
+    if ((stream->fmt->wFormatTag == WAVE_FORMAT_PCM ||
+         (stream->fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+          IsEqualGUID(&fmtex->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM))) &&
+        stream->fmt->wBitsPerSample == 8)
+        memset(buffer, 128, frames * stream->fmt->nBlockAlign);
+    else
+        memset(buffer, 0, frames * stream->fmt->nBlockAlign);
+}
+
+static aaudio_format_t fmt_to_aaudio(const WAVEFORMATEX *fmt)
+{
+    const WAVEFORMATEXTENSIBLE *fex = (const WAVEFORMATEXTENSIBLE *)fmt;
+    BOOL is_float = fmt->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+        (fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+         IsEqualGUID(&fex->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT));
+    BOOL is_pcm = fmt->wFormatTag == WAVE_FORMAT_PCM ||
+        (fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+         IsEqualGUID(&fex->SubFormat, &KSDATAFORMAT_SUBTYPE_PCM));
+
+    if (is_float && fmt->wBitsPerSample == 32) return AAUDIO_FORMAT_PCM_FLOAT;
+    if (is_pcm && fmt->wBitsPerSample == 16) return AAUDIO_FORMAT_PCM_I16;
+    if (is_pcm && fmt->wBitsPerSample == 32) return AAUDIO_FORMAT_PCM_I32;
+    return AAUDIO_FORMAT_UNSPECIFIED;
+}
+
+/* ---- in-process software mixer -------------------------------------------
+ * DirectAudio opens exactly ONE AAudio output stream for the whole process and
+ * sums every guest render stream ("voice") into it, instead of one AAudio stream
+ * per guest stream. Many concurrent AAudio streams, each fed by its own callback
+ * under box64/FEX load, drift and underrun independently and phase at
+ * AudioFlinger - heard as choppy/echo on multi-stream games (DiRT Showdown opens
+ * 5). One mixed output = one callback and one buffer to keep full, with the final
+ * hardware mix still done by AudioFlinger. This is what pulse/alsa get from their
+ * daemon's mixer, but done in-process here with no daemon and no IPC.
+ * Output is fixed 48 kHz / float / stereo (our advertised shared mix format);
+ * each voice is format-converted, channel down/up-mixed to stereo, and linearly
+ * resampled if its rate differs, as it is summed in. */
+
+#define MIX_OUT_RATE     48000
+#define MIX_OUT_CHANNELS 2
+#define MIX_MAX_VOICES   64
+
+/* Where the output limiter starts compressing. High enough that normal material
+ * never reaches it, low enough to have room to bend before full scale. */
+#define DA_KNEE 0.75f
+
+/* Shipping defaults, used when the host sets no buffer config at all - which is
+ * the normal case for a host that bundles this driver without wiring the env up.
+ *
+ * 12 ms is the highest sustained floor observed across the 7-game sweep: the
+ * smallest buffer that NO tested title had to grow away from, so a fresh launch
+ * neither crackles nor runs adaptive on its first loading screen. On the
+ * reference device that reads as 33 ms total (AudioFlinger adds 21 ms), against
+ * 83 ms for the 62.5 ms default this replaces and ~121 ms for PulseAudio.
+ *
+ * NOT one burst (4 ms / 25 ms total): five of the seven sweep titles held it,
+ * but God of War needed 8 ms and DiRT 3 needed 12 ms, and DiRT 3 took 2568
+ * underruns during loading before settling. Those are audible. A default has to
+ * be safe on the worst device in a fleet we have exactly one sample of - the
+ * reference burst is 192 frames and hardware with a 256-frame burst cannot do
+ * 4 ms at all. One burst stays the right OPT-IN for a tuned title.
+ *
+ * The ceiling replaces a 250 ms capacity request. Nothing in the sweep sustained
+ * more than 12 ms, so 250 ms was a runaway rather than a safety net. */
+#define DA_DEFAULT_MS      12
+#define DA_DEFAULT_MAX_MS 100
+
+struct directaudio_mixer
+{
+    pthread_mutex_t lock;
+    AAudioStream *aq;
+    struct directaudio_stream *voices[MIX_MAX_VOICES];
+    int nvoices;
+    aaudio_performance_mode_t perf;
+    aaudio_sharing_mode_t share;
+    BOOL adaptive;
+    BOOL decay;
+    int32_t max_buf_frames, target_buf_frames;
+    int32_t target_ms;    /* ms form of the target, rounded to a burst at open */
+    int32_t last_xrun;
+    int reopen_running;   /* a reopen worker thread is active */
+    int reopen_redo;      /* a reopen was requested; consumed by the worker */
+    unsigned int cb_count;
+
+    /* --- data-callback watchdog (see mixer_watchdog) --------------------------
+     * A rapid background/foreground cycle starves the in-process AAudio stream;
+     * AudioTrack then hits its "disabled due to previous underrun" path and the
+     * data callback NEVER resumes. No error callback fires for this, so the
+     * error-driven reopen above cannot see it and audio is lost until relaunch.
+     * These fields let the (still-ticking) timer loop notice a dead callback. */
+    UINT64 last_cb_ns;        /* monotonic ns of the most recent data callback */
+    UINT64 wd_last_tick_ns;   /* monotonic ns of the previous watchdog tick */
+    unsigned int wd_last_cb;  /* cb_count observed at the previous tick */
+
+    /* --- adaptive decay (see mixer_cb) ---------------------------------------
+     * Adaptive growth is one-way: the buffer climbs a burst per xrun and nothing
+     * ever gives it back, so a single rough patch - a loading screen, a shader
+     * compile, a route change - taxes latency for the rest of the session. These
+     * fields let a quiet stream walk back down to where it started. */
+    int32_t base_buf_frames;  /* size right after open: decay never goes below it */
+    int32_t decay_floor;      /* lowest size that proved sustainable, 0 = none yet */
+    UINT64 last_xrun_ns;      /* monotonic ns of the most recent xrun climb */
+    UINT64 last_decay_ns;     /* monotonic ns of the most recent step down; 0 = none yet */
+    unsigned int decay_backoff; /* quiet-period multiplier, doubles when punished */
+};
+
+/* Event-level logging, ALWAYS ON. Only fires when the audio output is rebuilt -
+ * a handful of lines per session - so it is not telemetry and does not belong
+ * behind the diagnostics build. It is what makes a field report actionable:
+ * "audio glitched" becomes "the driver rebuilt the stream, and here is why".
+ * Per-callback heartbeats and per-call tracing stay in the diagnostics build. */
+#define DA_EVENT(...) __android_log_print(ANDROID_LOG_INFO, "DirectAudio", __VA_ARGS__)
+
+#define DA_FREEZE_GAP_NS  500000000ull   /* tick gap this large => guest was suspended */
+#define DA_CB_STALL_NS   1000000000ull   /* callback silent this long => stream is dead */
+
+/* Decay pacing. Slow on purpose: every step down is a bet that the load which
+ * forced the buffer up is gone, and a lost bet costs an audible click. */
+#define DA_DECAY_QUIET_NS  10000000000ull /* clean for this long => try one step down */
+#define DA_DECAY_PUNISH_NS  5000000000ull /* xrun this soon after a step => stepped too far */
+#define DA_DECAY_MAX_BACKOFF 32           /* caps the retry interval at ~5 min */
+
+/* Process-wide tuning, read once at attach (see read_global_config_from_env).
+ * These start at the constants above; every one of those numbers is a reasoned
+ * guess rather than a measurement, and being able to move them on a device
+ * turns a tuning question into one session instead of a build-test cycle. */
+static UINT64 da_stall_ns  = DA_CB_STALL_NS;
+static UINT64 da_quiet_ns  = DA_DECAY_QUIET_NS;
+static UINT64 da_punish_ns = DA_DECAY_PUNISH_NS;
+static unsigned int da_max_backoff = DA_DECAY_MAX_BACKOFF;
+static BOOL da_watchdog = TRUE;
+static int da_log = 0;
+
+/* --- live runtime config ("mailbox") --------------------------------------
+ * BANNER_AUDIO_DIRECT_RUNTIME names a flat KEY=VALUE file the host app rewrites
+ * when the in-game cog changes a setting. A low-frequency watcher thread (1 s,
+ * OFF the audio path) stats it and, on change, re-reads and rebuilds the stream
+ * via the existing reopen worker - so a setting change lands WITHOUT relaunch.
+ * Unset = feature off (env-at-launch behaviour, byte-identical to before). */
+static char   da_rt_path[512];       /* runtime file path; "" = disabled       */
+static UINT64 da_rt_mtime;           /* last-seen mtime (ns), 0 = never read    */
+static int    da_rt_ms    = -1;      /* live buffer override (ms), -1 = unset   */
+static int    da_rt_maxms = -1;      /* live growth ceiling (ms),  -1 = unset   */
+static int    da_rt_perf  = -1;      /* live perf mode 0/1/2,      -1 = unset   */
+
+/* Verbose logging in a RELEASE build. The diagnostics build stays the place for
+ * per-call tracing, but a field report should not require shipping someone a
+ * special binary to find out what the buffer is doing. Off unless asked. */
+#define DA_LOG(...) do { if (da_log) DA_EVENT(__VA_ARGS__); } while (0)
+
+static inline UINT64 da_now_ns(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (UINT64)ts.tv_sec * 1000000000ull + (UINT64)ts.tv_nsec;
+}
+
+static struct directaudio_mixer g_mixer = { PTHREAD_MUTEX_INITIALIZER };
+
+/* one source sample of channel c -> float in [-1,1] */
+static inline float samp_to_float(const struct directaudio_stream *v, const BYTE *frame, int c)
+{
+    if (v->is_float)
+        return ((const float *)frame)[c];
+
+    switch (v->fmt->wBitsPerSample)
+    {
+    case 16: return ((const INT16 *)frame)[c] * (1.0f / 32768.0f);
+    case 32: return ((const INT32 *)frame)[c] * (1.0f / 2147483648.0f);
+    case 8:  return (((const BYTE *)frame)[c] - 128) * (1.0f / 128.0f);
+    case 24:
+    {
+        const BYTE *p = frame + c * 3;
+        INT32 s = p[0] | (p[1] << 8) | (p[2] << 16);
+        if (s & 0x800000) s |= ~0xffffff;
+        return s * (1.0f / 8388608.0f);
+    }
+    default: return 0.0f;
+    }
+}
+
+/* down/up-mix an N-channel source frame to stereo. WAVEFORMATEX channel order:
+ * mono; L R; 5.1 = FL FR C LFE BL BR; 7.1 = FL FR C LFE BL BR SL SR. */
+static inline void downmix_stereo(int ch, const float *s, float *L, float *R)
+{
+    const float c = 0.7071f;
+    switch (ch)
+    {
+    case 1:  *L = *R = s[0]; return;
+    case 2:  *L = s[0]; *R = s[1]; return;
+    case 3:  *L = s[0]; *R = s[1]; return;                    /* 2.1: drop LFE */
+    case 4:  *L = s[0] + c*s[2]; *R = s[1] + c*s[3]; return;  /* quad */
+    case 6:  *L = s[0] + c*s[2] + c*s[4];                     /* 5.1 */
+             *R = s[1] + c*s[2] + c*s[5]; return;
+    case 8:  *L = s[0] + c*s[2] + c*s[4] + c*s[6];            /* 7.1 */
+             *R = s[1] + c*s[2] + c*s[5] + c*s[7]; return;
+    default: *L = s[0]; *R = (ch > 1) ? s[1] : s[0]; return;
+    }
+}
+
+/* read the voice frame at (lcl_offs+idx), down-mixed to stereo float */
+static inline void voice_frame_stereo(struct directaudio_stream *v, UINT32 idx,
+                                      float *L, float *R)
+{
+    UINT32 pos = (v->lcl_offs_frames + idx) % v->bufsize_frames;
+    const BYTE *frame = v->local_buffer + (size_t)pos * v->fmt->nBlockAlign;
+    int ch = v->fmt->nChannels, c;
+    float s[8];
+
+    if (ch > 8) ch = 8;
+    for (c = 0; c < ch; c++)
+    {
+        float val = samp_to_float(v, frame, c);
+        if (v->vols_active) val *= v->vols[c < 8 ? c : 7];
+        s[c] = val;
+    }
+    downmix_stereo(ch, s, L, R);
+}
+
+/* sum one voice into the stereo float mix buffer (out holds numFrames*2 floats) */
+static void mix_voice(struct directaudio_stream *v, float *out, int32_t numFrames)
+{
+    pthread_mutex_lock(&v->lock);
+
+    if (!v->playing || v->held_frames == 0)
+    {
+        pthread_mutex_unlock(&v->lock);
+        return;
+    }
+
+    if (v->aa_rate == MIX_OUT_RATE)
+    {
+        UINT32 n = min((UINT32)numFrames, v->held_frames), f;
+        for (f = 0; f < n; f++)
+        {
+            float L, R;
+            voice_frame_stereo(v, f, &L, &R);
+            out[2*f]     += L;
+            out[2*f + 1] += R;
+        }
+        v->lcl_offs_frames = (v->lcl_offs_frames + n) % v->bufsize_frames;
+        v->held_frames -= n;
+    }
+    else /* linear resample voice rate -> 48 kHz */
+    {
+        double ratio = (double)v->aa_rate / MIX_OUT_RATE;
+        int32_t f, consumed;
+        for (f = 0; f < numFrames; f++)
+        {
+            UINT32 i0 = (UINT32)v->rs_pos;
+            float L0, R0, L1, R1;
+            double frac;
+
+            if (i0 + 1 >= v->held_frames) break;   /* ran dry - remaining stays silent */
+            voice_frame_stereo(v, i0, &L0, &R0);
+            voice_frame_stereo(v, i0 + 1, &L1, &R1);
+            frac = v->rs_pos - i0;
+            out[2*f]     += (float)(L0 + (L1 - L0) * frac);
+            out[2*f + 1] += (float)(R0 + (R1 - R0) * frac);
+            v->rs_pos += ratio;
+        }
+        consumed = (int32_t)v->rs_pos;
+        if (consumed > (int32_t)v->held_frames) consumed = v->held_frames;
+        if (consumed > 0)
+        {
+            v->lcl_offs_frames = (v->lcl_offs_frames + consumed) % v->bufsize_frames;
+            v->held_frames -= consumed;
+            v->rs_pos -= consumed;
+        }
+        if (v->held_frames == 0) v->rs_pos = 0.0;  /* resync fraction on underrun */
+    }
+
+    pthread_mutex_unlock(&v->lock);
+}
+
+/* AAudio pulls from the single mixed output on its high-priority audio thread. */
+static aaudio_data_callback_result_t mixer_cb(AAudioStream *aq, void *user,
+                                              void *audioData, int32_t numFrames)
+{
+    struct directaudio_mixer *mx = user;
+    float *out = audioData;
+    int32_t i, n2 = numFrames * MIX_OUT_CHANNELS;
+    UINT64 now;
+
+    memset(out, 0, (size_t)n2 * sizeof(float));
+
+    pthread_mutex_lock(&mx->lock);
+    for (i = 0; i < mx->nvoices; i++)
+        mix_voice(mx->voices[i], out, numFrames);
+    pthread_mutex_unlock(&mx->lock);
+
+    /* Soft knee instead of a hard clip. Two things push the mix past full scale:
+     * several voices summing, and the multichannel fold in downmix_stereo(), which
+     * is a correct ITU-style fold (centre and surrounds at -3 dB) but carries NO
+     * headroom - a 5.1 source peaks at 1 + 0.7071 + 0.7071 = 2.41x. Hard clipping
+     * that is the audible failure: flat tops, and the harmonics they generate.
+     *
+     * Below DA_KNEE the signal is untouched, so ordinary material is bit-identical
+     * and nothing gets quieter - the alternative, scaling every fold down by 2.41x,
+     * would cost 7.6 dB on all surround content to protect a peak it rarely hits.
+     * Above the knee it compresses along u/(1+u), which is C1-continuous at the
+     * knee and asymptotic to 1.0, so it can never wrap or overshoot. Two multiplies
+     * and a divide on the samples that need it, none on the ones that do not. */
+    for (i = 0; i < n2; i++)
+    {
+        float x = out[i];
+        float a = x < 0.0f ? -x : x;
+
+        if (a > DA_KNEE)
+        {
+            float u = (a - DA_KNEE) / (1.0f - DA_KNEE);
+            float y = DA_KNEE + (1.0f - DA_KNEE) * (u / (1.0f + u));
+            out[i] = x < 0.0f ? -y : y;
+        }
+    }
+
+    /* Everything past this point is bookkeeping on state the MIXER owns - liveness,
+     * xrun baseline, buffer sizing - and only the live stream may touch it. A stream
+     * that is no longer mx->aq still gets a callback or two: the outgoing one during
+     * a rebuild (it is destroyed after the new one is promoted) and the incoming one
+     * before promotion. Letting those through had the dying stream resize ITSELF and
+     * stamp the shared timers - device-proven 2026-08-14, where every rebuild logged
+     * "grow: 192 -> 384" from the old callback thread while the new stream's own
+     * heartbeats reported buf=192, and the new stream's first decay was pushed out by
+     * the quiet period. mixer_error_cb has carried this same guard from the start.
+     *
+     * Mixing above is deliberately NOT skipped: the outgoing stream keeps being fed
+     * until it is closed, so the handover stays silent.
+     *
+     * mx->aq is NULL for the very first open (it is assigned after requestStart), so
+     * a null current stream means "nothing promoted yet" and must not skip. */
+    {
+        AAudioStream *cur = __atomic_load_n(&mx->aq, __ATOMIC_SEQ_CST);
+
+        if (cur && aq != cur)
+            return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    }
+
+    /* Liveness for the watchdog. This MUST be unconditional - it used to be
+     * folded into the TRACE_ON() test below, so with tracing off it never
+     * advanced and a dead callback was indistinguishable from a live one. */
+    now = da_now_ns();
+    {
+        UINT64 prev = __atomic_exchange_n(&mx->last_cb_ns, now, __ATOMIC_SEQ_CST);
+
+        /* Coming back from a suspension (app backgrounded => guest SIGSTOPped),
+         * the xrun counter has jumped by however long we were frozen. Those are
+         * not a timing signal, so re-baseline instead of growing: otherwise a
+         * few background/foreground cycles inflate the buffer permanently
+         * (observed: 192 -> 5568 frames, 4 ms -> 116 ms, and growth never shrinks). */
+        if (prev && now - prev > DA_FREEZE_GAP_NS)
+        {
+            mx->last_xrun = AAudioStream_getXRunCount(aq);
+            /* The frozen wall-clock is not evidence of calm - no audio ran during
+             * it - so restart the quiet timer and make the guest earn a step down
+             * again. Only last_xrun_ns: writing last_decay_ns here would forge a
+             * decay step that never happened and hand the next few underruns to
+             * the punishment branch below. */
+            mx->last_xrun_ns = now;
+        }
+    }
+    __atomic_add_fetch(&mx->cb_count, 1, __ATOMIC_SEQ_CST);
+
+    /* Adaptive: grow the single output's buffer by a burst on each xrun climb,
+     * capped at max_buf_frames (or capacity). One output = one xrun source. */
+    if (mx->adaptive)
+    {
+        int32_t xruns = AAudioStream_getXRunCount(aq);
+        int32_t burst = AAudioStream_getFramesPerBurst(aq);
+        int32_t cur = AAudioStream_getBufferSizeInFrames(aq);
+
+        if (xruns > mx->last_xrun)
+        {
+            int32_t cap = AAudioStream_getBufferCapacityInFrames(aq);
+            int32_t want = cur + (burst > 0 ? burst : 1);
+
+            if (mx->max_buf_frames > 0 && want > mx->max_buf_frames) want = mx->max_buf_frames;
+            if (want > cap) want = cap;
+            if (want > cur) AAudioStream_setBufferSizeInFrames(aq, want);
+
+            /* An xrun landing right after a step down says that step went below
+             * what this title can hold here. Remember the level we had to come
+             * back up to and stop trying to go under it, so a game that genuinely
+             * needs headroom settles instead of clicking every quiet period. The
+             * attribution window is deliberately short; a mis-attributed spike
+             * only costs some reclaim, never correctness. */
+            if (mx->decay && mx->last_decay_ns &&
+                now - mx->last_decay_ns < da_punish_ns)
+            {
+                if (want > mx->decay_floor)
+                {
+                    mx->decay_floor = want;
+                    DA_EVENT("decay floor: %d frames (%d ms) - not probing below it",
+                             want, want * 1000 / MIX_OUT_RATE);
+                }
+                if (mx->decay_backoff < da_max_backoff) mx->decay_backoff *= 2;
+            }
+            else DA_LOG("grow: buf %d -> %d frames (xruns %d)", cur, want, xruns);
+            mx->last_xrun = xruns;
+            mx->last_xrun_ns = now;
+        }
+        else if (mx->decay && burst > 0)
+        {
+            /* Nothing has underrun for a while and the buffer sits above where it
+             * started, so give a burst back and see if it holds. The floor is the
+             * open-time size (which honours BANNER_AUDIO_DIRECT_BF), raised by any
+             * level already proven unsustainable: decay only ever undoes growth,
+             * it never probes below the latency the launch config asked for. */
+            UINT64 quiet = da_quiet_ns * mx->decay_backoff;
+            int32_t floor = mx->base_buf_frames;
+
+            if (mx->decay_floor > floor) floor = mx->decay_floor;
+            if (cur > floor && mx->last_xrun_ns &&
+                now - mx->last_xrun_ns > quiet &&
+                (!mx->last_decay_ns || now - mx->last_decay_ns > quiet))
+            {
+                int32_t want = cur - burst;
+
+                if (want < floor) want = floor;
+                if (want < cur)
+                {
+                    AAudioStream_setBufferSizeInFrames(aq, want);
+                    mx->last_decay_ns = now;
+                    TRACE("decay: buf %d -> %d frames (floor %d)\n", cur, want, floor);
+                    DA_LOG("decay: buf %d -> %d frames (floor %d)", cur, want, floor);
+                }
+            }
+        }
+    }
+
+    if (TRACE_ON(directaudio) && !(mx->cb_count % 1000))
+        TRACE("mix hb: cb=%u voices=%d buf=%d cap=%d xruns=%d\n", mx->cb_count, mx->nvoices,
+              AAudioStream_getBufferSizeInFrames(aq), AAudioStream_getBufferCapacityInFrames(aq),
+              AAudioStream_getXRunCount(aq));
+
+    if (da_log && !(mx->cb_count % 1000))
+        DA_EVENT("hb: cb=%u voices=%d buf=%d cap=%d xruns=%d", mx->cb_count, mx->nvoices,
+                 AAudioStream_getBufferSizeInFrames(aq), AAudioStream_getBufferCapacityInFrames(aq),
+                 AAudioStream_getXRunCount(aq));
+
+    return AAUDIO_CALLBACK_RESULT_CONTINUE;
+}
+
+static void *mixer_reopen_thread(void *user);
+
+/* Ask for the output to be rebuilt. Safe from any thread, including an AAudio
+ * callback: the work always runs on a detached worker, never inline. A request
+ * that lands while a reopen is in flight is NOT lost - reopen_redo stays set and
+ * the running worker loops again (see mixer_reopen_thread). */
+static void mixer_request_reopen(struct directaudio_mixer *mx, const char *why)
+{
+    int expected = 0;
+
+    __atomic_store_n(&mx->reopen_redo, 1, __ATOMIC_SEQ_CST);
+    if (__atomic_compare_exchange_n(&mx->reopen_running, &expected, 1, 0,
+                                    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    {
+        pthread_t th;
+        WARN("%s - reopening mixer output\n", why);
+        DA_EVENT("reopen: %s", why);
+        if (pthread_create(&th, NULL, mixer_reopen_thread, mx))
+            __atomic_store_n(&mx->reopen_running, 0, __ATOMIC_SEQ_CST);
+        else
+            pthread_detach(th);
+    }
+}
+
+static void mixer_error_cb(AAudioStream *aq, void *user, aaudio_result_t error)
+{
+    struct directaudio_mixer *mx = user;
+
+    /* Only the live, promoted stream matters. Ignore errors from a stream that
+     * is not current: the OLD stream while it is torn down during a reopen, and
+     * the NEW stream during its own startup (it is not swapped into mx->aq until
+     * it has started). Without this guard, broadening the trigger set below made
+     * each reopen's own teardown/startup fire further reopens -> churn that, via
+     * a dropped in-flight request, ended in silence after a few route changes. */
+    if (aq != __atomic_load_n(&mx->aq, __ATOMIC_SEQ_CST))
+        return;
+
+    /* Reopen on the errors that leave the stream unusable: DISCONNECTED is the
+     * route change (headphone/BT/HDMI); INVALID_STATE/INVALID_HANDLE/TIMEOUT are
+     * the transient-death codes GameNative's module-aaudio-sink.c also recovers
+     * from. */
+    if (error != AAUDIO_ERROR_DISCONNECTED &&
+        error != AAUDIO_ERROR_INVALID_STATE &&
+        error != AAUDIO_ERROR_INVALID_HANDLE &&
+        error != AAUDIO_ERROR_TIMEOUT)
+        return;
+
+    mixer_request_reopen(mx, "stream error");
+}
+
+/* Overlay any live runtime overrides onto the mixer's config. Called at the top
+ * of every open (first open AND each reopen), so a mailbox change takes effect
+ * the next time the stream is built. An ms buffer wins over a frame count (as it
+ * does for the launch env), so clear target_buf_frames when ms is set. */
+static void da_apply_runtime_overrides(struct directaudio_mixer *mx)
+{
+    if (da_rt_ms   >= 0) { mx->target_ms = da_rt_ms; mx->target_buf_frames = 0; }
+    if (da_rt_maxms > 0)   mx->max_buf_frames = da_rt_maxms * MIX_OUT_RATE / 1000;
+    /* PERF is 0/1/2 in the file but an AAudio ENUM (NONE=10 / POWER_SAVING=11 /
+     * LOW_LATENCY=12) on the stream - map it exactly as read_config_from_env does.
+     * Setting the raw 0/1/2 opens the stream with an INVALID performance mode, which
+     * stalls the data callback: DEVICE-PROVEN 2026-08-14 a `PERF=0` mailbox write set
+     * perf=0 and every reopen after it stalled -> watchdog reopen loop -> dead audio. */
+    if      (da_rt_perf == 0) mx->perf = AAUDIO_PERFORMANCE_MODE_NONE;
+    else if (da_rt_perf == 1) mx->perf = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+    else if (da_rt_perf == 2) mx->perf = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
+    /* da_rt_perf == -1: unset, keep the launch perf */
+}
+
+/* Parse the KEY=VALUE mailbox file into the override globals. Values <=0 (or out
+ * of range for perf) clear the override, so removing a line reverts to launch
+ * config. Tiny + only run when the file actually changed. */
+static void da_read_runtime_file(void)
+{
+    FILE *f;
+    char line[128];
+
+    if (!da_rt_path[0] || !(f = fopen(da_rt_path, "r"))) return;
+    /* Reset on every successful read so a key ABSENT from the file reverts to the
+     * launch config, rather than a stale override persisting (e.g. a later MS-only
+     * write must drop a previous PERF, not keep applying it on every reopen). */
+    da_rt_ms = da_rt_maxms = da_rt_perf = -1;
+    while (fgets(line, sizeof(line), f))
+    {
+        char *eq = strchr(line, '=');
+        int v;
+
+        if (!eq) continue;
+        *eq = 0;
+        v = atoi(eq + 1);
+        if      (!strcmp(line, "MS"))    da_rt_ms    = v > 0 ? v : -1;
+        else if (!strcmp(line, "MAXMS")) da_rt_maxms = v > 0 ? v : -1;
+        else if (!strcmp(line, "PERF"))  da_rt_perf  = (v >= 0 && v <= 2) ? v : -1;
+    }
+    fclose(f);
+}
+
+/* The mailbox watcher: a lazy 1 s poll, OFF the real-time audio path. 99.9% of
+ * ticks are a single stat() that finds nothing changed; only an actual edit
+ * triggers a re-read + a live reopen. This is the whole cost of live control. */
+static void *da_config_watch_thread(void *unused)
+{
+    struct timespec iv = { 1, 0 };
+
+    (void)unused;
+    for (;;)
+    {
+        struct stat st;
+        UINT64 m;
+
+        nanosleep(&iv, NULL);
+        if (stat(da_rt_path, &st) != 0) continue;
+        m = (UINT64)st.st_mtim.tv_sec * 1000000000ull + (UINT64)st.st_mtim.tv_nsec;
+        if (m == da_rt_mtime) continue;          /* unchanged - just the cheap stat */
+        da_rt_mtime = m;
+
+        da_read_runtime_file();
+        DA_EVENT("runtime: reload ms=%d maxms=%d perf=%d", da_rt_ms, da_rt_maxms, da_rt_perf);
+
+        /* Live-apply only if a stream is up; otherwise the overrides land at the
+         * next open. The reopen worker rebuilds off the audio thread (~77 ms,
+         * inaudible), reading the fields da_apply_runtime_overrides just set. */
+        if (__atomic_load_n(&g_mixer.aq, __ATOMIC_SEQ_CST))
+            mixer_request_reopen(&g_mixer, "runtime config change");
+    }
+    return NULL;
+}
+
+/* open the one shared AAudio output: 48 kHz / float / stereo */
+static aaudio_result_t mixer_open_stream(struct directaudio_mixer *mx, AAudioStream **out)
+{
+    AAudioStreamBuilder *builder = NULL;
+    AAudioStream *aq = NULL;
+    aaudio_result_t r;
+
+    da_apply_runtime_overrides(mx);   /* live mailbox overrides win over launch config */
+    r = AAudio_createStreamBuilder(&builder);
+    if (r != AAUDIO_OK || !builder)
+        return r != AAUDIO_OK ? r : AAUDIO_ERROR_NO_MEMORY;
+
+    AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
+    /* SHARED unless asked otherwise. EXCLUSIVE can reach a lower floor on devices
+     * that grant it, and AAudio silently falls back to SHARED where it cannot -
+     * which is exactly why the open log below reports what was actually granted
+     * rather than what was requested. */
+    AAudioStreamBuilder_setSharingMode(builder, mx->share);
+    AAudioStreamBuilder_setPerformanceMode(builder, mx->perf);
+    /* API 28+ only: the weak ref (declared near the AAudio.h include) stays NULL
+     * on older libaaudio so the .so still loads; tag output as game audio so
+     * AAudio prefers the low-latency route. */
+    if (AAudioStreamBuilder_setUsage && android_get_device_api_level() >= 28)
+        AAudioStreamBuilder_setUsage(builder, AAUDIO_USAGE_GAME);
+    AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_FLOAT);
+    AAudioStreamBuilder_setChannelCount(builder, MIX_OUT_CHANNELS);
+    AAudioStreamBuilder_setSampleRate(builder, MIX_OUT_RATE);
+    AAudioStreamBuilder_setDataCallback(builder, mixer_cb, mx);
+    AAudioStreamBuilder_setErrorCallback(builder, mixer_error_cb, mx);
+
+    /* Capacity headroom so adaptive has room to grow (builder-time only). One
+     * output = far fewer xruns than N per-stream outputs, so a moderate initial
+     * buffer stays low-latency. BANNER_AUDIO_DIRECT_MBF/_BF override. */
+    {
+        int32_t cap_req = mx->max_buf_frames > 0 ? mx->max_buf_frames
+                                                 : DA_DEFAULT_MAX_MS * MIX_OUT_RATE / 1000;
+        if (cap_req > 0)
+            AAudioStreamBuilder_setBufferCapacityInFrames(builder, cap_req);
+    }
+
+    r = AAudioStreamBuilder_openStream(builder, &aq);
+    AAudioStreamBuilder_delete(builder);
+    if (r != AAUDIO_OK || !aq)
+        return r != AAUDIO_OK ? r : AAUDIO_ERROR_INTERNAL;
+
+    {
+        int32_t cap = AAudioStream_getBufferCapacityInFrames(aq);
+        int32_t burst = AAudioStream_getFramesPerBurst(aq);
+        int32_t want;
+
+        /* An explicit frame count wins only when no ms value was given; the ms form
+         * is what a person sets by hand, the frame form is what a host preset
+         * writes. With neither, fall back to the shipping default - also in ms, so
+         * it lands on a burst boundary on hardware whose burst is not ours. */
+        if (mx->target_buf_frames > 0 && mx->target_ms <= 0)
+            want = mx->target_buf_frames;
+        else
+        {
+            /* A latency in ms only becomes a real size once the stream is open and
+             * the device's burst is known: AAudio serves whole bursts, so anything
+             * else is rounded anyway. Round UP to a burst multiple (never below one
+             * burst) so the request is a size the stream can actually hold - asking
+             * for 5 ms on a 4 ms-burst device means 8 ms, and it is better to say so
+             * in the log than to have decay chase a size that does not exist. */
+            int32_t ms = mx->target_ms > 0 ? mx->target_ms : DA_DEFAULT_MS;
+
+            want = ms * MIX_OUT_RATE / 1000;
+            if (burst > 0)
+            {
+                int32_t n = (want + burst - 1) / burst;
+                want = (n < 1 ? 1 : n) * burst;
+            }
+        }
+
+        if (want > cap) want = cap;
+        if (want > 0)
+            AAudioStream_setBufferSizeInFrames(aq, want);
+    }
+    mx->last_xrun = AAudioStream_getXRunCount(aq);
+
+    /* Decay baseline for THIS stream. Read back rather than reusing `want`: AAudio
+     * rounds the request to a burst multiple, and the floor has to be a size the
+     * stream can actually be set to or decay would chase a value it never reaches.
+     * A rebuild (route change, watchdog) re-runs this, which is why a recovered
+     * stream starts low again instead of inheriting the old stream's growth. */
+    mx->base_buf_frames = AAudioStream_getBufferSizeInFrames(aq);
+    mx->decay_floor = 0;
+    mx->decay_backoff = 1;
+    mx->last_xrun_ns = da_now_ns();
+    /* 0, NOT the open time. Seeding this with "now" made every underrun in the
+     * first DA_DECAY_PUNISH_NS look like the aftermath of a step down that had
+     * never been taken - and a title's loading screen underruns land in exactly
+     * that window. DEVICE-PROVEN 2026-08-14: DiRT 3 logged two "decay floor"
+     * lines 0.13 s and 3 s after open, pinning the floor at its startup buffer
+     * and disabling decay for the whole session. */
+    mx->last_decay_ns = 0;
+
+    /* One line per stream open, so a user who set a latency by hand can confirm
+     * what the device actually granted instead of guessing. The buffer is the
+     * part we control; AudioFlinger adds its own output latency on top (~21 ms on
+     * the reference device), which is why this says "buffer" and not "latency". */
+    /* sharing is req/got, not just got: AAudio grants SHARED when it cannot honour
+     * an EXCLUSIVE request and reports no error, so a lone "got" cannot tell a
+     * refusal from a request that was never made. (AAudio enum: EXCLUSIVE=0,
+     * SHARED=1.) Device-checked 2026-08-14: this device refuses EXCLUSIVE. */
+    DA_EVENT("open: buffer %d frames (%d ms) burst %d cap %d perf %d sharing req=%d got=%d"
+             " period %d ms - device adds its own output latency",
+             mx->base_buf_frames, mx->base_buf_frames * 1000 / MIX_OUT_RATE,
+             AAudioStream_getFramesPerBurst(aq), AAudioStream_getBufferCapacityInFrames(aq),
+             AAudioStream_getPerformanceMode(aq), mx->share, AAudioStream_getSharingMode(aq),
+             (int)(def_period / 10000));
+
+    r = AAudioStream_requestStart(aq);
+    if (r != AAUDIO_OK)
+    {
+        AAudioStream_close(aq);
+        return r;
+    }
+
+    TRACE("mixer open: 48000/float/2ch perf=%d burst=%d buf=%d cap=%d\n", mx->perf,
+          AAudioStream_getFramesPerBurst(aq), AAudioStream_getBufferSizeInFrames(aq),
+          AAudioStream_getBufferCapacityInFrames(aq));
+
+    __atomic_store_n(&mx->last_cb_ns, da_now_ns(), __ATOMIC_SEQ_CST);
+    mx->wd_last_tick_ns = 0;   /* re-baseline the watchdog against the new stream */
+
+    *out = aq;
+    return AAUDIO_OK;
+}
+
+static void *mixer_reopen_thread(void *user)
+{
+    struct directaudio_mixer *mx = user;
+
+    for (;;)
+    {
+        AAudioStream *old = NULL, *neu = NULL;
+        int expected = 0;
+
+        /* Consume the pending request BEFORE the work, so a request that arrives
+         * during this pass re-sets the flag and we loop again below. */
+        __atomic_store_n(&mx->reopen_redo, 0, __ATOMIC_SEQ_CST);
+
+        if (mixer_open_stream(mx, &neu) == AAUDIO_OK)
+        {
+            pthread_mutex_lock(&mx->lock);
+            old = mx->aq;
+            __atomic_store_n(&mx->aq, neu, __ATOMIC_SEQ_CST);
+            pthread_mutex_unlock(&mx->lock);
+        }
+        else
+            WARN("mixer reopen failed; keeping old stream\n");
+
+        /* close() blocks until the old stream's in-flight callback returns; do
+         * it outside the lock so that callback can drain. */
+        if (old)
+        {
+            AAudioStream_requestStop(old);
+            AAudioStream_close(old);
+            TRACE("reopened mixer output\n");
+        }
+
+        /* Another request during the work? Loop again (no lost wakeup). A short
+         * settle avoids a tight spin if a wedged route keeps killing the new
+         * stream immediately. */
+        if (__atomic_load_n(&mx->reopen_redo, __ATOMIC_SEQ_CST))
+        {
+            usleep(20000); /* 20 ms */
+            continue;
+        }
+
+        /* Nothing pending: release the worker slot, then close the clear/
+         * re-request race - a request that set reopen_redo after the check above
+         * but before we cleared reopen_running. Re-acquire and loop; otherwise a
+         * concurrent error_cb has already taken the slot and will run a worker. */
+        __atomic_store_n(&mx->reopen_running, 0, __ATOMIC_SEQ_CST);
+        if (!__atomic_load_n(&mx->reopen_redo, __ATOMIC_SEQ_CST))
+            break;
+        if (!__atomic_compare_exchange_n(&mx->reopen_running, &expected, 1, 0,
+                                         __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+            break;
+    }
+    return NULL;
+}
+
+/* open the shared output on the first voice, using that voice's env-derived config */
+static aaudio_result_t mixer_ensure_open(struct directaudio_mixer *mx,
+                                         const struct directaudio_stream *cfg)
+{
+    if (mx->aq)
+        return AAUDIO_OK;
+    mx->perf = cfg->aa_perf;
+    mx->share = cfg->aa_share;
+    mx->adaptive = cfg->adaptive;
+    mx->decay = cfg->decay;
+    mx->max_buf_frames = cfg->max_buf_frames;
+    mx->target_buf_frames = cfg->target_buf_frames;
+    mx->target_ms = cfg->target_ms;
+    /* The ceiling needs no burst rounding - it only clamps growth and sizes the
+     * capacity request, both of which happen in whole frames. */
+    if (cfg->max_ms > 0) mx->max_buf_frames = cfg->max_ms * MIX_OUT_RATE / 1000;
+    return mixer_open_stream(mx, &mx->aq);
+}
+
+static aaudio_result_t mixer_add_voice(struct directaudio_mixer *mx, struct directaudio_stream *v)
+{
+    aaudio_result_t r;
+
+    pthread_mutex_lock(&mx->lock);
+    r = mixer_ensure_open(mx, v);
+    if (r == AAUDIO_OK)
+    {
+        if (mx->nvoices < MIX_MAX_VOICES)
+        {
+            v->rs_pos = 0.0;
+            v->in_mixer = 1;
+            mx->voices[mx->nvoices++] = v;
+        }
+        else
+            r = AAUDIO_ERROR_NO_MEMORY;
+    }
+    pthread_mutex_unlock(&mx->lock);
+    return r;
+}
+
+static void mixer_remove_voice(struct directaudio_mixer *mx, struct directaudio_stream *v)
+{
+    int i;
+
+    pthread_mutex_lock(&mx->lock);
+    for (i = 0; i < mx->nvoices; i++)
+    {
+        if (mx->voices[i] == v)
+        {
+            mx->voices[i] = mx->voices[--mx->nvoices];
+            break;
+        }
+    }
+    v->in_mixer = 0;
+    pthread_mutex_unlock(&mx->lock);
+}
+
+static void read_config_from_env(struct directaudio_stream *stream)
+{
+    const char *e;
+
+    /* Engine-scoped keys per the app's NO-BLEED audio contract: the DirectAudio
+     * engine tag is DIRECT, so config arrives as BANNER_AUDIO_DIRECT_* in the
+     * container/shortcut env (perf is 0=NONE, 1=LOW_LATENCY, 2=POWER_SAVING).
+     * DEFAULT = LOW_LATENCY ("auto"): device finding is that under box64/FEX load
+     * the low-latency high-priority audio thread stays scheduled and crackle-free,
+     * while NONE runs a normal-priority thread the guest preempts -> choppy. So a
+     * game with no preset set gets the smooth path out of the box. (An explicit
+     * BANNER_AUDIO_DIRECT_PERF still overrides below; buffers stay small - big
+     * buffers are incompatible with the low-latency fast path.) */
+    stream->aa_perf = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+    stream->aa_share = AAUDIO_SHARING_MODE_SHARED;
+    stream->adaptive = TRUE;
+    /* Decay defaults ON. It cannot make the buffer smaller than the launch config
+     * asked for, so the worst it can do is hand back latency that growth took -
+     * and it stops probing once a title proves it needs the headroom. Set
+     * BANNER_AUDIO_DIRECT_DECAY=0 for the old grow-only behaviour. */
+    stream->decay = TRUE;
+    stream->target_buf_frames = 0;
+    stream->max_buf_frames = 0;
+    stream->target_ms = 0;
+    stream->max_ms = 0;
+
+    if ((e = getenv("BANNER_AUDIO_DIRECT_PERF")))
+    {
+        int v = atoi(e);
+        if (v == 1) stream->aa_perf = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY;
+        else if (v == 2) stream->aa_perf = AAUDIO_PERFORMANCE_MODE_POWER_SAVING;
+        else stream->aa_perf = AAUDIO_PERFORMANCE_MODE_NONE;
+    }
+    if ((e = getenv("BANNER_AUDIO_DIRECT_ADAPTIVE"))) stream->adaptive = atoi(e) != 0;
+    if ((e = getenv("BANNER_AUDIO_DIRECT_DECAY"))) stream->decay = atoi(e) != 0;
+    if ((e = getenv("BANNER_AUDIO_DIRECT_BF"))) stream->target_buf_frames = atoi(e);
+    if ((e = getenv("BANNER_AUDIO_DIRECT_MBF"))) stream->max_buf_frames = atoi(e);
+
+    /* Millisecond forms, for humans. These are read LAST and win over _BF/_MBF on
+     * purpose: the host app writes _BF itself from whichever preset is selected,
+     * so a hand-typed value in the same units would be in a fight it cannot win.
+     * _MS is only ever set by a person, so it takes precedence and gives a way to
+     * dial in latency with no UI support at all. Anything <= 0 is ignored, which
+     * makes an empty or malformed value fall back to the preset rather than to a
+     * zero-length buffer. */
+    if ((e = getenv("BANNER_AUDIO_DIRECT_MS")) && atoi(e) > 0) stream->target_ms = atoi(e);
+    if ((e = getenv("BANNER_AUDIO_DIRECT_MAXMS")) && atoi(e) > 0) stream->max_ms = atoi(e);
+
+    if ((e = getenv("BANNER_AUDIO_DIRECT_EXCLUSIVE")) && atoi(e) != 0)
+        stream->aa_share = AAUDIO_SHARING_MODE_EXCLUSIVE;
+}
+
+/* A positive integer from the environment, else the existing value. Zero and
+ * negative are treated as "not set" so an empty or malformed string falls back
+ * to the built-in rather than to something degenerate like a 0 ms timeout. */
+static int env_pos(const char *name, int fallback)
+{
+    const char *e = getenv(name);
+    int v;
+
+    if (!e || !*e) return fallback;
+    v = atoi(e);
+    return v > 0 ? v : fallback;
+}
+
+/* Process-wide tuning, read once at DLL attach rather than per stream: the guest
+ * asks for the device period before it creates anything, and the watchdog/decay
+ * timings belong to the single shared mixer. Every value here is a number chosen
+ * by reasoning; being able to move it on a device is what makes it testable. */
+static void read_global_config_from_env(void)
+{
+    int ms;
+
+    if ((ms = env_pos("BANNER_AUDIO_DIRECT_PERIOD_MS", 0)) > 0)
+        def_period = (REFERENCE_TIME)ms * 10000;
+    if ((ms = env_pos("BANNER_AUDIO_DIRECT_MINPERIOD_MS", 0)) > 0)
+        min_period = (REFERENCE_TIME)ms * 10000;
+    /* WASAPI's contract: the minimum period cannot exceed the default one. A
+     * caller who sets only one of the pair must not be able to invert them. */
+    if (min_period > def_period) min_period = def_period;
+
+    {
+        /* Boolean, so unlike the rest a literal 0 is meaningful and must not be
+         * treated as "unset" - hence the explicit read instead of env_pos. */
+        const char *e = getenv("BANNER_AUDIO_DIRECT_WATCHDOG");
+        if (e && *e) da_watchdog = atoi(e) != 0;
+    }
+    {
+        /* The live-config mailbox: a file the host app rewrites in-game. Read it
+         * once now so an existing file's values apply from the very first open;
+         * the watcher thread (started in process attach) tracks later edits. */
+        const char *e = getenv("BANNER_AUDIO_DIRECT_RUNTIME");
+        if (e && *e)
+        {
+            /* Wine poisons strncpy; bounded memcpy + explicit NUL instead. */
+            size_t n = strlen(e);
+            if (n >= sizeof(da_rt_path)) n = sizeof(da_rt_path) - 1;
+            memcpy(da_rt_path, e, n);
+            da_rt_path[n] = 0;
+            da_read_runtime_file();
+        }
+    }
+    if ((ms = env_pos("BANNER_AUDIO_DIRECT_STALL_MS", 0)) > 0)
+        da_stall_ns = (UINT64)ms * 1000000ull;
+    if ((ms = env_pos("BANNER_AUDIO_DIRECT_DECAY_QUIET_MS", 0)) > 0)
+        da_quiet_ns = (UINT64)ms * 1000000ull;
+    if ((ms = env_pos("BANNER_AUDIO_DIRECT_DECAY_PUNISH_MS", 0)) > 0)
+        da_punish_ns = (UINT64)ms * 1000000ull;
+    if ((ms = env_pos("BANNER_AUDIO_DIRECT_DECAY_MAXBACKOFF", 0)) > 0)
+        da_max_backoff = (unsigned int)ms;
+
+    da_log = env_pos("BANNER_AUDIO_DIRECT_LOG", 0);
+
+    DA_LOG("config: period %d ms min %d ms watchdog %d stall %d ms quiet %d ms"
+           " punish %d ms maxbackoff %u",
+           (int)(def_period / 10000), (int)(min_period / 10000), da_watchdog,
+           (int)(da_stall_ns / 1000000), (int)(da_quiet_ns / 1000000),
+           (int)(da_punish_ns / 1000000), da_max_backoff);
+}
+
+static NTSTATUS unix_process_attach(void *args)
+{
+#ifdef _WIN64
+    if (NtCurrentTeb()->WowTebOffset)
+    {
+        SYSTEM_BASIC_INFORMATION info;
+
+        NtQuerySystemInformation(SystemEmulationBasicInformation, &info, sizeof(info), NULL);
+        zero_bits = (ULONG_PTR)info.HighestUserAddress | 0x7fffffff;
+    }
+#endif
+    read_global_config_from_env();
+
+    /* Start the mailbox watcher only if a runtime file was configured. Detached:
+     * it runs for the process lifetime and is never joined. A failed spawn just
+     * means no live control (env-at-launch still works), so it is non-fatal. */
+    if (da_rt_path[0])
+    {
+        pthread_t th;
+        if (pthread_create(&th, NULL, da_config_watch_thread, NULL) == 0)
+            pthread_detach(th);
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_main_loop(void *args)
+{
+    struct main_loop_params *params = args;
+    NtSetEvent(params->event, NULL);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_test_connect(void *args)
+{
+    struct test_connect_params *params = args;
+    AAudioStreamBuilder *builder = NULL;
+
+    if (AAudio_createStreamBuilder(&builder) == AAUDIO_OK && builder)
+    {
+        AAudioStreamBuilder_delete(builder);
+        params->priority = Priority_Preferred;
+    }
+    else
+        params->priority = Priority_Unavailable;
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_endpoint_ids(void *args)
+{
+    static const WCHAR ep_name_out[] = {'D','i','r','e','c','t','A','u','d','i','o',0};
+    static const WCHAR ep_name_in[] =
+        {'D','i','r','e','c','t','A','u','d','i','o',' ','I','n','p','u','t',0};
+    static const char ep_dev_out[] = "aaudio";
+    static const char ep_dev_in[] = "aaudio_in";
+    struct get_endpoint_ids_params *params = args;
+    BOOL capture = params->flow == eCapture;
+    const WCHAR *ep_name = capture ? ep_name_in : ep_name_out;
+    const char *ep_dev = capture ? ep_dev_in : ep_dev_out;
+    unsigned int name_bytes = capture ? sizeof(ep_name_in) : sizeof(ep_name_out);
+    unsigned int dev_bytes = capture ? sizeof(ep_dev_in) : sizeof(ep_dev_out);
+    unsigned int needed, offset;
+    struct endpoint *endpoint = params->endpoints;
+
+    params->default_idx = 0;
+    /* Expose a render endpoint only. Capture (mic) is a later phase: create_stream
+     * returns DEVICE_INVALIDATED for eCapture, so advertising a capture endpoint the
+     * game can enumerate but never open makes it abandon audio init entirely and boot
+     * to a black screen. A fresh same-setup winealsa capture that BOOTS exposes zero
+     * capture endpoints and DiRT 3 initialises render fine, confirming no mic device is
+     * needed. (The earlier assumption that a missing capture endpoint caused the hang
+     * was wrong - that hang was the PhysicalSpeakers E_NOTIMPL gate, fixed separately.) */
+    params->num = (params->flow == eRender) ? 1 : 0;
+
+    TRACE("get_endpoint_ids: flow=%d -> num=%u\n", params->flow, params->num);
+
+    if (params->num == 0)
+    {
+        params->result = S_OK;
+        return STATUS_SUCCESS;
+    }
+
+    offset = needed = sizeof(*endpoint) * params->num;
+    needed += name_bytes + ((dev_bytes + 1) & ~1);
+
+    if (needed <= params->size)
+    {
+        endpoint->name = offset;
+        memcpy((char *)params->endpoints + offset, ep_name, name_bytes);
+        offset += name_bytes;
+
+        endpoint->device = offset;
+        memcpy((char *)params->endpoints + offset, ep_dev, dev_bytes);
+
+        params->result = S_OK;
+    }
+    else
+    {
+        params->size = needed;
+        params->result = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_create_stream(void *args)
+{
+    struct create_stream_params *params = args;
+    struct directaudio_stream *stream;
+    aaudio_result_t r;
+    SIZE_T size;
+    int i;
+
+    TRACE("create_stream: flow=%d share=%d flags=%#x tag=%#x ch=%u rate=%u bits=%u\n",
+          params->flow, params->share, (unsigned)params->flags, params->fmt->wFormatTag,
+          params->fmt->nChannels, (unsigned)params->fmt->nSamplesPerSec, params->fmt->wBitsPerSample);
+
+    params->result = S_OK;
+
+    if (!(stream = calloc(1, sizeof(*stream))))
+    {
+        params->result = E_OUTOFMEMORY;
+        return STATUS_SUCCESS;
+    }
+    pthread_mutex_init(&stream->lock, NULL);
+    for (i = 0; i < 8; i++) stream->vols[i] = 1.0f;
+
+    stream->fmt = clone_format(params->fmt);
+    if (!stream->fmt)
+    {
+        params->result = E_OUTOFMEMORY;
+        goto end;
+    }
+
+    stream->period = params->period;
+    stream->period_frames = muldiv(params->period, stream->fmt->nSamplesPerSec, 10000000);
+    stream->flow = params->flow;
+    stream->flags = params->flags;
+    stream->share = params->share;
+
+    if (stream->flow != eRender)
+    {
+        /* capture is a later phase */
+        params->result = AUDCLNT_E_DEVICE_INVALIDATED;
+        goto end;
+    }
+
+    /* The mixer converts any PCM(8/16/24/32)/float source to the shared output
+     * format as it sums it in, so accept the full set mmdevapi validated - not
+     * only the AAudio-native ones. */
+    {
+        const WAVEFORMATEXTENSIBLE *fex = (const WAVEFORMATEXTENSIBLE *)stream->fmt;
+        stream->is_float = stream->fmt->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+            (stream->fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+             IsEqualGUID(&fex->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT));
+        if (stream->fmt->wBitsPerSample != 8 && stream->fmt->wBitsPerSample != 16 &&
+            stream->fmt->wBitsPerSample != 24 && stream->fmt->wBitsPerSample != 32)
+        {
+            params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
+            goto end;
+        }
+    }
+    stream->aa_format = stream->is_float ? AAUDIO_FORMAT_PCM_FLOAT : AAUDIO_FORMAT_UNSPECIFIED;
+    stream->aa_channels = stream->fmt->nChannels;
+    stream->aa_rate = stream->fmt->nSamplesPerSec;
+
+    read_config_from_env(stream);
+
+    stream->bufsize_frames = muldiv(params->duration, stream->fmt->nSamplesPerSec, 10000000);
+    if (params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
+        stream->bufsize_frames -= stream->bufsize_frames % stream->period_frames;
+
+    size = stream->bufsize_frames * stream->fmt->nBlockAlign;
+    if (NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer, zero_bits,
+                                &size, MEM_COMMIT, PAGE_READWRITE))
+    {
+        params->result = E_OUTOFMEMORY;
+        goto end;
+    }
+    silence_buffer(stream, stream->local_buffer, stream->bufsize_frames);
+
+    /* Register as a mixer voice; the shared output opens on the first voice.
+     * stream->playing gates real audio vs. silence in the mix. */
+    r = mixer_add_voice(&g_mixer, stream);
+    if (r != AAUDIO_OK)
+    {
+        WARN("mixer add voice failed: %d\n", r);
+        params->result = AUDCLNT_E_DEVICE_INVALIDATED;
+        goto end;
+    }
+    params->result = S_OK;
+
+end:
+    if (FAILED(params->result))
+    {
+        if (stream->in_mixer)
+            mixer_remove_voice(&g_mixer, stream);
+        if (stream->local_buffer)
+        {
+            size = 0;
+            NtFreeVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer,
+                                &size, MEM_RELEASE);
+        }
+        free(stream->fmt);
+        pthread_mutex_destroy(&stream->lock);
+        free(stream);
+    }
+    else
+    {
+        *params->channel_count = params->fmt->nChannels;
+        *params->stream = (stream_handle)(UINT_PTR)stream;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_release_stream(void *args)
+{
+    struct release_stream_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    SIZE_T size;
+
+    if (params->timer_thread)
+    {
+        LARGE_INTEGER timeout;
+        __atomic_store_n(&stream->please_quit, TRUE, __ATOMIC_SEQ_CST);
+        /* Bound the join. A game that creates+starts+releases a transient stream
+         * during init (e.g. God of War via FAudio) otherwise deadlocks its main
+         * thread here on an unbounded wait -> load hangs at a black screen. If the
+         * timer thread does not exit promptly, unblock the caller and leak the
+         * stream rather than free memory the still-running timer touches (UAF). */
+        timeout.QuadPart = -5000000; /* 500 ms */
+        if (NtWaitForSingleObject(params->timer_thread, FALSE, &timeout) != STATUS_SUCCESS)
+        {
+            WARN("release_stream: timer thread stuck; leaking stream to avoid hang\n");
+            NtClose(params->timer_thread);
+            params->result = S_OK;
+            return STATUS_SUCCESS;
+        }
+        NtClose(params->timer_thread);
+    }
+
+    if (stream->in_mixer)
+        mixer_remove_voice(&g_mixer, stream);
+
+    if (stream->local_buffer)
+    {
+        size = 0;
+        NtFreeVirtualMemory(GetCurrentProcess(), (void **)&stream->local_buffer,
+                            &size, MEM_RELEASE);
+    }
+    if (stream->tmp_buffer)
+    {
+        size = 0;
+        NtFreeVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer,
+                            &size, MEM_RELEASE);
+    }
+    free(stream->fmt);
+    pthread_mutex_destroy(&stream->lock);
+    free(stream);
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static DWORD get_channel_mask(unsigned int channels)
+{
+    switch (channels)
+    {
+    case 0:  return 0;
+    case 1:  return KSAUDIO_SPEAKER_MONO;
+    case 2:  return KSAUDIO_SPEAKER_STEREO;
+    case 3:  return KSAUDIO_SPEAKER_STEREO | SPEAKER_LOW_FREQUENCY;
+    case 4:  return KSAUDIO_SPEAKER_QUAD;
+    case 5:  return KSAUDIO_SPEAKER_QUAD | SPEAKER_LOW_FREQUENCY;
+    case 6:  return KSAUDIO_SPEAKER_5POINT1;
+    case 7:  return KSAUDIO_SPEAKER_5POINT1 | SPEAKER_BACK_CENTER;
+    case 8:  return KSAUDIO_SPEAKER_7POINT1_SURROUND;
+    }
+    return 0;
+}
+
+static NTSTATUS unix_get_mix_format(void *args)
+{
+    struct get_mix_format_params *params = args;
+
+    /* AAudio has no NDK device enumeration before API 34; advertise a standard
+     * AAudio-friendly shared mix format. mmdevapi resamples the guest to this. */
+    params->fmt->Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    params->fmt->Format.nChannels = 2;
+    params->fmt->Format.nSamplesPerSec = 48000;
+    params->fmt->Format.wBitsPerSample = 32;
+    params->fmt->dwChannelMask = get_channel_mask(2);
+    params->fmt->SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+
+    params->fmt->Format.nBlockAlign = params->fmt->Format.wBitsPerSample *
+        params->fmt->Format.nChannels / 8;
+    params->fmt->Format.nAvgBytesPerSec = params->fmt->Format.nSamplesPerSec *
+        params->fmt->Format.nBlockAlign;
+    params->fmt->Samples.wValidBitsPerSample = params->fmt->Format.wBitsPerSample;
+    params->fmt->Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+
+    TRACE("get_mix_format: flow=%d -> 48000/32f/2ch\n", params->flow);
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_is_format_supported(void *args)
+{
+    struct is_format_supported_params *params = args;
+    const WAVEFORMATEX *fmt = params->fmt_in;
+    aaudio_format_t aafmt;
+
+    if (!fmt || (fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+                 fmt->cbSize < sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX)))
+    {
+        params->result = E_INVALIDARG;
+        return STATUS_SUCCESS;
+    }
+
+    if (params->flow != eRender && params->flow != eCapture)
+    {
+        params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
+        return STATUS_SUCCESS;
+    }
+
+    aafmt = fmt_to_aaudio(fmt);
+
+    if (fmt->nChannels < 1 || fmt->nChannels > 8 ||
+        fmt->nSamplesPerSec < 8000 || fmt->nSamplesPerSec > 192000)
+    {
+        /* No backend, exclusive or shared, can satisfy a nonsensical layout. */
+        params->result = AUDCLNT_E_UNSUPPORTED_FORMAT;
+    }
+    else if (params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
+    {
+        /* Exclusive means "hand the guest format through untouched", so the only
+         * honest answer is the format the output actually runs at. We do not open
+         * an exclusive stream at all - create_stream registers every stream as a
+         * mixer voice regardless of share mode - so anything else would be a
+         * promise of untouched audio that we then downmix and resample.
+         *
+         * Checking the sample format alone was not enough: daprobe (tools/daprobe)
+         * caught this answering S_OK to EXCLUSIVE 7.1 at 192 kHz, which we would
+         * fold to stereo 48 kHz. A game asks for exclusive precisely when it wants
+         * to skip its own mixing, so a wrong yes there can put channels in the
+         * wrong places rather than merely losing the surround. Refusing costs
+         * nothing: the caller falls back to shared, which is what it was getting.
+         * winealsa answers this the same narrow way. */
+        params->result = (aafmt != AAUDIO_FORMAT_UNSPECIFIED &&
+                          fmt->nChannels <= MIX_OUT_CHANNELS &&
+                          fmt->nSamplesPerSec == MIX_OUT_RATE)
+                         ? S_OK : AUDCLNT_E_UNSUPPORTED_FORMAT;
+    }
+    else /* AUDCLNT_SHAREMODE_SHARED */
+    {
+        /* Shared mode goes through mmdevapi's mixer, which converts the guest
+         * format to our AAudio mix format - exactly like the winealsa/winepulse
+         * software-mixer backends. So report S_OK for any layout mmdevapi has
+         * already validated, INCLUDING formats AAudio cannot open natively
+         * (8-bit / 24-bit PCM): the guest only uses these to probe device
+         * capability and always initialises the stream with the float mix
+         * format (device-verified against DiRT 3's WASAPI negotiation). Both
+         * known-good backends answer S_OK here; returning anything weaker
+         * (S_FALSE, and certainly a hard AUDCLNT_E_UNSUPPORTED_FORMAT) makes the
+         * game judge the endpoint incapable and fall back to legacy winmm, which
+         * is what stalled DiRT 3's boot on the two prior builds.
+         * TODO: if a title ever *initialises* a shared stream with a non-native
+         * format, create_stream must convert it to the mix format rather than
+         * fail; no observed title does this yet. */
+        params->result = S_OK;
+    }
+
+    TRACE("is_format_supported: share=%d tag=%#x ch=%u rate=%u bits=%u aafmt=%d -> %#x\n",
+          params->share, fmt->wFormatTag, fmt->nChannels, (unsigned)fmt->nSamplesPerSec,
+          fmt->wBitsPerSample, aafmt, (unsigned)params->result);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_device_period(void *args)
+{
+    struct get_device_period_params *params = args;
+
+    if (params->def_period) *params->def_period = def_period;
+    if (params->min_period) *params->min_period = min_period;
+    TRACE("get_device_period: flow=%d def=%d min=%d\n", params->flow, (int)def_period, (int)min_period);
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_buffer_size(void *args)
+{
+    struct get_buffer_size_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+
+    pthread_mutex_lock(&stream->lock);
+    *params->frames = stream->bufsize_frames;
+    pthread_mutex_unlock(&stream->lock);
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_latency(void *args)
+{
+    struct get_latency_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    int32_t buf_frames;
+
+    pthread_mutex_lock(&stream->lock);
+    buf_frames = g_mixer.aq ? AAudioStream_getBufferSizeInFrames(g_mixer.aq) : 0;
+    if (buf_frames < 0) buf_frames = 0;
+    /* pretend we process audio in Period chunks, so max latency includes it */
+    *params->latency = muldiv(buf_frames, 10000000, stream->fmt->nSamplesPerSec) + stream->period;
+    pthread_mutex_unlock(&stream->lock);
+
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static UINT32 get_current_padding_nolock(struct directaudio_stream *stream)
+{
+    return stream->held_frames;
+}
+
+static NTSTATUS unix_get_current_padding(void *args)
+{
+    struct get_current_padding_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+
+    pthread_mutex_lock(&stream->lock);
+    *params->padding = get_current_padding_nolock(stream);
+    pthread_mutex_unlock(&stream->lock);
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_start(void *args)
+{
+    struct start_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+
+    pthread_mutex_lock(&stream->lock);
+
+    if ((stream->flags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) && !stream->event)
+        params->result = AUDCLNT_E_EVENTHANDLE_NOT_SET;
+    else if (stream->playing)
+        params->result = AUDCLNT_E_NOT_STOPPED;
+    else
+    {
+        stream->playing = TRUE;
+        params->result = S_OK;
+    }
+
+    pthread_mutex_unlock(&stream->lock);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_stop(void *args)
+{
+    struct stop_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+
+    pthread_mutex_lock(&stream->lock);
+
+    if (!stream->playing)
+        params->result = S_FALSE;
+    else
+    {
+        stream->playing = FALSE;
+        params->result = S_OK;
+    }
+
+    pthread_mutex_unlock(&stream->lock);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_reset(void *args)
+{
+    struct reset_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+
+    pthread_mutex_lock(&stream->lock);
+
+    if (stream->playing)
+        params->result = AUDCLNT_E_NOT_STOPPED;
+    else if (stream->getbuf_last)
+        params->result = AUDCLNT_E_BUFFER_OPERATION_PENDING;
+    else
+    {
+        stream->written_frames = 0;
+        stream->held_frames = 0;
+        stream->lcl_offs_frames = 0;
+        stream->wri_offs_frames = 0;
+        params->result = S_OK;
+    }
+
+    pthread_mutex_unlock(&stream->lock);
+    return STATUS_SUCCESS;
+}
+
+/* Called once per mmdevapi period from the timer loop, which keeps ticking even
+ * when the audio output is dead. Detects the failure mode that raises no error:
+ * the AAudio data callback stops firing after AudioTrack disables itself
+ * ("disabled due to previous underrun"), leaving playing=1, the guest ring full
+ * and permanent silence. Device-proven trigger: rapid background/foreground. */
+static void mixer_watchdog(struct directaudio_mixer *mx)
+{
+    UINT64 now = da_now_ns(), last_cb, prev_tick;
+    unsigned int cb;
+
+    if (!da_watchdog) return;                                  /* disabled by env */
+    if (!__atomic_load_n(&mx->aq, __ATOMIC_SEQ_CST)) return;   /* no output open */
+    if (!__atomic_load_n(&mx->nvoices, __ATOMIC_SEQ_CST)) return; /* nothing playing */
+
+    prev_tick = mx->wd_last_tick_ns;
+    mx->wd_last_tick_ns = now;
+    cb = __atomic_load_n(&mx->cb_count, __ATOMIC_SEQ_CST);
+
+    /* Our own cadence jumped => the guest was suspended, not starved. Re-baseline
+     * and give the callback a fresh window to come back on its own; tripping here
+     * would recreate the stream after every background/foreground cycle. */
+    if (!prev_tick || now - prev_tick > DA_FREEZE_GAP_NS)
+    {
+        mx->wd_last_cb = cb;
+        __atomic_store_n(&mx->last_cb_ns, now, __ATOMIC_SEQ_CST);
+        return;
+    }
+
+    if (cb != mx->wd_last_cb)   /* callback is alive */
+    {
+        mx->wd_last_cb = cb;
+        return;
+    }
+
+    last_cb = __atomic_load_n(&mx->last_cb_ns, __ATOMIC_SEQ_CST);
+    if (!last_cb || now - last_cb < da_stall_ns) return;
+
+    /* Silent for da_stall_ns with voices playing and no error reported. The
+     * stream cannot be restarted (same rule as a route change) - rebuild it. */
+    __atomic_store_n(&mx->last_cb_ns, now, __ATOMIC_SEQ_CST);  /* arm one shot */
+    mixer_request_reopen(mx, "data callback stalled");
+}
+
+static NTSTATUS unix_timer_loop(void *args)
+{
+    struct timer_loop_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    LARGE_INTEGER delay, next, last;
+    int adjust;
+
+    delay.QuadPart = -stream->period;
+    NtQueryPerformanceCounter(&last, NULL);
+    next.QuadPart = last.QuadPart + stream->period;
+
+    while (!__atomic_load_n(&stream->please_quit, __ATOMIC_SEQ_CST))
+    {
+        mixer_watchdog(&g_mixer);
+
+        if (stream->event)
+            NtSetEvent(stream->event, NULL);
+        NtDelayExecution(FALSE, &delay);
+        NtQueryPerformanceCounter(&last, NULL);
+
+        adjust = next.QuadPart - last.QuadPart;
+        if (adjust > stream->period / 2)
+            adjust = stream->period / 2;
+        else if (adjust < -stream->period / 2)
+            adjust = -stream->period / 2;
+
+        delay.QuadPart = -(stream->period + adjust);
+        next.QuadPart += stream->period;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_render_buffer(void *args)
+{
+    struct get_render_buffer_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    SIZE_T size;
+    UINT32 pad;
+
+    pthread_mutex_lock(&stream->lock);
+
+    pad = get_current_padding_nolock(stream);
+
+    if (stream->getbuf_last)
+    {
+        params->result = AUDCLNT_E_OUT_OF_ORDER;
+        goto end;
+    }
+    if (!params->frames)
+    {
+        params->result = S_OK;
+        goto end;
+    }
+    if (pad + params->frames > stream->bufsize_frames)
+    {
+        params->result = AUDCLNT_E_BUFFER_TOO_LARGE;
+        goto end;
+    }
+
+    if (stream->wri_offs_frames + params->frames > stream->bufsize_frames)
+    {
+        if (stream->tmp_buffer_frames < params->frames)
+        {
+            if (stream->tmp_buffer)
+            {
+                size = 0;
+                NtFreeVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer,
+                                    &size, MEM_RELEASE);
+                stream->tmp_buffer = NULL;
+            }
+            size = params->frames * stream->fmt->nBlockAlign;
+            if (NtAllocateVirtualMemory(GetCurrentProcess(), (void **)&stream->tmp_buffer, zero_bits,
+                                        &size, MEM_COMMIT, PAGE_READWRITE))
+            {
+                stream->tmp_buffer_frames = 0;
+                params->result = E_OUTOFMEMORY;
+                goto end;
+            }
+            stream->tmp_buffer_frames = params->frames;
+        }
+        *params->data = stream->tmp_buffer;
+        stream->getbuf_last = -params->frames;
+    }
+    else
+    {
+        *params->data = stream->local_buffer + stream->wri_offs_frames * stream->fmt->nBlockAlign;
+        stream->getbuf_last = params->frames;
+    }
+
+    silence_buffer(stream, *params->data, params->frames);
+    params->result = S_OK;
+
+end:
+    pthread_mutex_unlock(&stream->lock);
+    return STATUS_SUCCESS;
+}
+
+static void wrap_buffer(BYTE *dst, UINT32 dst_offs, UINT32 dst_bytes, BYTE *src, UINT32 src_bytes)
+{
+    UINT32 chunk_bytes = dst_bytes - dst_offs;
+
+    if (chunk_bytes < src_bytes)
+    {
+        memcpy(dst + dst_offs, src, chunk_bytes);
+        memcpy(dst, src + chunk_bytes, src_bytes - chunk_bytes);
+    }
+    else
+        memcpy(dst + dst_offs, src, src_bytes);
+}
+
+static NTSTATUS unix_release_render_buffer(void *args)
+{
+    struct release_render_buffer_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    BYTE *buffer;
+
+    pthread_mutex_lock(&stream->lock);
+
+    if (!params->written_frames)
+    {
+        stream->getbuf_last = 0;
+        params->result = S_OK;
+    }
+    else if (!stream->getbuf_last)
+        params->result = AUDCLNT_E_OUT_OF_ORDER;
+    else if (params->written_frames > (stream->getbuf_last >= 0 ? stream->getbuf_last : -stream->getbuf_last))
+        params->result = AUDCLNT_E_INVALID_SIZE;
+    else
+    {
+        if (stream->getbuf_last >= 0)
+            buffer = stream->local_buffer + stream->wri_offs_frames * stream->fmt->nBlockAlign;
+        else
+            buffer = stream->tmp_buffer;
+
+        if (params->flags & AUDCLNT_BUFFERFLAGS_SILENT)
+            silence_buffer(stream, buffer, params->written_frames);
+
+        if (stream->getbuf_last < 0)
+            wrap_buffer(stream->local_buffer,
+                        stream->wri_offs_frames * stream->fmt->nBlockAlign,
+                        stream->bufsize_frames * stream->fmt->nBlockAlign,
+                        buffer, params->written_frames * stream->fmt->nBlockAlign);
+
+        stream->wri_offs_frames += params->written_frames;
+        stream->wri_offs_frames %= stream->bufsize_frames;
+        stream->held_frames += params->written_frames;
+        stream->written_frames += params->written_frames;
+        stream->getbuf_last = 0;
+
+        params->result = S_OK;
+    }
+
+    pthread_mutex_unlock(&stream->lock);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_capture_buffer(void *args)
+{
+    struct get_capture_buffer_params *params = args;
+    *params->frames = 0;
+    params->result = AUDCLNT_E_DEVICE_INVALIDATED;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_release_capture_buffer(void *args)
+{
+    struct release_capture_buffer_params *params = args;
+    params->result = params->done ? AUDCLNT_E_OUT_OF_ORDER : S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_next_packet_size(void *args)
+{
+    struct get_next_packet_size_params *params = args;
+    *params->frames = 0;
+    params->result = AUDCLNT_E_DEVICE_INVALIDATED;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_position(void *args)
+{
+    struct get_position_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    LARGE_INTEGER stamp, freq;
+
+    if (params->device)
+    {
+        params->result = E_NOTIMPL;
+        return STATUS_SUCCESS;
+    }
+
+    pthread_mutex_lock(&stream->lock);
+
+    *params->pos = stream->written_frames - stream->held_frames;
+    if (stream->share == AUDCLNT_SHAREMODE_SHARED)
+        *params->pos *= stream->fmt->nBlockAlign;
+
+    if (params->qpctime)
+    {
+        NtQueryPerformanceCounter(&stamp, &freq);
+        *params->qpctime = (stamp.QuadPart * (INT64)10000000) / freq.QuadPart;
+    }
+
+    pthread_mutex_unlock(&stream->lock);
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_frequency(void *args)
+{
+    struct get_frequency_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+
+    if (stream->share == AUDCLNT_SHAREMODE_SHARED)
+        *params->freq = (UINT64)stream->fmt->nSamplesPerSec * stream->fmt->nBlockAlign;
+    else
+        *params->freq = stream->fmt->nSamplesPerSec;
+
+    params->result = S_OK;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_is_started(void *args)
+{
+    struct is_started_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+
+    params->result = stream->playing ? S_OK : S_FALSE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_get_prop_value(void *args)
+{
+    /* PKEY_AudioEndpoint_* live under this fmtid; {...},3 = PhysicalSpeakers. */
+    static const GUID PKEY_AudioEndpoint_GUID = {
+        0x1da5d803, 0xd492, 0x4edd, {0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e}
+    };
+    static const PROPERTYKEY devicepath_key = {
+        {0xb3f8fa53, 0x0004, 0x438e, {0x90, 0x03, 0x51, 0xa4, 0x6e, 0x13, 0x9b, 0xfc}}, 2
+    };
+    struct get_prop_value_params *params = args;
+
+    TRACE("get_prop_value: flow=%d prop=%s,%u\n", params->flow,
+          wine_dbgstr_guid(&params->prop->fmtid), params->prop->pid);
+
+    /* Games (e.g. DiRT 3) refuse to call IAudioClient::Initialize until they can
+     * read PhysicalSpeakers from the endpoint, so (like winealsa/winepulse) we
+     * must supply it (winecoreaudio's E_NOTIMPL stub hangs those titles here). */
+    if (params->flow == eRender &&
+        IsEqualGUID(&params->prop->fmtid, &PKEY_AudioEndpoint_GUID) &&
+        params->prop->pid == 3)
+    {
+        params->value->vt = VT_UI4;
+        params->value->ulVal = KSAUDIO_SPEAKER_STEREO; /* our AAudio endpoint is stereo */
+        params->result = S_OK;
+        return STATUS_SUCCESS;
+    }
+
+    if (IsEqualPropertyKey(*params->prop, devicepath_key))
+    {
+        /* Each endpoint must present a UNIQUE device-instance path; a real system
+         * never gives two endpoints the same one. Our render and capture devices
+         * differ only by flow, so key the trailing instance id on that. */
+        static const WCHAR path_out[] =
+            {'{','1','}','.','R','O','O','T','\\','M','E','D','I','A','\\','0','0','0','0',0};
+        static const WCHAR path_in[] =
+            {'{','1','}','.','R','O','O','T','\\','M','E','D','I','A','\\','0','0','0','1',0};
+        const WCHAR *path = (params->flow == eCapture) ? path_in : path_out;
+        UINT len = ARRAYSIZE(path_out);
+
+        if (*params->buffer_size < len * sizeof(WCHAR))
+        {
+            *params->buffer_size = len * sizeof(WCHAR);
+            params->result = E_NOT_SUFFICIENT_BUFFER;
+            return STATUS_SUCCESS;
+        }
+        params->value->vt = VT_LPWSTR;
+        params->value->pwszVal = params->buffer;
+        memcpy(params->buffer, path, len * sizeof(WCHAR));
+        params->result = S_OK;
+        return STATUS_SUCCESS;
+    }
+
+    params->result = E_NOTIMPL;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_set_volumes(void *args)
+{
+    struct set_volumes_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    BOOL active = FALSE;
+    UINT32 i;
+
+    pthread_mutex_lock(&stream->lock);
+    for (i = 0; i < stream->fmt->nChannels && i < 8; i++)
+    {
+        stream->vols[i] = params->master_volume *
+            params->session_volumes[i] * params->volumes[i];
+        if (stream->vols[i] < 0.999f || stream->vols[i] > 1.001f) active = TRUE;
+    }
+    stream->vols_active = active;
+    pthread_mutex_unlock(&stream->lock);
+
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_set_event_handle(void *args)
+{
+    struct set_event_handle_params *params = args;
+    struct directaudio_stream *stream = handle_get_stream(params->stream);
+    HRESULT hr = S_OK;
+
+    pthread_mutex_lock(&stream->lock);
+    if (!stream->in_mixer)
+        hr = AUDCLNT_E_DEVICE_INVALIDATED;
+    else if (!(stream->flags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK))
+        hr = AUDCLNT_E_EVENTHANDLE_NOT_EXPECTED;
+    else if (stream->event)
+        hr = HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
+    else
+        stream->event = params->event;
+    pthread_mutex_unlock(&stream->lock);
+
+    params->result = hr;
+    return STATUS_SUCCESS;
+}
+
+const unixlib_entry_t __wine_unix_call_funcs[] =
+{
+    unix_process_attach,
+    unix_not_implemented,        /* process_detach */
+    unix_main_loop,
+    unix_get_endpoint_ids,
+    unix_create_stream,
+    unix_release_stream,
+    unix_start,
+    unix_stop,
+    unix_reset,
+    unix_timer_loop,
+    unix_get_render_buffer,
+    unix_release_render_buffer,
+    unix_get_capture_buffer,
+    unix_release_capture_buffer,
+    unix_is_format_supported,
+    unix_not_implemented,        /* get_loopback_capture_device */
+    unix_get_mix_format,
+    unix_get_device_period,
+    unix_get_buffer_size,
+    unix_get_latency,
+    unix_get_current_padding,
+    unix_get_next_packet_size,
+    unix_get_frequency,
+    unix_get_position,
+    unix_set_volumes,
+    unix_set_event_handle,
+    unix_not_implemented,        /* set_sample_rate */
+    unix_test_connect,
+    unix_is_started,
+    unix_get_prop_value,
+    unix_midi_get_driver,        /* midi_get_driver */
+    unix_not_implemented,        /* midi_init */
+    unix_not_implemented,        /* midi_release */
+    unix_midi_out_message,       /* midi_out_message */
+    unix_midi_in_message,        /* midi_in_message */
+    unix_midi_notify_wait,       /* midi_notify_wait */
+    unix_not_implemented,        /* aux_message */
+};
+
+C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
+
+#ifdef _WIN64
+
+typedef UINT PTR32;
+
+static NTSTATUS unix_wow64_main_loop(void *args)
+{
+    struct
+    {
+        PTR32 event;
+    } *params32 = args;
+    struct main_loop_params params =
+    {
+        .event = ULongToHandle(params32->event)
+    };
+    return unix_main_loop(&params);
+}
+
+static NTSTATUS unix_wow64_test_connect(void *args)
+{
+    struct
+    {
+        PTR32 name;
+        enum driver_priority priority;
+    } *params32 = args;
+    struct test_connect_params params =
+    {
+        .name = ULongToPtr(params32->name)
+    };
+    unix_test_connect(&params);
+    params32->priority = params.priority;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_endpoint_ids(void *args)
+{
+    struct
+    {
+        EDataFlow flow;
+        PTR32 endpoints;
+        unsigned int size;
+        HRESULT result;
+        unsigned int num;
+        unsigned int default_idx;
+    } *params32 = args;
+    struct get_endpoint_ids_params params =
+    {
+        .flow = params32->flow,
+        .endpoints = ULongToPtr(params32->endpoints),
+        .size = params32->size
+    };
+    unix_get_endpoint_ids(&params);
+    params32->size = params.size;
+    params32->result = params.result;
+    params32->num = params.num;
+    params32->default_idx = params.default_idx;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_create_stream(void *args)
+{
+    struct
+    {
+        PTR32 name;
+        PTR32 device;
+        EDataFlow flow;
+        AUDCLNT_SHAREMODE share;
+        DWORD flags;
+        REFERENCE_TIME duration;
+        REFERENCE_TIME period;
+        PTR32 fmt;
+        HRESULT result;
+        PTR32 channel_count;
+        PTR32 stream;
+    } *params32 = args;
+    struct create_stream_params params =
+    {
+        .name = ULongToPtr(params32->name),
+        .device = ULongToPtr(params32->device),
+        .flow = params32->flow,
+        .share = params32->share,
+        .flags = params32->flags,
+        .duration = params32->duration,
+        .period = params32->period,
+        .fmt = ULongToPtr(params32->fmt),
+        .channel_count = ULongToPtr(params32->channel_count),
+        .stream = ULongToPtr(params32->stream)
+    };
+    unix_create_stream(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_release_stream(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        PTR32 timer_thread;
+        HRESULT result;
+    } *params32 = args;
+    struct release_stream_params params =
+    {
+        .stream = params32->stream,
+        .timer_thread = ULongToHandle(params32->timer_thread)
+    };
+    unix_release_stream(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_render_buffer(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        UINT32 frames;
+        HRESULT result;
+        PTR32 data;
+    } *params32 = args;
+    BYTE *data = NULL;
+    struct get_render_buffer_params params =
+    {
+        .stream = params32->stream,
+        .frames = params32->frames,
+        .data = &data
+    };
+    unix_get_render_buffer(&params);
+    params32->result = params.result;
+    *(unsigned int *)ULongToPtr(params32->data) = PtrToUlong(data);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_capture_buffer(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        HRESULT result;
+        PTR32 data;
+        PTR32 frames;
+        PTR32 flags;
+        PTR32 devpos;
+        PTR32 qpcpos;
+    } *params32 = args;
+    UINT32 frames = 0;
+    struct get_capture_buffer_params params =
+    {
+        .stream = params32->stream,
+        .frames = &frames
+    };
+    unix_get_capture_buffer(&params);
+    params32->result = params.result;
+    *(unsigned int *)ULongToPtr(params32->frames) = frames;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_is_format_supported(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        AUDCLNT_SHAREMODE share;
+        PTR32 fmt_in;
+        HRESULT result;
+    } *params32 = args;
+    struct is_format_supported_params params =
+    {
+        .device = ULongToPtr(params32->device),
+        .flow = params32->flow,
+        .share = params32->share,
+        .fmt_in = ULongToPtr(params32->fmt_in),
+    };
+    unix_is_format_supported(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_mix_format(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 fmt;
+        HRESULT result;
+    } *params32 = args;
+    struct get_mix_format_params params =
+    {
+        .device = ULongToPtr(params32->device),
+        .flow = params32->flow,
+        .fmt = ULongToPtr(params32->fmt)
+    };
+    unix_get_mix_format(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_device_period(void *args)
+{
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        HRESULT result;
+        PTR32 def_period;
+        PTR32 min_period;
+    } *params32 = args;
+    struct get_device_period_params params =
+    {
+        .device = ULongToPtr(params32->device),
+        .flow = params32->flow,
+        .def_period = ULongToPtr(params32->def_period),
+        .min_period = ULongToPtr(params32->min_period),
+    };
+    unix_get_device_period(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_buffer_size(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        HRESULT result;
+        PTR32 frames;
+    } *params32 = args;
+    struct get_buffer_size_params params =
+    {
+        .stream = params32->stream,
+        .frames = ULongToPtr(params32->frames)
+    };
+    unix_get_buffer_size(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_latency(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        HRESULT result;
+        PTR32 latency;
+    } *params32 = args;
+    struct get_latency_params params =
+    {
+        .stream = params32->stream,
+        .latency = ULongToPtr(params32->latency)
+    };
+    unix_get_latency(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_current_padding(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        HRESULT result;
+        PTR32 padding;
+    } *params32 = args;
+    struct get_current_padding_params params =
+    {
+        .stream = params32->stream,
+        .padding = ULongToPtr(params32->padding)
+    };
+    unix_get_current_padding(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_next_packet_size(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        HRESULT result;
+        PTR32 frames;
+    } *params32 = args;
+    struct get_next_packet_size_params params =
+    {
+        .stream = params32->stream,
+        .frames = ULongToPtr(params32->frames)
+    };
+    unix_get_next_packet_size(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_position(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        BOOL device;
+        HRESULT result;
+        PTR32 pos;
+        PTR32 qpctime;
+    } *params32 = args;
+    struct get_position_params params =
+    {
+        .stream = params32->stream,
+        .device = params32->device,
+        .pos = ULongToPtr(params32->pos),
+        .qpctime = ULongToPtr(params32->qpctime)
+    };
+    unix_get_position(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_frequency(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        HRESULT result;
+        PTR32 freq;
+    } *params32 = args;
+    struct get_frequency_params params =
+    {
+        .stream = params32->stream,
+        .freq = ULongToPtr(params32->freq)
+    };
+    unix_get_frequency(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_set_volumes(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        float master_volume;
+        PTR32 volumes;
+        PTR32 session_volumes;
+    } *params32 = args;
+    struct set_volumes_params params =
+    {
+        .stream = params32->stream,
+        .master_volume = params32->master_volume,
+        .volumes = ULongToPtr(params32->volumes),
+        .session_volumes = ULongToPtr(params32->session_volumes),
+    };
+    return unix_set_volumes(&params);
+}
+
+static NTSTATUS unix_wow64_set_event_handle(void *args)
+{
+    struct
+    {
+        stream_handle stream;
+        PTR32 event;
+        HRESULT result;
+    } *params32 = args;
+    struct set_event_handle_params params =
+    {
+        .stream = params32->stream,
+        .event = ULongToHandle(params32->event)
+    };
+    unix_set_event_handle(&params);
+    params32->result = params.result;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_wow64_get_prop_value(void *args)
+{
+    struct propvariant32
+    {
+        WORD vt;
+        WORD pad1, pad2, pad3;
+        union
+        {
+            ULONG ulVal;
+            PTR32 ptr;
+            ULARGE_INTEGER uhVal;
+        };
+    } *value32;
+    struct
+    {
+        PTR32 device;
+        EDataFlow flow;
+        PTR32 guid;
+        PTR32 prop;
+        HRESULT result;
+        PTR32 value;
+        PTR32 buffer;
+        PTR32 buffer_size;
+    } *params32 = args;
+    PROPVARIANT value;
+    struct get_prop_value_params params =
+    {
+        .device = ULongToPtr(params32->device),
+        .flow = params32->flow,
+        .guid = ULongToPtr(params32->guid),
+        .prop = ULongToPtr(params32->prop),
+        .value = &value,
+        .buffer = ULongToPtr(params32->buffer),
+        .buffer_size = ULongToPtr(params32->buffer_size)
+    };
+    unix_get_prop_value(&params);
+    params32->result = params.result;
+    if (SUCCEEDED(params.result))
+    {
+        value32 = UlongToPtr(params32->value);
+        value32->vt = value.vt;
+        switch (value.vt)
+        {
+        case VT_UI4:
+            value32->ulVal = value.ulVal;
+            break;
+        case VT_LPWSTR:
+            value32->ptr = params32->buffer;
+            break;
+        default:
+            FIXME("Unhandled vt %04x\n", value.vt);
+        }
+    }
+    return STATUS_SUCCESS;
+}
+
+/* wow64 counterpart of unix_midi_{out,in}_message: the 32-bit game (DiRT 3) hits
+ * this path. Clear the 32-bit notify_context's send_notify (its first field) so
+ * mmdevapi does not fire a garbage notify_client callback into the guest. Both
+ * midi_out and midi_in share this param layout. */
+static NTSTATUS unix_wow64_midi_message(void *args)
+{
+    struct
+    {
+        UINT dev_id;
+        UINT msg;
+        UINT user;
+        UINT param_1;
+        UINT param_2;
+        PTR32 err;
+        PTR32 notify;
+    } *params32 = args;
+
+    if (params32->notify)
+        *(BOOL *)ULongToPtr(params32->notify) = FALSE; /* send_notify is field 0 */
+    return STATUS_SUCCESS;
+}
+
+const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
+{
+    unix_process_attach,
+    unix_not_implemented,        /* process_detach */
+    unix_wow64_main_loop,
+    unix_wow64_get_endpoint_ids,
+    unix_wow64_create_stream,
+    unix_wow64_release_stream,
+    unix_start,
+    unix_stop,
+    unix_reset,
+    unix_timer_loop,
+    unix_wow64_get_render_buffer,
+    unix_release_render_buffer,
+    unix_wow64_get_capture_buffer,
+    unix_release_capture_buffer,
+    unix_wow64_is_format_supported,
+    unix_not_implemented,        /* get_loopback_capture_device */
+    unix_wow64_get_mix_format,
+    unix_wow64_get_device_period,
+    unix_wow64_get_buffer_size,
+    unix_wow64_get_latency,
+    unix_wow64_get_current_padding,
+    unix_wow64_get_next_packet_size,
+    unix_wow64_get_frequency,
+    unix_wow64_get_position,
+    unix_wow64_set_volumes,
+    unix_wow64_set_event_handle,
+    unix_not_implemented,        /* set_sample_rate */
+    unix_wow64_test_connect,
+    unix_is_started,
+    unix_wow64_get_prop_value,
+    unix_midi_get_driver,        /* midi_get_driver */
+    unix_not_implemented,        /* midi_init */
+    unix_not_implemented,        /* midi_release */
+    unix_midi_out_message,       /* midi_out_message */
+    unix_midi_in_message,        /* midi_in_message */
+    unix_midi_notify_wait,       /* midi_notify_wait */
+    unix_not_implemented,        /* aux_message */
+};
+
+C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);
+
+#endif /* _WIN64 */
