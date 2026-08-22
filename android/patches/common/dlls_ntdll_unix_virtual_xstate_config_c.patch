@@ -1,0 +1,52 @@
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index ca5d50b0..33cb0eb7 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -4072,6 +4072,27 @@ done:
+ }
+ 
+ 
++#ifdef __aarch64__
++/* arm64ec: advertise the x86 legacy-FP / SSE / AVX xstate layout in SharedUserData->XState so
++ * RtlLocateExtendedFeature2(XSTATE_AVX) can locate/size an x64 exception's extended (AVX) context.
++ * The FEX guest is x86-64 but the native arm64 host has no XSAVE, so wine's CPUID path leaves XState
++ * empty (length 0) -> x64 SEH with extended context can't be dispatched. Matches Proton. */
++static void init_arm64ec_xstate_config( XSTATE_CONFIGURATION *xstate )
++{
++    xstate->EnabledFeatures = (1 << XSTATE_LEGACY_FLOATING_POINT) | (1 << XSTATE_LEGACY_SSE) | (1 << XSTATE_AVX);
++    xstate->EnabledVolatileFeatures = xstate->EnabledFeatures;
++    xstate->AllFeatureSize = 0x340;
++    xstate->OptimizedSave = 0;
++    xstate->CompactionEnabled = 0;
++    xstate->Features[0].Size = xstate->AllFeatures[0] = offsetof(XSAVE_FORMAT, XmmRegisters);
++    xstate->Features[1].Size = xstate->AllFeatures[1] = sizeof(M128A) * 16;
++    xstate->Features[1].Offset = xstate->Features[0].Size;
++    xstate->Features[2].Offset = 0x240;
++    xstate->Features[2].Size = 0x100;
++    xstate->Size = 0x340;
++}
++#endif
++
+ /***********************************************************************
+  *           virtual_map_user_shared_data
+  */
+@@ -4096,6 +4117,19 @@ void virtual_map_user_shared_data(void)
+         ERR( "failed to remap the process USD: %d\n", res );
+         exit(1);
+     }
++#ifdef __aarch64__
++    {
++        /* SharedUserData at 0x7ffe0000 is mapped read-only, so write the arm64ec xstate config
++         * through a separate writable MAP_SHARED alias of the same section fd (as Proton does);
++         * the write lands in the shared page and is visible via the RO client mapping. */
++        struct _KUSER_SHARED_DATA *usd = mmap( NULL, page_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
++        if (usd != MAP_FAILED)
++        {
++            init_arm64ec_xstate_config( &usd->XState );
++            munmap( usd, page_size );
++        }
++    }
++#endif
+     if (needs_close) close( fd );
+     NtClose( section );
+ }
