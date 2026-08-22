@@ -1,0 +1,25 @@
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index 0127a05301..a960d31f99 100644
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -2394,6 +2394,20 @@ NTSTATUS WINAPI NtSignalAndWaitForSingleObject( HANDLE signal, HANDLE wait,
+  */
+ NTSTATUS WINAPI NtYieldExecution(void)
+ {
++    static int fast_yield = -1;
++
++    /* WINE_FAST_YIELD: skip the sched_yield()+getrusage() bookkeeping (expensive
++     * under FEX/box64 on bionic, and it only exists to measure whether a real yield
++     * happened) and just do usleep(0). Cheap, and enough for games that spin on
++     * NtYieldExecution. Off by default; opt in per container. */
++    if (fast_yield < 0)
++        fast_yield = (getenv( "WINE_FAST_YIELD" ) && atoi( getenv( "WINE_FAST_YIELD" ) ));
++    if (fast_yield)
++    {
++        usleep( 0 );
++        return STATUS_SUCCESS;
++    }
++
+ #ifdef HAVE_SCHED_YIELD
+ #ifdef RUSAGE_THREAD
+     struct rusage u1, u2;

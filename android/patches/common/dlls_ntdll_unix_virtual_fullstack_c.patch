@@ -1,0 +1,168 @@
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -207,6 +207,8 @@
+ 
+ static struct file_view *arm64ec_view;
+ 
++static SIZE_T vmem_max_size = 0;  /* WINEVMEMMAXSIZE: cap on a single VA allocation, in bytes (0 = unlimited) */
++
+ ULONG_PTR user_space_wow_limit = 0;
+ struct _KUSER_SHARED_DATA *user_shared_data = (void *)0x7ffe0000;
+ 
+@@ -2353,7 +2355,8 @@
+  * virtual_mutex must be held by caller.
+  */
+ static NTSTATUS map_file_into_view( struct file_view *view, int fd, size_t start, size_t size,
+-                                    off_t offset, unsigned int vprot, BOOL removable )
++                                    off_t offset, unsigned int vprot, BOOL removable,
++                                    BOOL force_anon )
+ {
+     char *map_addr, *host_addr;
+     size_t map_size, host_size;
+@@ -2377,6 +2380,16 @@
+ #endif
+     }
+ 
++    /* On strict-W^X kernels (e.g. Android arm64) and noexec filesystems (e.g.
++     * an FAT/exFAT SD card), a file-backed MAP_PRIVATE mapping that was ever
++     * writable cannot later be flipped to PROT_EXEC, which breaks Wine's PE
++     * loader after relocations. When the caller passes force_anon=TRUE for a
++     * private mapping, mark it removable so we skip the file mmap below and
++     * pread the contents into the existing anonymous view instead. Anonymous
++     * mappings have no W^X restriction. Shared mappings still need a real file
++     * mmap and must always pass force_anon=FALSE. */
++    if (force_anon && (flags & MAP_PRIVATE)) removable = TRUE;
++
+     map_size = ROUND_SIZE( start, size, page_mask );
+     map_addr = ROUND_ADDR( (char *)view->base + start, page_mask );
+     host_addr = ROUND_ADDR( (char *)view->base + start, host_page_mask );
+@@ -2733,10 +2746,15 @@
+  *
+  * Map the header of a PE file into memory.
+  */
+-static NTSTATUS map_pe_header( void *ptr, size_t size, size_t map_size, int fd, BOOL *removable )
++static NTSTATUS map_pe_header( void *ptr, size_t size, size_t map_size, int fd, BOOL *removable,
++                              BOOL force_anon )
+ {
+     if (!size) return STATUS_INVALID_IMAGE_FORMAT;
+ 
++    /* Force the pread fallback path when the caller wants the entire PE image
++     * to come up as anonymous (W^X-safe) memory. */
++    if (force_anon) *removable = TRUE;
++
+     map_size &= ~host_page_mask;
+ 
+     if (!*removable && map_size)
+@@ -3040,7 +3058,7 @@
+  */
+ static NTSTATUS map_image_into_view( struct file_view *view, const UNICODE_STRING *nt_name, int fd,
+                                      struct pe_image_info *image_info, USHORT machine,
+-                                     int shared_fd, BOOL removable )
++                                     int shared_fd, BOOL removable, BOOL force_anon )
+ {
+     IMAGE_DOS_HEADER *dos;
+     IMAGE_NT_HEADERS *nt;
+@@ -3063,7 +3081,7 @@
+     fstat( fd, &st );
+     header_size = min( image_info->header_size, st.st_size );
+     header_map_size = min( image_info->header_map_size, ROUND_SIZE( 0, st.st_size, host_page_mask ));
+-    if ((status = map_pe_header( view->base, header_size, header_map_size, fd, &removable )))
++    if ((status = map_pe_header( view->base, header_size, header_map_size, fd, &removable, force_anon )))
+         return status;
+ 
+     status = STATUS_INVALID_IMAGE_FORMAT;  /* generic error */
+@@ -3093,7 +3111,7 @@
+ 
+         total_size = min( total_size, ROUND_SIZE( 0, st.st_size, page_mask ));
+         if (map_file_into_view( view, fd, 0, total_size, 0, VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY,
+-                                removable ) != STATUS_SUCCESS) goto done;
++                                removable, force_anon ) != STATUS_SUCCESS) goto done;
+ 
+         /* check that all sections are loaded at the right offset */
+         if (nt->OptionalHeader.FileAlignment != nt->OptionalHeader.SectionAlignment) goto done;
+@@ -3146,7 +3164,8 @@
+                             sec[i].PointerToRawData, (int)pos, file_size, map_size,
+                             sec[i].Characteristics );
+             if (map_file_into_view( view, shared_fd, sec[i].VirtualAddress, map_size, pos,
+-                                    VPROT_COMMITTED | VPROT_READ | VPROT_WRITE, FALSE ) != STATUS_SUCCESS)
++                                    VPROT_COMMITTED | VPROT_READ | VPROT_WRITE, FALSE,
++                                    FALSE /* MAP_SHARED, never anon */ ) != STATUS_SUCCESS)
+             {
+                 ERR_(module)( "Could not map %s shared section %.8s\n", debugstr_us(nt_name), sec[i].Name );
+                 goto done;
+@@ -3162,7 +3181,8 @@
+                 if (end > base)
+                     map_file_into_view( view, shared_fd, base, end - base,
+                                         pos + (base - sec[i].VirtualAddress),
+-                                        VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY, FALSE );
++                                        VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY, FALSE,
++                                        force_anon );
+             }
+             pos += map_size;
+             continue;
+@@ -3184,7 +3204,7 @@
+             end < file_start ||
+             map_file_into_view( view, fd, sec[i].VirtualAddress, file_size, file_start,
+                                 VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY,
+-                                removable ) != STATUS_SUCCESS)
++                                removable, force_anon ) != STATUS_SUCCESS)
+         {
+             ERR_(module)( "Could not map %s section %.8s, file probably truncated\n",
+                           debugstr_us(nt_name), sec[i].Name );
+@@ -3447,8 +3467,11 @@
+     status = map_image_view( &view, &pe_mapping->image, size, limit_low, limit_high, alloc_type );
+     if (status) goto done;
+ 
++    /* Force PE images to come up as anonymous memory so later mprotect() calls
++     * that flip text sections to PROT_EXEC succeed on strict-W^X kernels
++     * (e.g. Android arm64) and noexec filesystems (e.g. an SD card). */
+     status = map_image_into_view( view, &pe_mapping->nt_name, unix_fd, &pe_mapping->image,
+-                                  machine, shared_fd, needs_close );
++                                  machine, shared_fd, needs_close, TRUE );
+     if (status == STATUS_SUCCESS)
+     {
+         if (offset)
+@@ -3590,7 +3613,7 @@
+     if (res) goto done;
+ 
+     TRACE( "handle=%p size=%lx offset=%s\n", handle, size, wine_dbgstr_longlong(offset.QuadPart) );
+-    res = map_file_into_view( view, unix_handle, 0, size, offset.QuadPart, vprot, needs_close );
++    res = map_file_into_view( view, unix_handle, 0, size, offset.QuadPart, vprot, needs_close, FALSE );
+     if (res == STATUS_SUCCESS)
+     {
+         /* file mappings must always be accessible */
+@@ -3667,6 +3690,7 @@
+ {
+     const struct preload_info **preload_info = dlsym( RTLD_DEFAULT, "wine_main_preload_info" );
+     const char *preload;
++    const char *vmem_max_size_env;
+     size_t size;
+     int i;
+     pthread_mutexattr_t attr;
+@@ -3689,6 +3713,16 @@
+     host_addr_space_limit = address_space_limit;
+ #endif
+ 
++    /* WINEVMEMMAXSIZE: cap a single virtual-memory allocation (value in MB).
++     * Some games ask for absurd reservations that succeed on a 47-bit desktop VA
++     * but exhaust the ~39-bit bionic/arm64ec address space and wedge the loader;
++     * capping the request lets them fall back to a sane size. 0 = unlimited. */
++    if ((vmem_max_size_env = getenv( "WINEVMEMMAXSIZE" )))
++    {
++        vmem_max_size = (SIZE_T)strtol( vmem_max_size_env, NULL, 10 ) << 20;
++        TRACE( "virtual memory max size: %ld\n", (long)vmem_max_size );
++    }
++
+     kernel_writewatch_init();
+ 
+     if (preload_info && *preload_info)
+@@ -5147,7 +5181,8 @@
+ 
+     /* Round parameters to a page boundary */
+ 
+-    if (is_beyond_limit( 0, size, working_set_limit )) return STATUS_WORKING_SET_LIMIT_RANGE;
++    if (is_beyond_limit( 0, size, working_set_limit ) || (vmem_max_size > 0 && size > vmem_max_size))
++        return STATUS_WORKING_SET_LIMIT_RANGE;
+ 
+     if (*ret)
+     {

@@ -154,8 +154,8 @@ do
       --without-xcomposite \
       --without-xfixes \
       --without-xinerama \
-      --without-xrandr \
-      --without-xrender \
+      --with-xrandr \
+      --with-xrender \
       --without-xshape \
       --with-xshm \
       --without-xxf86vm
@@ -215,10 +215,20 @@ do
       "common/dlls_ntdll_signal_x86_64_xstate_c.patch"
       # arm64ec: advertise x86 AVX xstate config (write via writable USD alias, not RO 0x7ffe0000)
       "common/dlls_ntdll_unix_virtual_xstate_config_c.patch"
+      # FULLSTACK: Arihany force_anon (W^X/noexec-safe PE mapping - may fix binkw32/FMV on SD-card F:)
+      #            + WINEVMEMMAXSIZE (cap a single VA allocation). Generated against bionic-patched
+      #            virtual.c; applied AFTER the other virtual.c patches so its later hunks relocate
+      #            by context past the xstate_config insertion.
+      "common/dlls_ntdll_unix_virtual_fullstack_c.patch"
       # DROPPED(FEX-cluster): "arm64ec/dlls_ntdll_unix_virtual_c.patch"
 
       # syscall Patches (use test-bylaws below)
       # "arm64ec/dlls_wow64_syscall_c.patch"
+
+      # FULLSTACK Proton-lineage extras (re-anchored onto vanilla 11.16)
+      "common/dlls_ntdll_unix_env_c.patch"          # Arihany: default LC_ALL=C.UTF-8 on bionic
+      "common/dlls_shell32_shlfileop_c.patch"       # Arihany: dir_len drive-root FO_COPY guard
+      "common/dlls_ntdll_unix_sync_c.patch"         # WINE_FAST_YIELD gate in NtYieldExecution
 
       # pulse Patches
       "common/dlls_winepulse_drv_pulse_c.patch"
