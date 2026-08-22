@@ -258,8 +258,16 @@ do
       "arm64ec/programs_wineboot_wineboot_c.patch"
 
       # 1. Extended State (XSTATE/YMM) Support Patches
-      "test-bylaws/dlls_ntdll_unwind_h.patch"
-      "test-bylaws/include_winnt_h.patch"
+      # DEFERRED(FEX-AVX/YMM cluster, build#3 2026-08-22): unwind.h adds CONTEXT_ARM64_FEX_YMMSTATE
+      #   uses (ctx_flags_*_to_* + YMM context_x64<->arm memcpy), but include_winnt_h.patch (the
+      #   macro DEFINITION) does NOT apply to vanilla 11.16 -> SKIPPED -> undeclared-identifier
+      #   compile error. Same kept-use/dropped-def coupling as the 10.6 FEX cluster. This is the
+      #   AVX/YMM extended-context plumbing we're deferring anyway (only matters for x64 AVX-heavy
+      #   SEH games); drop BOTH so the pair stays consistent (0 dangling CONTEXT_ARM64_FEX_YMMSTATE
+      #   refs — verified nothing else in the applied set uses it). Re-anchor together with XSTATE
+      #   hunk#2 when we take on x64-SEH-game compat post-boot.
+      # DEFERRED: "test-bylaws/dlls_ntdll_unwind_h.patch"
+      # DEFERRED: "test-bylaws/include_winnt_h.patch"
 
       # 2. Thread Suspension Patches
       # DROPPED(FEX-cluster): "test-bylaws/dlls_ntdll_signal_arm64_c.patch"
