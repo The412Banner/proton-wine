@@ -1,0 +1,217 @@
+name: Build Wine 11.16 FEX-UNIXLIB arm64ec (SDK 28)
+
+# WineHQ 11.16 vanilla-esync (branch wine_11.16-fexunixlib) + ONE source patch: load_unixlib_by_name
+# also searches the guest's fixed /usr/lib/wine/aarch64-unix so the FEXCore component's arm64ec/wow64
+# unixlib .so (libarm64ecfex.so / libwow64fex.so) is found and FEX runs as a file-backed unixlib
+# (chip reads 'unixlib') instead of falling back to its in-DLL JIT. arm64ec-only. vc4 -> entry
+# wine-11.16-arm64ec-4, coexists with vanilla vc0. Triggers ONLY on this branch + dispatch. No
+# release job — stops at the .wcp artifact for a device boot test.
+
+on:
+  push:
+    branches: [ wine_11.16-fexunixlib ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [aarch64]
+      fail-fast: false
+
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up build environment
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git wget curl unzip flex bison gettext \
+            autoconf automake libtool pkg-config mingw-w64 \
+            gcc-multilib g++-multilib \
+            libfreetype6-dev libfreetype6-dev:i386 \
+            libpng-dev libpng-dev:i386 \
+            zlib1g-dev zlib1g-dev:i386
+
+      - name: Download and extract termuxfs for ${{ matrix.arch }}
+        run: |
+          mkdir -p $HOME/termuxfs/${{ matrix.arch }}
+          cd $HOME/termuxfs/${{ matrix.arch }}
+          wget https://github.com/GameNative/termux-on-gha/releases/download/build-20260218/termuxfs-${{ matrix.arch }}.tar
+          tar -xf termuxfs-${{ matrix.arch }}.tar
+          ls -la $HOME/termuxfs/${{ matrix.arch }}/
+
+      - name: Cache Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: ~/Android/Sdk/ndk/27.3.13750724
+          key: android-ndk-r27d
+
+      - name: Set up Android NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/Android/Sdk/ndk
+          cd $HOME/Android/Sdk/ndk
+          wget https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+          unzip -q android-ndk-r27d-linux.zip
+          mv android-ndk-r27d 27.3.13750724
+
+      - name: Cache LLVM MinGW toolchain
+        id: cache-llvm-mingw
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchains/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64
+          key: bylaws-llvm-mingw-20250920
+
+      - name: Set up LLVM MinGW toolchain
+        if: steps.cache-llvm-mingw.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/toolchains
+          cd $HOME/toolchains
+          wget https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+          tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
+
+      - name: Run autogen.sh (aarch64)
+        run: bash autogen.sh --aarch64
+
+      - name: Cache wine-tools
+        id: cache-wine-tools
+        uses: actions/cache@v4
+        with:
+          path: wine-tools
+          key: wine-tools-w1116-${{ hashFiles('configure.ac', 'configure') }}
+
+      - name: Install ccache
+        run: sudo apt-get install -y ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-w1116-fexunixlib-sdk28-aarch64-${{ github.sha }}
+          restore-keys: |
+            ccache-w1116-fexunixlib-sdk28-aarch64-
+
+      - name: Build wine-tools (step 0)
+        if: steps.cache-wine-tools.outputs.cache-hit != 'true'
+        run: bash build-scripts/build-step0.sh
+
+      - name: Build sysvshm library
+        run: bash build-scripts/build-step-arm64ec.sh --build-sysvshm
+
+      - name: Configure
+        run: bash build-scripts/build-step-arm64ec.sh --configure
+
+      - name: Build
+        run: bash build-scripts/build-step-arm64ec.sh --build
+
+      - name: ccache stats
+        if: always()
+        run: ccache -s || true
+
+      - name: Install
+        run: bash build-scripts/build-step-arm64ec.sh --install
+
+      - name: Verify wine tree is real (fail on hollow build)
+        run: |
+          set -e
+          OUT="$HOME/compiled-files-aarch64"
+          echo "=== tree sizes ==="; du -sh "$OUT"/bin "$OUT"/lib "$OUT"/share 2>/dev/null || true
+          unixdir="$OUT/lib/wine/aarch64-unix"
+          fail=0
+          [ -d "$unixdir" ] || { echo "MISSING aarch64-unix dir"; fail=1; }
+          [ -s "$unixdir/ntdll.so" ] || { echo "MISSING/empty ntdll.so"; fail=1; }
+          [ -s "$unixdir/wine" ]     || { echo "MISSING/empty unix wine loader"; fail=1; }
+          # bin/wine + bin/wine-preloader must be resolvable symlinks to the loader (the app
+          # execs bin/wine). -e follows the symlink, so a dangling link fails here too.
+          [ -e "$OUT/bin/wine" ]           || { echo "MISSING/dangling bin/wine"; fail=1; }
+          [ -e "$OUT/bin/wine-preloader" ] || { echo "MISSING/dangling bin/wine-preloader"; fail=1; }
+          [ -s "$OUT/lib/wine/aarch64-windows/ntdll.dll" ] || { echo "MISSING/empty arm64ec ntdll.dll"; fail=1; }
+          so_count=$(find "$unixdir" -name '*.so' 2>/dev/null | wc -l)
+          pe_count=$(find "$OUT/lib/wine/aarch64-windows" -name '*.dll' 2>/dev/null | wc -l)
+          echo "aarch64-unix .so=$so_count ; aarch64-windows .dll=$pe_count"
+          [ "$so_count" -ge 10 ] || { echo "too few unix .so ($so_count)"; fail=1; }
+          [ "$pe_count" -ge 50 ] || { echo "too few arm64ec PE dll ($pe_count)"; fail=1; }
+          [ "$fail" = 0 ] || { echo "HOLLOW BUILD - refusing to package"; exit 1; }
+          echo "wine tree looks real."
+
+      - name: Verify esync compiled ENABLED (not the eventfd stub)
+        run: |
+          set -e
+          OUT="$HOME/compiled-files-aarch64"
+          NTDLL="$OUT/lib/wine/aarch64-unix/ntdll.so"
+          # The client esync do_esync() is #ifdef HAVE_SYS_EVENTFD_H: the real branch checks
+          # WINEESYNC; the #else stub prints "eventfd not supported" and disables esync. If the
+          # header guard wasn't set, we ship a permanently-disabled esync (device shows
+          # "fixme:esync:do_esync eventfd not supported"). Gate on the stub string being ABSENT.
+          if strings "$NTDLL" | grep -q "eventfd not supported"; then
+            echo "FAIL: esync compiled as the DISABLED eventfd stub (HAVE_SYS_EVENTFD_H not set)"; exit 1
+          fi
+          # And the real branch's WINEESYNC handling must be present.
+          strings "$NTDLL" | grep -q "WINEESYNC" || { echo "FAIL: WINEESYNC string missing - esync not compiled in"; exit 1; }
+          echo "esync compiled ENABLED (no eventfd stub; WINEESYNC present)."
+
+      - name: Verify FEX-unixlib fallback search compiled in
+        run: |
+          set -e
+          OUT="$HOME/compiled-files-aarch64"
+          NTDLL="$OUT/lib/wine/aarch64-unix/ntdll.so"
+          # The whole point of this branch: load_unixlib_by_name gained an Android last-resort
+          # search of /usr/lib/wine (imagefs) so the FEX unixlib .so is found. If the literal
+          # isn't in ntdll.so, the #ifdef __ANDROID__ block was compiled out or the edit was
+          # lost -> the build would silently behave like plain vanilla. Gate on the literal.
+          strings "$NTDLL" | grep -q "/usr/lib/wine" || { echo "FAIL: '/usr/lib/wine' literal missing - FEX-unixlib fallback NOT compiled in"; exit 1; }
+          echo "FEX-unixlib fallback present ('/usr/lib/wine' search compiled into ntdll.so)."
+
+      - name: Download prefixPack.txz
+        run: |
+          wget https://github.com/GameNative/bionic-prefix-files/raw/main/prefixPack-arm64ec.txz -O $GITHUB_WORKSPACE/prefixPack.txz
+
+      - name: Generate profile.json (Wine type, single-digit versionCode)
+        run: |
+          cat > $GITHUB_WORKSPACE/profile.json << 'EOF'
+          {
+            "type": "Wine",
+            "versionName": "11.16-arm64ec",
+            "versionCode": 4,
+            "description": "WineHQ 11.16 arm64ec (bionic) FEX-UNIXLIB — vanilla-esync 11.16 + load_unixlib_by_name searches /usr/lib/wine/aarch64-unix so the FEXCore unixlib .so (libarm64ecfex.so/libwow64fex.so) loads file-backed and FEX runs as a unixlib (chip=unixlib) instead of in-DLL JIT. Pair with a FEX-unix component. Coexists with vanilla (vc4). Needs a fresh arm64ec container.",
+            "files": [],
+            "wine": {
+              "binPath": "bin",
+              "libPath": "lib",
+              "prefixPack": "prefixPack.txz"
+            }
+          }
+          EOF
+          cat $GITHUB_WORKSPACE/profile.json
+
+      - name: Package .wcp (zstd)
+        run: |
+          OUTPUT_DIR="$HOME/compiled-files-aarch64"
+          cd $OUTPUT_DIR
+          cp $GITHUB_WORKSPACE/prefixPack.txz .
+          cp $GITHUB_WORKSPACE/profile.json .
+          tar -I 'zstd -T0 -19' -cf wine-11.16-fexunixlib-arm64ec.wcp bin lib share prefixPack.txz profile.json
+          mv wine-11.16-fexunixlib-arm64ec.wcp $GITHUB_WORKSPACE/
+          ls -lah $GITHUB_WORKSPACE/wine-11.16-fexunixlib-arm64ec.wcp
+
+      - name: Upload .wcp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-11.16-fexunixlib-arm64ec
+          path: wine-11.16-fexunixlib-arm64ec.wcp
+          retention-days: 30
