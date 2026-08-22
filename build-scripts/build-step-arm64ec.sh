@@ -44,7 +44,7 @@ export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
 # -g0 = don't emit debug info (the bulk of the tree size); -O2 = normal release optimisation.
 # Applied to the ELF/unix side via CFLAGS below and to the arm64ec PE side via CROSSCFLAGS.
 # (A post-install llvm-strip pass in --install trims the remaining symbol tables.)
-export C_OPTS="-g0 -O2 -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+export C_OPTS="-g0 -O2 -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion -DHAVE_SYS_EVENTFD_H"
 export CFLAGS=$C_OPTS
 export CXXFLAGS=$C_OPTS
 export CROSSCFLAGS="-g0 -O2"

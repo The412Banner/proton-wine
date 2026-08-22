@@ -147,6 +147,22 @@ jobs:
           [ "$fail" = 0 ] || { echo "HOLLOW BUILD - refusing to package"; exit 1; }
           echo "wine tree looks real."
 
+      - name: Verify esync compiled ENABLED (not the eventfd stub)
+        run: |
+          set -e
+          OUT="$HOME/compiled-files-aarch64"
+          NTDLL="$OUT/lib/wine/aarch64-unix/ntdll.so"
+          # The client esync do_esync() is #ifdef HAVE_SYS_EVENTFD_H: the real branch checks
+          # WINEESYNC; the #else stub prints "eventfd not supported" and disables esync. If the
+          # header guard wasn't set, we ship a permanently-disabled esync (device shows
+          # "fixme:esync:do_esync eventfd not supported"). Gate on the stub string being ABSENT.
+          if strings "$NTDLL" | grep -q "eventfd not supported"; then
+            echo "FAIL: esync compiled as the DISABLED eventfd stub (HAVE_SYS_EVENTFD_H not set)"; exit 1
+          fi
+          # And the real branch's WINEESYNC handling must be present.
+          strings "$NTDLL" | grep -q "WINEESYNC" || { echo "FAIL: WINEESYNC string missing - esync not compiled in"; exit 1; }
+          echo "esync compiled ENABLED (no eventfd stub; WINEESYNC present)."
+
       - name: Download prefixPack.txz
         run: |
           wget https://github.com/GameNative/bionic-prefix-files/raw/main/prefixPack-arm64ec.txz -O $GITHUB_WORKSPACE/prefixPack.txz
