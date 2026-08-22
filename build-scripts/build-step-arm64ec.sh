@@ -44,7 +44,7 @@ export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
 # -g0 = don't emit debug info (the bulk of the tree size); -O2 = normal release optimisation.
 # Applied to the ELF/unix side via CFLAGS below and to the arm64ec PE side via CROSSCFLAGS.
 # (A post-install llvm-strip pass in --install trims the remaining symbol tables.)
-export C_OPTS="-g0 -O2 -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+export C_OPTS="-g0 -O2 -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion -DHAVE_SYS_EVENTFD_H"
 export CFLAGS=$C_OPTS
 export CXXFLAGS=$C_OPTS
 export CROSSCFLAGS="-g0 -O2"
@@ -100,6 +100,9 @@ do
 
   if [ "$arg" == "--configure" ];
   then
+    # DirectAudio: configure.ac gained dlls/winedirectaudio.drv + --with-aaudio.
+    # configure/config.h.in are regenerated upstream of this step by autogen.sh
+    # (autoreconf -ifv), which the workflow runs before --configure. Nothing to do here.
     ./configure \
       --enable-archs=$WIN_ARCH \
       --host=$TARGET \
@@ -188,11 +191,34 @@ do
       # sdl patch
       "common/dlls_winebus_sys_bus_sdl_c.patch"
 
-      # shm_utils
-      "common/dlls_ntdll_unix_esync_c.patch"
-      "common/dlls_ntdll_unix_fsync_c.patch"
-      "common/server_esync_c.patch"
-      "common/server_fsync_c.patch"
+      # FSYNC SYNC PORT (futex-based in-process sync onto 11.16's ntsync server).
+      # The 4 orphaned bionic esync/fsync overlay patches (common/*_esync_c/*_fsync_c)
+      # target a staging-created base that no longer exists -> DROPPED. Instead, the
+      # sync/ set below creates fsync.c/h (ntdll + server) from the proton_11.0-2
+      # lineage, wires the wineserver protocol (fsync_free_shm_idx + enum fsync_type,
+      # regenerated via make_requests after the loop), and adds the do_fsync() client
+      # dispatch + server object handling. ntsync stays upstream.
+      "sync/create_dlls_ntdll_unix_fsync_c.patch"   # ntdll client fsync backend (new file)
+      "sync/create_dlls_ntdll_unix_fsync_h.patch"
+      "sync/dlls_ntdll_unix_unix_private_h.patch"   # + fsync_apc_futex field on struct thread_data
+      "sync/create_server_fsync_c.patch"            # wineserver fsync shm + handler (new file)
+      "sync/create_server_fsync_h.patch"
+      # ESYNC (eventfd, proven on-device) — 11.x-anchored inproc-integrated esync from
+      # proton_11.0-2 (blob matches our overlay's bionic esync patches). Reuses the same
+      # inproc_sync framework as fsync; the sync.c/inproc_sync.c/server integration patches
+      # below now carry BOTH fsync + esync branches. Runtime prefers esync on this hardware.
+      "sync/create_dlls_ntdll_unix_esync_c.patch"   # ntdll client esync backend (new file)
+      "sync/create_dlls_ntdll_unix_esync_h.patch"
+      "sync/create_server_esync_c.patch"            # wineserver esync shm (new file)
+      "sync/create_server_esync_h.patch"
+      "sync/server_protocol_def.patch"              # + fsync_free_shm_idx, enum fsync_type/esync_type, ESYNC_USED_BY_SERVER, sync_shm_idx
+      "sync/dlls_ntdll_Makefile_in.patch"           # compile unix/fsync.c
+      "sync/server_Makefile_in.patch"               # compile server/fsync.c
+      "sync/dlls_ntdll_unix_sync_c.patch"           # do_fsync()/do_esync() dispatch in inproc_* + NtDelayExecution
+      "sync/dlls_ntdll_unix_server_c.patch"         # init_first_thread: FSYNC_USED_BY_SERVER + fsync_init
+      "sync/server_main_c.patch"                    # fsync_init() at server startup
+      "sync/server_thread_c.patch"                  # init_first_thread + get_inproc_alert_fd fsync
+      "sync/server_inproc_sync_c.patch"             # create/signal/reset/abandon fsync+esync branches
 
       # winex11
       "common/dlls_winex11_drv_bitblt_c.patch"
@@ -341,6 +367,18 @@ do
     done
     echo "----------------------------------------"
     echo "Patch summary: applied=$applied fuzzed=$fuzzed skipped=$skipped"
+
+    # SYNC PORT: the fsync/esync patches add a new wineserver protocol request
+    # (fsync_free_shm_idx) + enum fsync_type/esync_type to server/protocol.def. The
+    # build does NOT auto-regenerate the protocol, so regenerate it explicitly from the
+    # patched protocol.def. make_requests is a standalone perl script that rewrites
+    # include/wine/server_protocol.h + server/request_handlers.h + server/trace.c
+    # (appends the new request, bumps SERVER_PROTOCOL_VERSION). Idempotent; only runs
+    # when the fsync request is actually present so a non-sync build is unaffected.
+    if grep -q "fsync_free_shm_idx" server/protocol.def 2>/dev/null; then
+      echo "Regenerating wineserver protocol (make_requests) after protocol.def fsync patch..."
+      perl ./tools/make_requests || { echo "make_requests FAILED"; exit 1; }
+    fi
   fi
 
   if [ "$arg" == "--build" ]
