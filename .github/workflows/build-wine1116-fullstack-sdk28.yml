@@ -163,6 +163,18 @@ jobs:
           strings "$NTDLL" | grep -q "WINEESYNC" || { echo "FAIL: WINEESYNC string missing - esync not compiled in"; exit 1; }
           echo "esync compiled ENABLED (no eventfd stub; WINEESYNC present)."
 
+      - name: Verify FEX-unixlib $PREFIX/lib/wine search compiled in
+        run: |
+          set -e
+          OUT="$HOME/compiled-files-aarch64"
+          NTDLL="$OUT/lib/wine/aarch64-unix/ntdll.so"
+          # The dll_paths injection (common/dlls_ntdll_unix_loader_prefix_dllpath.patch) adds
+          # $PREFIX/lib/wine so the native load_unixlib_by_name finds the host-placed FEX .so
+          # (device-proven: chip -> unixlib, libarm64ecfex.so file-backed). If the patch was
+          # silently skipped by the tolerant apply loop, the trace literal won't be present.
+          strings "$NTDLL" | grep -q "added FEX unixlib search dir" || { echo "FAIL: FEX-unixlib dll_paths injection NOT compiled in (patch skipped?)"; exit 1; }
+          echo "FEX-unixlib search present (\$PREFIX/lib/wine injected into dll_paths)."
+
       - name: Download prefixPack.txz
         run: |
           wget https://github.com/GameNative/bionic-prefix-files/raw/main/prefixPack-arm64ec.txz -O $GITHUB_WORKSPACE/prefixPack.txz

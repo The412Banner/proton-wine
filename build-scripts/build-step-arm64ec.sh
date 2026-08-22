@@ -230,6 +230,11 @@ do
       "common/dlls_winex11_drv_x11drv_h.patch"
       "common/dlls_winex11_drv_x11drv_main_c.patch"
 
+      # FEX unixlib: add $PREFIX/lib/wine (imagefs, where the host drops the version-matched
+      # FEX .so) to dll_paths so the native load_unixlib_by_name finds it -> FEX runs as a
+      # file-backed unixlib (chip=unixlib) not in-DLL JIT. Mirrors the Proton layers' search.
+      "common/dlls_ntdll_unix_loader_prefix_dllpath.patch"
+
       # address space patches
       "common/loader_preloader_c.patch"
       # bionic/arm64ec host-page-size fix for alloc_virtual_heap (from proton_11.0 delta + heap round)
