@@ -1,9 +1,9 @@
 diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
 new file mode 100644
-index 0000000000..4d4d0dc288
+index 0000000000..89101ddf7d
 --- /dev/null
 +++ b/dlls/ntdll/unix/fsync.c
-@@ -0,0 +1,1245 @@
+@@ -0,0 +1,1253 @@
 +/*
 + * futex-based synchronization objects
 + *
@@ -72,11 +72,20 @@ index 0000000000..4d4d0dc288
 +int fsync_enabled;
 +static int current_pid;
 +
++/* fsync scheduling tuning knobs (proton keeps these in loader.c; default off,
++ * parsed from WINE_FSYNC_* env in fsync_init). */
++int fsync_simulate_sched_quantum = 0;
++int fsync_yield_to_waiters = 0;
++int fsync_help_simulated_pulse = 0;
++
 +/* futex_waitv interface */
 +
 +#ifndef __NR_futex_waitv
-+
 +# define __NR_futex_waitv 449
++#endif
++/* bionic's <linux/futex.h> exposes __NR_futex_waitv but NOT the futex2
++ * struct/flags, so guard the type on FUTEX_32 rather than the syscall number. */
++#ifndef FUTEX_32
 +# define FUTEX_32 2
 +struct futex_waitv {
 +    uint64_t   val;
@@ -84,7 +93,6 @@ index 0000000000..4d4d0dc288
 +    uint32_t   flags;
 +    uint32_t __reserved;
 +};
-+
 +#endif
 +
 +#define u64_to_ptr(x) (void *)(uintptr_t)(x)
@@ -462,11 +470,11 @@ index 0000000000..4d4d0dc288
 +void fsync_init( DWORD pid )
 +{
 +    struct stat st;
++    const char *env_str;
 +
-+#if defined(__ANDROID__)
-+	fsync_enabled = 0;
-+	return;
-+#endif
++    if ((env_str = getenv("WINE_FSYNC_SIMULATE_SCHED_QUANTUM"))) fsync_simulate_sched_quantum = !!atoi(env_str);
++    if ((env_str = getenv("WINE_FSYNC_YIELD_TO_WAITERS")))       fsync_yield_to_waiters = !!atoi(env_str);
++    if ((env_str = getenv("WINE_FSYNC_HELP_SIMULATED_PULSE")))   fsync_help_simulated_pulse = !!atoi(env_str);
 +
 +    fsync_enabled = 1;
 +    syscall( __NR_futex_waitv, NULL, 0, 0, NULL, 0 );
