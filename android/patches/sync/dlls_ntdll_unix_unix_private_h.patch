@@ -1,0 +1,12 @@
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index c8ca97d21a..57989317fe 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -115,6 +115,7 @@ struct thread_data
+     void        *start;             /* thread entry point */
+     void        *param;             /* thread entry point parameter */
+     struct list  entry;             /* entry in TEB list */
++    int         *fsync_apc_futex;   /* fsync: per-thread APC alert futex */
+     char         debug_info[0x800]; /* debug_info structure */
+     char         signal_stack[];    /* signal stack */
+     /* char kernel_stack[] */

@@ -199,6 +199,7 @@ do
       # is the backend that engages on kernels with futex_waitv. ntsync stays upstream.
       "sync/create_dlls_ntdll_unix_fsync_c.patch"   # ntdll client fsync backend (new file)
       "sync/create_dlls_ntdll_unix_fsync_h.patch"
+      "sync/dlls_ntdll_unix_unix_private_h.patch"   # + fsync_apc_futex field on struct thread_data
       "sync/create_server_fsync_c.patch"            # wineserver fsync shm + handler (new file)
       "sync/create_server_fsync_h.patch"
       "sync/server_protocol_def.patch"              # + fsync_free_shm_idx, enum fsync_type, sync_shm_idx
