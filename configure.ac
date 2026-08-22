@@ -1128,7 +1128,6 @@ case $host_os in
 esac
 
 enable_winecoreaudio_drv=${enable_winecoreaudio_drv:-no}
-enable_winedirectaudio_drv=${enable_winedirectaudio_drv:-no}
 enable_wineandroid_drv=${enable_wineandroid_drv:-no}
 enable_winemac_drv=${enable_winemac_drv:-no}
 
@@ -1788,6 +1787,10 @@ then
         [AC_SUBST(AAUDIO_LIBS,"-laaudio")
          enable_winedirectaudio_drv=${enable_winedirectaudio_drv:-yes}])
 fi
+dnl default OFF, but only AFTER the AAudio probe above has had its chance to set it ON
+dnl (mirrors winecoreaudio: the :-yes detection precedes this :-no default, else this
+dnl no-op-clobbers the probe and the driver never builds even when AAudio.h is present)
+enable_winedirectaudio_drv=${enable_winedirectaudio_drv:-no}
 
 dnl **** Check for ALSA 1.x ****
 AC_SUBST(ALSA_LIBS,"")
