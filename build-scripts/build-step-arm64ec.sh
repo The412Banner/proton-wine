@@ -121,7 +121,7 @@ do
       --without-cups \
       --without-dbus \
       --without-ffmpeg \
-      --with-fontconfig \
+      --without-fontconfig \
       --with-freetype \
       --without-gcrypt \
       --without-gettext \
@@ -159,6 +159,14 @@ do
       --without-xshape \
       --with-xshm \
       --without-xxf86vm
+
+    # HARD GATE: this script has no `set -e`, so a fatal ./configure (e.g. a missing --with dep
+    # aborting via as_fn_error) would otherwise fall through to the patch loop, which returns 0,
+    # and green-light a Makefile-less tree -> the --build step then dies with "No targets ... no
+    # makefile found". Fail LOUDLY here instead. (build #1 masking postmortem, 2026-08-22)
+    if [ ! -f Makefile ]; then
+      echo "CONFIGURE FAILED: no top-level Makefile produced (configure aborted before generating it)"; exit 1
+    fi
 
     echo "Applying patches..."
 
@@ -310,7 +318,7 @@ do
         patch -p1 --fuzz=2 --forward --no-backup-if-mismatch -r /dev/null <"$pf" >/dev/null 2>&1
         echo "FUZZED   $patch"; fuzzed=$((fuzzed+1))
       else
-        echo "SKIPPED  $patch (does not apply cleanly to vanilla 10.6 - left untouched)"; skipped=$((skipped+1))
+        echo "SKIPPED  $patch (does not apply cleanly to vanilla 11.16 - left untouched)"; skipped=$((skipped+1))
       fi
     done
     echo "----------------------------------------"
