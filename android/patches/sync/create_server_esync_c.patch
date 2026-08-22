@@ -1,9 +1,9 @@
 diff --git a/server/esync.c b/server/esync.c
 new file mode 100644
-index 0000000000..12f07ab7bb
+index 0000000000..3ff60371fc
 --- /dev/null
 +++ b/server/esync.c
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,221 @@
 +#include "config.h"
 +#include <fcntl.h>
 +#include <stdio.h>
@@ -30,7 +30,6 @@ index 0000000000..12f07ab7bb
 +#include "thread.h"
 +#include "esync.h"
 +#include "fsync.h"
-+#include "ntsync_tmp.h" /* For inproc_sync_type */
 +
 +#ifdef __linux__
 +#include <sys/mman.h>
