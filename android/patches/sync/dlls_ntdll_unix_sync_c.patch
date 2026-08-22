@@ -1,5 +1,5 @@
 diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
-index 0127a05301..d99e706068 100644
+index 0127a05301..f51cd5a58e 100644
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
 @@ -72,6 +72,9 @@
@@ -96,6 +96,15 @@ index 0127a05301..d99e706068 100644
      if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
      if ((ret = get_inproc_sync( handle, INPROC_SYNC_MUTEX, MUTANT_QUERY_STATE, &stack, &sync ))) return ret;
      ret = linux_query_mutex_obj( sync->fd, info );
+@@ -869,7 +893,7 @@ static NTSTATUS inproc_query_mutex( HANDLE handle, MUTANT_BASIC_INFORMATION *inf
+     return ret;
+ }
+ 
+-static int get_inproc_alert_fd(void)
++int get_inproc_alert_fd(void)
+ {
+     struct thread_data *data = get_thread_data();
+     obj_handle_t token;
 @@ -884,8 +908,12 @@ static int get_inproc_alert_fd(void)
          {
              if (!server_call_unlocked( req ))
