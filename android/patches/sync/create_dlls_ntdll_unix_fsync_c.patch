@@ -1,9 +1,9 @@
 diff --git a/dlls/ntdll/unix/fsync.c b/dlls/ntdll/unix/fsync.c
 new file mode 100644
-index 0000000000..89101ddf7d
+index 0000000000..e941f60826
 --- /dev/null
 +++ b/dlls/ntdll/unix/fsync.c
-@@ -0,0 +1,1253 @@
+@@ -0,0 +1,1254 @@
 +/*
 + * futex-based synchronization objects
 + *
@@ -74,6 +74,7 @@ index 0000000000..89101ddf7d
 +
 +/* fsync scheduling tuning knobs (proton keeps these in loader.c; default off,
 + * parsed from WINE_FSYNC_* env in fsync_init). */
++int ac_odyssey = 0;
 +int fsync_simulate_sched_quantum = 0;
 +int fsync_yield_to_waiters = 0;
 +int fsync_help_simulated_pulse = 0;
