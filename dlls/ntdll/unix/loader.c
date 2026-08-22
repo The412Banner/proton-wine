@@ -1322,9 +1322,7 @@ NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret 
     }
 
     if (build_dir) maxlen = strlen(build_dir) + sizeof("/dlls/") + len;
-    /* the max() also reserves room for the Android FEX-unixlib fallback prefix below */
-    maxlen = max( maxlen, max( dll_path_maxlen, sizeof("/usr/lib/wine") ) + 1 )
-             + len + sizeof("/aarch64-unix") + sizeof(".so");
+    maxlen = max( maxlen, dll_path_maxlen + 1 ) + len + sizeof("/aarch64-unix") + sizeof(".so");
 
     if (!(file = malloc( maxlen ))) return STATUS_NO_MEMORY;
 
@@ -1362,21 +1360,27 @@ NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret 
 #ifdef __ANDROID__
     /* Android/bionic FEX-unixlib fallback (last resort, after the version-coherent
      * WINEDLLPATH/layer search above). The arm64ec/wow64 FEX emulator ships a unixlib
-     * companion (libarm64ecfex.so / libwow64fex.so) that the FEXCore component installs
-     * into the guest's fixed /usr/lib/wine/aarch64-unix (imagefs), which is NOT on
-     * WINEDLLPATH (the active wine layer lives elsewhere). Without this, the FEX PE .dll's
-     * MemoryWineLoadUnixLibByName lookup misses and FEX silently falls back to its in-DLL
-     * JIT (the emulator maps anon instead of the file-backed .so). Trying this fixed path
-     * only when the coherent search already failed keeps existing games unaffected.
-     * Cosmetic: the JIT does identical work either way — this only lets the matched .so be
-     * the loaded, file-backed form. Coherence assumes the selected FEX-unix component put
-     * its matching .so here alongside its .dll in system32 (true for unixlib FEX builds;
-     * a stale .so left by a later switch to a different FEX is the known residual risk). */
+     * companion (libarm64ecfex.so / libwow64fex.so) that the Winlator/Bannerlator host
+     * installs (and version-matches to the selected FEX .dll, clearing it for DLL-only
+     * builds) into $PREFIX/lib/wine/aarch64-unix, which is NOT on WINEDLLPATH (the active
+     * wine layer lives elsewhere). Without this, the FEX PE .dll's MemoryWineLoadUnixLibByName
+     * lookup misses and FEX silently falls back to its in-DLL JIT (the emulator maps anon
+     * instead of the file-backed .so). This mirrors the search the Proton (P9/P10/P11) layers
+     * already carry, so the same host-managed .so placement works on a stock-lineage 11.16
+     * layer too. Only tried when the coherent search already failed -> no effect on other DLLs;
+     * cosmetic (the JIT does identical work either way). file+pos holds "/<name>.so". */
     if (!handle)
     {
-        ptr = prepend( file + pos, so_dir, strlen(so_dir) );
-        ptr = prepend( ptr, "/usr/lib/wine", sizeof("/usr/lib/wine") - 1 );
-        handle = dlopen( ptr, RTLD_NOW );
+        const char *prefix = getenv( "PREFIX" );
+        char *fex = NULL;
+
+        if (!prefix || prefix[0] != '/') prefix = "/usr";
+        if (asprintf( &fex, "%s/lib/wine%s%s", prefix, so_dir, file + pos ) != -1)
+        {
+            TRACE( "trying FEX unixlib fallback %s\n", fex );
+            handle = dlopen( fex, RTLD_NOW );
+            free( fex );
+        }
     }
 #endif
 

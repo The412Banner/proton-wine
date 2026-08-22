@@ -171,11 +171,12 @@ jobs:
           OUT="$HOME/compiled-files-aarch64"
           NTDLL="$OUT/lib/wine/aarch64-unix/ntdll.so"
           # The whole point of this branch: load_unixlib_by_name gained an Android last-resort
-          # search of /usr/lib/wine (imagefs) so the FEX unixlib .so is found. If the literal
-          # isn't in ntdll.so, the #ifdef __ANDROID__ block was compiled out or the edit was
-          # lost -> the build would silently behave like plain vanilla. Gate on the literal.
-          strings "$NTDLL" | grep -q "/usr/lib/wine" || { echo "FAIL: '/usr/lib/wine' literal missing - FEX-unixlib fallback NOT compiled in"; exit 1; }
-          echo "FEX-unixlib fallback present ('/usr/lib/wine' search compiled into ntdll.so)."
+          # search of $PREFIX/lib/wine (imagefs) so the FEX unixlib .so is found (mirrors the
+          # Proton layers). If the TRACE literal isn't in ntdll.so, the #ifdef __ANDROID__ block
+          # was compiled out or the edit was lost -> the build would silently behave like plain
+          # vanilla. Gate on the distinctive trace string my block emits.
+          strings "$NTDLL" | grep -q "trying FEX unixlib fallback" || { echo "FAIL: FEX-unixlib fallback trace missing - the \$PREFIX/lib/wine search did NOT compile in"; exit 1; }
+          echo "FEX-unixlib fallback present (\$PREFIX/lib/wine search compiled into ntdll.so)."
 
       - name: Download prefixPack.txz
         run: |
