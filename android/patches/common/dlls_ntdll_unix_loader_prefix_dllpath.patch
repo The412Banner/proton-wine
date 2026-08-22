@@ -1,0 +1,50 @@
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index 0d43c5c65e..c60d4cc303 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -295,9 +295,16 @@ static void set_dll_path(void)
+ {
+     char *p, *path = getenv( "WINEDLLPATH" );
+     int i, count = 0;
++#ifdef __ANDROID__
++    char *prefix = getenv( "PREFIX" );
++#endif
+ 
+     if (path) for (p = path, count = 1; *p; p++) if (*p == ':') count++;
+ 
++#ifdef __ANDROID__
++    if (prefix && *prefix) count++;   /* room for $PREFIX/lib/wine (FEX unixlib dir) */
++#endif
++
+     dll_paths = malloc( (count + 2) * sizeof(*dll_paths) );
+     count = 0;
+ 
+@@ -310,6 +317,28 @@ static void set_dll_path(void)
+         free( path );
+     }
+ 
++#ifdef __ANDROID__
++    /* Winlator/Bannerlator-bionic containers set PREFIX to the imagefs mount; the host drops
++     * the version-matched FEX unixlib companion (libarm64ecfex.so / libwow64fex.so) under
++     * $PREFIX/lib/wine. Add it to dll_paths as the LAST (lowest-priority) entry so
++     * load_unixlib_by_name (and the other builtin .so lookups) can find it while a builtin's
++     * own dir still wins -> nothing already-resolving changes. Mirrors the Proton P9/P10/P11
++     * layers' hand-ported $PREFIX/lib/wine search; on a stock-lineage 11.16 layer the native
++     * upstream load_unixlib_by_name then finds the host-placed .so with no other change. */
++    if (prefix && *prefix)
++    {
++        char *fexdir = malloc( strlen(prefix) + sizeof("/lib/wine") );
++
++        if (fexdir)
++        {
++            strcpy( fexdir, prefix );
++            strcat( fexdir, "/lib/wine" );
++            dll_paths[count++] = fexdir;
++            TRACE( "added FEX unixlib search dir %s\n", fexdir );
++        }
++    }
++#endif
++
+     for (i = 0; i < count; i++) dll_path_maxlen = max( dll_path_maxlen, strlen(dll_paths[i]) );
+     dll_paths[count] = NULL;
+ }
