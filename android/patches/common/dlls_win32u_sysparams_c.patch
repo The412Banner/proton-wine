@@ -1,8 +1,8 @@
 diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
-index 71ff1246..b6bf38a8 100644
+index fa22d6294c..278807d693 100644
 --- a/dlls/win32u/sysparams.c
 +++ b/dlls/win32u/sysparams.c
-@@ -159,7 +159,8 @@ static INT64 last_query_display_time;
+@@ -165,7 +165,8 @@ static INT64 last_query_display_time;
  static UINT64 monitor_update_serial;
  static pthread_mutex_t display_lock = PTHREAD_MUTEX_INITIALIZER;
  
@@ -12,7 +12,7 @@ index 71ff1246..b6bf38a8 100644
  BOOL decorated_mode = TRUE;
  UINT64 thunk_lock_callback = 0;
  
-@@ -1752,6 +1753,15 @@ static void add_modes( const DEVMODEW *current, UINT host_modes_count, const DEV
+@@ -2216,6 +2217,15 @@ static void add_modes( const DEVMODEW *current, UINT host_modes_count, const DEV
          modes = current;
          modes_count = 1;
      }
@@ -28,7 +28,7 @@ index 71ff1246..b6bf38a8 100644
  
      physical = modes_count == 1 ? *modes : *current;
      if (ctx->is_primary) ctx->primary = *current;
-@@ -1763,7 +1773,7 @@ static void add_modes( const DEVMODEW *current, UINT host_modes_count, const DEV
+@@ -2227,7 +2237,7 @@ static void add_modes( const DEVMODEW *current, UINT host_modes_count, const DEV
      if (modes_count > 1 || current == &detached)
      {
          reg_delete_value( source->key, physicalW );
@@ -37,7 +37,36 @@ index 71ff1246..b6bf38a8 100644
      }
      else
      {
-@@ -5536,8 +5556,10 @@ void sysparams_init(void)
+@@ -2690,11 +2700,27 @@ static NTSTATUS default_update_display_devices( struct device_manager_ctx *ctx )
+           .dmFields = DM_DISPLAYORIENTATION | DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFLAGS | DM_DISPLAYFREQUENCY,
+           .dmBitsPerPel = 16, .dmPelsWidth = 1024, .dmPelsHeight = 768, .dmDisplayFrequency = 60, },
+     };
+-    static const DWORD source_flags = DISPLAY_DEVICE_ATTACHED_TO_DESKTOP | DISPLAY_DEVICE_PRIMARY_DEVICE | DISPLAY_DEVICE_VGA_COMPATIBLE;
++    /* Bionic/arm64ec display fix: a driver-less process (services.exe / plugplay /
++     * wineboot / setup device installers, all in the interactive station during boot)
++     * reaches this fallback because winex11.drv is not loaded in it (pUpdateDisplayDevices
++     * -> STATUS_NOT_IMPLEMENTED). Upstream marks this synthetic 1024x768 "Default" source
++     * DISPLAY_DEVICE_PRIMARY_DEVICE, which then clobbers the real winex11 primary
++     * (screenSize, e.g. 1280x720) in the shared display registry -> the virtual desktop is
++     * sized to the stale 1024x768 and the shell desktop no longer fills the panel.
++     * Do NOT claim PRIMARY here: keep the source ATTACHED (monitor still registers, so
++     * device/monitor path lookups keep working) but let the winex11-backed process own the
++     * primary. If nothing else ever supplies a primary the source still resolves; the first
++     * real winex11 enumeration promotes its own source to primary. */
++    DWORD source_flags = DISPLAY_DEVICE_ATTACHED_TO_DESKTOP | DISPLAY_DEVICE_VGA_COMPATIBLE;
+     struct pci_id pci_id = {0};
+     struct gdi_monitor monitor = {0};
+     DEVMODEW mode = {.dmSize = sizeof(mode)};
+     struct source *source;
++    WCHAR station_name[MAX_PATH];
++
++    if (NtUserGetObjectInformation( NtUserGetProcessWindowStation(), UOI_NAME,
++                                    station_name, sizeof(station_name), NULL ))
++        ERR( "driver-less display fallback (no PRIMARY) in station %s\n", debugstr_w(station_name) );
+ 
+     add_gpu( NULL, &pci_id, NULL, ctx );
+     add_source( "Default", source_flags, system_dpi, ctx );
+@@ -6003,8 +6029,10 @@ void sysparams_init(void)
          grab_fullscreen = IS_OPTION_TRUE( buffer[0] );
      if (!get_config_key( hkey, appkey, "Decorated", buffer, sizeof(buffer) ))
          decorated_mode = IS_OPTION_TRUE( buffer[0] );
