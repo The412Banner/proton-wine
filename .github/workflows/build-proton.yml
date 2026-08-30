@@ -1,4 +1,15 @@
-name: Build Proton Wine (SDK 35)
+name: Build Proton Wine (GE 11.6)
+
+# Collapsed SDK matrix: one dispatch builds every SDK (api_level) x arch leg.
+# The old build-proton-sdk28.yml + build-proton-sdk35.yml were near-identical; their
+# only real difference was the Android API/SDK level, which the build-step scripts
+# select via --enable-16kb-pages (default TARGET=aarch64-linux-android28; the flag
+# flips it to android35 + 16KB page linker flags). That difference is now a matrix
+# axis. api_level 28 -> no flag (4KB pages); api_level 35 -> --enable-16kb-pages.
+#
+# M1 (GE-Proton 11.0-6 is arm64ec-only) trims arch to aarch64. Re-add x86_64 to the
+# arch list to restore the full 2x2 matrix; the per-arch build-step branches below
+# are preserved so that expansion is a one-line change.
 
 on:
   push:
@@ -12,9 +23,10 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [aarch64]
+        api_level: [28, 35]
       fail-fast: false
-    
+
     steps:
       - name: Free up disk space
         run: |
@@ -23,12 +35,12 @@ jobs:
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           df -h
-      
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Set up build environment
         run: |
           sudo dpkg --add-architecture i386
@@ -55,7 +67,7 @@ jobs:
             libpng-dev:i386 \
             zlib1g-dev \
             zlib1g-dev:i386
-      
+
       - name: Download and extract termuxfs for ${{ matrix.arch }}
         run: |
           mkdir -p $HOME/termuxfs/${{ matrix.arch }}
@@ -63,14 +75,14 @@ jobs:
           wget https://github.com/GameNative/termux-on-gha/releases/download/build-20260218/termuxfs-${{ matrix.arch }}.tar
           tar -xf termuxfs-${{ matrix.arch }}.tar
           ls -la $HOME/termuxfs/${{ matrix.arch }}/
-      
+
       - name: Cache Android NDK
         id: cache-ndk
         uses: actions/cache@v4
         with:
           path: ~/Android/Sdk/ndk/27.3.13750724
           key: android-ndk-r27d
-      
+
       - name: Set up Android NDK
         if: steps.cache-ndk.outputs.cache-hit != 'true'
         run: |
@@ -79,14 +91,14 @@ jobs:
           wget https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
           unzip -q android-ndk-r27d-linux.zip
           mv android-ndk-r27d 27.3.13750724
-      
+
       - name: Cache LLVM MinGW toolchain
         id: cache-llvm-mingw
         uses: actions/cache@v4
         with:
           path: ~/toolchains/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64
           key: bylaws-llvm-mingw-20250920
-      
+
       - name: Set up LLVM MinGW toolchain
         if: steps.cache-llvm-mingw.outputs.cache-hit != 'true'
         run: |
@@ -94,11 +106,11 @@ jobs:
           cd $HOME/toolchains
           wget https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
           tar -xf llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz
-      
+
       - name: Autogen
         run: |
           bash build-scripts/build-step0-autogen.sh
-      
+
       - name: Cache wine-tools
         id: cache-wine-tools
         uses: actions/cache@v4
@@ -109,21 +121,24 @@ jobs:
       - name: Install ccache
         run: sudo apt-get update && sudo apt-get install -y ccache
 
-      # ccache — caches compiled objects across runs (per-arch, rolling restore-keys). Near-instant
-      # rebuilds when the Wine source is unchanged; ccache self-validates staleness.
-      - name: Cache ccache (${{ matrix.arch }})
+      # ccache — caches compiled objects across runs (per-arch AND per-api_level, so the
+      # 4KB-page and 16KB-page object sets never collide). Exact key (per-commit) = full
+      # warm restore on a re-run of the same commit; restore-keys pull the newest prior
+      # cache for the same arch+api so an unchanged-source rebuild is near-instant. ccache
+      # self-validates staleness, so a rolling restore is safe.
+      - name: Cache ccache (${{ matrix.arch }} / sdk${{ matrix.api_level }})
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-p11-${{ matrix.arch }}-${{ github.sha }}
+          key: ccache-p11-${{ matrix.arch }}-${{ matrix.api_level }}-${{ github.sha }}
           restore-keys: |
-            ccache-p11-${{ matrix.arch }}-
+            ccache-p11-${{ matrix.arch }}-${{ matrix.api_level }}-
 
       - name: Build wine-tools (step 0)
         if: steps.cache-wine-tools.outputs.cache-hit != 'true'
         run: |
           bash build-scripts/build-step0.sh
-      
+
       - name: Build sysvshm library for ${{ matrix.arch }}
         if: matrix.arch == 'aarch64'
         run: |
@@ -132,35 +147,41 @@ jobs:
           else
             bash build-scripts/build-step-arm64ec.sh --build-sysvshm
           fi
-      
-      - name: Configure build for ${{ matrix.arch }}
+
+      - name: Configure build for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
+          PAGES_FLAG=""
+          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            bash build-scripts/build-step-x86_64.sh --enable-16kb-pages --configure
+            bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --configure
           else
-            bash build-scripts/build-step-arm64ec.sh --enable-16kb-pages --configure
-          fi
-      
-      - name: Build Proton for ${{ matrix.arch }}
-        run: |
-          if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            bash build-scripts/build-step-x86_64.sh --enable-16kb-pages --build
-          else
-            bash build-scripts/build-step-arm64ec.sh --enable-16kb-pages --build
+            bash build-scripts/build-step-arm64ec.sh $PAGES_FLAG --configure
           fi
 
-      - name: ccache stats (${{ matrix.arch }})
+      - name: Build Proton for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
+        run: |
+          PAGES_FLAG=""
+          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
+          if [ "${{ matrix.arch }}" == "x86_64" ]; then
+            bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --build
+          else
+            bash build-scripts/build-step-arm64ec.sh $PAGES_FLAG --build
+          fi
+
+      - name: ccache stats (${{ matrix.arch }} / sdk${{ matrix.api_level }})
         if: always()
         run: ccache -s || true
 
-      - name: Install Proton for ${{ matrix.arch }}
+      - name: Install Proton for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
+          PAGES_FLAG=""
+          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            bash build-scripts/build-step-x86_64.sh --enable-16kb-pages --install
+            bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --install
           else
-            bash build-scripts/build-step-arm64ec.sh --enable-16kb-pages --install
+            bash build-scripts/build-step-arm64ec.sh $PAGES_FLAG --install
           fi
-      
+
       - name: Download prefixPack.txz for ${{ matrix.arch }}
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
@@ -168,7 +189,7 @@ jobs:
           else
             wget --tries=5 --retry-connrefused --waitretry=10 https://raw.githubusercontent.com/GameNative/bionic-prefix-files/main/prefixPack-arm64ec-11.txz -O $GITHUB_WORKSPACE/prefixPack.txz
           fi
-      
+
       - name: Generate profile.json files
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
@@ -176,14 +197,14 @@ jobs:
           else
             ARCH_NAME="arm64ec"
           fi
-          
+
           # Generate Proton profile.json
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
-            "versionName": "11.0-5-${ARCH_NAME}",
+            "versionName": "11.0-6-${ARCH_NAME}",
             "versionCode": 1,
-            "description": "Proton 11.0-5 ${ARCH_NAME} (bionic) — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-5 game-fixes (battlenet, maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + DirectAudio v1.3.1 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
+            "description": "Proton 11.0-6 ${ARCH_NAME} (bionic) — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-6 game-fixes (maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + realized-font-handle cap 32768 + DirectAudio v1.3.1 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
             "files": [],
             "wine": {
               "binPath": "bin",
@@ -192,7 +213,7 @@ jobs:
             }
           }
           EOF
-          
+
           # Generate Wine profile.json for Ludashi
           cat > $GITHUB_WORKSPACE/profile-wine.json << EOF
           {
@@ -208,7 +229,7 @@ jobs:
             }
           }
           EOF
-      
+
       - name: Package build artifacts
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
@@ -218,22 +239,22 @@ jobs:
             OUTPUT_DIR="$HOME/compiled-files-aarch64"
             ARCH_NAME="arm64ec"
           fi
-          
+
           cd $OUTPUT_DIR
-          
+
           # Create Proton WCP - zstd (tar.zst) for fast in-app install. The app's ContentsManager
           # tries XZ then falls back to ZSTD, so a zstd .wcp installs with no app change and decompresses
           # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar -I 'zstd -T0 -19' -cf GE-proton-11.0-5-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
-          mv GE-proton-11.0-5-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
-          
+          tar -I 'zstd -T0 -19' -cf GE-proton-11.0-6-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
+          mv GE-proton-11.0-6-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
+
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
           cp $GITHUB_WORKSPACE/profile-wine.json profile.json
           tar cJf proton-wine-11.0-1-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
           mv proton-wine-11.0-1-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
-      
+
       - name: Upload build artifacts
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
@@ -242,77 +263,74 @@ jobs:
             ARCH_NAME="arm64ec"
           fi
           echo "ARCH_NAME=$ARCH_NAME" >> $GITHUB_ENV
-      
-      - name: Upload Proton build artifacts for ${{ matrix.arch }}
+
+      - name: Upload Proton build artifacts for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         uses: actions/upload-artifact@v4
         with:
-          name: proton-${{ env.ARCH_NAME }}
-          path: GE-proton-11.0-5-${{ env.ARCH_NAME }}.wcp
+          name: proton-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
+          path: GE-proton-11.0-6-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
-      
-      - name: Upload Wine build artifacts for ${{ matrix.arch }}
+
+      - name: Upload Wine build artifacts for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         uses: actions/upload-artifact@v4
         with:
-          name: proton-wine-${{ env.ARCH_NAME }}
+          name: proton-wine-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
           path: proton-wine-11.0-1-${{ env.ARCH_NAME }}.wcp.xz
           retention-days: 30
-  
+
   release:
     needs: build
     runs-on: ubuntu-24.04
-    # Disabled: releases are cut only via publish-p11-consolidated.yml. A push
+    # Disabled: releases are cut only via the consolidated publish workflow. A push
     # no longer auto-publishes a per-sdk release. Artifacts are still uploaded.
     if: false
-    
+
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      
+
       - name: Prepare release files
         run: |
           mkdir -p release
           find artifacts -name "*.wcp" -exec cp {} release/ \;
           find artifacts -name "*.wcp.xz" -exec cp {} release/ \;
           ls -lah release/
-      
+
       - name: Generate date-based tag
         id: generate_tag
         run: |
           DATE=$(date +%Y%m%d)
-          TAG_NAME="build-p11-${DATE}-sdk35"
+          TAG_NAME="build-p11-${DATE}-ge11.6"
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Generated tag: ${TAG_NAME}"
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: Proton Wine 11.0-1 (SDK 35, ${{ steps.generate_tag.outputs.tag_name }})
+          name: GE-Proton Wine 11.0-6 (${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
           body: |
             # Caution: This version is provided for testing purposes only. It may lead to game instability or crashes. Use at your own risk.
-            
-            ## Proton Wine Build based on Valve [Wine](https://github.com/ValveSoftware/wine/tree/proton_11.0)
-            
-            ### Proton Version: 11.0-1
-            
+
+            ## GE-Proton Wine Build based on Valve [Wine](https://github.com/ValveSoftware/wine/tree/proton_11.0) + GE-Proton11-6 game-fixes
+
+            ### Proton Version: 11.0-6
+
             Built from commit: ${{ github.sha }}
-            
+
             ### Architectures
-            - x86_64 (Intel/AMD 64-bit)
             - arm64ec (ARM64EC)
-            
+
             ### WCP Files
             **Proton Type:**
-            - `GE-proton-11.0-5-x86_64.wcp` - For GameNative
-            - `GE-proton-11.0-5-arm64ec.wcp` - For GameNative
-            
+            - `GE-proton-11.0-6-arm64ec.wcp` - For GameNative
+
             **Wine Type:**
-            - `proton-wine-11.0-1-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
             - `proton-wine-11.0-1-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

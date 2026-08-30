@@ -1,10 +1,10 @@
 #!/bin/bash
 # Apply GloriousEggroll (GE-Proton) wine patches on top of the Valve proton_11.0
 # source. This runs AFTER the GameNative bionic/android patches have been applied
-# in the build-step scripts — the leaner GE-Proton11-3 game-fixes tier was verified
+# in the build-step scripts — the leaner GE-Proton11-6 game-fixes tier was verified
 # to apply cleanly on the bionic-patched tree in that order.
 #
-#   Tier: game-fixes  -- GE per-game compat fixes (GE-Proton11-3). Low conflict.
+#   Tier: game-fixes  -- GE per-game compat fixes (GE-Proton11-6). Low conflict.
 #   (ge-video-rework is NOT included in this tier; it is a separate port.)
 #
 # GE applies its patches with `patch -Np1` (fuzz tolerated), so we match that.
