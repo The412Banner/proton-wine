@@ -1,8 +1,8 @@
-name: Build Proton Wine (SDK 35)
+name: Build Proton Wine (GE 11.5)
 
 on:
   push:
-    branches: [ main, master, proton_11.0 ]
+    branches: [ main, master, proton_11.0, proton_11.5-GE ]
   pull_request:
     branches: [ main, master, proton_11.0 ]
   workflow_dispatch:
@@ -12,7 +12,8 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [aarch64]
+        api_level: [28, 35]
       fail-fast: false
     
     steps:
@@ -109,15 +110,16 @@ jobs:
       - name: Install ccache
         run: sudo apt-get update && sudo apt-get install -y ccache
 
-      # ccache — caches compiled objects across runs (per-arch, rolling restore-keys). Near-instant
-      # rebuilds when the Wine source is unchanged; ccache self-validates staleness.
+      # ccache — caches compiled objects across runs. Exact key (per-commit) = full warm restore on a
+      # re-run of the same commit; restore-keys pull the newest prior cache so an unchanged-source rebuild
+      # is near-instant. ccache self-validates staleness, so a rolling restore is safe.
       - name: Cache ccache (${{ matrix.arch }})
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-p11-${{ matrix.arch }}-${{ github.sha }}
+          key: ccache-p11-${{ matrix.arch }}-${{ matrix.api_level }}-${{ github.sha }}
           restore-keys: |
-            ccache-p11-${{ matrix.arch }}-
+            ccache-p11-${{ matrix.arch }}-${{ matrix.api_level }}-
 
       - name: Build wine-tools (step 0)
         if: steps.cache-wine-tools.outputs.cache-hit != 'true'
@@ -133,32 +135,38 @@ jobs:
             bash build-scripts/build-step-arm64ec.sh --build-sysvshm
           fi
       
-      - name: Configure build for ${{ matrix.arch }}
+      - name: Configure build for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
+          PAGES_FLAG=""
+          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            bash build-scripts/build-step-x86_64.sh --enable-16kb-pages --configure
+            bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --configure
           else
-            bash build-scripts/build-step-arm64ec.sh --enable-16kb-pages --configure
+            bash build-scripts/build-step-arm64ec.sh $PAGES_FLAG --configure
           fi
       
-      - name: Build Proton for ${{ matrix.arch }}
+      - name: Build Proton for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
+          PAGES_FLAG=""
+          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            bash build-scripts/build-step-x86_64.sh --enable-16kb-pages --build
+            bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --build
           else
-            bash build-scripts/build-step-arm64ec.sh --enable-16kb-pages --build
+            bash build-scripts/build-step-arm64ec.sh $PAGES_FLAG --build
           fi
 
       - name: ccache stats (${{ matrix.arch }})
         if: always()
         run: ccache -s || true
 
-      - name: Install Proton for ${{ matrix.arch }}
+      - name: Install Proton for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
+          PAGES_FLAG=""
+          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            bash build-scripts/build-step-x86_64.sh --enable-16kb-pages --install
+            bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --install
           else
-            bash build-scripts/build-step-arm64ec.sh --enable-16kb-pages --install
+            bash build-scripts/build-step-arm64ec.sh $PAGES_FLAG --install
           fi
       
       - name: Download prefixPack.txz for ${{ matrix.arch }}
@@ -246,14 +254,14 @@ jobs:
       - name: Upload Proton build artifacts for ${{ matrix.arch }}
         uses: actions/upload-artifact@v4
         with:
-          name: proton-${{ env.ARCH_NAME }}
+          name: proton-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
           path: GE-proton-11.0-5-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
       
       - name: Upload Wine build artifacts for ${{ matrix.arch }}
         uses: actions/upload-artifact@v4
         with:
-          name: proton-wine-${{ env.ARCH_NAME }}
+          name: proton-wine-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
           path: proton-wine-11.0-1-${{ env.ARCH_NAME }}.wcp.xz
           retention-days: 30
   
@@ -281,7 +289,7 @@ jobs:
         id: generate_tag
         run: |
           DATE=$(date +%Y%m%d)
-          TAG_NAME="build-p11-${DATE}-sdk35"
+          TAG_NAME="build-p11-${DATE}-sdk28"
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Generated tag: ${TAG_NAME}"
       
@@ -289,7 +297,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: Proton Wine 11.0-1 (SDK 35, ${{ steps.generate_tag.outputs.tag_name }})
+          name: Proton Wine 11.0-1 (SDK 28, ${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
