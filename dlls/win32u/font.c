@@ -2328,7 +2328,14 @@ static struct gdi_font_face *find_matching_face( const LOGFONTW *lf, CHARSETINFO
 /* realized font objects */
 
 #define FIRST_FONT_HANDLE 1
-#define MAX_FONT_HANDLES  5000
+/* Bannerlator: raised from upstream 5000 to fit Source-engine VGUI working set.
+ * TF2/CS:S/L4D2 realize ~5031 concurrent gdi_font handles once fully loaded into a
+ * map, overflowing the stock cap by 31 and freezing on map change
+ * (err:font:alloc_font_handle "out of realized font handles"). 32768 gives ~6.5x
+ * headroom over the measured need and stays under the 16-bit handle-index ceiling
+ * (handles pack the index into MAKELONG's LOWORD, so this must remain <= 65534).
+ * Cost is static BSS only: 32768 * sizeof(font_handle_entry:16B) = 512 KiB. */
+#define MAX_FONT_HANDLES  32768
 
 struct font_handle_entry
 {
