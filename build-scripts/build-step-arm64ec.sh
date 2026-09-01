@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Fail hard on any command error. Note: `set -e` does NOT cover commands inside
+# `if` bodies below, so the critical steps (configure / git apply / make) also
+# carry explicit `|| exit $?` — without this a failing `make` used to be masked
+# by the trailing `if [ "$arg" == "--install" ]; then ... fi` returning 0, so
+# CI shipped a broken (skeleton) wcp while reporting success.
+set -eo pipefail
+
 export ARCH="aarch64"
 export WIN_ARCH="arm64ec,aarch64,i386"
 export OUTPUT_DIR="$HOME/compiled-files-aarch64"
@@ -14,9 +21,23 @@ export LLVM_MINGW_TOOLCHAIN="$HOME/toolchains/llvm-mingw-20250920-ucrt-ubuntu-22
 export TARGET=aarch64-linux-android28
 export PATH=$LLVM_MINGW_TOOLCHAIN:$PATH
 
-export CC=$TOOLCHAIN/$TARGET-clang
-export AS=$CC
-export CXX=$TOOLCHAIN/$TARGET-clang++
+# ccache: cache compiled objects so re-runs with unchanged Wine source skip recompilation. Unix side:
+# wrap the full-path NDK clang. PE side (--with-mingw=clang, resolved via PATH): masquerade clang/clang++
+# with ccache symlinks placed first on PATH, so Wine's cross-compiler calls go through ccache too.
+if command -v ccache >/dev/null 2>&1; then
+  export CCACHE_DIR="${CCACHE_DIR:-$HOME/.ccache}"
+  ccache -M 3G >/dev/null 2>&1 || true
+  mkdir -p "$HOME/ccache-bin"
+  ln -sf "$(command -v ccache)" "$HOME/ccache-bin/clang"
+  ln -sf "$(command -v ccache)" "$HOME/ccache-bin/clang++"
+  export PATH="$HOME/ccache-bin:$PATH"
+  export CC="ccache $TOOLCHAIN/$TARGET-clang"
+  export CXX="ccache $TOOLCHAIN/$TARGET-clang++"
+else
+  export CC=$TOOLCHAIN/$TARGET-clang
+  export CXX=$TOOLCHAIN/$TARGET-clang++
+fi
+export AS=$TOOLCHAIN/$TARGET-clang
 export AR=$TOOLCHAIN/llvm-ar
 export LD=$TOOLCHAIN/ld
 export RANLIB=$TOOLCHAIN/llvm-ranlib
@@ -27,9 +48,13 @@ export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
 export ACLOCAL_PATH=$deps/lib/aclocal:$deps/share/aclocal
 export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
 
-export C_OPTS="-Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
+# -g0 = don't emit debug info (the bulk of the tree size); -O2 = normal release optimisation.
+# Applied to the ELF/unix side via CFLAGS below and to the arm64ec PE side via CROSSCFLAGS.
+# (A post-install llvm-strip pass in --install trims the remaining symbol tables.)
+export C_OPTS="-g0 -O2 -Wno-declaration-after-statement -Wno-implicit-function-declaration -Wno-int-conversion"
 export CFLAGS=$C_OPTS
 export CXXFLAGS=$C_OPTS
+export CROSSCFLAGS="-g0 -O2"
 export LDFLAGS="-L$deps/lib -Wl,-rpath=$RUNTIME_PATH/lib"
 
 export FREETYPE_CFLAGS="-I$deps/include/freetype2"
@@ -49,7 +74,6 @@ do
   if [ "$arg" == "--enable-16kb-pages" ];
   then
     echo "Enabling 16KB page size support..."
-    export TARGET=aarch64-linux-android35
     export C_OPTS="$C_OPTS -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES"
     export CFLAGS="$C_OPTS"
     export CXXFLAGS="$C_OPTS"
@@ -136,11 +160,12 @@ do
       --without-xcomposite \
       --without-xfixes \
       --without-xinerama \
-      --without-xrandr \
-      --without-xrender \
+      --with-xrandr \
+      --with-xrender \
       --without-xshape \
       --with-xshm \
-      --without-xxf86vm
+      --without-xxf86vm \
+      || exit $?
 
     echo "Applying patches..."
 
@@ -181,6 +206,17 @@ do
       # address space patches
       "common/loader_preloader_c.patch"
       "arm64ec/dlls_ntdll_unix_virtual_c.patch"
+      # noexec/force_anon SD-card boot (arihany). Split out of the arm64ec
+      # virtual.c patch because 10.0-2c's virtual_map_image differs from the
+      # 10.0-4 tree it was authored against; this hunk-set is 2c-anchored and
+      # threads force_anon through map_file_into_view/map_pe_header/
+      # map_image_into_view. Applies right after the load-by-name virtual.c patch.
+      "arm64ec/dlls_ntdll_unix_virtual_c_force_anon.patch"
+
+      # Android bionic bug-fixes (shell32 drive-root copy guard;
+      # LC_ALL=C.UTF-8 locale bring-up)
+      "common/dlls_shell32_shlfileop_c.patch"
+      "common/dlls_ntdll_unix_env_c.patch"
 
       # syscall Patches (use test-bylaws below)
       # "arm64ec/dlls_wow64_syscall_c.patch"
@@ -189,7 +225,8 @@ do
       # Dropped for 10.0-2c: pulse.c predates the period-timer rewrite; the
       # pulse_add_stream_to_period() box64<0.4.0 guard has no anchor here, and
       # the pthread PRIO_INHERIT guard is moot (2c already falls back to a plain
-      # mutex when init fails). See android/patches/common/README notes.
+      # mutex when init fails). The 10.0-4 tree re-enabled this patch, but 2c's
+      # winepulse source cannot take it. See android/patches/common/README notes.
       # "common/dlls_winepulse_drv_pulse_c.patch"
 
       # desktop patches
@@ -271,9 +308,35 @@ do
 
     for patch in "${PATCHES[@]}"; do
 #      if git apply --check ./android/patches/$patch 2>/dev/null; then
-        git apply ./android/patches/$patch
+        git apply ./android/patches/$patch || exit $?
 #      fi
     done
+
+    # ---------------------------------------------------------------------
+    # HARD post-apply verification. The p10 loop already fail-hards on a patch
+    # that does not apply, but a graft inside a larger multi-hunk patch can
+    # still fuzz away while the file "applies". Grep the ACTUAL post-apply
+    # source for a token unique to each Android fix + DirectAudio 1.3.2; abort
+    # the build if any is missing.
+    # ---------------------------------------------------------------------
+    echo "Verifying Android bug-fixes actually landed in the tree..."
+    verify_fail=0
+    if ! grep -q 'force_anon' dlls/ntdll/unix/virtual.c; then
+      echo "FATAL: force_anon not present in dlls/ntdll/unix/virtual.c (noexec/force_anon did NOT apply)"; verify_fail=1
+    fi
+    if ! grep -q 'dir_len' dlls/shell32/shlfileop.c; then
+      echo "FATAL: dir_len guard not present in dlls/shell32/shlfileop.c (drive-root copy guard did NOT apply)"; verify_fail=1
+    fi
+    if ! grep -q '"C.UTF-8"' dlls/ntdll/unix/env.c; then
+      echo "FATAL: LC_ALL=C.UTF-8 default not present in dlls/ntdll/unix/env.c (locale bring-up did NOT apply)"; verify_fail=1
+    fi
+    if ! grep -q 'BANNER_AUDIO_DIRECT_RUNTIME' dlls/winedirectaudio.drv/directaudio.c; then
+      echo "FATAL: BANNER_AUDIO_DIRECT_RUNTIME not present in dlls/winedirectaudio.drv/directaudio.c (DirectAudio is NOT v1.3.2)"; verify_fail=1
+    fi
+    if [ "$verify_fail" != "0" ]; then
+      echo "FATAL: one or more Android bug-fixes failed to apply; refusing to build a silently-broken layer."; exit 1
+    fi
+    echo "All Android bug-fixes + DirectAudio v1.3.2 verified present in the tree."
   fi
 
   if [ "$arg" == "--build" ]
@@ -283,7 +346,7 @@ do
     rm -rf $OUTPUT_DIR/lib
     rm -rf $OUTPUT_DIR/share
     rm -rf $install_dir
-    make -j$(nproc)
+    make -j$(nproc) || exit $?
   fi
 
   if [ "$arg" == "--install" ]
@@ -293,12 +356,26 @@ do
     mkdir -p $OUTPUT_DIR/lib
     mkdir -p $OUTPUT_DIR/share
     mkdir -p $install_dir
-    make install -j$(nproc)
+    make install -j$(nproc) || exit $?
     cp -r $install_dir/bin/wine* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/reg* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/msi* $OUTPUT_DIR/bin
     cp -r $install_dir/bin/notepad $OUTPUT_DIR/bin
     cp -r $install_dir/lib/wine  $OUTPUT_DIR/lib
     cp -r $install_dir/share/wine  $OUTPUT_DIR/share
+
+    # Strip the packaged binaries to shrink the tree. llvm-strip ($STRIP) is arm64ec/COFF-aware AND
+    # handles ELF, so it strips both the PE DLLs/EXEs and the unix .so loaders. --strip-all keeps the
+    # PE export directory + ELF .dynsym (so DLLs still resolve and .so still loads); falls back to
+    # --strip-debug. Non-fatal per file so an unexpected format can never fail the build.
+    echo "Stripping binaries with llvm-strip to shrink the tree..."
+    before_mb=$(du -sm "$OUTPUT_DIR" 2>/dev/null | cut -f1)
+    find "$OUTPUT_DIR/lib" "$OUTPUT_DIR/bin" -type f \
+      \( -name '*.dll' -o -name '*.exe' -o -name '*.drv' -o -name '*.so' -o -name 'wine' -o -name 'wine-preloader' \) \
+      -print0 2>/dev/null | while IFS= read -r -d '' f; do
+        "$STRIP" --strip-all "$f" 2>/dev/null || "$STRIP" --strip-debug "$f" 2>/dev/null || true
+      done
+    after_mb=$(du -sm "$OUTPUT_DIR" 2>/dev/null | cut -f1)
+    echo "OUTPUT tree: ${before_mb}MB -> ${after_mb}MB after strip."
   fi
 done
