@@ -1740,6 +1740,19 @@ NTSTATUS WINAPI NtSignalAndWaitForSingleObject( HANDLE signal, HANDLE wait,
  */
 NTSTATUS WINAPI NtYieldExecution(void)
 {
+    static int fast_yield = -1;
+
+    if (fast_yield < 0)
+    {
+        const char *e = getenv( "WINE_FAST_YIELD" );
+        fast_yield = e && atoi( e );
+    }
+    if (fast_yield)
+    {
+        usleep( 0 );
+        return STATUS_SUCCESS;
+    }
+
 #ifdef HAVE_SCHED_YIELD
 #ifdef RUSAGE_THREAD
     struct rusage u1, u2;

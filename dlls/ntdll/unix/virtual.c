@@ -304,6 +304,8 @@ static void *working_set_limit   = (void *)0x7fff0000;
 
 static void *host_addr_space_limit;  /* top of the host virtual address space */
 
+static SIZE_T vmem_max_size = 0;  /* WINEVMEMMAXSIZE: cap on a single VA allocation, in bytes (0 = unlimited) */
+
 static struct file_view *arm64ec_view;
 static const ptrdiff_t max_try_map_step = 0x40000000;
 static BOOL increase_try_map_step = TRUE;
@@ -3835,6 +3837,12 @@ void virtual_init(void)
         }
     }
 
+    if ((env_var = getenv( "WINEVMEMMAXSIZE" )))
+    {
+        vmem_max_size = (SIZE_T)strtol( env_var, NULL, 10 ) << 20;
+        TRACE( "virtual memory max size: %ld\n", (long)vmem_max_size );
+    }
+
     /* try to find space in a reserved area for the views and pages protection table */
 #ifdef _WIN64
     pages_vprot_size = ((size_t)host_addr_space_limit >> page_shift >> pages_vprot_shift) + 1;
@@ -5177,7 +5185,8 @@ static NTSTATUS allocate_virtual_memory( void **ret, SIZE_T *size_ptr, ULONG typ
 
     /* Round parameters to a page boundary */
 
-    if (is_beyond_limit( 0, size, working_set_limit )) return STATUS_WORKING_SET_LIMIT_RANGE;
+    if (is_beyond_limit( 0, size, working_set_limit ) || (vmem_max_size > 0 && size > vmem_max_size))
+        return STATUS_WORKING_SET_LIMIT_RANGE;
 
     if (*ret)
     {
