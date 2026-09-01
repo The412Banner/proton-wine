@@ -16,7 +16,7 @@ jobs:
         api_level: [28, 35]
         exclude:
           - arch: aarch64
-            api_level: 28
+            api_level: 35
       fail-fast: false
     
     steps:
@@ -141,7 +141,7 @@ jobs:
       - name: Configure build for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
           PAGES_FLAG=""
-          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
+          { [ "${{ matrix.arch }}" = "aarch64" ] || [ "${{ matrix.api_level }}" = "35" ]; } && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
             bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --configure
           else
@@ -151,7 +151,7 @@ jobs:
       - name: Build Proton for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
           PAGES_FLAG=""
-          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
+          { [ "${{ matrix.arch }}" = "aarch64" ] || [ "${{ matrix.api_level }}" = "35" ]; } && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
             bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --build
           else
@@ -165,7 +165,7 @@ jobs:
       - name: Install Proton for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
         run: |
           PAGES_FLAG=""
-          [ "${{ matrix.api_level }}" = "35" ] && PAGES_FLAG="--enable-16kb-pages"
+          { [ "${{ matrix.arch }}" = "aarch64" ] || [ "${{ matrix.api_level }}" = "35" ]; } && PAGES_FLAG="--enable-16kb-pages"
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
             bash build-scripts/build-step-x86_64.sh $PAGES_FLAG --install
           else
