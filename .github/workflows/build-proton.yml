@@ -14,6 +14,9 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
         api_level: [28, 35]
+        exclude:
+          - arch: aarch64
+            api_level: 28
       fail-fast: false
     
     steps:
