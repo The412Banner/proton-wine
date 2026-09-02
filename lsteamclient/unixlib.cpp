@@ -15,6 +15,37 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(steamclient);
 
+#if defined(__ANDROID__)
+#include <unistd.h>
+/* Mirror the host-client bring-up messages to logcat (tag "lsteamclient") so a failed
+ * dlopen/connect is visible without WINEDEBUG. __android_log_print is resolved lazily
+ * through dlsym so lsteamclient.so does not gain a liblog.so NEEDED entry. */
+static void lsteamclient_logcat( const char *fmt, ... )
+{
+    typedef int (*android_log_print_t)( int, const char *, const char *, ... );
+    static android_log_print_t log_print;
+    static int resolved;
+    char buf[1024];
+    va_list ap;
+
+    if (!resolved)
+    {
+        void *liblog = dlopen( "liblog.so", RTLD_NOW );
+        if (liblog) log_print = (android_log_print_t)dlsym( liblog, "__android_log_print" );
+        resolved = 1;
+    }
+    if (!log_print) return;
+
+    va_start( ap, fmt );
+    vsnprintf( buf, sizeof(buf), fmt, ap );
+    va_end( ap );
+    log_print( 4 /* ANDROID_LOG_INFO */, "lsteamclient", "%s", buf );
+}
+#define LOGCAT( ... ) lsteamclient_logcat( __VA_ARGS__ )
+#else
+#define LOGCAT( ... ) do { } while (0)
+#endif
+
 char *g_tmppath;
 
 struct callback_entry
@@ -711,7 +742,11 @@ static NTSTATUS steamclient_init_registry( Params *params, bool wow64 )
     client = (u_ISteamClient_SteamClient017 *)p_CreateInterface( "SteamClient017", &error );
     if (!(pipe = client->CreateSteamPipe()) || !(user = client->ConnectToGlobalUser( pipe )))
     {
-        ERR( "Failed to connect to Steam\n" );
+        /* pipe == 0: the host client (Steam3Master / SteamClientService loopback) is not
+         * reachable; user == 0: reachable but nobody is logged on. */
+        ERR( "Failed to connect to Steam (pipe %d, Steam3Master=%s SteamClientService=%s)\n", pipe,
+             debugstr_a( getenv( "Steam3Master" ) ), debugstr_a( getenv( "SteamClientService" ) ) );
+        LOGCAT( "init_registry: CreateSteamPipe/ConnectToGlobalUser failed (pipe=%d) pid=%d", pipe, (int)getpid() );
         if (pipe) client->BReleaseSteamPipe( pipe );
         return 0;
     }
@@ -767,7 +802,25 @@ static NTSTATUS steamclient_init( Params *params, bool wow64 )
 #error Unknown target architecture
 #endif
 
-    snprintf( path, PATH_MAX, "%s/.steam/sdk" STEAM_ARCH "/steamclient.so", getenv( "HOME" ) );
+    /* Host steamclient library location, in priority order:
+     *  1. WINESTEAMCLIENTPATH64 (64-bit unix side) / WINESTEAMCLIENTPATH (32-bit unix side):
+     *     absolute path of the native steamclient library. On Android/bionic the launcher sets
+     *     this to wherever it staged Valve's androidarm64 libsteamclient.so; there is no
+     *     ~/.steam in a Wine prefix there. Note that in a WoW64 build (arm64ec, x86_64+i386)
+     *     the unix side is always 64-bit, so only the *64 variable is consulted even for
+     *     32-bit games.
+     *  2. $HOME/.steam/sdk<arch>/steamclient.so (stock Proton). */
+    {
+#if defined(__i386__)
+        const char *env_path = getenv( "WINESTEAMCLIENTPATH" );
+#else
+        const char *env_path = getenv( "WINESTEAMCLIENTPATH64" );
+#endif
+        if (env_path && *env_path)
+            snprintf( path, PATH_MAX, "%s", env_path );
+        else
+            snprintf( path, PATH_MAX, "%s/.steam/sdk" STEAM_ARCH "/steamclient.so", getenv( "HOME" ) );
+    }
 #undef STEAM_ARCH
 
     if (realpath( path, resolved_path ))
@@ -777,9 +830,13 @@ static NTSTATUS steamclient_init( Params *params, bool wow64 )
     }
 #endif /* __APPLE__ */
 
+    LOGCAT( "init: dlopen(\"%s\") pid=%d wow64=%d", path, (int)getpid(), (int)wow64 );
+
     if (!(steamclient = dlopen( path, RTLD_NOW )))
     {
-        ERR( "unable to load native steamclient library\n" );
+        const char *err = dlerror();
+        ERR( "unable to load native steamclient library %s: %s\n", debugstr_a( path ), err ? err : "" );
+        LOGCAT( "init: dlopen(\"%s\") FAILED: %s", path, err ? err : "" );
         return -1;
     }
 
@@ -799,6 +856,7 @@ static NTSTATUS steamclient_init( Params *params, bool wow64 )
     LOAD_FUNC( Steam_NotifyMissingInterface );
 
     TRACE( "Loaded host steamclient from %s\n", debugstr_a(path) );
+    LOGCAT( "init: loaded host steamclient %s (CreateInterface=%p)", path, (void *)p_CreateInterface );
     return 0;
 }
 
