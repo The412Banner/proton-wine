@@ -2,7 +2,7 @@ name: Build Proton Wine (11.0-2)
 
 on:
   push:
-    branches: [ main, master, proton_11.0, proton_11.0-2 ]
+    branches: [ main, master, proton_11.0, proton_11.0-2, feat/lsteamclient-11.0-2 ]
   pull_request:
     branches: [ main, master, proton_11.0 ]
   workflow_dispatch:
@@ -168,7 +168,38 @@ jobs:
           else
             bash build-scripts/build-step-arm64ec.sh $PAGES_FLAG --install
           fi
-      
+
+      # lsteamclient gate: the Steam bridge (lsteamclient.dll per PE arch, lsteamclient.so unix
+      # side, steam.exe helper) must be in the installed tree or the layer is useless for
+      # Steam-session launches. Also prints sha256 + ELF page alignment for the report.
+      - name: Verify lsteamclient artifacts (${{ matrix.arch }}, sdk${{ matrix.api_level }})
+        run: |
+          if [ "${{ matrix.arch }}" == "x86_64" ]; then
+            OUTPUT_DIR="$HOME/compiled-files-x86_64"
+            PE_ARCHS="x86_64-windows i386-windows"
+            UNIX_ARCH="x86_64-unix"
+          else
+            OUTPUT_DIR="$HOME/compiled-files-aarch64"
+            PE_ARCHS="aarch64-windows i386-windows"
+            UNIX_ARCH="aarch64-unix"
+          fi
+          READELF="$HOME/Android/Sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          fail=0
+          for a in $PE_ARCHS; do
+            for f in lsteamclient.dll steam.exe; do
+              p="$OUTPUT_DIR/lib/wine/$a/$f"
+              if [ -f "$p" ]; then echo "OK   $a/$f  $(stat -c%s "$p") B  sha256=$(sha256sum "$p" | cut -d' ' -f1)"
+              else echo "MISSING $a/$f"; fail=1; fi
+            done
+          done
+          p="$OUTPUT_DIR/lib/wine/$UNIX_ARCH/lsteamclient.so"
+          if [ -f "$p" ]; then
+            echo "OK   $UNIX_ARCH/lsteamclient.so  $(stat -c%s "$p") B  sha256=$(sha256sum "$p" | cut -d' ' -f1)"
+            "$READELF" -l "$p" | grep -E 'LOAD' | head -4
+            "$READELF" -d "$p" | grep -E 'NEEDED|SONAME'
+          else echo "MISSING $UNIX_ARCH/lsteamclient.so"; fail=1; fi
+          exit $fail
+
       - name: Download prefixPack.txz for ${{ matrix.arch }}
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
@@ -190,8 +221,8 @@ jobs:
           {
             "type": "Proton",
             "versionName": "11.0-2-${ARCH_NAME}",
-            "versionCode": 2,
-            "description": "Proton 11.0-2 ${ARCH_NAME} (bionic) — stock Valve + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.1 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
+            "versionCode": 3,
+            "description": "Proton 11.0-2 ${ARCH_NAME} (bionic) — stock Valve + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.1 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + lsteamclient Steam bridge (lsteamclient.dll/.so + steam.exe; host client via WINESTEAMCLIENTPATH64). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
             "files": [],
             "wine": {
               "binPath": "bin",
