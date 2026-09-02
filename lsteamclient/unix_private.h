@@ -4,6 +4,12 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+/* bionic/libc++: see unixlib.h. */
+#ifdef __cplusplus
+#define NOMINMAX
+#include <array>
+#endif /* __cplusplus */
+
 #include <windef.h>
 #include <winbase.h>
 

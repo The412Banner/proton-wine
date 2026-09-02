@@ -39,7 +39,10 @@ export DLLTOOL=$LLVM_MINGW_TOOLCHAIN/llvm-dlltool
 
 export PKG_CONFIG_LIBDIR=$deps/lib/pkgconfig:$deps/share/pkgconfig
 export ACLOCAL_PATH=$deps/lib/aclocal:$deps/share/aclocal
-export CPPFLAGS="-I$deps/include --sysroot=$TOOLCHAIN/../sysroot"
+# termux deps headers go AFTER the NDK sysroot (-idirafter) so libc++'s include_next chain
+# (<cstdlib> -> <stdlib.h> ...) resolves to bionic's own headers; needed by the C++ unix side of
+# lsteamclient. Headers that only exist in $deps/include (X11, gst, pulse, SDL2, ...) are unaffected.
+export CPPFLAGS="--sysroot=$TOOLCHAIN/../sysroot -idirafter $deps/include"
 
 # -g0 = don't emit debug info (the bulk of the tree size); -O2 = normal release optimisation.
 # Applied to the ELF/unix side via CFLAGS below and to the arm64ec PE side via CROSSCFLAGS.

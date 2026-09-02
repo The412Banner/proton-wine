@@ -6,6 +6,14 @@
 #include <stdint.h>
 #include <assert.h>
 
+/* bionic/libc++: pull in the libc/libc++ declarations of wcsncpy/strncpy/etc.
+ * before <winbase.h> turns them into poison macros, and keep Win32's min/max
+ * macros out of the C++ sources so std::min/std::max do not expand. */
+#ifdef __cplusplus
+#define NOMINMAX
+#include <array>
+#endif /* __cplusplus */
+
 #include <windef.h>
 #include <winbase.h>
 #include <winternl.h>

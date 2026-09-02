@@ -6,12 +6,15 @@
 #include <stdint.h>
 #include <assert.h>
 
-#include <windef.h>
-#include <winbase.h>
-
+/* bionic/libc++: <array> must come before <winbase.h> (poison macros), and
+ * NOMINMAX keeps std::min/std::max usable in the C++ unix side. */
 #ifdef __cplusplus
+#define NOMINMAX
 #include <array>
 #endif /* __cplusplus */
+
+#include <windef.h>
+#include <winbase.h>
 
 #ifdef __cplusplus
 #define U64_ARRAY( type, count, name ) std::array<type, count> name
