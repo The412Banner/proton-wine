@@ -879,15 +879,15 @@ static NTSTATUS steamclient_get_unix_buffer( Params *params, bool wow64 )
     struct cache_entry *entry;
     struct rb_entry *ptr;
 
-    pthread_mutex_lock( &buffer_cache_lock );
-    auto iter = buffer_cache.find( params->buf );
-    if (iter != buffer_cache.end()) params->ptr = iter->second;
-    else
-    {
-        memcpy( params->ptr, (char *)params->buf, params->buf.len );
-        buffer_cache[params->buf] = params->ptr;
-    }
-    pthread_mutex_unlock( &buffer_cache_lock );
+    /* Only reached on the mixed-bitness path (32-bit game, 64-bit unix side: i386 games on
+     * arm64ec / x86_64 WoW64); 64-bit games take the direct-pointer fast path in
+     * get_unix_buffer() and never call this. Do not cache by host pointer here: the host
+     * reuses freed addresses, so a cache hit can return another key's (stale) contents and
+     * refreshing the shared buffer in place mutates it under an earlier caller (GetLobbyData
+     * intermittently returning a different key's value). Each call gets its own fresh copy in
+     * the buffer the PE side allocated for it (params->ptr, buf.len bytes). */
+    (void)buffer_cache; (void)buffer_cache_lock;
+    memcpy( params->ptr, (char *)params->buf, params->buf.len );
 
     return 0;
 }
