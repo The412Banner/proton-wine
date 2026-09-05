@@ -171,6 +171,9 @@ do
       "dlls_dnsapi_libresolv.c.patch"
       "dlls_dnsapi_record.c.patch"
 
+      # ws2_32: bionic rejects AI_V4MAPPED/AI_ALL -> emulate (EA DirtySDK / dual-stack DNS)
+      "dlls_ws2_32_unixlib.c.patch"
+
       # midi
       "dlls_midimap_Makefile.in.patch"
       "dlls_midimap_midimap.c.patch"

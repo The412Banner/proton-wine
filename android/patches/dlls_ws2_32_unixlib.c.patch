@@ -1,0 +1,148 @@
+diff --git a/dlls/ws2_32/unixlib.c b/dlls/ws2_32/unixlib.c
+index e0e1263e025..aa192a7df1f 100644
+--- a/dlls/ws2_32/unixlib.c
++++ b/dlls/ws2_32/unixlib.c
+@@ -694,6 +694,23 @@ static BOOL addrinfo_in_list( const struct WS_addrinfo *list, const struct WS_ad
+     return FALSE;
+ }
+ 
++#if defined(HAVE_GETADDRINFO) && defined(__ANDROID__) && defined(AI_V4MAPPED) && defined(AI_ALL)
++/* bionic's getaddrinfo() rejects AI_V4MAPPED / AI_ALL with EAI_BADFLAGS (glibc and Windows
++ * honour them).  Dual-stack Windows code (EA DirtySDK, Qt, Chromium) asks for AF_INET6 +
++ * AI_V4MAPPED and treats the failure as "no DNS", so we strip the flags and emulate them by
++ * running a second AF_INET lookup and presenting its results as ::ffff:a.b.c.d. */
++#define EMULATE_V4MAPPED 1
++static void v4_to_mapped_unix( const struct sockaddr_in *in, union unix_sockaddr *out )
++{
++    memset( out, 0, sizeof(*out) );
++    out->in6.sin6_family = AF_INET6;
++    out->in6.sin6_port = in->sin_port;
++    out->in6.sin6_addr.s6_addr[10] = 0xff;
++    out->in6.sin6_addr.s6_addr[11] = 0xff;
++    memcpy( &out->in6.sin6_addr.s6_addr[12], &in->sin_addr, 4 );
++}
++#endif
++
+ static NTSTATUS unix_getaddrinfo( void *args )
+ {
+ #ifdef HAVE_GETADDRINFO
+@@ -701,10 +718,11 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     const char *service = params->service;
+     const struct WS_addrinfo *hints = params->hints;
+     struct addrinfo unix_hints = {0};
+-    struct addrinfo *unix_info, *src;
++    struct addrinfo *unix_info = NULL, *v4_info = NULL, *src;
+     struct WS_addrinfo *dst, *prev = NULL;
+     unsigned int needed_size = 0;
+-    int ret;
++    int ret, pass;
++    BOOL want_v4mapped = FALSE, want_all = FALSE;
+ 
+     /* servname tweak required by OSX and BSD kernels */
+     if (service && !service[0]) service = "0";
+@@ -712,6 +730,15 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     if (hints)
+     {
+         unix_hints.ai_flags = addrinfo_flags_to_unix( hints->ai_flags );
++#ifdef EMULATE_V4MAPPED
++        if (unix_hints.ai_flags & (AI_V4MAPPED | AI_ALL))
++        {
++            want_v4mapped = (unix_hints.ai_flags & AI_V4MAPPED) && hints->ai_family == WS_AF_INET6;
++            want_all = !!(unix_hints.ai_flags & AI_ALL);
++            unix_hints.ai_flags &= ~(AI_V4MAPPED | AI_ALL);
++            TRACE( "bionic: stripping AI_V4MAPPED/AI_ALL, emulate=%d all=%d\n", want_v4mapped, want_all );
++        }
++#endif
+ 
+         if (hints->ai_family)
+             unix_hints.ai_family = family_to_unix( hints->ai_family );
+@@ -752,21 +779,43 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     }
+ 
+     ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
++    if (ret) unix_info = NULL;
++#ifdef EMULATE_V4MAPPED
++    if (want_v4mapped && (ret || want_all))
++    {
++        struct addrinfo v4_hints = unix_hints;
++        v4_hints.ai_family = AF_INET;
++        if (!getaddrinfo( params->node, service, &v4_hints, &v4_info ))
++        {
++            TRACE( "bionic: emulated AI_V4MAPPED lookup for %s succeeded (v6 ret %d)\n",
++                   debugstr_a(params->node), ret );
++            ret = 0;
++        }
++        else v4_info = NULL;
++    }
++#endif
+     if (ret)
+         return addrinfo_err_from_unix( ret );
+ 
+-    for (src = unix_info; src != NULL; src = src->ai_next)
++    for (pass = 0; pass < 2; pass++)
++    for (src = pass ? v4_info : unix_info; src != NULL; src = src->ai_next)
+     {
++        const union unix_sockaddr *uaddr = (const union unix_sockaddr *)src->ai_addr;
++#ifdef EMULATE_V4MAPPED
++        union unix_sockaddr mapped;
++        if (pass) { v4_to_mapped_unix( &uaddr->in, &mapped ); uaddr = &mapped; }
++#endif
+         needed_size += sizeof(struct WS_addrinfo);
+         if (src->ai_canonname)
+             needed_size += strlen( src->ai_canonname ) + 1;
+-        needed_size += sockaddr_from_unix( (const union unix_sockaddr *)src->ai_addr, NULL, 0 );
++        needed_size += sockaddr_from_unix( uaddr, NULL, 0 );
+     }
+ 
+     if (*params->size < needed_size)
+     {
+         *params->size = needed_size;
+-        freeaddrinfo( unix_info );
++        if (unix_info) freeaddrinfo( unix_info );
++        if (v4_info) freeaddrinfo( v4_info );
+         return ERROR_INSUFFICIENT_BUFFER;
+     }
+ 
+@@ -774,12 +823,18 @@ static NTSTATUS unix_getaddrinfo( void *args )
+ 
+     memset( params->info, 0, needed_size );
+ 
+-    for (src = unix_info; src != NULL; src = src->ai_next)
++    for (pass = 0; pass < 2; pass++)
++    for (src = pass ? v4_info : unix_info; src != NULL; src = src->ai_next)
+     {
+         void *next = dst + 1;
++        const union unix_sockaddr *uaddr = (const union unix_sockaddr *)src->ai_addr;
++#ifdef EMULATE_V4MAPPED
++        union unix_sockaddr mapped;
++        if (pass) { v4_to_mapped_unix( &uaddr->in, &mapped ); uaddr = &mapped; }
++#endif
+ 
+         dst->ai_flags = addrinfo_flags_from_unix( src->ai_flags );
+-        dst->ai_family = family_from_unix( src->ai_family );
++        dst->ai_family = pass ? WS_AF_INET6 : family_from_unix( src->ai_family );
+         if (hints)
+         {
+             dst->ai_socktype = hints->ai_socktype;
+@@ -799,9 +854,9 @@ static NTSTATUS unix_getaddrinfo( void *args )
+             next = dst->ai_canonname + len;
+         }
+ 
+-        dst->ai_addrlen = sockaddr_from_unix( (const union unix_sockaddr *)src->ai_addr, NULL, 0 );
++        dst->ai_addrlen = sockaddr_from_unix( uaddr, NULL, 0 );
+         dst->ai_addr = next;
+-        sockaddr_from_unix( (const union unix_sockaddr *)src->ai_addr, dst->ai_addr, dst->ai_addrlen );
++        sockaddr_from_unix( uaddr, dst->ai_addr, dst->ai_addrlen );
+         dst->ai_next = NULL;
+         next = (char *)dst->ai_addr + dst->ai_addrlen;
+ 
+@@ -814,7 +869,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+         }
+     }
+ 
+-    freeaddrinfo( unix_info );
++    if (unix_info) freeaddrinfo( unix_info );
++    if (v4_info) freeaddrinfo( v4_info );
+     return 0;
+ #else
+     FIXME( "getaddrinfo() not found during build time\n" );
