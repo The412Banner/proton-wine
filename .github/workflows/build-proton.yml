@@ -18,7 +18,7 @@ on:
     # the default branch — so a bare dispatch 404s here. Firing on push to the GE
     # branch runs the CORRECT workflow at the CORRECT ref (no wrong-tag risk). The old
     # per-sdk workflows are deleted on this branch, so nothing else fires.
-    branches: [ main, master, proton_11.0, proton_11.6-GE ]
+    branches: [ main, master, proton_11.0, proton_11.6-GE, fix/ge116-ea-getaddrinfo-v4mapped ]
   pull_request:
     branches: [ main, master, proton_11.0 ]
   workflow_dispatch:
