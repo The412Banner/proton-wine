@@ -178,6 +178,8 @@ do
       "common/dlls_nsiproxy_sys_nsi_common_h.patch"
       "common/dlls_user32_makefile_in.patch"
       "common/dlls_ws2_32_socket_c.patch"
+      # ws2_32: bionic rejects AI_V4MAPPED/AI_ALL -> emulate (EA DirtySDK / dual-stack DNS)
+      "common/dlls_ws2_32_unixlib_c.patch"
       "common/server_token_c.patch"
       "common/server_unicode_c.patch"
 
