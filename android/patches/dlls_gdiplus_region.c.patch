@@ -1,0 +1,23 @@
+diff --git a/dlls/gdiplus/region.c b/dlls/gdiplus/region.c
+--- a/dlls/gdiplus/region.c	2026-09-06 00:17:09.981987186 -0400
++++ b/dlls/gdiplus/region.c	2026-09-06 00:17:10.017987186 -0400
+@@ -2416,6 +2416,11 @@
+ 
+             x1_min = min(x1_left, x1_right);
+ 
++            /* Android/bionic (Bannerlator): EA's installer wizard (WiX burn BA) feeds degenerate
++             * spans (x1_min <= x) through this combine path; upstream asserts and abort()s the
++             * process (exit code 3). Clamp to a one-pixel advance and keep drawing instead. */
++            if (x1_min <= x) x1_min = x + 1;
++
+             switch (type)
+             {
+                 case CombineModeIntersect:  in_result = in_left & in_right; break;
+@@ -2440,7 +2445,6 @@
+                 }
+             }
+ 
+-            assert(x1_min > x);
+             x = x1_min;
+         }
+     }
