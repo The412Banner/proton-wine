@@ -18,7 +18,7 @@ on:
     # the default branch — so a bare dispatch 404s here. Firing on push to the GE
     # branch runs the CORRECT workflow at the CORRECT ref (no wrong-tag risk). The old
     # per-sdk workflows are deleted on this branch, so nothing else fires.
-    branches: [ main, master, proton_11.0, proton_11.6-GE ]
+    branches: [ main, master, proton_11.0, proton_11.6-GE , 'aio-eanet/**' ]
   pull_request:
     branches: [ main, master, proton_11.0 ]
   workflow_dispatch:
@@ -205,7 +205,7 @@ jobs:
           {
             "type": "Proton",
             "versionName": "11.0-6-${ARCH_NAME}",
-            "versionCode": 2,
+            "versionCode": 3,
             "description": "Proton 11.0-6 ${ARCH_NAME} (bionic) — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-6 game-fixes (maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + realized-font-handle cap 32768 + DirectAudio v1.3.1 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
             "files": [],
             "wine": {
