@@ -1368,8 +1368,16 @@ __ASM_GLOBAL_FUNC( "#KiUserCallbackDispatcher",
  */
 BOOLEAN WINAPI RtlIsEcCode( ULONG_PTR ptr )
 {
-    const UINT64 *map = (const UINT64 *)NtCurrentTeb()->Peb->EcCodeBitMap;
-    ULONG_PTR page = ptr / page_size;
+    const UINT64 *map;
+    ULONG_PTR page;
+
+    /* Anything outside the user address space cannot be EC code; the bitmap only covers
+     * address_space_limit (47 bits), and unwinding a corrupt frame (Denuvo, NFS Heat) can
+     * hand us garbage pointers -- Windows returns FALSE here instead of faulting. */
+    if (ptr >> 47) return FALSE;
+
+    map = (const UINT64 *)NtCurrentTeb()->Peb->EcCodeBitMap;
+    page = ptr / page_size;
     return (map[page / 64] >> (page & 63)) & 1;
 }
 
