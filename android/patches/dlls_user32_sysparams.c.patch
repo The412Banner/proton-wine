@@ -1,0 +1,19 @@
+diff --git a/dlls/user32/sysparams.c b/dlls/user32/sysparams.c
+index 40affce4b84..13abfa75eac 100644
+--- a/dlls/user32/sysparams.c
++++ b/dlls/user32/sysparams.c
+@@ -805,9 +805,12 @@ BOOL WINAPI IsProcessDPIAware(void)
+  */
+ BOOL WINAPI EnableNonClientDpiScaling( HWND hwnd )
+ {
++    /* Bannerlator: Qt (and the CEF apps built on it, e.g. EA Desktop) call this from
++       WM_NCCREATE and treat the ERROR_CALL_NOT_IMPLEMENTED failure as fatal to window
++       setup. Our containers run at 100% DPI, so there is no non-client area to scale:
++       report success rather than failing a window creation we can satisfy trivially. */
+     FIXME("(%p): stub\n", hwnd);
+-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
+-    return FALSE;
++    return TRUE;
+ }
+ 
+ /***********************************************************************

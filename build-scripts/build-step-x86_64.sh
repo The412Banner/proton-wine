@@ -177,6 +177,10 @@ do
       # gdiplus: clamp degenerate spans instead of assert()/abort (EA app installer wizard)
       "dlls_gdiplus_region.c.patch"
 
+      # user32: EnableNonClientDpiScaling is a hard-failing stub; Qt/CEF (EA Desktop)
+      # treat that as fatal during window setup. Containers run at 100% DPI -> report success.
+      "dlls_user32_sysparams.c.patch"
+
       # midi
       "dlls_midimap_Makefile.in.patch"
       "dlls_midimap_midimap.c.patch"
