@@ -181,6 +181,10 @@ do
       # treat that as fatal during window setup. Containers run at 100% DPI -> report success.
       "dlls_user32_sysparams.c.patch"
 
+      # xinput: a transient WAIT_FAILED (esync ppoll EAGAIN) killed the update thread for good,
+      # taking every pad AND the on-screen controller with it until the game was relaunched.
+      "dlls_xinput1_3_main.c.patch"
+
       # midi
       "dlls_midimap_Makefile.in.patch"
       "dlls_midimap_midimap.c.patch"
