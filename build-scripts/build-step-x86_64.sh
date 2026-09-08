@@ -177,10 +177,6 @@ do
       # gdiplus: clamp degenerate spans instead of assert()/abort (EA app installer wizard)
       "dlls_gdiplus_region.c.patch"
 
-      # user32: EnableNonClientDpiScaling is a hard-failing stub; Qt/CEF (EA Desktop)
-      # treat that as fatal during window setup. Containers run at 100% DPI -> report success.
-      "dlls_user32_sysparams.c.patch"
-
       # xinput: a transient WAIT_FAILED (esync ppoll EAGAIN) killed the update thread for good,
       # taking every pad AND the on-screen controller with it until the game was relaunched.
       "dlls_xinput1_3_main.c.patch"
