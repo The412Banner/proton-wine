@@ -177,6 +177,10 @@ do
       # gdiplus: clamp degenerate spans instead of assert()/abort (EA app installer wizard)
       "dlls_gdiplus_region.c.patch"
 
+      # xinput: a transient WAIT_FAILED (esync ppoll EAGAIN) killed the update thread for good,
+      # taking every pad AND the on-screen controller with it until the game was relaunched.
+      "dlls_xinput1_3_main.c.patch"
+
       # midi
       "dlls_midimap_Makefile.in.patch"
       "dlls_midimap_midimap.c.patch"
