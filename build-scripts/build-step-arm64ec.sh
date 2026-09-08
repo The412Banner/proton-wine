@@ -180,6 +180,10 @@ do
       "common/dlls_ws2_32_socket_c.patch"
       # ws2_32: bionic rejects AI_V4MAPPED/AI_ALL -> emulate (EA DirtySDK / dual-stack DNS)
       "common/dlls_ws2_32_unixlib_c.patch"
+
+      # xinput: a transient WAIT_FAILED (esync ppoll EAGAIN) killed the update thread for good,
+      # taking every pad AND the on-screen controller with it until the game was relaunched.
+      "common/dlls_xinput1_3_main_c.patch"
       "common/server_token_c.patch"
       "common/server_unicode_c.patch"
 
