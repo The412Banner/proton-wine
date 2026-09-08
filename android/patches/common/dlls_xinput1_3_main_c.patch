@@ -1,0 +1,46 @@
+diff --git a/dlls/xinput1_3/main.c b/dlls/xinput1_3/main.c
+index 254bac01bf5..416b0b7dd0f 100644
+--- a/dlls/xinput1_3/main.c
++++ b/dlls/xinput1_3/main.c
+@@ -673,11 +673,31 @@ static LRESULT CALLBACK xinput_devnotify_wndproc(HWND hwnd, UINT msg, WPARAM wpa
+     return DefWindowProcW(hwnd, msg, wparam, lparam);
+ }
+ 
++/* Bannerlator: MsgWaitForMultipleObjectsEx can return a TRANSIENT WAIT_FAILED -- observed
++ * on Android as an esync ppoll EAGAIN under WINEESYNC=1. Upstream drops out of the update
++ * loop and calls FreeLibraryAndExitThread, which permanently stops XInput polling: every
++ * pad AND the emulated on-screen controller go dead for the rest of the session and cannot
++ * be re-acquired, because the input devices are only enumerated at boot. Absorb a bounded
++ * number of these, re-enumerating as if the wait had timed out, and only give up if they
++ * keep coming (so a genuinely dead wait still terminates instead of spinning). */
++#define XINPUT_MAX_TRANSIENT_WAIT_FAILURES 100
++
++static BOOL retry_transient_wait_failure( DWORD *ret, DWORD *failures )
++{
++    if (*ret != WAIT_FAILED) return FALSE;
++    if (++*failures > XINPUT_MAX_TRANSIENT_WAIT_FAILURES) return FALSE;
++    ERR("transient wait failure in the update thread (%lu/%u), error %lu - retrying\n",
++        *failures, XINPUT_MAX_TRANSIENT_WAIT_FAILURES, GetLastError());
++    Sleep(50);
++    *ret = WAIT_TIMEOUT;
++    return TRUE;
++}
++
+ static DWORD WINAPI hid_update_thread_proc(void *param)
+ {
+     struct xinput_controller *devices[XUSER_MAX_COUNT + 1];
+     HANDLE events[XUSER_MAX_COUNT + 1];
+-    DWORD i, count = 1, ret = WAIT_TIMEOUT;
++    DWORD i, count = 1, ret = WAIT_TIMEOUT, wait_failures = 0;
+     DEV_BROADCAST_DEVICEINTERFACE_W filter =
+     {
+         .dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE_W),
+@@ -727,7 +747,7 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
+         events[count++] = update_event;
+     }
+     while ((ret = MsgWaitForMultipleObjectsEx(count, events, 2000, QS_ALLINPUT, MWMO_ALERTABLE)) <= count ||
+-            ret == WAIT_TIMEOUT);
++            ret == WAIT_TIMEOUT || retry_transient_wait_failure(&ret, &wait_failures));
+ 
+     ERR("wait failed in the update thread, ret %lu, error %lu\n", ret, GetLastError());
+ 
