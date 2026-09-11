@@ -1220,7 +1220,38 @@ static const struct gradient_stop graphite_notify_gradient[] =
     {  19, RGB(0x3a,0x3a,0x42) }, {  81, RGB(0x34,0x34,0x3c) }, { 100, RGB(0x22,0x22,0x2a) },
 };
 
-/* colors of the Luna color schemes: Default (blue), Olive Green and Silver, and graphite */
+/* Blue in dark mode: navy */
+static const struct gradient_stop navy_bar_gradient[] =
+{
+    {   0, RGB(0x08,0x10,0x2c) }, {   3, RGB(0x2a,0x50,0x9c) }, {   6, RGB(0x34,0x62,0xb4) },
+    {  10, RGB(0x2a,0x54,0xa2) }, {  15, RGB(0x1e,0x44,0x8c) }, {  23, RGB(0x18,0x3a,0x7e) },
+    {  54, RGB(0x17,0x38,0x7c) }, {  86, RGB(0x1a,0x3e,0x84) }, {  92, RGB(0x16,0x36,0x76) },
+    {  98, RGB(0x0e,0x24,0x56) }, { 100, RGB(0x0e,0x24,0x56) },
+};
+
+static const struct gradient_stop navy_notify_gradient[] =
+{
+    {   0, RGB(0x06,0x1a,0x40) }, {   1, RGB(0x06,0x1a,0x40) }, {   6, RGB(0x1c,0x5a,0xa4) },
+    {  19, RGB(0x14,0x4a,0x92) }, {  81, RGB(0x12,0x44,0x88) }, { 100, RGB(0x0a,0x2a,0x5e) },
+};
+
+/* Olive Green in dark mode: moss */
+static const struct gradient_stop moss_bar_gradient[] =
+{
+    {   0, RGB(0x12,0x16,0x08) }, {   3, RGB(0x6a,0x7c,0x44) }, {   6, RGB(0x7c,0x8e,0x52) },
+    {  10, RGB(0x6a,0x7c,0x44) }, {  15, RGB(0x58,0x68,0x38) }, {  23, RGB(0x4e,0x5c,0x30) },
+    {  54, RGB(0x4c,0x5a,0x2e) }, {  86, RGB(0x50,0x5e,0x32) }, {  92, RGB(0x48,0x56,0x2c) },
+    {  98, RGB(0x30,0x3a,0x1a) }, { 100, RGB(0x30,0x3a,0x1a) },
+};
+
+static const struct gradient_stop moss_notify_gradient[] =
+{
+    {   0, RGB(0x1a,0x20,0x0c) }, {   1, RGB(0x1a,0x20,0x0c) }, {   6, RGB(0x6e,0x80,0x48) },
+    {  19, RGB(0x5a,0x6a,0x3a) }, {  81, RGB(0x54,0x64,0x36) }, { 100, RGB(0x36,0x42,0x20) },
+};
+
+/* colors of the Luna color schemes: Default (blue), Olive Green and Silver,
+ * followed by their dark mode twins navy, moss and graphite */
 struct xp_scheme
 {
     const struct gradient_stop *bar;
@@ -1261,6 +1292,22 @@ static const struct xp_scheme xp_schemes[] =
         RGB(0x00,0x00,0x00), RGB(0xff,0xff,0xff), RGB(0x9a,0x9a,0xae),
     },
     {
+        navy_bar_gradient, ARRAY_SIZE(navy_bar_gradient), navy_notify_gradient, ARRAY_SIZE(navy_notify_gradient),
+        RGB(0x06,0x18,0x40), RGB(0x3a,0x78,0xc8),
+        RGB(0x2c,0x56,0xa8), RGB(0x20,0x46,0x94), RGB(0x4a,0x78,0xc8), RGB(0x3c,0x6a,0xbc),
+        RGB(0x0c,0x20,0x50), RGB(0x10,0x28,0x5e),
+        RGB(0x10,0x2a,0x66), RGB(0x14,0x32,0x72), RGB(0x06,0x14,0x38), RGB(0x0a,0x1e,0x4c),
+        RGB(0xff,0xff,0xff), RGB(0x4a,0x78,0xc8), RGB(0x06,0x14,0x38),
+    },
+    {
+        moss_bar_gradient, ARRAY_SIZE(moss_bar_gradient), moss_notify_gradient, ARRAY_SIZE(moss_notify_gradient),
+        RGB(0x1a,0x20,0x0c), RGB(0x86,0x98,0x5e),
+        RGB(0x62,0x74,0x3e), RGB(0x50,0x60,0x32), RGB(0x86,0x98,0x5e), RGB(0x7a,0x8c,0x54),
+        RGB(0x24,0x2c,0x12), RGB(0x2c,0x36,0x18),
+        RGB(0x38,0x44,0x20), RGB(0x40,0x4c,0x24), RGB(0x16,0x1c,0x08), RGB(0x22,0x2a,0x10),
+        RGB(0xff,0xff,0xff), RGB(0x86,0x98,0x5e), RGB(0x16,0x1c,0x08),
+    },
+    {
         graphite_bar_gradient, ARRAY_SIZE(graphite_bar_gradient), graphite_notify_gradient, ARRAY_SIZE(graphite_notify_gradient),
         RGB(0x16,0x16,0x1a), RGB(0x6a,0x6a,0x72),
         RGB(0x5a,0x5a,0x62), RGB(0x44,0x44,0x4c), RGB(0x7a,0x7a,0x82), RGB(0x6a,0x6a,0x72),
@@ -1270,16 +1317,14 @@ static const struct xp_scheme xp_schemes[] =
     },
 };
 
-#define XP_SCHEME_SILVER   2
-#define XP_SCHEME_GRAPHITE 3
-#define XP_USER_SCHEMES    3  /* the ones to pick from, graphite is Silver with dark window colours */
+#define XP_USER_SCHEMES    3  /* the ones to pick from, each has a twin for dark window colours */
 
 static BOOL is_dark_theme(void);
 
 static UINT xp_palette( UINT scheme )
 {
-    if (scheme >= XP_USER_SCHEMES) return 0;
-    return scheme == XP_SCHEME_SILVER && is_dark_theme() ? XP_SCHEME_GRAPHITE : scheme;
+    if (scheme >= XP_USER_SCHEMES) scheme = 0;
+    return is_dark_theme() ? scheme + XP_USER_SCHEMES : scheme;
 }
 
 static const struct xp_scheme *xp_current_scheme(void)
@@ -1293,7 +1338,7 @@ UINT get_taskbar_scheme(void)
     return taskbar_scheme < XP_USER_SCHEMES ? taskbar_scheme : 0;
 }
 
-/* the palette the start menu draws with, graphite for Silver in dark mode */
+/* the palette the start menu draws with, the dark twin of the scheme in dark mode */
 UINT get_taskbar_palette(void)
 {
     return xp_palette( taskbar_scheme );
@@ -2492,15 +2537,17 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
 
     /* a small window with the selected title bar (the XP frames themselves are drawn by win32u) */
     {
-        static const COLORREF caption[4][3] =
+        static const COLORREF caption[6][3] =
         {
             { RGB(0x09,0x97,0xff), RGB(0x00,0x50,0xee), RGB(0x00,0x3d,0xd7) },
             { RGB(0xc4,0xd4,0xa0), RGB(0x8f,0xa4,0x64), RGB(0x6d,0x80,0x48) },
             { RGB(0xfd,0xfd,0xfe), RGB(0xdc,0xdc,0xe6), RGB(0xa9,0xa9,0xbd) },
+            { RGB(0x3c,0x6c,0xc8), RGB(0x16,0x36,0x7c), RGB(0x0a,0x1c,0x4c) },
+            { RGB(0x86,0x98,0x5e), RGB(0x4c,0x5a,0x2e), RGB(0x24,0x2e,0x12) },
             { RGB(0x70,0x70,0x78), RGB(0x3a,0x3a,0x42), RGB(0x1e,0x1e,0x24) },
         };
-        static const COLORREF caption_text[4] = { RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff), RGB(0x1c,0x1c,0x3c),
-                                                  RGB(0xff,0xff,0xff) };
+        static const COLORREF caption_text[6] = { RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff), RGB(0x1c,0x1c,0x3c),
+                                                  RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff) };
         UINT index = xp_palette( settings->scheme );
         int wx = width * 3 / 10, wy = max( 4, top / 6 ), ww = width * 2 / 5, wh = top - wy - 4;
         int cap = max( bar - 2, 10 ), button = cap - 4;
@@ -2512,7 +2559,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
                 fill_solid( hdc, wx, wy, ww, wh, caption[index][2] );
                 fill_gradient2( hdc, wx, wy, ww, cap / 2, caption[index][0], caption[index][1] );
                 fill_gradient2( hdc, wx, wy + cap / 2, ww, cap - cap / 2, caption[index][1], caption[index][2] );
-                fill_solid( hdc, wx + 3, wy + cap, ww - 6, wh - cap - 3, RGB(0xec,0xe9,0xd8) );
+                fill_solid( hdc, wx + 3, wy + cap, ww - 6, wh - cap - 3, GetSysColor( COLOR_BTNFACE ));
                 fill_gradient2( hdc, wx + ww - button - 3, wy + 2, button, button, RGB(0xe8,0x7a,0x5c), RGB(0xc6,0x3a,0x18) );
                 SetTextColor( hdc, caption_text[index] );
             }
