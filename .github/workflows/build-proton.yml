@@ -205,8 +205,8 @@ jobs:
           {
             "type": "Proton",
             "versionName": "11.0-6-${ARCH_NAME}",
-            "versionCode": 5,
-            "description": "Proton 11.0-6 ${ARCH_NAME} (bionic) — Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-6 game-fixes (maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + realized-font-handle cap 32768 + DirectAudio v1.3.2 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
+            "versionCode": 9,
+            "description": "XP taskbar test build (Luna taskbar + clock + double row). Proton 11.0-6 ${ARCH_NAME} (bionic) — v6 xinput fix + Valve + fast-yield gate + FEX-unixlib loader + xrandr/xrender + GE-Proton11-6 game-fixes (maplestory, dai_xinput, eac, pso2, assettocorsa, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + realized-font-handle cap 32768 + DirectAudio v1.3.2 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
             "files": [],
             "wine": {
               "binPath": "bin",
@@ -249,8 +249,8 @@ jobs:
           # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar -I 'zstd -T0 -19' -cf GE-proton-11.0-6-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
-          mv GE-proton-11.0-6-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
+          tar -I 'zstd -T0 -19' -cf GE-proton-11.0-6-$ARCH_NAME-xp-taskbar.wcp bin lib share prefixPack.txz profile.json
+          mv GE-proton-11.0-6-$ARCH_NAME-xp-taskbar.wcp $GITHUB_WORKSPACE/
 
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
           cp $GITHUB_WORKSPACE/profile-wine.json profile.json
@@ -270,7 +270,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: GE-proton-11.0-6-${{ env.ARCH_NAME }}.wcp
+          path: GE-proton-11.0-6-${{ env.ARCH_NAME }}-xp-taskbar.wcp
           retention-days: 30
 
       - name: Upload Wine build artifacts for ${{ matrix.arch }} (sdk${{ matrix.api_level }})
