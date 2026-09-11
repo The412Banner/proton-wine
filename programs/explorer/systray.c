@@ -142,6 +142,7 @@ static UINT  taskbar_scheme;     /* Luna color scheme */
 static BOOL  show_clock = TRUE;  /* show the clock in the notification area */
 static BOOL  xp_frames;          /* XP window frames, drawn by win32u in every process */
 static BOOL  xp_wallpaper = TRUE; /* Wine XP desktop background */
+static BOOL  xp_controls = TRUE;  /* Wine XP visual style for buttons and controls */
 static BOOL  taskbar_locked;     /* taskbar height can't be changed */
 static int   taskbar_rows = 1;   /* number of rows of task buttons */
 static UINT  taskbar_dpi = USER_DEFAULT_SCREEN_DPI;
@@ -1862,12 +1863,157 @@ static void xp_load_settings(void)
         size = sizeof(value);
         if (!RegGetValueW( hkey, NULL, L"Wallpaper", RRF_RT_REG_DWORD, NULL, &value, &size ))
             xp_wallpaper = value != 0;
+        size = sizeof(value);
+        if (!RegGetValueW( hkey, NULL, L"Controls", RRF_RT_REG_DWORD, NULL, &value, &size ))
+            xp_controls = value != 0;
         RegCloseKey( hkey );
     }
     /* WINE_TASKBAR_STYLE=classic brings back the plain Wine taskbar */
     len = GetEnvironmentVariableW( L"WINE_TASKBAR_STYLE", style, ARRAY_SIZE(style) );
     if (len && len < ARRAY_SIZE(style)) xp_style = lstrcmpiW( style, L"classic" ) != 0;
     TRACE( "style %s rows %d locked %d\n", xp_style ? "xp" : "classic", taskbar_rows, taskbar_locked );
+}
+
+/*
+ * Wine XP visual style for buttons and controls (winexp.msstyles).
+ *
+ * Only the theme settings in the registry are changed, the theme is never applied: applying it
+ * would also set the system colors and metrics, which belong to the desktop theme of the host.
+ * Every process loads the new theme on its next OpenThemeData(), after the WM_THEMECHANGED
+ * sent here. The theme in use before is saved, to be restored for the classic style.
+ */
+
+static const WCHAR theme_manager_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager";
+static const WCHAR * const saved_theme_values[] = { L"ThemeActive", L"DllName", L"ColorName", L"SizeName" };
+static const WCHAR * const xp_theme_colors[] = { L"Blue", L"Olive", L"Silver" };
+
+static BOOL get_xp_theme_path( WCHAR *path, DWORD size )
+{
+    static const WCHAR * const locations[] = { L"%SystemRoot%\\resources\\themes\\winexp\\winexp.msstyles",
+                                               L"%SystemRoot%\\system32\\winexp.msstyles" };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(locations); i++)
+    {
+        DWORD len = ExpandEnvironmentStringsW( locations[i], path, size );
+        if (len && len <= size && GetFileAttributesW( path ) != INVALID_FILE_ATTRIBUTES) return TRUE;
+    }
+    return FALSE;
+}
+
+static BOOL get_theme_value( HKEY hkey, const WCHAR *name, WCHAR *buffer, DWORD size )
+{
+    size *= sizeof(WCHAR);
+    return !RegGetValueW( hkey, NULL, name, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND, NULL, buffer, &size );
+}
+
+static void set_theme_value( HKEY hkey, const WCHAR *name, const WCHAR *value )
+{
+    RegSetValueExW( hkey, name, 0, REG_SZ, (const BYTE *)value, (lstrlenW( value ) + 1) * sizeof(WCHAR) );
+}
+
+/* copy a value as it is, or delete it in the destination when the source has none */
+static void copy_theme_value( HKEY from, HKEY to, const WCHAR *name )
+{
+    BYTE data[MAX_PATH * sizeof(WCHAR)];
+    DWORD type, size = sizeof(data);
+
+    if (!RegQueryValueExW( from, name, NULL, &type, data, &size ))
+        RegSetValueExW( to, name, 0, type, data, size );
+    else
+        RegDeleteValueW( to, name );
+}
+
+static BOOL is_xp_theme( const WCHAR *dll )
+{
+    int len = lstrlenW( dll ), suffix = lstrlenW( L"\\winexp.msstyles" );
+
+    return len >= suffix && !lstrcmpiW( dll + len - suffix, L"\\winexp.msstyles" );
+}
+
+static BOOL CALLBACK post_theme_changed_child( HWND hwnd, LPARAM lparam )
+{
+    PostMessageW( hwnd, WM_THEMECHANGED, 0, 0 );
+    return TRUE;
+}
+
+static BOOL CALLBACK post_theme_changed( HWND hwnd, LPARAM lparam )
+{
+    PostMessageW( hwnd, WM_THEMECHANGED, 0, 0 );
+    EnumChildWindows( hwnd, post_theme_changed_child, 0 );
+    return TRUE;
+}
+
+/* point the theme settings at the XP theme, or back at the theme used before */
+static void apply_xp_controls( BOOL use_xp, UINT scheme )
+{
+    WCHAR dll[MAX_PATH], color[64], value[MAX_PATH], xp_path[MAX_PATH];
+    BOOL active, changed = FALSE;
+    HKEY theme, saved;
+    unsigned int i;
+
+    if (RegCreateKeyExW( HKEY_CURRENT_USER, theme_manager_key, 0, NULL, 0, KEY_QUERY_VALUE | KEY_SET_VALUE,
+                         NULL, &theme, NULL )) return;
+    if (RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar\\ClassicTheme", 0, NULL, 0,
+                         KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &saved, NULL ))
+    {
+        RegCloseKey( theme );
+        return;
+    }
+
+    if (!get_theme_value( theme, L"DllName", dll, ARRAY_SIZE(dll) )) dll[0] = 0;
+    if (!get_theme_value( theme, L"ColorName", color, ARRAY_SIZE(color) )) color[0] = 0;
+    active = get_theme_value( theme, L"ThemeActive", value, ARRAY_SIZE(value) ) && value[0] != '0';
+
+    if (use_xp && get_xp_theme_path( xp_path, ARRAY_SIZE(xp_path) ))
+    {
+        const WCHAR *xp_color = xp_theme_colors[scheme < ARRAY_SIZE(xp_theme_colors) ? scheme : 0];
+
+        if (!active || !is_xp_theme( dll ))
+        {
+            /* remember the current theme, missing values included */
+            for (i = 0; i < ARRAY_SIZE(saved_theme_values); i++) copy_theme_value( theme, saved, saved_theme_values[i] );
+            set_theme_value( saved, L"Saved", L"1" );
+            set_theme_value( theme, L"ColorName", xp_color );
+            set_theme_value( theme, L"SizeName", L"NormalSize" );
+            set_theme_value( theme, L"DllName", xp_path );
+            /* the theme counts as loaded before, so that loading it never touches the system metrics */
+            set_theme_value( theme, L"LoadedBefore", L"1" );
+            set_theme_value( theme, L"ThemeActive", L"1" );
+            changed = TRUE;
+        }
+        else if (lstrcmpiW( color, xp_color ))
+        {
+            set_theme_value( theme, L"ColorName", xp_color );
+            changed = TRUE;
+        }
+    }
+    else if (!use_xp && active && is_xp_theme( dll ))
+    {
+        if (get_theme_value( saved, L"Saved", value, ARRAY_SIZE(value) ))
+        {
+            /* ThemeActive (the first one) goes last */
+            for (i = 1; i < ARRAY_SIZE(saved_theme_values); i++) copy_theme_value( saved, theme, saved_theme_values[i] );
+            if (!get_theme_value( saved, L"ThemeActive", value, ARRAY_SIZE(value) )) lstrcpyW( value, L"0" );
+        }
+        else
+        {
+            /* nothing saved: the default Wine theme */
+            ExpandEnvironmentStringsW( L"%SystemRoot%\\resources\\themes\\light\\light.msstyles", dll, ARRAY_SIZE(dll) );
+            set_theme_value( theme, L"ColorName", L"Blue" );
+            set_theme_value( theme, L"SizeName", L"NormalSize" );
+            set_theme_value( theme, L"DllName", dll );
+            lstrcpyW( value, GetFileAttributesW( dll ) != INVALID_FILE_ATTRIBUTES ? L"1" : L"0" );
+        }
+        if (value[0] != '0') set_theme_value( theme, L"LoadedBefore", L"1" );
+        set_theme_value( theme, L"ThemeActive", value );
+        changed = TRUE;
+    }
+
+    RegCloseKey( saved );
+    RegCloseKey( theme );
+    TRACE( "xp controls %d scheme %u changed %d\n", use_xp, scheme, changed );
+    if (changed) EnumWindows( post_theme_changed, 0 );
 }
 
 static void xp_launch_task_manager(void)
@@ -2135,6 +2281,7 @@ struct display_settings
     BOOL clock;
     BOOL frames;
     BOOL wallpaper;
+    BOOL controls;
 };
 
 static HWND display_dialog;
@@ -2207,6 +2354,9 @@ static void apply_display_settings( const struct display_settings *settings )
     xp_save_setting( L"ShowClock", show_clock );
     xp_save_setting( L"Frames", settings->frames );
     xp_save_setting( L"Wallpaper", settings->wallpaper );
+    xp_save_setting( L"Controls", settings->controls );
+    xp_controls = settings->controls;
+    apply_xp_controls( settings->xp && settings->controls, taskbar_scheme );
     /* let the other processes pick up the frame style, then have every window repaint its frame */
     if (settings->frames != xp_frames || settings->frames) SetTimer( tray_window, FRAMES_TIMER, FRAMES_DELAY, NULL );
     xp_frames = settings->frames;
@@ -2250,12 +2400,14 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
     settings->clock = IsDlgButtonChecked( dlg, IDC_DP_CLOCK ) == BST_CHECKED;
     settings->frames = IsDlgButtonChecked( dlg, IDC_DP_FRAMES ) == BST_CHECKED;
     settings->wallpaper = IsDlgButtonChecked( dlg, IDC_DP_WALLPAPER ) == BST_CHECKED;
+    settings->controls = IsDlgButtonChecked( dlg, IDC_DP_CONTROLS ) == BST_CHECKED;
 }
 
 static void update_dialog_state( HWND dlg )
 {
     struct display_settings settings;
-    UINT ids[] = { IDC_DP_SCHEME, IDC_DP_FRAMES, IDC_DP_WALLPAPER, IDC_DP_ROWS, IDC_DP_LOCK, IDC_DP_CLOCK };
+    UINT ids[] = { IDC_DP_SCHEME, IDC_DP_FRAMES, IDC_DP_CONTROLS, IDC_DP_WALLPAPER, IDC_DP_ROWS, IDC_DP_LOCK,
+                   IDC_DP_CLOCK };
     unsigned int i;
 
     get_dialog_settings( dlg, &settings );
@@ -2394,6 +2546,7 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
         CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
         CheckDlgButton( dlg, IDC_DP_CLOCK, show_clock ? BST_CHECKED : BST_UNCHECKED );
         CheckDlgButton( dlg, IDC_DP_FRAMES, xp_frames ? BST_CHECKED : BST_UNCHECKED );
+        CheckDlgButton( dlg, IDC_DP_CONTROLS, xp_controls ? BST_CHECKED : BST_UNCHECKED );
         CheckDlgButton( dlg, IDC_DP_WALLPAPER, xp_wallpaper ? BST_CHECKED : BST_UNCHECKED );
         update_dialog_state( dlg );
         return TRUE;
@@ -2415,6 +2568,7 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
         case IDC_DP_LOCK:
         case IDC_DP_CLOCK:
         case IDC_DP_FRAMES:
+        case IDC_DP_CONTROLS:
         case IDC_DP_WALLPAPER:
             update_dialog_state( dlg );
             break;
@@ -2772,6 +2926,7 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
     if (enable_taskbar)
     {
         xp_load_settings();
+        apply_xp_controls( xp_style && xp_controls, taskbar_scheme );
 
         SystemParametersInfoW( SPI_GETWORKAREA, 0, &work_rect, 0 );
         SetRect( &primary_rect, 0, 0, GetSystemMetrics( SM_CXSCREEN ), GetSystemMetrics( SM_CYSCREEN ) );

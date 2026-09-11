@@ -67,5 +67,6 @@
 #define IDC_DP_APPLY 207
 #define IDC_DP_FRAMES 208
 #define IDC_DP_WALLPAPER 209
+#define IDC_DP_CONTROLS 210
 
 #endif
