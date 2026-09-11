@@ -1885,7 +1885,11 @@ static void xp_load_settings(void)
 
 static const WCHAR theme_manager_key[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager";
 static const WCHAR * const saved_theme_values[] = { L"ThemeActive", L"DllName", L"ColorName", L"SizeName" };
-static const WCHAR * const xp_theme_colors[] = { L"Blue", L"Olive", L"Silver" };
+/* each scheme also comes in a variant for dark window colours, with lighter group box titles */
+static const WCHAR * const xp_theme_colors[][2] = { { L"Blue", L"BlueDark" }, { L"Olive", L"OliveDark" },
+                                                   { L"Silver", L"SilverDark" } };
+
+static BOOL is_dark_theme(void);
 
 static BOOL get_xp_theme_path( WCHAR *path, DWORD size )
 {
@@ -1967,7 +1971,7 @@ static void apply_xp_controls( BOOL use_xp, UINT scheme )
 
     if (use_xp && get_xp_theme_path( xp_path, ARRAY_SIZE(xp_path) ))
     {
-        const WCHAR *xp_color = xp_theme_colors[scheme < ARRAY_SIZE(xp_theme_colors) ? scheme : 0];
+        const WCHAR *xp_color = xp_theme_colors[scheme < ARRAY_SIZE(xp_theme_colors) ? scheme : 0][is_dark_theme()];
 
         if (!active || !is_xp_theme( dll ))
         {
