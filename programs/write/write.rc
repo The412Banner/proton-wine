@@ -28,3 +28,7 @@ STRINGTABLE
 {
     IDS_FAILED, "Starting Wordpad failed"
 }
+
+/* write.exe shows the Wordpad icon, like on Windows, so shortcuts to it get one */
+/* @makedep: ../wordpad/wordpad.ico */
+IDI_WRITE ICON "../wordpad/wordpad.ico"
