@@ -1,0 +1,62 @@
+name: Publish the v7 Wine XP layers pre-release
+
+# One-off, server-side publish: the eight layer builds are taken straight from their CI runs
+# and only published when each file is byte-identical to the one verified before release.
+on:
+  push:
+    branches: [publish/v7-xp]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: build-bionic-layers-20260911-xp
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the eight builds from their CI runs
+        run: |
+          set -e
+          mkdir -p assets
+          fetch() {
+            gh run download "$1" -R "$REPO" -n "$2" -D "dl/$1-$2"
+            cp "dl/$1-$2/$3" assets/
+          }
+          fetch 34629988483 proton-arm64ec-sdk28 GE-proton-11.0-6-arm64ec.wcp
+          fetch 34630031659 proton-arm64ec-sdk28 GE-proton-11.0-5-arm64ec.wcp
+          fetch 34630044726 proton-arm64ec-sdk28 GE-proton-11.0-3-arm64ec.wcp
+          fetch 34630668116 proton-arm64ec-sdk28 GE-proton-10.0-34-arm64ec.wcp
+          fetch 34630678482 proton-arm64ec-sdk28 proton-10.0-4-arm64ec.wcp
+          fetch 34630056346 proton-arm64ec-sdk28 proton-11.0-1-arm64ec.wcp
+          fetch 34630060475 proton-arm64ec-sdk28 proton-11.0-2-arm64ec.wcp
+          fetch 34630060475 proton-x86_64-sdk28 proton-11.0-2-x86_64.wcp
+          ls -l assets
+
+      - name: Check they are the verified files
+        working-directory: assets
+        run: |
+          sha256sum -c <<'EOF'
+          50344ec9fa1f37ae22f5b1a5d509cb50cac818fe15f0ecc4fd187e8f97969110  GE-proton-10.0-34-arm64ec.wcp
+          8c9967ae9a9231be9bfe83a9981fc1585a8099b7eb99a9ceb55a5b51288cb959  GE-proton-11.0-3-arm64ec.wcp
+          eacabf82b775e787c11ba3f84b48ebeff8bd81478d5f72a76068ccb61d70dfc0  GE-proton-11.0-5-arm64ec.wcp
+          f7c4c5f70387c79eeea480b2ca71334d310aef9f613bfacd84c340f9b605e3c6  GE-proton-11.0-6-arm64ec.wcp
+          d5e73c25eef5112393e307c3658c926377f94db8b3aa6a17ae8d6690fcbfa722  proton-10.0-4-arm64ec.wcp
+          5da1585178f5f6ffe2a3f7eb660c774aa65b9922cd77e67b077ce666e52cff69  proton-11.0-1-arm64ec.wcp
+          aec661db98e4b056388cd64ab7682fb68cc22d5fc7f7933b0f801edae2b0af4b  proton-11.0-2-arm64ec.wcp
+          d584a9f4ea54460048989eff46d90e1c62b47b584074a028c0ca206f9c2e4595  proton-11.0-2-x86_64.wcp
+          EOF
+
+      - name: Create the pre-release
+        run: |
+          gh release create "$TAG" -R "$REPO" --prerelease --latest=false \
+            --target 91af073dbead93fe51a2e2abc8b6add6372c67e8 \
+            --title "GE-Proton 11.0-6 / 11.0-5 / 11.0-3 / 10.0-34 · Proton 11.0-1 / 11.0-2 / 10.0-4 — arm64ec bionic 20260911 (versionCode 7: Wine XP desktop — Luna taskbar, start menu, window frames and visual style)" \
+            --notes-file v7_body.md assets/*.wcp
+          gh release view "$TAG" -R "$REPO" --json isPrerelease,isDraft,assets \
+            -q '"prerelease=\(.isPrerelease) draft=\(.isDraft) assets=\(.assets|length)"'
