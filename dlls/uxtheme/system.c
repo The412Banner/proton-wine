@@ -55,6 +55,20 @@ static WCHAR szCurrentTheme[MAX_PATH];
 static WCHAR szCurrentColor[64];
 static WCHAR szCurrentSize[64];
 
+/* signalled when the theme settings change, so that another theme picked in the registry is
+ * loaded by the next OpenThemeData() of this process */
+static HKEY theme_settings_key;
+static HANDLE theme_settings_event;
+
+static CRITICAL_SECTION theme_reload_cs;
+static CRITICAL_SECTION_DEBUG theme_reload_cs_debug =
+{
+    0, 0, &theme_reload_cs,
+    { &theme_reload_cs_debug.ProcessLocksList, &theme_reload_cs_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": theme_reload_cs") }
+};
+static CRITICAL_SECTION theme_reload_cs = { &theme_reload_cs_debug, -1, 0, 0, 0, 0 };
+
 struct user_api_hook user_api = {0};
 
 /***********************************************************************/
@@ -194,6 +208,26 @@ static void UXTHEME_LoadTheme(void)
         MSSTYLES_SetActiveTheme(NULL, FALSE);
         TRACE("Theming not active\n");
     }
+}
+
+static void UXTHEME_WatchThemeSettings(void)
+{
+    if (!theme_settings_key &&
+        RegOpenKeyExW(HKEY_CURRENT_USER, szThemeManager, 0, KEY_NOTIFY, &theme_settings_key))
+        return;
+    if (!theme_settings_event && !(theme_settings_event = CreateEventW(NULL, FALSE, FALSE, NULL)))
+        return;
+    RegNotifyChangeKeyValue(theme_settings_key, FALSE, REG_NOTIFY_CHANGE_LAST_SET, theme_settings_event, TRUE);
+}
+
+/* Load the theme again when another one was picked in the meantime. As at startup, the system
+ * metrics are only applied if no theme was ever loaded before. */
+static void UXTHEME_ReloadChangedTheme(void)
+{
+    if (!theme_settings_event || WaitForSingleObject(theme_settings_event, 0)) return;
+    UXTHEME_WatchThemeSettings();
+    TRACE("theme settings changed, reloading\n");
+    UXTHEME_LoadTheme();
 }
 
 /***********************************************************************/
@@ -510,6 +544,7 @@ void UXTHEME_InitSystem(HINSTANCE hInst)
     atSubIdList          = GlobalAddAtomW(L"ux_subidlst");
     atDialogThemeEnabled = GlobalAddAtomW(L"ux_dialogtheme");
 
+    UXTHEME_WatchThemeSettings();
     UXTHEME_LoadTheme();
     ThemeHooksInstall();
 }
@@ -518,6 +553,8 @@ void UXTHEME_UninitSystem(void)
 {
     ThemeHooksRemove();
     MSSTYLES_SetActiveTheme(NULL, FALSE);
+    if (theme_settings_key) RegCloseKey(theme_settings_key);
+    if (theme_settings_event) CloseHandle(theme_settings_event);
 
     GlobalDeleteAtom(atWindowTheme);
     GlobalDeleteAtom(atSubAppName);
@@ -631,6 +668,8 @@ static HTHEME open_theme_data(HWND hwnd, LPCWSTR pszClassList, DWORD flags, UINT
     if(flags)
         FIXME("unhandled flags: %lx\n", flags);
 
+    EnterCriticalSection(&theme_reload_cs);
+    UXTHEME_ReloadChangedTheme();
     if(bThemeActive)
     {
         pszAppName = UXTHEME_GetWindowProperty(hwnd, atSubAppName, szAppBuff, ARRAY_SIZE(szAppBuff));
@@ -642,6 +681,7 @@ static HTHEME open_theme_data(HWND hwnd, LPCWSTR pszClassList, DWORD flags, UINT
         if (pszUseClassList)
             hTheme = MSSTYLES_OpenThemeClass(pszAppName, pszUseClassList, dpi);
     }
+    LeaveCriticalSection(&theme_reload_cs);
     if(IsWindow(hwnd))
         SetPropW(hwnd, (LPCWSTR)MAKEINTATOM(atWindowTheme), hTheme);
     TRACE(" = %p\n", hTheme);
