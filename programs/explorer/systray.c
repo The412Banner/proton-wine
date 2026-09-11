@@ -1205,7 +1205,22 @@ static const struct gradient_stop silver_notify_gradient[] =
     { 100, RGB(0xa8,0xa8,0xbc) },
 };
 
-/* colors of the Luna color schemes: Default (blue), Olive Green and Silver */
+/* Silver in dark mode: graphite, in the spirit of the Zune and Royale Noir styles */
+static const struct gradient_stop graphite_bar_gradient[] =
+{
+    {   0, RGB(0x16,0x16,0x1a) }, {   3, RGB(0x56,0x56,0x5e) }, {   6, RGB(0x66,0x66,0x6e) },
+    {  10, RGB(0x54,0x54,0x5c) }, {  15, RGB(0x46,0x46,0x4e) }, {  23, RGB(0x3c,0x3c,0x44) },
+    {  54, RGB(0x3a,0x3a,0x42) }, {  86, RGB(0x3e,0x3e,0x46) }, {  92, RGB(0x36,0x36,0x3e) },
+    {  98, RGB(0x26,0x26,0x2c) }, { 100, RGB(0x26,0x26,0x2c) },
+};
+
+static const struct gradient_stop graphite_notify_gradient[] =
+{
+    {   0, RGB(0x16,0x16,0x1a) }, {   1, RGB(0x16,0x16,0x1a) }, {   6, RGB(0x4a,0x4a,0x52) },
+    {  19, RGB(0x3a,0x3a,0x42) }, {  81, RGB(0x34,0x34,0x3c) }, { 100, RGB(0x22,0x22,0x2a) },
+};
+
+/* colors of the Luna color schemes: Default (blue), Olive Green and Silver, and graphite */
 struct xp_scheme
 {
     const struct gradient_stop *bar;
@@ -1245,17 +1260,43 @@ static const struct xp_scheme xp_schemes[] =
         RGB(0xc6,0xc6,0xd4), RGB(0xd6,0xd6,0xe0), RGB(0x8a,0x8a,0xa0), RGB(0xa3,0xa3,0xb6),
         RGB(0x00,0x00,0x00), RGB(0xff,0xff,0xff), RGB(0x9a,0x9a,0xae),
     },
+    {
+        graphite_bar_gradient, ARRAY_SIZE(graphite_bar_gradient), graphite_notify_gradient, ARRAY_SIZE(graphite_notify_gradient),
+        RGB(0x16,0x16,0x1a), RGB(0x6a,0x6a,0x72),
+        RGB(0x5a,0x5a,0x62), RGB(0x44,0x44,0x4c), RGB(0x7a,0x7a,0x82), RGB(0x6a,0x6a,0x72),
+        RGB(0x26,0x26,0x2c), RGB(0x2e,0x2e,0x34),
+        RGB(0x2e,0x2e,0x34), RGB(0x36,0x36,0x3c), RGB(0x14,0x14,0x18), RGB(0x1e,0x1e,0x24),
+        RGB(0xff,0xff,0xff), RGB(0x6a,0x6a,0x72), RGB(0x1a,0x1a,0x1e),
+    },
 };
+
+#define XP_SCHEME_SILVER   2
+#define XP_SCHEME_GRAPHITE 3
+#define XP_USER_SCHEMES    3  /* the ones to pick from, graphite is Silver with dark window colours */
+
+static BOOL is_dark_theme(void);
+
+static UINT xp_palette( UINT scheme )
+{
+    if (scheme >= XP_USER_SCHEMES) return 0;
+    return scheme == XP_SCHEME_SILVER && is_dark_theme() ? XP_SCHEME_GRAPHITE : scheme;
+}
 
 static const struct xp_scheme *xp_current_scheme(void)
 {
-    return &xp_schemes[taskbar_scheme < ARRAY_SIZE(xp_schemes) ? taskbar_scheme : 0];
+    return &xp_schemes[xp_palette( taskbar_scheme )];
 }
 
-/* the start menu follows the color scheme of the taskbar */
+/* the colour scheme picked in Display Properties */
 UINT get_taskbar_scheme(void)
 {
-    return taskbar_scheme < ARRAY_SIZE(xp_schemes) ? taskbar_scheme : 0;
+    return taskbar_scheme < XP_USER_SCHEMES ? taskbar_scheme : 0;
+}
+
+/* the palette the start menu draws with, graphite for Silver in dark mode */
+UINT get_taskbar_palette(void)
+{
+    return xp_palette( taskbar_scheme );
 }
 
 static const struct gradient_stop start_gradient[] =
@@ -1853,7 +1894,7 @@ static void xp_load_settings(void)
             taskbar_locked = value != 0;
         size = sizeof(value);
         if (!RegGetValueW( hkey, NULL, L"Scheme", RRF_RT_REG_DWORD, NULL, &value, &size ))
-            taskbar_scheme = value < ARRAY_SIZE(xp_schemes) ? value : 0;
+            taskbar_scheme = value < XP_USER_SCHEMES ? value : 0;
         size = sizeof(value);
         if (!RegGetValueW( hkey, NULL, L"ShowClock", RRF_RT_REG_DWORD, NULL, &value, &size ))
             show_clock = value != 0;
@@ -1888,8 +1929,6 @@ static const WCHAR * const saved_theme_values[] = { L"ThemeActive", L"DllName", 
 /* each scheme also comes in a variant for dark window colours, with lighter group box titles */
 static const WCHAR * const xp_theme_colors[][2] = { { L"Blue", L"BlueDark" }, { L"Olive", L"OliveDark" },
                                                    { L"Silver", L"SilverDark" } };
-
-static BOOL is_dark_theme(void);
 
 static BOOL get_xp_theme_path( WCHAR *path, DWORD size )
 {
@@ -2339,7 +2378,7 @@ static void apply_display_settings( const struct display_settings *settings )
 {
     HKEY hkey;
 
-    taskbar_scheme = settings->scheme < ARRAY_SIZE(xp_schemes) ? settings->scheme : 0;
+    taskbar_scheme = settings->scheme < XP_USER_SCHEMES ? settings->scheme : 0;
     taskbar_rows = max( 1, min( settings->rows, TASKBAR_MAX_ROWS ));
     taskbar_locked = settings->locked;
     show_clock = settings->clock;
@@ -2422,7 +2461,7 @@ static void update_dialog_state( HWND dlg )
 /* a small desktop with the taskbar as it would look with the selected settings */
 static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct display_settings *settings )
 {
-    const struct xp_scheme *scheme = &xp_schemes[settings->scheme < ARRAY_SIZE(xp_schemes) ? settings->scheme : 0];
+    const struct xp_scheme *scheme = &xp_schemes[xp_palette( settings->scheme )];
     int width = dis->rcItem.right - dis->rcItem.left, height = dis->rcItem.bottom - dis->rcItem.top;
     int bar = max( height / 4, 12 ), top = height - bar, start_width = bar * 3;
     HGDIOBJ old_bitmap, old_font;
@@ -2453,14 +2492,16 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
 
     /* a small window with the selected title bar (the XP frames themselves are drawn by win32u) */
     {
-        static const COLORREF caption[3][3] =
+        static const COLORREF caption[4][3] =
         {
             { RGB(0x09,0x97,0xff), RGB(0x00,0x50,0xee), RGB(0x00,0x3d,0xd7) },
             { RGB(0xc4,0xd4,0xa0), RGB(0x8f,0xa4,0x64), RGB(0x6d,0x80,0x48) },
             { RGB(0xfd,0xfd,0xfe), RGB(0xdc,0xdc,0xe6), RGB(0xa9,0xa9,0xbd) },
+            { RGB(0x70,0x70,0x78), RGB(0x3a,0x3a,0x42), RGB(0x1e,0x1e,0x24) },
         };
-        static const COLORREF caption_text[3] = { RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff), RGB(0x1c,0x1c,0x3c) };
-        UINT index = settings->scheme < ARRAY_SIZE(caption) ? settings->scheme : 0;
+        static const COLORREF caption_text[4] = { RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff), RGB(0x1c,0x1c,0x3c),
+                                                  RGB(0xff,0xff,0xff) };
+        UINT index = xp_palette( settings->scheme );
         int wx = width * 3 / 10, wy = max( 4, top / 6 ), ww = width * 2 / 5, wh = top - wy - 4;
         int cap = max( bar - 2, 10 ), button = cap - 4;
 
