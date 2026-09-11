@@ -836,6 +836,10 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         }
         return 0;
 
+    case WM_RBUTTONUP:
+        if (!using_root) show_desktop_menu( hwnd, lp );
+        return 0;
+
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
