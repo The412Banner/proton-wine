@@ -1541,9 +1541,32 @@ static const struct xp_stop xp_graphite_caption_inactive[] =
 {
     {   0, RGB(0x50,0x50,0x56) }, {  50, RGB(0x40,0x40,0x46) }, { 100, RGB(0x34,0x34,0x3a) },
 };
+/* Blue with dark window colours: navy */
+static const struct xp_stop xp_navy_caption[] =
+{
+    {   0, RGB(0x3c,0x6c,0xc8) }, {   8, RGB(0x1a,0x3c,0x88) }, {  40, RGB(0x16,0x36,0x7c) },
+    {  88, RGB(0x1e,0x46,0x96) }, {  93, RGB(0x1e,0x46,0x96) }, {  95, RGB(0x1a,0x3e,0x8a) },
+    {  96, RGB(0x0a,0x1c,0x4c) }, { 100, RGB(0x0a,0x1c,0x4c) },
+};
+static const struct xp_stop xp_navy_caption_inactive[] =
+{
+    {   0, RGB(0x4a,0x58,0x78) }, {  50, RGB(0x36,0x42,0x5e) }, { 100, RGB(0x2c,0x36,0x4e) },
+};
+/* Olive Green with dark window colours: moss */
+static const struct xp_stop xp_moss_caption[] =
+{
+    {   0, RGB(0x86,0x98,0x5e) }, {   8, RGB(0x56,0x66,0x36) }, {  40, RGB(0x4c,0x5a,0x2e) },
+    {  88, RGB(0x5a,0x6a,0x38) }, {  95, RGB(0x4a,0x58,0x2c) }, {  96, RGB(0x24,0x2e,0x12) },
+    { 100, RGB(0x24,0x2e,0x12) },
+};
+static const struct xp_stop xp_moss_caption_inactive[] =
+{
+    {   0, RGB(0x56,0x5c,0x46) }, {  50, RGB(0x44,0x4a,0x36) }, { 100, RGB(0x38,0x3c,0x2c) },
+};
 
-/* active and inactive colors for the blue, olive green and silver schemes, and graphite */
-static const struct xp_frame_colors xp_frame_schemes[4][2] =
+/* active and inactive colors for the blue, olive green and silver schemes,
+ * followed by their dark twins navy, moss and graphite */
+static const struct xp_frame_colors xp_frame_schemes[6][2] =
 {
     {
         { xp_blue_caption, ARRAY_SIZE(xp_blue_caption),
@@ -1582,6 +1605,30 @@ static const struct xp_frame_colors xp_frame_schemes[4][2] =
           RGB(0xfa,0xfa,0xfc), RGB(0xe6,0xe6,0xee), RGB(0xc0,0xc0,0xd0), RGB(0x9a,0x9a,0xb0) },
     },
     {
+        { xp_navy_caption, ARRAY_SIZE(xp_navy_caption),
+          { RGB(0x08,0x10,0x2c), RGB(0x34,0x5e,0xb4), RGB(0x1c,0x3e,0x88) },
+          { RGB(0x04,0x0a,0x20), RGB(0x0a,0x16,0x3c), RGB(0x10,0x28,0x5c) }, RGB(0x16,0x36,0x7c),
+          RGB(0xff,0xff,0xff), RGB(0x04,0x0c,0x26),
+          RGB(0x3a,0x64,0xbc), RGB(0x1a,0x3c,0x88), RGB(0x9c,0xb4,0xe6), RGB(0xff,0xff,0xff) },
+        { xp_navy_caption_inactive, ARRAY_SIZE(xp_navy_caption_inactive),
+          { RGB(0x10,0x14,0x22), RGB(0x50,0x5e,0x7e), RGB(0x3e,0x4a,0x68) },
+          { RGB(0x0c,0x10,0x1c), RGB(0x18,0x1e,0x2e), RGB(0x24,0x2c,0x40) }, RGB(0x36,0x42,0x5e),
+          RGB(0xc4,0xcc,0xdc), RGB(0x10,0x14,0x22),
+          RGB(0x4a,0x56,0x74), RGB(0x3a,0x46,0x62), RGB(0x70,0x7c,0x9a), RGB(0xcc,0xd4,0xe4) },
+    },
+    {
+        { xp_moss_caption, ARRAY_SIZE(xp_moss_caption),
+          { RGB(0x12,0x16,0x08), RGB(0x76,0x88,0x50), RGB(0x58,0x68,0x38) },
+          { RGB(0x0c,0x10,0x04), RGB(0x1a,0x20,0x0c), RGB(0x2c,0x36,0x18) }, RGB(0x4c,0x5a,0x2e),
+          RGB(0xff,0xff,0xff), RGB(0x14,0x1a,0x06),
+          RGB(0x6c,0x7e,0x46), RGB(0x46,0x54,0x28), RGB(0xb6,0xc4,0x98), RGB(0xff,0xff,0xff) },
+        { xp_moss_caption_inactive, ARRAY_SIZE(xp_moss_caption_inactive),
+          { RGB(0x14,0x16,0x0e), RGB(0x5e,0x64,0x4c), RGB(0x4a,0x50,0x3c) },
+          { RGB(0x10,0x12,0x0a), RGB(0x1e,0x22,0x16), RGB(0x2c,0x30,0x22) }, RGB(0x44,0x4a,0x36),
+          RGB(0xcc,0xd0,0xbc), RGB(0x16,0x18,0x0e),
+          RGB(0x58,0x5e,0x48), RGB(0x46,0x4c,0x38), RGB(0x80,0x88,0x6c), RGB(0xd4,0xd8,0xc4) },
+    },
+    {
         { xp_graphite_caption, ARRAY_SIZE(xp_graphite_caption),
           { RGB(0x16,0x16,0x1a), RGB(0x6a,0x6a,0x72), RGB(0x4a,0x4a,0x52) },
           { RGB(0x10,0x10,0x14), RGB(0x1c,0x1c,0x22), RGB(0x2a,0x2a,0x30) }, RGB(0x3a,0x3a,0x42),
@@ -1595,9 +1642,7 @@ static const struct xp_frame_colors xp_frame_schemes[4][2] =
     },
 };
 
-#define XP_FRAME_SILVER   2
-#define XP_FRAME_GRAPHITE 3
-#define XP_FRAME_SCHEMES  3  /* the ones picked in the registry */
+#define XP_FRAME_SCHEMES  3  /* the ones picked in the registry, each has a dark twin */
 
 static UINT xp_frame_scheme = ~0u;  /* ~0u: plain Wine frames */
 
@@ -1606,6 +1651,7 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
 {
     static DWORD last_check;
     DWORD now = NtGetTickCount();
+    COLORREF window;
 
     if (!last_check || now - last_check > 1000)
     {
@@ -1634,14 +1680,11 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
         last_check = now ? now : 1;
     }
     if (xp_frame_scheme >= XP_FRAME_SCHEMES) return NULL;
-    if (xp_frame_scheme == XP_FRAME_SILVER)
-    {
-        COLORREF window = get_sys_color( COLOR_WINDOW );
 
-        /* Silver turns to graphite with dark window colours */
-        if ((GetRValue(window) * 299 + GetGValue(window) * 587 + GetBValue(window) * 114) / 1000 < 128)
-            return &xp_frame_schemes[XP_FRAME_GRAPHITE][active ? 0 : 1];
-    }
+    /* dark window colours turn Blue to navy, Olive Green to moss and Silver to graphite */
+    window = get_sys_color( COLOR_WINDOW );
+    if ((GetRValue(window) * 299 + GetGValue(window) * 587 + GetBValue(window) * 114) / 1000 < 128)
+        return &xp_frame_schemes[xp_frame_scheme + XP_FRAME_SCHEMES][active ? 0 : 1];
     return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
 }
 
