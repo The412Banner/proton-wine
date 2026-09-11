@@ -29,6 +29,7 @@ extern void do_startmenu( HWND owner );
 extern void do_xp_startmenu( HWND tray );
 extern UINT get_taskbar_scheme(void);
 extern void show_desktop_menu( HWND hwnd, LPARAM lparam );
+extern HICON get_shortcut_icon( const WCHAR *path );
 extern LRESULT menu_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 #endif  /* __WINE_EXPLORER_PRIVATE_H */
