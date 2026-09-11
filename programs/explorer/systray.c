@@ -19,6 +19,7 @@
  */
 
 #include <assert.h>
+#include <stdlib.h>
 
 #include <windows.h>
 #include <ntuser.h>
@@ -140,6 +141,7 @@ static BOOL  xp_initialized;     /* clock timer, tooltip and event hooks are set
 static UINT  taskbar_scheme;     /* Luna color scheme */
 static BOOL  show_clock = TRUE;  /* show the clock in the notification area */
 static BOOL  xp_frames;          /* XP window frames, drawn by win32u in every process */
+static BOOL  xp_wallpaper = TRUE; /* Wine XP desktop background */
 static BOOL  taskbar_locked;     /* taskbar height can't be changed */
 static int   taskbar_rows = 1;   /* number of rows of task buttons */
 static UINT  taskbar_dpi = USER_DEFAULT_SCREEN_DPI;
@@ -1857,6 +1859,9 @@ static void xp_load_settings(void)
         size = sizeof(value);
         if (!RegGetValueW( hkey, NULL, L"Frames", RRF_RT_REG_DWORD, NULL, &value, &size ))
             xp_frames = value != 0;
+        size = sizeof(value);
+        if (!RegGetValueW( hkey, NULL, L"Wallpaper", RRF_RT_REG_DWORD, NULL, &value, &size ))
+            xp_wallpaper = value != 0;
         RegCloseKey( hkey );
     }
     /* WINE_TASKBAR_STYLE=classic brings back the plain Wine taskbar */
@@ -1981,6 +1986,140 @@ static void xp_init_taskbar(void)
 }
 
 /*
+ * Wine XP desktop background: two colors with the Wine emblem on the line between them,
+ * light or dark following the theme colors. It replaces the default wallpaper of the
+ * Winlator based apps only, a wallpaper chosen by the user is left alone.
+ */
+
+#define WALLPAPER_SOURCE_HEIGHT 768  /* the emblem keeps its size relative to the screen height */
+
+static int     app_default_wallpaper = -1;  /* -1: not checked yet */
+static HBITMAP wallpaper_cache;
+static int     wallpaper_cache_width, wallpaper_cache_height, wallpaper_cache_dark = -1;
+
+static BOOL color_close( COLORREF c1, COLORREF c2 )
+{
+    return abs( GetRValue(c1) - GetRValue(c2) ) <= 3 && abs( GetGValue(c1) - GetGValue(c2) ) <= 3 &&
+           abs( GetBValue(c1) - GetBValue(c2) ) <= 3;
+}
+
+/* the default wallpaper of the apps is a blue #01579b top half and #0277bd bottom half */
+static BOOL is_app_default_wallpaper(void)
+{
+    WCHAR path[MAX_PATH];
+    HBITMAP bitmap;
+    BITMAP bm;
+    HDC hdc;
+
+    if (app_default_wallpaper != -1) return app_default_wallpaper;
+    app_default_wallpaper = FALSE;
+    if (!SystemParametersInfoW( SPI_GETDESKWALLPAPER, ARRAY_SIZE(path), path, 0 ) || !path[0]) return FALSE;
+    if (!(bitmap = LoadImageW( 0, path, IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION | LR_LOADFROMFILE ))) return FALSE;
+    if (GetObjectW( bitmap, sizeof(bm), &bm ) && bm.bmHeight > 4 && (hdc = CreateCompatibleDC( 0 )))
+    {
+        HGDIOBJ old = SelectObject( hdc, bitmap );
+
+        app_default_wallpaper = color_close( GetPixel( hdc, 2, 2 ), RGB(0x01,0x57,0x9b) ) &&
+                                color_close( GetPixel( hdc, 2, bm.bmHeight - 3 ), RGB(0x02,0x77,0xbd) );
+        SelectObject( hdc, old );
+        DeleteDC( hdc );
+    }
+    DeleteObject( bitmap );
+    TRACE( "wallpaper %s is the default: %d\n", debugstr_w(path), app_default_wallpaper );
+    return app_default_wallpaper;
+}
+
+/* the dark theme of the apps uses dark window colors */
+static BOOL is_dark_theme(void)
+{
+    COLORREF color = GetSysColor( COLOR_WINDOW );
+
+    return (GetRValue(color) * 299 + GetGValue(color) * 587 + GetBValue(color) * 114) / 1000 < 128;
+}
+
+static BOOL use_xp_wallpaper( BOOL xp, BOOL setting )
+{
+    return enable_taskbar && xp && setting && is_app_default_wallpaper();
+}
+
+/* build the background at the given size, the colors come from the edges of the emblem */
+static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
+{
+    HBITMAP bitmap, emblem;
+    HGDIOBJ old, old_src;
+    COLORREF top = dark ? RGB(0x00,0x17,0x2f) : RGB(0x03,0x56,0x99);
+    COLORREF bottom = dark ? RGB(0x28,0x3f,0x54) : RGB(0x36,0xaf,0xda);
+    HDC hdc, src = 0;
+    BITMAP bm;
+    int size;
+
+    if (width <= 0 || height <= 0) return 0;
+    if (!(hdc = CreateCompatibleDC( ref ))) return 0;
+    bitmap = CreateCompatibleBitmap( ref, width, height );
+    old = SelectObject( hdc, bitmap );
+
+    emblem = LoadImageW( GetModuleHandleW( NULL ), MAKEINTRESOURCEW( dark ? IDB_WALLPAPER_DARK : IDB_WALLPAPER_LIGHT ),
+                         IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION );
+    if (emblem && GetObjectW( emblem, sizeof(bm), &bm ) && (src = CreateCompatibleDC( ref )))
+    {
+        old_src = SelectObject( src, emblem );
+        top = GetPixel( src, 0, 0 );
+        bottom = GetPixel( src, 0, bm.bmHeight - 1 );
+    }
+    fill_solid( hdc, 0, 0, width, height / 2, top );
+    fill_solid( hdc, 0, height / 2, width, height - height / 2, bottom );
+    if (src)
+    {
+        size = MulDiv( bm.bmHeight, height, WALLPAPER_SOURCE_HEIGHT );
+        SetStretchBltMode( hdc, HALFTONE );
+        SetBrushOrgEx( hdc, 0, 0, NULL );
+        StretchBlt( hdc, (width - size) / 2, height / 2 - size / 2, size, size,
+                    src, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY );
+        SelectObject( src, old_src );
+        DeleteDC( src );
+    }
+    if (emblem) DeleteObject( emblem );
+    SelectObject( hdc, old );
+    DeleteDC( hdc );
+    return bitmap;
+}
+
+/* called by the desktop window instead of PaintDesktop */
+BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
+{
+    BOOL dark = is_dark_theme();
+    HGDIOBJ old;
+    RECT rect;
+    HDC mem;
+
+    if (!use_xp_wallpaper( xp_style, xp_wallpaper )) return FALSE;
+    GetClientRect( hwnd, &rect );
+    if (!wallpaper_cache || rect.right != wallpaper_cache_width || rect.bottom != wallpaper_cache_height ||
+        dark != wallpaper_cache_dark)
+    {
+        if (wallpaper_cache) DeleteObject( wallpaper_cache );
+        wallpaper_cache = build_xp_wallpaper( hdc, rect.right, rect.bottom, dark );
+        wallpaper_cache_width = rect.right;
+        wallpaper_cache_height = rect.bottom;
+        wallpaper_cache_dark = dark;
+    }
+    if (!wallpaper_cache || !(mem = CreateCompatibleDC( hdc ))) return FALSE;
+    old = SelectObject( mem, wallpaper_cache );
+    BitBlt( hdc, 0, 0, rect.right, rect.bottom, mem, 0, 0, SRCCOPY );
+    SelectObject( mem, old );
+    DeleteDC( mem );
+    return TRUE;
+}
+
+/* the wallpaper setting of the desktop changed */
+void reset_xp_wallpaper(void)
+{
+    app_default_wallpaper = -1;
+    if (wallpaper_cache) DeleteObject( wallpaper_cache );
+    wallpaper_cache = 0;
+}
+
+/*
  * Display Properties, opened from the desktop context menu
  */
 
@@ -1995,6 +2134,7 @@ struct display_settings
     BOOL locked;
     BOOL clock;
     BOOL frames;
+    BOOL wallpaper;
 };
 
 static HWND display_dialog;
@@ -2066,9 +2206,15 @@ static void apply_display_settings( const struct display_settings *settings )
     xp_save_setting( L"Locked", taskbar_locked );
     xp_save_setting( L"ShowClock", show_clock );
     xp_save_setting( L"Frames", settings->frames );
+    xp_save_setting( L"Wallpaper", settings->wallpaper );
     /* let the other processes pick up the frame style, then have every window repaint its frame */
     if (settings->frames != xp_frames || settings->frames) SetTimer( tray_window, FRAMES_TIMER, FRAMES_DELAY, NULL );
     xp_frames = settings->frames;
+    if (settings->wallpaper != xp_wallpaper || settings->xp != xp_style)
+    {
+        xp_wallpaper = settings->wallpaper;
+        InvalidateRect( GetDesktopWindow(), NULL, TRUE );
+    }
 
     if (settings->xp != xp_style) set_taskbar_style( settings->xp );
     else do_show_systray();
@@ -2103,12 +2249,13 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
     settings->locked = IsDlgButtonChecked( dlg, IDC_DP_LOCK ) == BST_CHECKED;
     settings->clock = IsDlgButtonChecked( dlg, IDC_DP_CLOCK ) == BST_CHECKED;
     settings->frames = IsDlgButtonChecked( dlg, IDC_DP_FRAMES ) == BST_CHECKED;
+    settings->wallpaper = IsDlgButtonChecked( dlg, IDC_DP_WALLPAPER ) == BST_CHECKED;
 }
 
 static void update_dialog_state( HWND dlg )
 {
     struct display_settings settings;
-    UINT ids[] = { IDC_DP_SCHEME, IDC_DP_FRAMES, IDC_DP_ROWS, IDC_DP_LOCK, IDC_DP_CLOCK };
+    UINT ids[] = { IDC_DP_SCHEME, IDC_DP_FRAMES, IDC_DP_WALLPAPER, IDC_DP_ROWS, IDC_DP_LOCK, IDC_DP_CLOCK };
     unsigned int i;
 
     get_dialog_settings( dlg, &settings );
@@ -2135,7 +2282,18 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
     old_font = SelectObject( hdc, xp_font ? xp_font : GetStockObject( DEFAULT_GUI_FONT ));
     SetBkMode( hdc, TRANSPARENT );
 
-    fill_gradient2( hdc, 0, 0, width, top, RGB(0x3a,0x6e,0xd6), RGB(0x6a,0xa2,0xf0) );
+    if (use_xp_wallpaper( settings->xp, settings->wallpaper ))
+    {
+        HBITMAP background = build_xp_wallpaper( hdc, width, top, is_dark_theme() );
+        HDC background_dc = CreateCompatibleDC( hdc );
+        HGDIOBJ old_background = SelectObject( background_dc, background );
+
+        BitBlt( hdc, 0, 0, width, top, background_dc, 0, 0, SRCCOPY );
+        SelectObject( background_dc, old_background );
+        DeleteDC( background_dc );
+        DeleteObject( background );
+    }
+    else fill_gradient2( hdc, 0, 0, width, top, RGB(0x3a,0x6e,0xd6), RGB(0x6a,0xa2,0xf0) );
 
     /* a small window with the selected title bar (the XP frames themselves are drawn by win32u) */
     {
@@ -2236,6 +2394,7 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
         CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
         CheckDlgButton( dlg, IDC_DP_CLOCK, show_clock ? BST_CHECKED : BST_UNCHECKED );
         CheckDlgButton( dlg, IDC_DP_FRAMES, xp_frames ? BST_CHECKED : BST_UNCHECKED );
+        CheckDlgButton( dlg, IDC_DP_WALLPAPER, xp_wallpaper ? BST_CHECKED : BST_UNCHECKED );
         update_dialog_state( dlg );
         return TRUE;
 
@@ -2256,6 +2415,7 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
         case IDC_DP_LOCK:
         case IDC_DP_CLOCK:
         case IDC_DP_FRAMES:
+        case IDC_DP_WALLPAPER:
             update_dialog_state( dlg );
             break;
         case IDC_DP_APPLY:
@@ -2644,6 +2804,8 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
     {
         do_show_systray();
         if (xp_style) xp_init_taskbar();
+        /* the desktop may have been painted before the settings were loaded */
+        InvalidateRect( GetDesktopWindow(), NULL, TRUE );
     }
     else do_hide_systray();
 }
