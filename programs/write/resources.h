@@ -18,4 +18,5 @@
 
 #include <windef.h>
 
+#define IDI_WRITE  100
 #define IDS_FAILED 101
