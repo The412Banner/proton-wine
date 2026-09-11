@@ -2204,8 +2204,8 @@ static void nc_paint( HWND hwnd, HRGN clip )
     style = win->dwStyle;
     ex_style = win->dwExStyle;
     flags = win->flags;
-    /* windows with a Vulkan or OpenGL client have no window surface */
-    buffered = win->clip_clients;
+    /* windows with an OpenGL client have no window surface */
+    buffered = win->pixel_format || win->internal_pixel_format;
     release_win_ptr( win );
 
     active = flags & WIN_NCACTIVATED;

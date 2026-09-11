@@ -1702,7 +1702,6 @@ TAB_DrawItemInterior(const TAB_INFO *infoPtr, HDC hdc, INT iItem, RECT *drawRect
     else
       SetTextColor(hdc, comctl32_color.clrBtnText);
   }
-#if __WINE_COMCTL32_VERSION == 6
   else
   {
     HTHEME theme = GetWindowTheme(infoPtr->hwnd);
@@ -1715,7 +1714,6 @@ TAB_DrawItemInterior(const TAB_INFO *infoPtr, HDC hdc, INT iItem, RECT *drawRect
     if (SUCCEEDED(GetThemeColor(theme, TABP_TABITEM, state, TMT_TEXTCOLOR, &color)))
       SetTextColor(hdc, color);
   }
-#endif
 
   /*
    * if owner draw, tell the owner to draw

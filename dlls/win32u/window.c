@@ -4692,7 +4692,7 @@ void update_window_state( HWND hwnd )
     apply_window_pos( hwnd, 0, swp_flags, surface, &new_rects, valid_rects );
     if (surface) window_surface_release( surface );
 
-    /* A window that got a Vulkan or OpenGL client has lost its surface: its frame is now drawn
+    /* A window that got an OpenGL client has lost its surface: its frame is now drawn
      * straight to the display, which doesn't show the frame painted in the surface, so paint
      * it again. */
     if (had_surface && !surface) NtUserRedrawWindow( hwnd, NULL, 0, RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN );
