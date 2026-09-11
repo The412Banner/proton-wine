@@ -1475,8 +1475,8 @@ BOOL draw_frame_menu( HDC dc, RECT *r, UINT flags )
 }
 
 /*
- * Luna ("Windows XP") window frames, enabled by the explorer Display Properties with
- * HKCU\Software\Wine\Explorer\Taskbar: Frames=1 (and Style not "classic"), or WINE_XP_FRAMES=1.
+ * Luna ("Windows XP") window frames, on by default; turned off by the explorer Display Properties
+ * with HKCU\Software\Wine\Explorer\Taskbar: Frames=0 or Style "classic", or WINE_XP_FRAMES=0.
  * Only the painting changes: the frame and caption sizes are the usual system metrics.
  */
 
@@ -1659,7 +1659,7 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
         char buffer[offsetof( KEY_VALUE_PARTIAL_INFORMATION, Data[64] )];
         KEY_VALUE_PARTIAL_INFORMATION *info = (void *)buffer;
         const char *env = getenv( "WINE_XP_FRAMES" );
-        UINT scheme = ~0u, frames = 0;
+        UINT scheme = ~0u, frames = 1;
         HKEY hkey;
 
         if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Taskbar" )))
