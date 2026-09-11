@@ -828,12 +828,15 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
         return HTCLIENT;
 
     case WM_ERASEBKGND:
-        if (!using_root) PaintDesktop( (HDC)wp );
+        if (!using_root && !paint_xp_wallpaper( hwnd, (HDC)wp )) PaintDesktop( (HDC)wp );
         return TRUE;
 
     case WM_SETTINGCHANGE:
         if (wp == SPI_SETDESKWALLPAPER)
+        {
             SystemParametersInfoW( SPI_SETDESKWALLPAPER, 0, NULL, FALSE );
+            reset_xp_wallpaper();
+        }
         return 0;
 
     case WM_PARENTNOTIFY:
@@ -858,7 +861,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
             BeginPaint( hwnd, &ps );
             if (!using_root)
             {
-                PaintDesktop( ps.hdc );
+                if (!paint_xp_wallpaper( hwnd, ps.hdc )) PaintDesktop( ps.hdc );
                 draw_launchers( ps.hdc, ps.rcPaint );
             }
             EndPaint( hwnd, &ps );

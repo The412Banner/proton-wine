@@ -30,6 +30,8 @@ extern void do_xp_startmenu( HWND tray );
 extern UINT get_taskbar_scheme(void);
 extern void show_desktop_menu( HWND hwnd, LPARAM lparam );
 extern HICON get_shortcut_icon( const WCHAR *path );
+extern BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc );
+extern void reset_xp_wallpaper(void);
 extern LRESULT menu_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 #endif  /* __WINE_EXPLORER_PRIVATE_H */
