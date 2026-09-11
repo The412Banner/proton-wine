@@ -28,6 +28,7 @@ extern void handle_parent_notify( HWND hwnd, WPARAM wp );
 extern void do_startmenu( HWND owner );
 extern void do_xp_startmenu( HWND tray );
 extern UINT get_taskbar_scheme(void);
+extern UINT get_taskbar_palette(void);
 extern void show_desktop_menu( HWND hwnd, LPARAM lparam );
 extern HICON get_shortcut_icon( const WCHAR *path );
 extern BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc );
