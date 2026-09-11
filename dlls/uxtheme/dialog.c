@@ -178,6 +178,8 @@ LRESULT WINAPI UXTHEME_DefDlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, BOO
             return DefWindowProcW(hwnd, msg, wp, lp);
 
         hdc = (HDC)wp;
+        /* the text colour of the default handler, the texture only replaces the background */
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
         SetBkColor(hdc, GetSysColor(COLOR_BTNFACE));
         SetBkMode(hdc, TRANSPARENT);
 
