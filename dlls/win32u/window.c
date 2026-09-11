@@ -4767,11 +4767,19 @@ void update_window_state( HWND hwnd )
     RECT valid_rects[2], surface_rect;
     struct window_surface *surface;
     struct window_rects new_rects;
+    BOOL had_surface = FALSE;
+    WND *win;
 
     if (!is_current_thread_window( hwnd ))
     {
         NtUserPostMessage( hwnd, WM_WINE_UPDATEWINDOWSTATE, 0, 0 );
         return;
+    }
+
+    if ((win = get_win_ptr( hwnd )) && win != WND_OTHER_PROCESS && win != WND_DESKTOP)
+    {
+        had_surface = win->surface && win->surface != &dummy_surface;
+        release_win_ptr( win );
     }
 
     context = set_thread_dpi_awareness_context( get_window_dpi_awareness_context( hwnd ));
@@ -4781,6 +4789,11 @@ void update_window_state( HWND hwnd )
     surface = get_window_surface( hwnd, swp_flags, FALSE, &new_rects, &surface_rect );
     apply_window_pos( hwnd, 0, swp_flags, surface, &new_rects, valid_rects );
     if (surface) window_surface_release( surface );
+
+    /* A window that got a Vulkan or OpenGL client has lost its surface: its frame is now drawn
+     * straight to the display, which doesn't show the frame painted in the surface, so paint
+     * it again. */
+    if (had_surface && !surface) NtUserRedrawWindow( hwnd, NULL, 0, RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN );
 
     set_thread_dpi_awareness_context( context );
 }
