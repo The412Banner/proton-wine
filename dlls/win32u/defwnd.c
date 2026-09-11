@@ -1543,9 +1543,20 @@ static const struct xp_stop xp_silver_caption_inactive[] =
 {
     {   0, RGB(0xf7,0xf7,0xfa) }, {  50, RGB(0xee,0xee,0xf3) }, { 100, RGB(0xdc,0xdc,0xe5) },
 };
+/* Silver with dark window colours: graphite */
+static const struct xp_stop xp_graphite_caption[] =
+{
+    {   0, RGB(0x70,0x70,0x78) }, {   8, RGB(0x4a,0x4a,0x52) }, {  40, RGB(0x3a,0x3a,0x42) },
+    {  88, RGB(0x44,0x44,0x4c) }, {  95, RGB(0x35,0x35,0x3c) }, {  96, RGB(0x1e,0x1e,0x24) },
+    { 100, RGB(0x1e,0x1e,0x24) },
+};
+static const struct xp_stop xp_graphite_caption_inactive[] =
+{
+    {   0, RGB(0x50,0x50,0x56) }, {  50, RGB(0x40,0x40,0x46) }, { 100, RGB(0x34,0x34,0x3a) },
+};
 
-/* active and inactive colors for the blue, olive green and silver schemes */
-static const struct xp_frame_colors xp_frame_schemes[3][2] =
+/* active and inactive colors for the blue, olive green and silver schemes, and graphite */
+static const struct xp_frame_colors xp_frame_schemes[4][2] =
 {
     {
         { xp_blue_caption, ARRAY_SIZE(xp_blue_caption),
@@ -1583,7 +1594,23 @@ static const struct xp_frame_colors xp_frame_schemes[3][2] =
           RGB(0x5c,0x5c,0x78), RGB(0xff,0xff,0xff),
           RGB(0xfa,0xfa,0xfc), RGB(0xe6,0xe6,0xee), RGB(0xc0,0xc0,0xd0), RGB(0x9a,0x9a,0xb0) },
     },
+    {
+        { xp_graphite_caption, ARRAY_SIZE(xp_graphite_caption),
+          { RGB(0x16,0x16,0x1a), RGB(0x6a,0x6a,0x72), RGB(0x4a,0x4a,0x52) },
+          { RGB(0x10,0x10,0x14), RGB(0x1c,0x1c,0x22), RGB(0x2a,0x2a,0x30) }, RGB(0x3a,0x3a,0x42),
+          RGB(0xff,0xff,0xff), RGB(0x08,0x08,0x0c),
+          RGB(0x5c,0x5c,0x64), RGB(0x3e,0x3e,0x46), RGB(0x9a,0x9a,0xa6), RGB(0xff,0xff,0xff) },
+        { xp_graphite_caption_inactive, ARRAY_SIZE(xp_graphite_caption_inactive),
+          { RGB(0x1a,0x1a,0x1e), RGB(0x58,0x58,0x5e), RGB(0x46,0x46,0x4c) },
+          { RGB(0x14,0x14,0x18), RGB(0x20,0x20,0x26), RGB(0x2c,0x2c,0x32) }, RGB(0x3a,0x3a,0x42),
+          RGB(0xc0,0xc0,0xc8), RGB(0x14,0x14,0x18),
+          RGB(0x4a,0x4a,0x52), RGB(0x3a,0x3a,0x42), RGB(0x70,0x70,0x78), RGB(0xc8,0xc8,0xd0) },
+    },
 };
+
+#define XP_FRAME_SILVER   2
+#define XP_FRAME_GRAPHITE 3
+#define XP_FRAME_SCHEMES  3  /* the ones picked in the registry */
 
 static UINT xp_frame_scheme = ~0u;  /* ~0u: plain Wine frames */
 
@@ -1611,7 +1638,7 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
                 info->Type == REG_SZ && !wcsicmp( (const WCHAR *)info->Data, classicW ))
                 frames = 0;
             if (query_reg_ascii_value( hkey, "Scheme", info, sizeof(buffer) ) == sizeof(DWORD) &&
-                info->Type == REG_DWORD && *(DWORD *)info->Data < ARRAY_SIZE(xp_frame_schemes))
+                info->Type == REG_DWORD && *(DWORD *)info->Data < XP_FRAME_SCHEMES)
                 scheme = *(DWORD *)info->Data;
             NtClose( hkey );
         }
@@ -1619,7 +1646,15 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
         xp_frame_scheme = !frames ? ~0u : scheme == ~0u ? 0 : scheme;
         last_check = now ? now : 1;
     }
-    if (xp_frame_scheme >= ARRAY_SIZE(xp_frame_schemes)) return NULL;
+    if (xp_frame_scheme >= XP_FRAME_SCHEMES) return NULL;
+    if (xp_frame_scheme == XP_FRAME_SILVER)
+    {
+        COLORREF window = get_sys_color( COLOR_WINDOW );
+
+        /* Silver turns to graphite with dark window colours */
+        if ((GetRValue(window) * 299 + GetGValue(window) * 587 + GetBValue(window) * 114) / 1000 < 128)
+            return &xp_frame_schemes[XP_FRAME_GRAPHITE][active ? 0 : 1];
+    }
     return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
 }
 
