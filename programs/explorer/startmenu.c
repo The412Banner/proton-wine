@@ -861,7 +861,9 @@ static void xp_add_shortcuts(void)
         if (!item) break;
         lstrcpyW( item->text, xp_shortcuts[i].text );
         lstrcpyW( item->target, xp_shortcuts[i].target );
-        item->icon = xp_icon_from_path( item->target );
+        /* SHGetFileInfo only gives the generic shortcut icon, use the icon of the target */
+        if (!(item->icon = get_shortcut_icon( item->target )))
+            item->icon = xp_icon_from_path( item->target );
     }
 }
 
@@ -926,7 +928,9 @@ static void xp_create_fonts(void)
     xp_font = CreateFontIndirectW( &lf );
     lf.lfWeight = FW_BOLD;
     xp_bold_font = CreateFontIndirectW( &lf );
-    lf.lfHeight = -xp_px( 15 );
+    lf.lfHeight = -xp_px( 16 );
+    lf.lfWeight = FW_HEAVY;
+    lf.lfQuality = ANTIALIASED_QUALITY;
     xp_title_font = CreateFontIndirectW( &lf );
 }
 
@@ -1234,39 +1238,447 @@ static void xp_move_hot( int dir )
     }
 }
 
-/* the whole start menu tree, cascading from All Programs */
-static void xp_show_all_programs( const RECT *rect )
-{
-    BOOL has_items;
-    MENUINFO mi;
-    POINT pt;
+/*
+ * All Programs: XP style cascading menus showing the merged user and common start menus.
+ * The start menu window keeps the mouse capture and routes the input to the cascade.
+ */
 
-    if (!create_root_menu( &has_items )) return;
-    if (!has_items)
+#define XP_CASCADE_LEVELS 8
+#define XP_CASCADE_TIMER  1
+#define XP_CASCADE_DELAY  300
+
+struct xp_node
+{
+    WCHAR name[MAX_PATH];
+    WCHAR path[MAX_PATH];    /* the file, or the directory of a folder */
+    WCHAR path2[MAX_PATH];   /* the same folder in the other start menu */
+    BOOL  folder;
+    BOOL  icon_loaded;
+    HICON icon;
+};
+
+struct xp_level
+{
+    HWND            hwnd;
+    struct xp_node *nodes;
+    unsigned int    count;
+    int             hot;
+    int             open;     /* node whose child level is open, or -1 */
+    int             rows;
+    int             col_width;
+};
+
+static struct xp_level xp_levels[XP_CASCADE_LEVELS];
+static unsigned int xp_level_count;
+static int xp_pending_level, xp_pending_node = -1;  /* folder waiting for the hover delay, level -1 is the start menu */
+static WCHAR xp_run_path[MAX_PATH];
+
+static BOOL xp_is_menu_entry( const WIN32_FIND_DATAW *data )
+{
+    if (data->dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) return FALSE;
+    if (!lstrcmpW( data->cFileName, L"." ) || !lstrcmpW( data->cFileName, L".." )) return FALSE;
+    return lstrcmpiW( data->cFileName, L"desktop.ini" ) != 0;
+}
+
+static BOOL xp_join_path( WCHAR *path, const WCHAR *dir, const WCHAR *name )
+{
+    if (lstrlenW( dir ) + 1 + lstrlenW( name ) >= MAX_PATH) return FALSE;
+    lstrcpyW( path, dir );
+    lstrcatW( path, L"\\" );
+    lstrcatW( path, name );
+    return TRUE;
+}
+
+/* folders without any shortcut, even in their subfolders, are not shown */
+static BOOL xp_dir_has_entries( const WCHAR *dir, int depth )
+{
+    WCHAR pattern[MAX_PATH], sub[MAX_PATH];
+    WIN32_FIND_DATAW data;
+    BOOL found = FALSE;
+    HANDLE handle;
+
+    if (!dir[0] || depth > 6 || !xp_join_path( pattern, dir, L"*" )) return FALSE;
+    if ((handle = FindFirstFileW( pattern, &data )) == INVALID_HANDLE_VALUE) return FALSE;
+    do
     {
-        destroy_menus();
+        if (!xp_is_menu_entry( &data )) continue;
+        if (!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) found = TRUE;
+        else if (xp_join_path( sub, dir, data.cFileName )) found = xp_dir_has_entries( sub, depth + 1 );
+    } while (!found && FindNextFileW( handle, &data ));
+    FindClose( handle );
+    return found;
+}
+
+static void xp_add_dir_nodes( struct xp_level *level, unsigned int *capacity, const WCHAR *dir )
+{
+    WCHAR pattern[MAX_PATH], path[MAX_PATH], name[MAX_PATH];
+    WIN32_FIND_DATAW data;
+    struct xp_node *node;
+    unsigned int i;
+    HANDLE handle;
+    BOOL folder;
+
+    if (!dir || !dir[0] || !xp_join_path( pattern, dir, L"*" )) return;
+    if ((handle = FindFirstFileW( pattern, &data )) == INVALID_HANDLE_VALUE) return;
+    do
+    {
+        if (!xp_is_menu_entry( &data ) || !xp_join_path( path, dir, data.cFileName )) continue;
+        folder = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        if (folder && !xp_dir_has_entries( path, 0 )) continue;
+        lstrcpyW( name, data.cFileName );
+        if (!folder) PathRemoveExtensionW( name );
+
+        for (i = 0; i < level->count; i++)
+            if (level->nodes[i].folder == folder && !lstrcmpiW( level->nodes[i].name, name )) break;
+        if (i < level->count)
+        {
+            /* a folder in both start menus is shown once with the contents of both */
+            if (folder && !level->nodes[i].path2[0]) lstrcpyW( level->nodes[i].path2, path );
+            continue;
+        }
+        if (level->count == *capacity)
+        {
+            unsigned int new_capacity = max( 16, *capacity * 2 );
+            struct xp_node *nodes = realloc( level->nodes, new_capacity * sizeof(*nodes) );
+
+            if (!nodes) break;
+            level->nodes = nodes;
+            *capacity = new_capacity;
+        }
+        node = &level->nodes[level->count++];
+        memset( node, 0, sizeof(*node) );
+        node->folder = folder;
+        lstrcpyW( node->name, name );
+        lstrcpyW( node->path, path );
+    } while (FindNextFileW( handle, &data ));
+    FindClose( handle );
+}
+
+static int __cdecl xp_compare_nodes( const void *a, const void *b )
+{
+    const struct xp_node *node1 = a, *node2 = b;
+
+    if (node1->folder != node2->folder) return node1->folder ? -1 : 1;
+    return lstrcmpiW( node1->name, node2->name );
+}
+
+static HICON xp_node_icon( struct xp_node *node )
+{
+    SHFILEINFOW info;
+
+    if (node->icon_loaded) return node->icon;
+    node->icon_loaded = TRUE;
+    if (!node->folder && !lstrcmpiW( PathFindExtensionW( node->path ), L".lnk" ))
+        node->icon = get_shortcut_icon( node->path );
+    if (!node->icon && SHGetFileInfoW( node->path, 0, &info, sizeof(info), SHGFI_ICON | SHGFI_SMALLICON ))
+        node->icon = info.hIcon;
+    return node->icon;
+}
+
+static void xp_cascade_item_rect( const struct xp_level *level, int index, RECT *rect )
+{
+    int height = xp_px( 22 ), col = index / level->rows, row = index % level->rows;
+
+    rect->left = 1 + col * level->col_width;
+    rect->top = 1 + xp_px( 2 ) + row * height;
+    rect->right = rect->left + level->col_width;
+    rect->bottom = rect->top + height;
+}
+
+static struct xp_level *xp_level_from_hwnd( HWND hwnd )
+{
+    unsigned int i;
+
+    for (i = 0; i < xp_level_count; i++) if (xp_levels[i].hwnd == hwnd) return &xp_levels[i];
+    return NULL;
+}
+
+static void xp_draw_submenu_arrow( HDC hdc, int x, int y, COLORREF color )
+{
+    int size = max( 3, xp_px( 4 ));
+    HGDIOBJ old_pen, old_brush;
+    HBRUSH brush = CreateSolidBrush( color );
+    HPEN pen = CreatePen( PS_SOLID, 1, color );
+    POINT pts[3];
+
+    pts[0].x = x - size / 2;
+    pts[0].y = y - size;
+    pts[1].x = x - size / 2;
+    pts[1].y = y + size;
+    pts[2].x = x + size / 2;
+    pts[2].y = y;
+    old_pen = SelectObject( hdc, pen );
+    old_brush = SelectObject( hdc, brush );
+    Polygon( hdc, pts, 3 );
+    SelectObject( hdc, old_brush );
+    SelectObject( hdc, old_pen );
+    DeleteObject( pen );
+    DeleteObject( brush );
+}
+
+static void xp_cascade_paint( HWND hwnd )
+{
+    struct xp_level *level = xp_level_from_hwnd( hwnd );
+    int icon_size = xp_px( 16 );
+    HGDIOBJ old_bitmap, old_font;
+    RECT client, rect, text;
+    PAINTSTRUCT ps;
+    HBITMAP bitmap;
+    unsigned int i;
+    HDC hdc, mem;
+
+    hdc = BeginPaint( hwnd, &ps );
+    if (level && (mem = CreateCompatibleDC( hdc )))
+    {
+        GetClientRect( hwnd, &client );
+        bitmap = CreateCompatibleBitmap( hdc, client.right, client.bottom );
+        old_bitmap = SelectObject( mem, bitmap );
+        old_font = SelectObject( mem, xp_font );
+        SetBkMode( mem, TRANSPARENT );
+
+        /* white menu with a flat border */
+        xp_fill( mem, 0, 0, client.right, client.bottom, RGB(0xac,0xa8,0x99) );
+        xp_fill( mem, 1, 1, client.right - 2, client.bottom - 2, RGB(0xff,0xff,0xff) );
+
+        for (i = 0; i < level->count; i++)
+        {
+            struct xp_node *node = &level->nodes[i];
+            BOOL hot = (int)i == level->hot || (int)i == level->open;
+
+            xp_cascade_item_rect( level, i, &rect );
+            if (hot) xp_fill( mem, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, xp_scheme->hot );
+            if (xp_node_icon( node ))
+                DrawIconEx( mem, rect.left + xp_px( 4 ), (rect.top + rect.bottom - icon_size) / 2, node->icon,
+                            icon_size, icon_size, 0, NULL, DI_NORMAL );
+            SetRect( &text, rect.left + xp_px( 4 ) + icon_size + xp_px( 8 ), rect.top, rect.right - xp_px( 18 ), rect.bottom );
+            SetTextColor( mem, hot ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
+            DrawTextW( mem, node->name, -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX );
+            if (node->folder)
+                xp_draw_submenu_arrow( mem, rect.right - xp_px( 10 ), (rect.top + rect.bottom) / 2,
+                                       hot ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
+        }
+
+        BitBlt( hdc, 0, 0, client.right, client.bottom, mem, 0, 0, SRCCOPY );
+        SelectObject( mem, old_font );
+        SelectObject( mem, old_bitmap );
+        DeleteObject( bitmap );
+        DeleteDC( mem );
+    }
+    EndPaint( hwnd, &ps );
+}
+
+static LRESULT CALLBACK xp_cascade_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
+{
+    switch (msg)
+    {
+    case WM_PAINT:
+        xp_cascade_paint( hwnd );
+        return 0;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
+    }
+    return DefWindowProcW( hwnd, msg, wparam, lparam );
+}
+
+static void xp_cancel_open(void)
+{
+    if (xp_pending_node >= 0 && xp_window) KillTimer( xp_window, XP_CASCADE_TIMER );
+    xp_pending_node = -1;
+}
+
+static void xp_close_levels( unsigned int from )
+{
+    while (xp_level_count > from)
+    {
+        struct xp_level *level = &xp_levels[--xp_level_count];
+        unsigned int i;
+
+        if (level->hwnd) DestroyWindow( level->hwnd );
+        for (i = 0; i < level->count; i++) if (level->nodes[i].icon) DestroyIcon( level->nodes[i].icon );
+        free( level->nodes );
+        memset( level, 0, sizeof(*level) );
+    }
+    if (from && from <= xp_level_count && xp_levels[from - 1].open >= 0)
+    {
+        xp_levels[from - 1].open = -1;
+        InvalidateRect( xp_levels[from - 1].hwnd, NULL, FALSE );
+    }
+    if (xp_pending_node >= 0 && xp_pending_level >= (int)from) xp_cancel_open();
+}
+
+/* open a cascade level next to the anchor rectangle, in screen coordinates */
+static void xp_open_level( unsigned int index, const WCHAR *dir, const WCHAR *dir2, const RECT *anchor, BOOL bottom_align )
+{
+    static const WCHAR classW[] = L"__wine_xp_start_cascade";
+    static BOOL registered;
+    int text_width = 0, max_rows, cols, width, height, x, y, screen_width, limit;
+    unsigned int capacity = 0, i;
+    struct xp_level *level;
+    RECT tray_rect;
+    HGDIOBJ old_font;
+    SIZE size;
+    HDC hdc;
+
+    if (index >= XP_CASCADE_LEVELS) return;
+    xp_close_levels( index );
+    if (!registered)
+    {
+        WNDCLASSEXW cls;
+
+        memset( &cls, 0, sizeof(cls) );
+        cls.cbSize = sizeof(cls);
+        cls.lpfnWndProc = xp_cascade_proc;
+        cls.hCursor = LoadCursorW( 0, (const WCHAR *)IDC_ARROW );
+        cls.lpszClassName = classW;
+        registered = RegisterClassExW( &cls ) != 0;
+    }
+
+    level = &xp_levels[index];
+    memset( level, 0, sizeof(*level) );
+    level->hot = level->open = -1;
+    xp_add_dir_nodes( level, &capacity, dir );
+    xp_add_dir_nodes( level, &capacity, dir2 );
+    if (!level->count)
+    {
+        free( level->nodes );
+        memset( level, 0, sizeof(*level) );
         return;
     }
-    mi.cbSize = sizeof(mi);
-    mi.fMask = MIM_STYLE;
-    mi.dwStyle = MNS_NOTIFYBYPOS;
-    SetMenuInfo( root_menu.menuhandle, &mi );
+    qsort( level->nodes, level->count, sizeof(*level->nodes), xp_compare_nodes );
 
-    pt.x = rect->right;
-    pt.y = rect->bottom;
-    ClientToScreen( xp_window, &pt );
-    xp_in_submenu = TRUE;
-    ReleaseCapture();
-    /* the tray window handles WM_MENUCOMMAND through menu_wndproc */
-    TrackPopupMenuEx( root_menu.menuhandle, TPM_LEFTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, xp_tray, NULL );
-    xp_in_submenu = FALSE;
+    hdc = GetDC( 0 );
+    old_font = SelectObject( hdc, xp_font );
+    for (i = 0; i < level->count; i++)
+        if (GetTextExtentPoint32W( hdc, level->nodes[i].name, lstrlenW( level->nodes[i].name ), &size ))
+            text_width = max( text_width, size.cx );
+    SelectObject( hdc, old_font );
+    ReleaseDC( 0, hdc );
+
+    /* stay above the taskbar, and wrap long menus into columns like Windows does */
+    screen_width = GetSystemMetrics( SM_CXSCREEN );
+    limit = GetSystemMetrics( SM_CYSCREEN );
+    if (GetWindowRect( xp_tray, &tray_rect ) && tray_rect.top > 0) limit = tray_rect.top;
+    level->col_width = min( max( text_width + xp_px( 4 + 16 + 8 + 24 ), xp_px( 150 )), screen_width / 2 );
+    max_rows = max( 1, (limit - 2 - 2 * xp_px( 2 )) / xp_px( 22 ));
+    level->rows = min( (int)level->count, max_rows );
+    cols = (level->count + level->rows - 1) / level->rows;
+    width = cols * level->col_width + 2;
+    height = level->rows * xp_px( 22 ) + 2 + 2 * xp_px( 2 );
+
+    x = anchor->right - xp_px( 2 );
+    if (x + width > screen_width) x = max( 0, anchor->left - width + xp_px( 2 ));
+    y = bottom_align ? anchor->bottom - height : anchor->top - 1 - xp_px( 2 );
+    if (y + height > limit) y = limit - height;
+    if (y < 0) y = 0;
+
+    xp_level_count = index + 1;
+    level->hwnd = CreateWindowExW( WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, classW, NULL, WS_POPUP,
+                                   x, y, width, height, xp_window, 0, 0, 0 );
+    if (!level->hwnd)
+    {
+        xp_close_levels( index );
+        return;
+    }
+    ShowWindow( level->hwnd, SW_SHOWNOACTIVATE );
+    UpdateWindow( level->hwnd );
+}
+
+static void xp_open_all_programs( const struct xp_item *item )
+{
+    WCHAR dir[MAX_PATH], common[MAX_PATH];
+    RECT rect = item->rect;
+
+    if (xp_level_count) return;
+    if (FAILED(SHGetFolderPathW( NULL, CSIDL_STARTMENU, NULL, SHGFP_TYPE_CURRENT, dir ))) dir[0] = 0;
+    if (FAILED(SHGetFolderPathW( NULL, CSIDL_COMMON_STARTMENU, NULL, SHGFP_TYPE_CURRENT, common ))) common[0] = 0;
+    MapWindowPoints( xp_window, NULL, (POINT *)&rect, 2 );
+    xp_open_level( 0, dir, common, &rect, TRUE );
+}
+
+static void xp_open_child( unsigned int level_index, int node_index )
+{
+    struct xp_level *level = &xp_levels[level_index];
+    struct xp_node *node;
+    RECT rect;
+
+    if (node_index < 0 || node_index >= (int)level->count) return;
+    node = &level->nodes[node_index];
+    if (!node->folder) return;
+    if (level->open == node_index && level_index + 1 < xp_level_count) return;  /* already open */
+    xp_cascade_item_rect( level, node_index, &rect );
+    MapWindowPoints( level->hwnd, NULL, (POINT *)&rect, 2 );
+    xp_open_level( level_index + 1, node->path, node->path2, &rect, FALSE );
+    if (level_index + 1 < xp_level_count) level->open = node_index;
+    InvalidateRect( level->hwnd, NULL, FALSE );
+}
+
+static void xp_schedule_open( int level_index, int node_index )
+{
+    if (xp_pending_node == node_index && xp_pending_level == level_index) return;
+    xp_pending_level = level_index;
+    xp_pending_node = node_index;
+    SetTimer( xp_window, XP_CASCADE_TIMER, XP_CASCADE_DELAY, NULL );
+}
+
+/* find the cascade item under a point in screen coordinates, deepest level first */
+static BOOL xp_cascade_hit( POINT pt, int *level_index, int *node_index )
+{
+    int i;
+
+    for (i = (int)xp_level_count - 1; i >= 0; i--)
+    {
+        struct xp_level *level = &xp_levels[i];
+        POINT client = pt;
+        RECT window, rect;
+        unsigned int j;
+
+        if (!level->hwnd || !GetWindowRect( level->hwnd, &window ) || !PtInRect( &window, pt )) continue;
+        ScreenToClient( level->hwnd, &client );
+        *level_index = i;
+        *node_index = -1;
+        for (j = 0; j < level->count; j++)
+        {
+            xp_cascade_item_rect( level, j, &rect );
+            if (!PtInRect( &rect, client )) continue;
+            *node_index = j;
+            break;
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static void xp_cascade_mouse_move( int level_index, int node_index )
+{
+    struct xp_level *level = &xp_levels[level_index];
+
+    if (level->hot != node_index)
+    {
+        level->hot = node_index;
+        InvalidateRect( level->hwnd, NULL, FALSE );
+    }
+    if (node_index < 0 || level->open == node_index) return;
+    if (level->nodes[node_index].folder) xp_schedule_open( level_index, node_index );
+    else
+    {
+        /* pointing at a program closes the submenus opened from this level */
+        xp_cancel_open();
+        xp_close_levels( level_index + 1 );
+    }
 }
 
 static void xp_activate( int index )
 {
     if (index < 0 || index >= (int)xp_count) return;
-    if (xp_items[index].action == XP_ACTION_ALL_PROGRAMS) xp_show_all_programs( &xp_items[index].rect );
-    else xp_selected = index;
+    if (xp_items[index].action == XP_ACTION_ALL_PROGRAMS)
+    {
+        xp_cancel_open();
+        xp_open_all_programs( &xp_items[index] );
+        return;
+    }
+    xp_selected = index;
     xp_done = TRUE;
 }
 
@@ -1303,8 +1715,9 @@ static void xp_execute( const struct xp_item *item )
 
 static LRESULT CALLBACK xp_menu_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
+    int index, level_index, node_index;
+    POINT pt, screen;
     RECT client;
-    POINT pt;
 
     switch (msg)
     {
@@ -1318,7 +1731,26 @@ static LRESULT CALLBACK xp_menu_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_MOUSEMOVE:
         pt.x = (short)LOWORD( lparam );
         pt.y = (short)HIWORD( lparam );
-        xp_set_hot( xp_hit_test( pt ));
+        screen = pt;
+        ClientToScreen( hwnd, &screen );
+        if (xp_cascade_hit( screen, &level_index, &node_index ))
+        {
+            xp_cascade_mouse_move( level_index, node_index );
+            return 0;
+        }
+        index = xp_hit_test( pt );
+        /* All Programs stays highlighted while its menus are open */
+        if (index >= 0 || !xp_level_count) xp_set_hot( index );
+        if (index < 0) return 0;
+        if (xp_items[index].action == XP_ACTION_ALL_PROGRAMS)
+        {
+            if (!xp_level_count) xp_schedule_open( -1, index );
+        }
+        else
+        {
+            xp_cancel_open();
+            xp_close_levels( 0 );
+        }
         return 0;
 
     case WM_LBUTTONDOWN:
@@ -1326,22 +1758,67 @@ static LRESULT CALLBACK xp_menu_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_MBUTTONDOWN:
         pt.x = (short)LOWORD( lparam );
         pt.y = (short)HIWORD( lparam );
+        screen = pt;
+        ClientToScreen( hwnd, &screen );
+        if (xp_cascade_hit( screen, &level_index, &node_index )) return 0;
         GetClientRect( hwnd, &client );
-        if (!PtInRect( &client, pt )) xp_done = TRUE;  /* clicked outside of the menu */
+        if (!PtInRect( &client, pt )) xp_done = TRUE;  /* clicked outside of the menus */
         return 0;
 
     case WM_LBUTTONUP:
         pt.x = (short)LOWORD( lparam );
         pt.y = (short)HIWORD( lparam );
-        xp_set_hot( xp_hit_test( pt ));
-        xp_activate( xp_hot );
+        screen = pt;
+        ClientToScreen( hwnd, &screen );
+        if (xp_cascade_hit( screen, &level_index, &node_index ))
+        {
+            struct xp_node *node;
+
+            if (node_index < 0) return 0;
+            xp_cascade_mouse_move( level_index, node_index );
+            node = &xp_levels[level_index].nodes[node_index];
+            if (node->folder)
+            {
+                xp_cancel_open();
+                xp_open_child( level_index, node_index );
+            }
+            else
+            {
+                lstrcpynW( xp_run_path, node->path, ARRAY_SIZE(xp_run_path) );
+                xp_done = TRUE;
+            }
+            return 0;
+        }
+        index = xp_hit_test( pt );
+        if (index < 0) return 0;
+        xp_set_hot( index );
+        xp_activate( index );
+        return 0;
+
+    case WM_TIMER:
+        if (wparam != XP_CASCADE_TIMER) break;
+        KillTimer( hwnd, XP_CASCADE_TIMER );
+        index = xp_pending_node;
+        xp_pending_node = -1;
+        if (index < 0) return 0;
+        if (xp_pending_level < 0)
+        {
+            if (index == xp_hot && index < (int)xp_count) xp_open_all_programs( &xp_items[index] );
+        }
+        else if (xp_pending_level < (int)xp_level_count && xp_levels[xp_pending_level].hot == index)
+            xp_open_child( xp_pending_level, index );
         return 0;
 
     case WM_KEYDOWN:
         switch (wparam)
         {
         case VK_ESCAPE:
-            xp_done = TRUE;
+            /* close the submenus one level at a time, then the start menu */
+            if (xp_level_count) xp_close_levels( xp_level_count - 1 );
+            else xp_done = TRUE;
+            break;
+        case VK_LEFT:
+            if (xp_level_count) xp_close_levels( xp_level_count - 1 );
             break;
         case VK_UP:
         case VK_DOWN:
@@ -1413,7 +1890,8 @@ void do_xp_startmenu( HWND tray )
         DeleteObject( top );
         SetWindowRgn( xp_window, rgn, FALSE );
 
-        xp_hot = xp_selected = -1;
+        xp_hot = xp_selected = xp_pending_node = -1;
+        xp_run_path[0] = 0;
         xp_done = xp_in_submenu = FALSE;
         ShowWindow( xp_window, SW_SHOWNORMAL );
         SetForegroundWindow( xp_window );
@@ -1433,12 +1911,15 @@ void do_xp_startmenu( HWND tray )
         }
 
         xp_in_submenu = TRUE;
+        xp_cancel_open();
+        xp_close_levels( 0 );
         if (GetCapture() == xp_window) ReleaseCapture();
         DestroyWindow( xp_window );
         xp_window = 0;
         xp_in_submenu = FALSE;
         /* launch after the menu is gone so that the program can take the foreground */
         if (xp_selected >= 0) xp_execute( &xp_items[xp_selected] );
+        else if (xp_run_path[0]) ShellExecuteW( NULL, NULL, xp_run_path, NULL, NULL, SW_SHOWNORMAL );
     }
 
     xp_free_items();
