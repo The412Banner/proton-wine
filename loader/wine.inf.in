@@ -875,6 +875,7 @@ HKLM,SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86,"Version",2,"14.42.344
 11,,winetest.exe,-
 ; themes
 10,resources\themes\light,light.msstyles
+10,resources\themes\winexp,winexp.msstyles
 ; skip .NET fake dlls in Wine Mono package
 11,,aspnet_regiis.exe,-
 11,,ngen.exe,-
