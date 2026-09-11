@@ -340,6 +340,18 @@ static HICON extract_icon( IShellLinkW *link )
     return icon;
 }
 
+/* icon of the target of a shortcut file, used by the start menu */
+HICON get_shortcut_icon( const WCHAR *path )
+{
+    IShellLinkW *link = load_shelllink( path );
+    HICON icon;
+
+    if (!link) return NULL;
+    icon = extract_icon( link );
+    IShellLinkW_Release( link );
+    return icon;
+}
+
 static WCHAR *build_title( const WCHAR *filename, int len )
 {
     const WCHAR *p;
