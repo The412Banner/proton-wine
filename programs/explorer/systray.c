@@ -2220,9 +2220,12 @@ static void show_display_properties( HWND owner )
         return;
     }
     init_common_controls();
-    DialogBoxParamW( GetModuleHandleW( NULL ), MAKEINTRESOURCEW( IDD_DISPLAY_PROPERTIES ), owner,
+    /* no owner: a dialog owned by the desktop window would disable it, and since a window whose
+     * parent is the desktop doesn't get an owner, EndDialog would never enable it again */
+    DialogBoxParamW( GetModuleHandleW( NULL ), MAKEINTRESOURCEW( IDD_DISPLAY_PROPERTIES ), NULL,
                      display_properties_proc, 0 );
     display_dialog = 0;
+    if (owner && !IsWindowEnabled( owner )) EnableWindow( owner, TRUE );
 }
 
 /* right click on the desktop */
