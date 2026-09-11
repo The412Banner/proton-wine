@@ -385,6 +385,34 @@ static void run_dialog(void)
     FreeLibrary(hShell32);
 }
 
+/* ExitWindows() only ends the programs that have windows, so a background process would
+ * keep the virtual desktop open; end the session, then stop what is left, desktop included.
+ * A program that refuses WM_QUERYENDSESSION still cancels it. */
+static void end_session(void)
+{
+    WCHAR app[MAX_PATH], cmdline[MAX_PATH + 64];
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    void *redir;
+    BOOL ret;
+
+    GetSystemDirectoryW( app, MAX_PATH - ARRAY_SIZE(L"\\wineboot.exe") );
+    lstrcatW( app, L"\\wineboot.exe" );
+    swprintf( cmdline, ARRAY_SIZE(cmdline), L"\"%s\" --end-session --force --kill --shutdown", app );
+
+    Wow64DisableWow64FsRedirection( &redir );
+    ret = CreateProcessW( app, cmdline, NULL, NULL, FALSE, DETACHED_PROCESS, NULL, NULL, &si, &pi );
+    Wow64RevertWow64FsRedirection( redir );
+    if (!ret)
+    {
+        ERR( "failed to run %s\n", debugstr_w(cmdline) );
+        ExitWindows( 0, 0 );
+        return;
+    }
+    CloseHandle( pi.hProcess );
+    CloseHandle( pi.hThread );
+}
+
 static void shut_down(HWND hwnd)
 {
     WCHAR prompt[256];
@@ -393,7 +421,7 @@ static void shut_down(HWND hwnd)
     LoadStringW(NULL, IDS_EXIT_PROMPT, prompt, ARRAY_SIZE(prompt));
     ret = MessageBoxW(hwnd, prompt, L"Wine", MB_YESNO|MB_ICONQUESTION|MB_SYSTEMMODAL);
     if (ret == IDYES)
-        ExitWindows(0, 0);
+        end_session();
 }
 
 LRESULT menu_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
