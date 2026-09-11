@@ -842,6 +842,11 @@ SizingType = Stretch
 SizingMargins = 2, 2, 2, 2
 BorderOnly = True
 Transparent = True
+
+; tab pages keep the dialog colour, which follows the light or dark desktop theme
+; (without a body part, uxtheme would paint the default black border fill as texture)
+[Tab.Body]
+BgType = None
 """ + ''.join(f"""
 [Tab.{part}]
 BgType = ImageFile
