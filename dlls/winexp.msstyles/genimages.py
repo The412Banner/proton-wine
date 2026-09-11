@@ -200,8 +200,8 @@ SCHEMES = {
                 hot_border=hexc('7e9be3'), hot_fill=(hexc('eaf0ff'), hexc('cddbff')),
                 pressed_border=hexc('4f6fd6'), pressed_fill=(hexc('8aa6f0'), hexc('6e8ef1')),
                 glyph=hexc('4d6185'), grip_light=hexc('eef4fe'), grip_dark=hexc('8cb0f8')),
-        edit_border=(127, 157, 185), group_text=(0, 70, 213), tab_border=hexc('919b9c'),
-        thumb_border=hexc('6a80b4'),
+        edit_border=(127, 157, 185), group_text=(0, 70, 213), group_text_dark=(140, 180, 255),
+        tab_border=hexc('919b9c'), thumb_border=hexc('6a80b4'), tb_border=hexc('bfbcae'),
     ),
     'olive': dict(
         btn_border=hexc('3d5a1d'), btn_default=(hexc('d3e6a4'), hexc('8ea94b')),
@@ -210,8 +210,8 @@ SCHEMES = {
                 hot_border=hexc('9db372'), hot_fill=(hexc('f6f9ec'), hexc('e3eacd')),
                 pressed_border=hexc('7b8f4c'), pressed_fill=(hexc('bccb92'), hexc('a6b976')),
                 glyph=hexc('657746'), grip_light=hexc('fbfcf5'), grip_dark=hexc('a6b978')),
-        edit_border=(164, 185, 127), group_text=(76, 99, 34), tab_border=hexc('a2a88a'),
-        thumb_border=hexc('7d8c58'),
+        edit_border=(164, 185, 127), group_text=(76, 99, 34), group_text_dark=(190, 212, 140),
+        tab_border=hexc('a2a88a'), thumb_border=hexc('7d8c58'), tb_border=hexc('bcc0a4'),
     ),
     'silver': dict(
         btn_border=hexc('707086'), btn_default=(hexc('d7dbf2'), hexc('9ea3d3')),
@@ -220,8 +220,8 @@ SCHEMES = {
                 hot_border=hexc('9c9cb4'), hot_fill=(hexc('ffffff'), hexc('e9e9f1')),
                 pressed_border=hexc('83839d'), pressed_fill=(hexc('c9c9da'), hexc('b3b3c8')),
                 glyph=hexc('55556d'), grip_light=hexc('ffffff'), grip_dark=hexc('a9a9bd')),
-        edit_border=(165, 172, 181), group_text=(60, 60, 96), tab_border=hexc('a5a5b8'),
-        thumb_border=hexc('7b7b94'),
+        edit_border=(165, 172, 181), group_text=(60, 60, 96), group_text_dark=(208, 208, 230),
+        tab_border=hexc('a5a5b8'), thumb_border=hexc('7b7b94'), tb_border=hexc('b2b2c2'),
     ),
 }
 
@@ -507,6 +507,68 @@ def spin_glyph(s, direction, state):
     return chevron(s, 7, direction, state, 1.5)
 
 
+# toolbar buttons: translucent faces, so that they fit light and dark windows alike
+# normal, hot, pressed, disabled, checked, hot checked, near hot, other side hot
+
+TOOLBAR_STATES = ['normal', 'hot', 'pressed', 'disabled', 'checked', 'hotchecked', 'nearhot', 'hot']
+TOOLBAR_GLYPH = (120, 120, 120)
+
+
+def toolbar_button(s, state):
+    w = h = 16
+    c = Canvas(w, h)
+    if state in ('normal', 'disabled'):
+        return c
+    face, alpha = {'pressed': ((0, 0, 0), 0.14), 'checked': ((255, 255, 255), 0.4),
+                   'hotchecked': ((255, 255, 255), 0.5)}.get(state, ((255, 255, 255), 0.3))
+    c.draw(rrect(1, 1, w - 1, h - 1, 2), solid(face), alpha)
+    c.draw(ring(0, 0, w, h, 3, 1), solid(s['tb_border']), 0.5 if state == 'nearhot' else 0.9)
+    return c
+
+
+def toolbar_separator():
+    c = Canvas(8, 16)
+    c.draw(rect(3, 2, 4, 14), solid(hexc('aca899')), 0.8)
+    c.draw(rect(4, 2, 5, 14), solid((255, 255, 255)), 0.6)
+    return c
+
+
+def small_arrow(direction='down'):
+    c = Canvas(7, 7)
+    pts = {'down': [(1, 2.5), (6, 2.5), (3.5, 5)], 'right': [(2.5, 1), (2.5, 6), (5, 3.5)]}[direction]
+    c.draw(polygon(pts), solid(TOOLBAR_GLYPH))
+    return c
+
+
+def double_chevron(vertical):
+    c = Canvas(9, 9)
+    for dx in (0, 3.5):
+        c.draw(polyline([(1.5 + dx, 2), (3.5 + dx, 4.5), (1.5 + dx, 7)], 1.3), solid(TOOLBAR_GLYPH))
+    return c.transpose() if vertical else c
+
+
+def status_pane():
+    c = Canvas(8, 8)
+    c.draw(rect(6, 0, 7, 8), solid(hexc('aca899')), 0.8)
+    c.draw(rect(7, 0, 8, 8), solid((255, 255, 255)), 0.6)
+    return c
+
+
+def status_gripper():
+    c = Canvas(12, 12)
+    for x, y in ((9, 9), (9, 5), (5, 9), (9, 1), (5, 5), (1, 9)):
+        c.draw(rect(x, y, x + 2, y + 2), solid(hexc('b8b6a8')))
+        c.draw(rect(x, y, x + 1, y + 1), solid((255, 255, 255)))
+    return c
+
+
+def rebar_gripper():
+    c = Canvas(4, 4)
+    c.draw(rect(1, 1, 2, 2), solid(hexc('a9a596')), 0.9)
+    c.draw(rect(0, 0, 1, 1), solid((255, 255, 255)), 0.8)
+    return c
+
+
 PUSH_STATES = ['normal', 'hot', 'pressed', 'disabled', 'default', 'default']
 BOX_STATES = ['normal', 'hot', 'pressed', 'disabled']
 GEL_STATES = ['normal', 'hot', 'pressed', 'disabled']
@@ -567,6 +629,8 @@ def make_images(name, s):
     save(f'{name}_trackbar_thumb_left.bmp', [f.transpose().flip_h() for f in bottom])
 
     save(f'{name}_tree_glyph.bmp', [tree_glyph(s, o) for o in (False, True, False, True)])
+    save(f'{name}_toolbar_button.bmp', [toolbar_button(s, st) for st in TOOLBAR_STATES])
+    save(f'{name}_rebar_chevron.bmp', [toolbar_button(s, st) for st in ('normal', 'hot', 'pressed')])
     return images
 
 
@@ -586,6 +650,15 @@ def make_shared_images():
     save('trackbar_track.bmp', [trackbar_track(False)])
     save('trackbar_track_vert.bmp', [trackbar_track(True)])
     save('header_item.bmp', [header_item(st) for st in ('normal', 'hot', 'pressed')])
+    save('toolbar_separator.bmp', [toolbar_separator()])
+    save('toolbar_separator_vert.bmp', [toolbar_separator().transpose()])
+    save('toolbar_blank.bmp', [Canvas(16, 16)] * len(TOOLBAR_STATES))
+    save('toolbar_dropdown_glyph.bmp', [small_arrow('down')] * len(TOOLBAR_STATES))
+    save('rebar_chevron_glyph.bmp', [double_chevron(False)] * 3)
+    save('rebar_chevron_vert_glyph.bmp', [double_chevron(True)] * 3)
+    save('rebar_gripper.bmp', [rebar_gripper()])
+    save('status_pane.bmp', [status_pane()])
+    save('status_gripper.bmp', [status_gripper()])
     return images
 
 
@@ -593,7 +666,7 @@ def rgb(c):
     return f'{c[0]} {c[1]} {c[2]}'
 
 
-def ini(name, s):
+def ini(name, s, dark=False):
     dpi_files = lambda part, sizes: ''.join(
         f'ImageFile{i + 1} = {name}_{part}_{size}px.bmp\nMinDpi{i + 1} = {dpi}\n' for i, (size, dpi) in enumerate(sizes))
     return f"""[Globals]
@@ -659,7 +732,7 @@ SizingType = Stretch
 SizingMargins = 4, 4, 4, 4
 BorderOnly = True
 Transparent = True
-TextColor = {rgb(s['group_text'])}
+TextColor = {rgb(s['group_text_dark'] if dark else s['group_text'])}
 
 [ScrollBar.ArrowBtn]
 BgType = ImageFile
@@ -857,6 +930,7 @@ SizingType = Stretch
 SizingMargins = 5, 5, 5, 2
 ContentMargins = 3, 3, 3, 2
 Transparent = True
+TextColor = 0 0 0
 """ for part in ('TabItem', 'TabItemLeftEdge', 'TabItemRightEdge', 'TabItemBothEdge',
                  'TopTabItem', 'TopTabItemLeftEdge', 'TopTabItemRightEdge', 'TopTabItemBothEdge')) + f"""
 [Progress.Bar]
@@ -930,6 +1004,7 @@ ImageLayout = Vertical
 SizingType = Stretch
 SizingMargins = 1, 3, 1, 4
 ContentMargins = 4, 4, 2, 3
+TextColor = 0 0 0
 
 [TreeView.Glyph]
 BgType = ImageFile
@@ -938,6 +1013,104 @@ ImageCount = 4
 ImageLayout = Vertical
 SizingType = TrueSize
 Transparent = True
+
+; toolbars, status bars and rebars keep the window colour behind them
+""" + ''.join(f"""
+[ToolBar.{part}]
+BgType = ImageFile
+ImageFile = {name}_toolbar_button.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 4, 4, 4, 4
+Transparent = True
+""" for part in ('Button', 'DropDownButton', 'SplitButton')) + f"""
+[ToolBar.SplitButtonDropDown]
+BgType = ImageFile
+ImageFile = toolbar_blank.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = toolbar_dropdown_glyph.bmp
+GlyphTransparent = True
+
+[ToolBar.Separator]
+BgType = ImageFile
+ImageFile = toolbar_separator.bmp
+SizingType = Stretch
+SizingMargins = 3, 3, 3, 3
+Transparent = True
+
+[ToolBar.SeparatorVert]
+BgType = ImageFile
+ImageFile = toolbar_separator_vert.bmp
+SizingType = Stretch
+SizingMargins = 3, 3, 3, 3
+Transparent = True
+
+[Status]
+BgType = None
+
+[Status.Pane]
+BgType = ImageFile
+ImageFile = status_pane.bmp
+SizingType = Stretch
+SizingMargins = 0, 2, 1, 1
+Transparent = True
+
+[Status.GripperPane]
+BgType = ImageFile
+ImageFile = status_pane.bmp
+SizingType = Stretch
+SizingMargins = 0, 2, 1, 1
+Transparent = True
+
+[Status.Gripper]
+BgType = ImageFile
+ImageFile = status_gripper.bmp
+SizingType = TrueSize
+Transparent = True
+
+[Rebar]
+BgType = None
+
+[Rebar.Gripper]
+BgType = ImageFile
+ImageFile = rebar_gripper.bmp
+SizingType = Tile
+Transparent = True
+
+[Rebar.GripperVert]
+BgType = ImageFile
+ImageFile = rebar_gripper.bmp
+SizingType = Tile
+Transparent = True
+
+[Rebar.Chevron]
+BgType = ImageFile
+ImageFile = {name}_rebar_chevron.bmp
+ImageCount = 3
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 4, 4, 4, 4
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = rebar_chevron_glyph.bmp
+GlyphTransparent = True
+
+[Rebar.ChevronVert]
+BgType = ImageFile
+ImageFile = {name}_rebar_chevron.bmp
+ImageCount = 3
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 4, 4, 4, 4
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = rebar_chevron_vert_glyph.bmp
+GlyphTransparent = True
 """
 
 
@@ -974,12 +1147,18 @@ LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 
 STRINGTABLE
 {
-    IDS_COLOR_DISPLAY_NAME_BLUE   "Default (blue)"
-    IDS_COLOR_DISPLAY_NAME_OLIVE  "Olive Green"
-    IDS_COLOR_DISPLAY_NAME_SILVER "Silver"
-    IDS_COLOR_TOOLTIP_BLUE        "Default (blue)"
-    IDS_COLOR_TOOLTIP_OLIVE       "Olive Green"
-    IDS_COLOR_TOOLTIP_SILVER      "Silver"
+    IDS_COLOR_DISPLAY_NAME_BLUE        "Default (blue)"
+    IDS_COLOR_DISPLAY_NAME_OLIVE       "Olive Green"
+    IDS_COLOR_DISPLAY_NAME_SILVER      "Silver"
+    IDS_COLOR_DISPLAY_NAME_BLUE_DARK   "Default (blue), dark windows"
+    IDS_COLOR_DISPLAY_NAME_OLIVE_DARK  "Olive Green, dark windows"
+    IDS_COLOR_DISPLAY_NAME_SILVER_DARK "Silver, dark windows"
+    IDS_COLOR_TOOLTIP_BLUE             "Default (blue)"
+    IDS_COLOR_TOOLTIP_OLIVE            "Olive Green"
+    IDS_COLOR_TOOLTIP_SILVER           "Silver"
+    IDS_COLOR_TOOLTIP_BLUE_DARK        "Default (blue) for a dark color scheme"
+    IDS_COLOR_TOOLTIP_OLIVE_DARK       "Olive Green for a dark color scheme"
+    IDS_COLOR_TOOLTIP_SILVER_DARK      "Silver for a dark color scheme"
     IDS_SIZE_DISPLAY_NAME_NORMAL  "Normal"
     IDS_SIZE_TOOLTIP_NORMAL       "Normal"
 }
@@ -993,6 +1172,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 "Blue\\0"
 "Olive\\0"
 "Silver\\0"
+"BlueDark\\0"
+"OliveDark\\0"
+"SilverDark\\0"
 "\\0"
 }
 
@@ -1007,6 +1189,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 "BLUE_INI\\0"
 "OLIVE_INI\\0"
 "SILVER_INI\\0"
+"BLUEDARK_INI\\0"
+"OLIVEDARK_INI\\0"
+"SILVERDARK_INI\\0"
 "\\0"
 }
 
@@ -1032,7 +1217,11 @@ def main():
     out = [HEADER]
     for name in ('blue', 'olive', 'silver'):
         images += make_images(name, SCHEMES[name])
-        out.append(f'\n{name.upper()}_INI TEXTFILE\n{{\n{rc_text(ini(name, SCHEMES[name]))}\n}}\n')
+    # the dark variants share the bitmaps, only a few text colours change
+    for dark in (False, True):
+        for name in ('blue', 'olive', 'silver'):
+            res = name.upper() + ('DARK' if dark else '') + '_INI'
+            out.append(f'\n{res} TEXTFILE\n{{\n{rc_text(ini(name, SCHEMES[name], dark))}\n}}\n')
     out.append('\n/* images */\n')
     for file in images:
         out.append(f'/* @makedep: {file} */\n{file.replace(".", "_").upper()} BITMAP "{file}"\n\n')
