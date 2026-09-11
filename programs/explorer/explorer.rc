@@ -35,6 +35,12 @@ STRINGTABLE
     IDS_EXIT_LABEL      "E&xit desktop"
     IDS_EXIT_PROMPT     "Are you sure you want to close all programs and exit the virtual desktop?"
     IDS_DESKTOP_TITLE   "Wine Desktop"
+    IDS_TASKBAR_LOCK    "&Lock the Taskbar"
+    IDS_TASKBAR_SIZE    "Taskbar &Size"
+    IDS_TASKBAR_ROWS1   "&Single Row"
+    IDS_TASKBAR_ROWS2   "&Double Row"
+    IDS_TASKBAR_ROWS3   "&Triple Row"
+    IDS_TASK_MANAGER    "Tas&k Manager"
 }
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
