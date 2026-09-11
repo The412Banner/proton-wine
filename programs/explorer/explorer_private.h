@@ -26,6 +26,9 @@ extern void initialize_systray( BOOL using_root, BOOL enable_shell, BOOL show_sy
 extern void initialize_appbar(void);
 extern void handle_parent_notify( HWND hwnd, WPARAM wp );
 extern void do_startmenu( HWND owner );
+extern void do_xp_startmenu( HWND tray );
+extern UINT get_taskbar_scheme(void);
+extern void show_desktop_menu( HWND hwnd, LPARAM lparam );
 extern LRESULT menu_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 #endif  /* __WINE_EXPLORER_PRIVATE_H */
