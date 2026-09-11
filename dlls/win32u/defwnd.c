@@ -1474,8 +1474,318 @@ BOOL draw_frame_menu( HDC dc, RECT *r, UINT flags )
     return retval;
 }
 
+/*
+ * Luna ("Windows XP") window frames, enabled by the explorer Display Properties with
+ * HKCU\Software\Wine\Explorer\Taskbar: Frames=1 (and Style not "classic"), or WINE_XP_FRAMES=1.
+ * Only the painting changes: the frame and caption sizes are the usual system metrics.
+ */
+
+struct xp_stop
+{
+    BYTE     pos;    /* in percent of the height */
+    COLORREF color;
+};
+
+struct xp_frame_colors
+{
+    const struct xp_stop *caption;
+    unsigned int          caption_count;
+    COLORREF              outer[3];   /* top and left lines of the frame, from the outside */
+    COLORREF              shade[3];   /* bottom and right lines of the frame */
+    COLORREF              fill;       /* rest of the frame */
+    COLORREF              text, text_shadow;
+    COLORREF              button_top, button_bottom, button_border, glyph;
+};
+
+static const struct xp_stop xp_blue_caption[] =
+{
+    {   0, RGB(0x09,0x97,0xff) }, {   8, RGB(0x00,0x53,0xee) }, {  40, RGB(0x00,0x50,0xee) },
+    {  88, RGB(0x00,0x66,0xff) }, {  93, RGB(0x00,0x66,0xff) }, {  95, RGB(0x00,0x5b,0xff) },
+    {  96, RGB(0x00,0x3d,0xd7) }, { 100, RGB(0x00,0x3d,0xd7) },
+};
+static const struct xp_stop xp_blue_caption_inactive[] =
+{
+    {   0, RGB(0x76,0x97,0xe7) }, {   6, RGB(0x94,0xaf,0xe8) }, {  14, RGB(0x82,0xa5,0xe4) },
+    {  25, RGB(0x79,0x96,0xde) }, {  56, RGB(0x7b,0x99,0xe1) }, {  81, RGB(0x82,0xa9,0xe9) },
+    {  94, RGB(0x7b,0x96,0xe1) }, { 100, RGB(0xab,0xba,0xe3) },
+};
+static const struct xp_stop xp_olive_caption[] =
+{
+    {   0, RGB(0xc4,0xd4,0xa0) }, {   8, RGB(0x96,0xab,0x6b) }, {  40, RGB(0x8f,0xa4,0x64) },
+    {  88, RGB(0xa1,0xb5,0x76) }, {  95, RGB(0x8f,0xa3,0x67) }, {  96, RGB(0x6d,0x80,0x48) },
+    { 100, RGB(0x6d,0x80,0x48) },
+};
+static const struct xp_stop xp_olive_caption_inactive[] =
+{
+    {   0, RGB(0xdd,0xe6,0xc7) }, {   8, RGB(0xc9,0xd6,0xab) }, {  50, RGB(0xc3,0xd0,0xa3) },
+    {  95, RGB(0xc9,0xd5,0xab) }, { 100, RGB(0xb3,0xc1,0x90) },
+};
+static const struct xp_stop xp_silver_caption[] =
+{
+    {   0, RGB(0xfd,0xfd,0xfe) }, {   8, RGB(0xe6,0xe6,0xee) }, {  40, RGB(0xdc,0xdc,0xe6) },
+    {  88, RGB(0xe8,0xe8,0xf0) }, {  95, RGB(0xd4,0xd4,0xe0) }, {  96, RGB(0xa9,0xa9,0xbd) },
+    { 100, RGB(0xa9,0xa9,0xbd) },
+};
+static const struct xp_stop xp_silver_caption_inactive[] =
+{
+    {   0, RGB(0xf7,0xf7,0xfa) }, {  50, RGB(0xee,0xee,0xf3) }, { 100, RGB(0xdc,0xdc,0xe5) },
+};
+
+/* active and inactive colors for the blue, olive green and silver schemes */
+static const struct xp_frame_colors xp_frame_schemes[3][2] =
+{
+    {
+        { xp_blue_caption, ARRAY_SIZE(xp_blue_caption),
+          { RGB(0x08,0x31,0xd9), RGB(0x16,0x6a,0xee), RGB(0x08,0x55,0xdd) },
+          { RGB(0x00,0x13,0x8c), RGB(0x00,0x1e,0xa0), RGB(0x00,0x3b,0xda) }, RGB(0x08,0x55,0xdd),
+          RGB(0xff,0xff,0xff), RGB(0x0a,0x18,0x80),
+          RGB(0x5a,0x92,0xf8), RGB(0x22,0x5c,0xe8), RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff) },
+        { xp_blue_caption_inactive, ARRAY_SIZE(xp_blue_caption_inactive),
+          { RGB(0x6f,0x8a,0xd8), RGB(0x9b,0xb2,0xee), RGB(0x8a,0xa4,0xe8) },
+          { RGB(0x57,0x6e,0xc0), RGB(0x6a,0x83,0xd0), RGB(0x80,0x9c,0xe4) }, RGB(0x8a,0xa4,0xe8),
+          RGB(0xd8,0xe4,0xf8), CLR_INVALID,
+          RGB(0x9d,0xb4,0xee), RGB(0x7d,0x99,0xe0), RGB(0xe6,0xec,0xfa), RGB(0xe6,0xec,0xfa) },
+    },
+    {
+        { xp_olive_caption, ARRAY_SIZE(xp_olive_caption),
+          { RGB(0x6d,0x80,0x48), RGB(0xb3,0xc5,0x92), RGB(0x94,0xa8,0x6a) },
+          { RGB(0x4e,0x5d,0x31), RGB(0x5d,0x6e,0x3c), RGB(0x7f,0x92,0x58) }, RGB(0x94,0xa8,0x6a),
+          RGB(0xff,0xff,0xff), RGB(0x3b,0x4a,0x1c),
+          RGB(0xa9,0xbe,0x80), RGB(0x7b,0x91,0x4f), RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff) },
+        { xp_olive_caption_inactive, ARRAY_SIZE(xp_olive_caption_inactive),
+          { RGB(0xae,0xbb,0x8e), RGB(0xdf,0xe7,0xc9), RGB(0xc7,0xd3,0xa8) },
+          { RGB(0x98,0xa6,0x7a), RGB(0xa8,0xb6,0x89), RGB(0xba,0xc7,0x9c) }, RGB(0xc7,0xd3,0xa8),
+          RGB(0xf4,0xf7,0xea), CLR_INVALID,
+          RGB(0xd4,0xde,0xbc), RGB(0xb6,0xc4,0x98), RGB(0xf4,0xf7,0xea), RGB(0xf4,0xf7,0xea) },
+    },
+    {
+        { xp_silver_caption, ARRAY_SIZE(xp_silver_caption),
+          { RGB(0xa8,0xa8,0xbc), RGB(0xff,0xff,0xff), RGB(0xdc,0xdc,0xe6) },
+          { RGB(0x7a,0x7a,0x92), RGB(0x8e,0x8e,0xa6), RGB(0xc2,0xc2,0xd2) }, RGB(0xdc,0xdc,0xe6),
+          RGB(0x1c,0x1c,0x3c), RGB(0xff,0xff,0xff),
+          RGB(0xff,0xff,0xff), RGB(0xd6,0xd6,0xe2), RGB(0x9a,0x9a,0xb0), RGB(0x3c,0x3c,0x5a) },
+        { xp_silver_caption_inactive, ARRAY_SIZE(xp_silver_caption_inactive),
+          { RGB(0xc8,0xc8,0xd6), RGB(0xff,0xff,0xff), RGB(0xec,0xec,0xf2) },
+          { RGB(0xa8,0xa8,0xbc), RGB(0xb8,0xb8,0xca), RGB(0xda,0xda,0xe4) }, RGB(0xec,0xec,0xf2),
+          RGB(0x8a,0x8a,0xa0), CLR_INVALID,
+          RGB(0xfa,0xfa,0xfc), RGB(0xe6,0xe6,0xee), RGB(0xc0,0xc0,0xd0), RGB(0x9a,0x9a,0xb0) },
+    },
+};
+
+static UINT xp_frame_scheme = ~0u;  /* ~0u: plain Wine frames */
+
+/* the settings are read again at most once a second, so a change reaches every process */
+static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+{
+    static DWORD last_check;
+    DWORD now = NtGetTickCount();
+
+    if (!last_check || now - last_check > 1000)
+    {
+        static const WCHAR classicW[] = {'c','l','a','s','s','i','c',0};
+        char buffer[offsetof( KEY_VALUE_PARTIAL_INFORMATION, Data[64] )];
+        KEY_VALUE_PARTIAL_INFORMATION *info = (void *)buffer;
+        const char *env = getenv( "WINE_XP_FRAMES" );
+        UINT scheme = ~0u, frames = 0;
+        HKEY hkey;
+
+        if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Taskbar" )))
+        {
+            if (query_reg_ascii_value( hkey, "Frames", info, sizeof(buffer) ) == sizeof(DWORD) &&
+                info->Type == REG_DWORD)
+                frames = *(DWORD *)info->Data;
+            if (frames && query_reg_ascii_value( hkey, "Style", info, sizeof(buffer) ) &&
+                info->Type == REG_SZ && !wcsicmp( (const WCHAR *)info->Data, classicW ))
+                frames = 0;
+            if (query_reg_ascii_value( hkey, "Scheme", info, sizeof(buffer) ) == sizeof(DWORD) &&
+                info->Type == REG_DWORD && *(DWORD *)info->Data < ARRAY_SIZE(xp_frame_schemes))
+                scheme = *(DWORD *)info->Data;
+            NtClose( hkey );
+        }
+        if (env) frames = atoi( env );
+        xp_frame_scheme = !frames ? ~0u : scheme == ~0u ? 0 : scheme;
+        last_check = now ? now : 1;
+    }
+    if (xp_frame_scheme >= ARRAY_SIZE(xp_frame_schemes)) return NULL;
+    return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
+}
+
+/* windows with a caption get the XP frame, but not regular child windows */
+static BOOL has_xp_frame( DWORD style, DWORD ex_style )
+{
+    if ((style & WS_CAPTION) != WS_CAPTION) return FALSE;
+    return !(style & WS_CHILD) || (ex_style & WS_EX_MDICHILD);
+}
+
+static const struct xp_frame_colors *get_xp_window_colors( HWND hwnd, DWORD style, DWORD ex_style )
+{
+    if (!has_xp_frame( style, ex_style )) return NULL;
+    return get_xp_frame_colors( (win_get_flags( hwnd ) & WIN_NCACTIVATED) != 0 );
+}
+
+static void xp_fill( HDC hdc, int x, int y, int width, int height, COLORREF color )
+{
+    HBRUSH brush, prev;
+
+    if (width <= 0 || height <= 0) return;
+    brush = NtGdiCreateSolidBrush( color, 0 );
+    prev = NtGdiSelectBrush( hdc, brush );
+    NtGdiPatBlt( hdc, x, y, width, height, PATCOPY );
+    NtGdiSelectBrush( hdc, prev );
+    NtGdiDeleteObjectApp( brush );
+}
+
+static void xp_vertical_gradient( HDC hdc, const RECT *rect, const struct xp_stop *stops, unsigned int count )
+{
+    int height = rect->bottom - rect->top;
+    GRADIENT_RECT mesh = { 0, 1 };
+    TRIVERTEX vert[2];
+    unsigned int i;
+
+    for (i = 1; i < count; i++)
+    {
+        int top = rect->top + height * stops[i - 1].pos / 100, bottom = rect->top + height * stops[i].pos / 100;
+
+        if (bottom <= top) continue;
+        vert[0].x = rect->left;
+        vert[0].y = top;
+        vert[0].Red = GetRValue( stops[i - 1].color ) << 8;
+        vert[0].Green = GetGValue( stops[i - 1].color ) << 8;
+        vert[0].Blue = GetBValue( stops[i - 1].color ) << 8;
+        vert[0].Alpha = 0xff00;
+        vert[1].x = rect->right;
+        vert[1].y = bottom;
+        vert[1].Red = GetRValue( stops[i].color ) << 8;
+        vert[1].Green = GetGValue( stops[i].color ) << 8;
+        vert[1].Blue = GetBValue( stops[i].color ) << 8;
+        vert[1].Alpha = 0xff00;
+        NtGdiGradientFill( hdc, vert, 2, &mesh, 1, GRADIENT_FILL_RECT_V );
+    }
+}
+
+/* paint the frame between the window rectangle and the inside rectangle */
+static void xp_draw_frame( HDC hdc, const RECT *outer, const RECT *inner, const struct xp_frame_colors *colors )
+{
+    int left = inner->left - outer->left, top = inner->top - outer->top;
+    int right = outer->right - inner->right, bottom = outer->bottom - inner->bottom;
+    int i, depth = max( max( left, right ), max( top, bottom ));
+
+    for (i = 0; i < depth; i++)
+    {
+        COLORREF light = i < 3 ? colors->outer[i] : colors->fill, dark = i < 3 ? colors->shade[i] : colors->fill;
+        int x = outer->left + i, y = outer->top + i, width = outer->right - outer->left - 2 * i;
+        int height = outer->bottom - outer->top - 2 * i;
+
+        if (i < top) xp_fill( hdc, x, y, width, 1, light );
+        if (i < left) xp_fill( hdc, x, y, 1, height, light );
+        if (i < bottom) xp_fill( hdc, x, y + height - 1, width, 1, dark );
+        if (i < right) xp_fill( hdc, x + width - 1, y, 1, height, dark );
+    }
+}
+
+static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, COLORREF color )
+{
+    HPEN pen = NtGdiCreatePen( PS_SOLID, width, color, NULL ), prev = NtGdiSelectPen( hdc, pen );
+
+    NtGdiMoveTo( hdc, x1, y1, NULL );
+    NtGdiLineTo( hdc, x2, y2 );
+    NtGdiSelectPen( hdc, prev );
+    NtGdiDeleteObjectApp( pen );
+}
+
+/* draw a rounded caption button with its glyph, flags are the DFCS_CAPTION* values */
+static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,
+                                    const struct xp_frame_colors *colors )
+{
+    int size = min( rect->right - rect->left, rect->bottom - rect->top ), x, y, t, radius;
+    BOOL down = (flags & DFCS_PUSHED) != 0, grayed = (flags & DFCS_INACTIVE) != 0;
+    UINT type = flags & 0xff;
+    COLORREF top, bottom, glyph;
+    HBRUSH brush;
+    HRGN rgn;
+    RECT box;
+
+    if (size <= 4) return;
+    /* square buttons on the right side of the classic button rectangle */
+    box.right = rect->right;
+    box.left = box.right - size;
+    box.top = rect->top + (rect->bottom - rect->top - size) / 2;
+    box.bottom = box.top + size;
+
+    if (type == DFCS_CAPTIONCLOSE)
+    {
+        /* the close button is red, paler in inactive windows (odd entries of the table) */
+        BOOL active = !((colors - &xp_frame_schemes[0][0]) & 1);
+
+        top = active ? RGB(0xe8,0x7a,0x5c) : RGB(0xe9,0xb2,0xa2);
+        bottom = active ? RGB(0xc6,0x3a,0x18) : RGB(0xd0,0x8a,0x73);
+        glyph = RGB(0xff,0xff,0xff);
+    }
+    else
+    {
+        top = colors->button_top;
+        bottom = colors->button_bottom;
+        glyph = colors->glyph;
+    }
+    if (down)
+    {
+        COLORREF swap = top;
+        top = bottom;
+        bottom = swap;
+    }
+    if (grayed) glyph = RGB( (GetRValue( glyph ) + GetRValue( bottom )) / 2, (GetGValue( glyph ) + GetGValue( bottom )) / 2,
+                             (GetBValue( glyph ) + GetBValue( bottom )) / 2 );
+
+    radius = max( 3, size / 5 );
+    rgn = NtGdiCreateRoundRectRgn( box.left, box.top, box.right + 1, box.bottom + 1, radius, radius );
+    NtGdiExtSelectClipRgn( hdc, rgn, RGN_AND );
+    {
+        const struct xp_stop stops[] = { { 0, top }, { 100, bottom } };
+        xp_vertical_gradient( hdc, &box, stops, ARRAY_SIZE(stops) );
+    }
+    NtGdiExtSelectClipRgn( hdc, 0, RGN_COPY );
+    brush = NtGdiCreateSolidBrush( colors->button_border, 0 );
+    NtGdiFrameRgn( hdc, rgn, brush, 1, 1 );
+    NtGdiDeleteObjectApp( brush );
+    NtGdiDeleteObjectApp( rgn );
+
+    /* glyphs */
+    t = max( 2, size / 8 );
+    x = box.left + (down ? 1 : 0);
+    y = box.top + (down ? 1 : 0);
+    switch (type)
+    {
+    case DFCS_CAPTIONCLOSE:
+        xp_draw_line( hdc, x + size * 3 / 10, y + size * 3 / 10, x + size * 7 / 10, y + size * 7 / 10, t, glyph );
+        xp_draw_line( hdc, x + size * 7 / 10, y + size * 3 / 10, x + size * 3 / 10, y + size * 7 / 10, t, glyph );
+        break;
+    case DFCS_CAPTIONMIN:
+        xp_fill( hdc, x + size * 3 / 10, y + size * 13 / 20, size * 2 / 5, t, glyph );
+        break;
+    case DFCS_CAPTIONMAX:
+        xp_fill( hdc, x + size / 4, y + size / 4, size / 2, t, glyph );
+        xp_fill( hdc, x + size / 4, y + size / 4, 1, size / 2, glyph );
+        xp_fill( hdc, x + size * 3 / 4 - 1, y + size / 4, 1, size / 2, glyph );
+        xp_fill( hdc, x + size / 4, y + size * 3 / 4 - 1, size / 2, 1, glyph );
+        break;
+    case DFCS_CAPTIONRESTORE:
+    {
+        int s = size * 2 / 5, bx = x + size * 3 / 8, by = y + size / 5, fx = x + size / 5, fy = y + size * 2 / 5;
+
+        xp_fill( hdc, bx, by, s, t, glyph );
+        xp_fill( hdc, bx + s - 1, by, 1, s, glyph );
+        xp_fill( hdc, fx, fy, s, t, glyph );
+        xp_fill( hdc, fx, fy, 1, s, glyph );
+        xp_fill( hdc, fx + s - 1, fy, 1, s, glyph );
+        xp_fill( hdc, fx, fy + s - 1, s, 1, glyph );
+        break;
+    }
+    }
+}
+
 static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
 {
+    const struct xp_frame_colors *colors;
     RECT rect;
     DWORD style = get_window_long( hwnd, GWL_STYLE );
     DWORD ex_style = get_window_long( hwnd, GWL_EXSTYLE );
@@ -1507,11 +1817,15 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
 
     if (down) flags |= DFCS_PUSHED;
     if (grayed) flags |= DFCS_INACTIVE;
-    draw_frame_caption( hdc, &rect, flags );
+    if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
+        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors );
+    else
+        draw_frame_caption( hdc, &rect, flags );
 }
 
 static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
 {
+    const struct xp_frame_colors *colors;
     RECT rect;
     UINT flags;
     DWORD style = get_window_long( hwnd, GWL_STYLE );
@@ -1530,11 +1844,15 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
     rect.right -= 2;
     if (down) flags |= DFCS_PUSHED;
     if (grayed) flags |= DFCS_INACTIVE;
-    draw_frame_caption( hdc, &rect, flags );
+    if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
+        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors );
+    else
+        draw_frame_caption( hdc, &rect, flags );
 }
 
 static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
 {
+    const struct xp_frame_colors *colors;
     RECT rect;
     UINT flags;
     DWORD style = get_window_long( hwnd, GWL_STYLE );
@@ -1556,7 +1874,10 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
     rect.right -= 2;
     if (down) flags |= DFCS_PUSHED;
     if (grayed) flags |= DFCS_INACTIVE;
-    draw_frame_caption( hdc, &rect, flags );
+    if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
+        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors );
+    else
+        draw_frame_caption( hdc, &rect, flags );
 }
 
 static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
@@ -1568,8 +1889,16 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
     HMENU sys_menu;
     BOOL gradient = FALSE;
     UINT pen_color = COLOR_3DFACE;
+    const struct xp_frame_colors *xp = has_xp_frame( style, ex_style ) ? get_xp_frame_colors( active ) : NULL;
     int len;
 
+    if (xp)
+    {
+        /* the XP caption covers the whole caption area, bottom line included */
+        xp_vertical_gradient( hdc, &r, xp->caption, xp->caption_count );
+    }
+    else
+    {
     if ((ex_style & (WS_EX_STATICEDGE|WS_EX_CLIENTEDGE|WS_EX_DLGMODALFRAME)) == WS_EX_STATICEDGE)
         pen_color = COLOR_WINDOWFRAME;
     prev_pen = NtGdiSelectPen( hdc, get_sys_color_pen( pen_color ));
@@ -1580,6 +1909,7 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
 
     NtUserSystemParametersInfo( SPI_GETGRADIENTCAPTIONS, 0, &gradient, 0 );
     draw_caption_bar( hdc, &r, style, active, gradient );
+    }
 
     if ((style & WS_SYSMENU) && !(ex_style & WS_EX_TOOLWINDOW))
     {
@@ -1611,7 +1941,32 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
     }
 
     len = get_window_text( hwnd, buffer, ARRAY_SIZE( buffer ));
-    if (len)
+    if (len && xp)
+    {
+        NONCLIENTMETRICSW nclm;
+        HFONT font, prev_font;
+        LOGFONTW lf;
+
+        nclm.cbSize = sizeof(nclm);
+        NtUserSystemParametersInfo( SPI_GETNONCLIENTMETRICS, 0, &nclm, 0 );
+        lf = (ex_style & WS_EX_TOOLWINDOW) ? nclm.lfSmCaptionFont : nclm.lfCaptionFont;
+        lf.lfWeight = FW_BOLD;
+        font = NtGdiHfontCreate( &lf, sizeof(lf), 0, 0, NULL );
+        prev_font = NtGdiSelectFont( hdc, font );
+        NtGdiGetAndSetDCDword( hdc, NtGdiSetBkMode, TRANSPARENT, NULL );
+        r.left += 3;
+        if (xp->text_shadow != CLR_INVALID)
+        {
+            RECT shadow = r;
+            OffsetRect( &shadow, 1, 1 );
+            NtGdiGetAndSetDCDword( hdc, NtGdiSetTextColor, xp->text_shadow, NULL );
+            DrawTextW( hdc, buffer, -1, &shadow, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_LEFT | DT_END_ELLIPSIS );
+        }
+        NtGdiGetAndSetDCDword( hdc, NtGdiSetTextColor, xp->text, NULL );
+        DrawTextW( hdc, buffer, -1, &r, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_LEFT | DT_END_ELLIPSIS );
+        NtGdiDeleteObjectApp( NtGdiSelectFont( hdc, prev_font ));
+    }
+    else if (len)
     {
         NONCLIENTMETRICSW nclm;
         HFONT hFont, hOldFont;
@@ -1728,6 +2083,7 @@ BOOL WINAPI NtUserDrawCaptionTemp( HWND hwnd, HDC hdc, const RECT *rect, HFONT f
 /* Paint the non-client area for windows */
 static void nc_paint( HWND hwnd, HRGN clip )
 {
+    const struct xp_frame_colors *xp;
     HDC hdc;
     RECT rfuzz, rect, clip_rect;
     BOOL active;
@@ -1772,12 +2128,24 @@ static void nc_paint( HWND hwnd, HRGN clip )
 
     NtGdiSelectPen( hdc, get_sys_color_pen( COLOR_WINDOWFRAME ));
 
+    if (has_xp_frame( style, ex_style ) && (xp = get_xp_frame_colors( active )))
+    {
+        /* same frame size as the classic frame, only painted differently */
+        RECT inside;
+
+        get_inside_rect( hwnd, COORDS_WINDOW, &inside, style, ex_style );
+        xp_draw_frame( hdc, &rect, &inside, xp );
+        rect = inside;
+    }
+    else
+    {
     if (has_static_outer_frame( ex_style ))
         draw_rect_edge( hdc, &rect, BDR_SUNKENOUTER, BF_RECT | BF_ADJUST, 1 );
     else if (has_big_frame( style, ex_style ))
         draw_rect_edge( hdc, &rect, EDGE_RAISED, BF_RECT | BF_ADJUST, 1 );
 
     draw_nc_frame( hdc, &rect, active, style, ex_style );
+    }
 
     if ((style & WS_CAPTION) == WS_CAPTION)
     {

@@ -126,6 +126,8 @@ static WCHAR start_label[50];
 #define CLOCK_TIMER       0x100
 #define SYNC_TIMER        0x101
 #define SIZE_TIMER        0x102
+#define FRAMES_TIMER      0x103
+#define FRAMES_DELAY      1200  /* win32u reads the frame settings at most once a second */
 #define SYNC_DELAY        40
 #define SIZE_POLL_DELAY   15
 
@@ -137,6 +139,7 @@ static BOOL  xp_style;           /* paint the taskbar in the Luna style */
 static BOOL  xp_initialized;     /* clock timer, tooltip and event hooks are set up */
 static UINT  taskbar_scheme;     /* Luna color scheme */
 static BOOL  show_clock = TRUE;  /* show the clock in the notification area */
+static BOOL  xp_frames;          /* XP window frames, drawn by win32u in every process */
 static BOOL  taskbar_locked;     /* taskbar height can't be changed */
 static int   taskbar_rows = 1;   /* number of rows of task buttons */
 static UINT  taskbar_dpi = USER_DEFAULT_SCREEN_DPI;
@@ -1851,6 +1854,9 @@ static void xp_load_settings(void)
         size = sizeof(value);
         if (!RegGetValueW( hkey, NULL, L"ShowClock", RRF_RT_REG_DWORD, NULL, &value, &size ))
             show_clock = value != 0;
+        size = sizeof(value);
+        if (!RegGetValueW( hkey, NULL, L"Frames", RRF_RT_REG_DWORD, NULL, &value, &size ))
+            xp_frames = value != 0;
         RegCloseKey( hkey );
     }
     /* WINE_TASKBAR_STYLE=classic brings back the plain Wine taskbar */
@@ -1988,9 +1994,18 @@ struct display_settings
     int  rows;
     BOOL locked;
     BOOL clock;
+    BOOL frames;
 };
 
 static HWND display_dialog;
+
+/* only the frame is invalidated, the windows are not moved or resized */
+static BOOL CALLBACK refresh_frame_proc( HWND hwnd, LPARAM lparam )
+{
+    if ((GetWindowLongW( hwnd, GWL_STYLE ) & (WS_CAPTION | WS_VISIBLE)) == (WS_CAPTION | WS_VISIBLE))
+        RedrawWindow( hwnd, NULL, NULL, RDW_FRAME | RDW_INVALIDATE );
+    return TRUE;
+}
 
 static void invalidate_taskbar(void)
 {
@@ -2050,6 +2065,10 @@ static void apply_display_settings( const struct display_settings *settings )
     xp_save_setting( L"Rows", taskbar_rows );
     xp_save_setting( L"Locked", taskbar_locked );
     xp_save_setting( L"ShowClock", show_clock );
+    xp_save_setting( L"Frames", settings->frames );
+    /* let the other processes pick up the frame style, then have every window repaint its frame */
+    if (settings->frames != xp_frames || settings->frames) SetTimer( tray_window, FRAMES_TIMER, FRAMES_DELAY, NULL );
+    xp_frames = settings->frames;
 
     if (settings->xp != xp_style) set_taskbar_style( settings->xp );
     else do_show_systray();
@@ -2083,12 +2102,13 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
     settings->rows = sel >= 0 ? sel + 1 : 1;
     settings->locked = IsDlgButtonChecked( dlg, IDC_DP_LOCK ) == BST_CHECKED;
     settings->clock = IsDlgButtonChecked( dlg, IDC_DP_CLOCK ) == BST_CHECKED;
+    settings->frames = IsDlgButtonChecked( dlg, IDC_DP_FRAMES ) == BST_CHECKED;
 }
 
 static void update_dialog_state( HWND dlg )
 {
     struct display_settings settings;
-    UINT ids[] = { IDC_DP_SCHEME, IDC_DP_ROWS, IDC_DP_LOCK, IDC_DP_CLOCK };
+    UINT ids[] = { IDC_DP_SCHEME, IDC_DP_FRAMES, IDC_DP_ROWS, IDC_DP_LOCK, IDC_DP_CLOCK };
     unsigned int i;
 
     get_dialog_settings( dlg, &settings );
@@ -2116,6 +2136,45 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
     SetBkMode( hdc, TRANSPARENT );
 
     fill_gradient2( hdc, 0, 0, width, top, RGB(0x3a,0x6e,0xd6), RGB(0x6a,0xa2,0xf0) );
+
+    /* a small window with the selected title bar (the XP frames themselves are drawn by win32u) */
+    {
+        static const COLORREF caption[3][3] =
+        {
+            { RGB(0x09,0x97,0xff), RGB(0x00,0x50,0xee), RGB(0x00,0x3d,0xd7) },
+            { RGB(0xc4,0xd4,0xa0), RGB(0x8f,0xa4,0x64), RGB(0x6d,0x80,0x48) },
+            { RGB(0xfd,0xfd,0xfe), RGB(0xdc,0xdc,0xe6), RGB(0xa9,0xa9,0xbd) },
+        };
+        static const COLORREF caption_text[3] = { RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff), RGB(0x1c,0x1c,0x3c) };
+        UINT index = settings->scheme < ARRAY_SIZE(caption) ? settings->scheme : 0;
+        int wx = width * 3 / 10, wy = max( 4, top / 6 ), ww = width * 2 / 5, wh = top - wy - 4;
+        int cap = max( bar - 2, 10 ), button = cap - 4;
+
+        if (wh > cap + 6)
+        {
+            if (settings->xp && settings->frames)
+            {
+                fill_solid( hdc, wx, wy, ww, wh, caption[index][2] );
+                fill_gradient2( hdc, wx, wy, ww, cap / 2, caption[index][0], caption[index][1] );
+                fill_gradient2( hdc, wx, wy + cap / 2, ww, cap - cap / 2, caption[index][1], caption[index][2] );
+                fill_solid( hdc, wx + 3, wy + cap, ww - 6, wh - cap - 3, RGB(0xec,0xe9,0xd8) );
+                fill_gradient2( hdc, wx + ww - button - 3, wy + 2, button, button, RGB(0xe8,0x7a,0x5c), RGB(0xc6,0x3a,0x18) );
+                SetTextColor( hdc, caption_text[index] );
+            }
+            else
+            {
+                fill_solid( hdc, wx, wy, ww, wh, GetSysColor( COLOR_ACTIVEBORDER ));
+                fill_solid( hdc, wx + 2, wy + 2, ww - 4, cap - 2, GetSysColor( COLOR_ACTIVECAPTION ));
+                fill_solid( hdc, wx + 2, wy + cap, ww - 4, wh - cap - 2, GetSysColor( COLOR_BTNFACE ));
+                SetRect( &rect, wx + ww - button - 4, wy + 3, wx + ww - 4, wy + 3 + button - 1 );
+                DrawFrameControl( hdc, &rect, DFC_CAPTION, DFCS_CAPTIONCLOSE );
+                SetTextColor( hdc, GetSysColor( COLOR_CAPTIONTEXT ));
+            }
+            SetRect( &rect, wx + 6, wy, wx + ww - button - 6, wy + cap );
+            DrawTextW( hdc, L"Wine", -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX );
+        }
+    }
+
     if (settings->xp)
     {
         fill_gradient( hdc, 0, top, width, bar, 0, bar, scheme->bar, scheme->bar_count );
@@ -2176,6 +2235,7 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
         load_combo_strings( GetDlgItem( dlg, IDC_DP_ROWS ), rows_ids, ARRAY_SIZE(rows_ids), taskbar_rows - 1 );
         CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
         CheckDlgButton( dlg, IDC_DP_CLOCK, show_clock ? BST_CHECKED : BST_UNCHECKED );
+        CheckDlgButton( dlg, IDC_DP_FRAMES, xp_frames ? BST_CHECKED : BST_UNCHECKED );
         update_dialog_state( dlg );
         return TRUE;
 
@@ -2195,6 +2255,7 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
             break;
         case IDC_DP_LOCK:
         case IDC_DP_CLOCK:
+        case IDC_DP_FRAMES:
             update_dialog_state( dlg );
             break;
         case IDC_DP_APPLY:
@@ -2387,6 +2448,10 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         case SYNC_TIMER:
             KillTimer( hwnd, SYNC_TIMER );
             sync_taskbar_buttons();
+            break;
+        case FRAMES_TIMER:
+            KillTimer( hwnd, FRAMES_TIMER );
+            EnumWindows( refresh_frame_proc, 0 );
             break;
         case SIZE_TIMER:
             /* poll, the taskbar never takes the foreground so it can't rely on the capture */
