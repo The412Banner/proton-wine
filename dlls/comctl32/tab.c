@@ -1698,6 +1698,20 @@ TAB_DrawItemInterior(const TAB_INFO *infoPtr, HDC hdc, INT iItem, RECT *drawRect
     else
       SetTextColor(hdc, comctl32_color.clrBtnText);
   }
+#if __WINE_COMCTL32_VERSION == 6
+  else
+  {
+    HTHEME theme = GetWindowTheme(infoPtr->hwnd);
+    int state = TIS_NORMAL;
+    COLORREF color;
+
+    if (iItem == infoPtr->iSelected) state = TIS_SELECTED;
+    else if (iItem == infoPtr->iHotTracked) state = TIS_HOT;
+    /* the theme knows the colour that goes with its tab faces */
+    if (SUCCEEDED(GetThemeColor(theme, TABP_TABITEM, state, TMT_TEXTCOLOR, &color)))
+      SetTextColor(hdc, color);
+  }
+#endif
 
   /*
    * if owner draw, tell the owner to draw
