@@ -63,5 +63,6 @@
 #define IDC_DP_LOCK 205
 #define IDC_DP_CLOCK 206
 #define IDC_DP_APPLY 207
+#define IDC_DP_FRAMES 208
 
 #endif
