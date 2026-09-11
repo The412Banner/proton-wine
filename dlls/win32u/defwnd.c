@@ -1636,6 +1636,25 @@ static const struct xp_frame_colors *get_xp_window_colors( HWND hwnd, DWORD styl
     return get_xp_frame_colors( (win_get_flags( hwnd ) & WIN_NCACTIVATED) != 0 );
 }
 
+/* XPDBG: temporary diagnostics, never merged */
+static BOOL xpdbg_gradient_ok = TRUE;
+
+static void xpdbg( HWND hwnd, HDC hdc, const char *what, int x, int y, COLORREF expect )
+{
+    static LONG count;
+    POINT org = { 0, 0 };
+    RECT clip;
+
+    if (InterlockedIncrement( &count ) > 400) return;
+    NtGdiGetAppClipBox( hdc, &clip );
+    NtGdiGetDCPoint( hdc, NtGdiGetDCOrg, &org );
+    ERR( "xpdbg pid %04x wow %d hwnd %p %s bpp %d org %d,%d clip %s dpi %u/%u cls %08x grad %d pixel(%d,%d)=%08x expect %08x\n",
+         HandleToULong( NtCurrentTeb()->ClientId.UniqueProcess ), NtCurrentTeb()->WowTebOffset != 0,
+         hwnd, what, NtGdiGetDeviceCaps( hdc, BITSPIXEL ), (int)org.x, (int)org.y, wine_dbgstr_rect( &clip ),
+         get_thread_dpi(), get_dpi_for_window( hwnd ), get_class_long( hwnd, GCL_STYLE, FALSE ),
+         xpdbg_gradient_ok, x, y, (UINT)NtGdiGetPixel( hdc, x, y ), (UINT)expect );
+}
+
 static void xp_fill( HDC hdc, int x, int y, int width, int height, COLORREF color )
 {
     HBRUSH brush, prev;
@@ -1672,7 +1691,7 @@ static void xp_vertical_gradient( HDC hdc, const RECT *rect, const struct xp_sto
         vert[1].Green = GetGValue( stops[i].color ) << 8;
         vert[1].Blue = GetBValue( stops[i].color ) << 8;
         vert[1].Alpha = 0xff00;
-        NtGdiGradientFill( hdc, vert, 2, &mesh, 1, GRADIENT_FILL_RECT_V );
+        if (!NtGdiGradientFill( hdc, vert, 2, &mesh, 1, GRADIENT_FILL_RECT_V )) xpdbg_gradient_ok = FALSE;
     }
 }
 
@@ -2141,12 +2160,19 @@ static void nc_paint( HWND hwnd, HRGN clip )
 
     NtGdiSelectPen( hdc, get_sys_color_pen( COLOR_WINDOWFRAME ));
 
+    {
+        RECT whole = rect;
+
+    xp = NULL;
+    xpdbg( hwnd, hdc, "pre", whole.left, (whole.top + whole.bottom) / 2, CLR_INVALID );
     if (has_xp_frame( style, ex_style ) && (xp = get_xp_frame_colors( active )))
     {
         /* same frame size as the classic frame, only painted differently */
         RECT inside;
 
         get_inside_rect( hwnd, COORDS_WINDOW, &inside, style, ex_style );
+        ERR( "xpdbg hwnd %p style %08x ex %08x active %d rect %s inside %s\n", hwnd, (UINT)style, (UINT)ex_style,
+             active, wine_dbgstr_rect( &rect ), wine_dbgstr_rect( &inside ));
         xp_draw_frame( hdc, &rect, &inside, xp );
         rect = inside;
     }
@@ -2158,6 +2184,11 @@ static void nc_paint( HWND hwnd, HRGN clip )
         draw_rect_edge( hdc, &rect, EDGE_RAISED, BF_RECT | BF_ADJUST, 1 );
 
     draw_nc_frame( hdc, &rect, active, style, ex_style );
+    }
+    xpdbg( hwnd, hdc, xp ? "frame-xp" : "frame-classic", whole.left, (whole.top + whole.bottom) / 2,
+           xp ? xp->outer[0] : CLR_INVALID );
+    xpdbg( hwnd, hdc, xp ? "frame2-xp" : "frame2-classic", whole.left + 2, (whole.top + whole.bottom) / 2,
+           xp ? xp->outer[2] : CLR_INVALID );
     }
 
     if ((style & WS_CAPTION) == WS_CAPTION)
@@ -2175,6 +2206,8 @@ static void nc_paint( HWND hwnd, HRGN clip )
 
         if (intersect_rect( &rfuzz, &r, &clip_rect ))
             draw_nc_caption( hdc, &r, hwnd, style, ex_style, active );
+        xpdbg( hwnd, hdc, xp ? "caption-xp" : "caption-classic", (r.left + r.right) / 3, (r.top + r.bottom) / 2,
+               xp ? RGB(0x00,0x50,0xee) : CLR_INVALID );
     }
 
     if (has_menu( hwnd, style ))
