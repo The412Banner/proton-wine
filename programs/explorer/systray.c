@@ -134,6 +134,9 @@ static WCHAR start_label[50];
 #define IDM_TASKBAR_ROWS  0x7010  /* + number of rows */
 
 static BOOL  xp_style;           /* paint the taskbar in the Luna style */
+static BOOL  xp_initialized;     /* clock timer, tooltip and event hooks are set up */
+static UINT  taskbar_scheme;     /* Luna color scheme */
+static BOOL  show_clock = TRUE;  /* show the clock in the notification area */
 static BOOL  taskbar_locked;     /* taskbar height can't be changed */
 static int   taskbar_rows = 1;   /* number of rows of task buttons */
 static UINT  taskbar_dpi = USER_DEFAULT_SCREEN_DPI;
@@ -1077,8 +1080,9 @@ static void click_taskbar_button( HWND button )
             start_pressed = TRUE;
             InvalidateRect( button, NULL, FALSE );
             UpdateWindow( button );
+            do_xp_startmenu( tray_window );
         }
-        do_startmenu( tray_window );
+        else do_startmenu( tray_window );
         if (xp_style)
         {
             start_pressed = FALSE;
@@ -1138,7 +1142,7 @@ struct gradient_stop
     COLORREF color;
 };
 
-static const struct gradient_stop bar_gradient[] =
+static const struct gradient_stop blue_bar_gradient[] =
 {
     {   0, RGB(0x1f,0x2f,0x86) }, {   3, RGB(0x31,0x65,0xc4) }, {   6, RGB(0x36,0x82,0xe5) },
     {  10, RGB(0x44,0x90,0xe6) }, {  12, RGB(0x38,0x83,0xe5) }, {  15, RGB(0x2b,0x71,0xe0) },
@@ -1148,7 +1152,7 @@ static const struct gradient_stop bar_gradient[] =
     {  98, RGB(0x19,0x41,0xa5) }, { 100, RGB(0x19,0x41,0xa5) },
 };
 
-static const struct gradient_stop notify_gradient[] =
+static const struct gradient_stop blue_notify_gradient[] =
 {
     {   0, RGB(0x0c,0x59,0xb9) }, {   1, RGB(0x0c,0x59,0xb9) }, {   6, RGB(0x13,0x9e,0xe9) },
     {  10, RGB(0x18,0xb5,0xf2) }, {  14, RGB(0x13,0x9b,0xeb) }, {  19, RGB(0x12,0x90,0xe8) },
@@ -1156,6 +1160,97 @@ static const struct gradient_stop notify_gradient[] =
     {  91, RGB(0x11,0x9b,0xe9) }, {  94, RGB(0x13,0x92,0xe2) }, {  97, RGB(0x13,0x7e,0xd7) },
     { 100, RGB(0x09,0x5b,0xc9) },
 };
+
+static const struct gradient_stop olive_bar_gradient[] =
+{
+    {   0, RGB(0x6b,0x7a,0x45) }, {   3, RGB(0xa3,0xb8,0x7a) }, {   6, RGB(0xc3,0xd4,0x9c) },
+    {  10, RGB(0xd0,0xde,0xa8) }, {  12, RGB(0xbc,0xcd,0x93) }, {  15, RGB(0xa9,0xbb,0x7f) },
+    {  18, RGB(0x9a,0xad,0x72) }, {  20, RGB(0x93,0xa6,0x6c) }, {  23, RGB(0x91,0xa4,0x6a) },
+    {  38, RGB(0x8f,0xa2,0x68) }, {  54, RGB(0x93,0xa6,0x6c) }, {  86, RGB(0x97,0xaa,0x70) },
+    {  89, RGB(0x94,0xa7,0x6d) }, {  92, RGB(0x8c,0x9f,0x65) }, {  95, RGB(0x7f,0x92,0x5a) },
+    {  98, RGB(0x6e,0x80,0x49) }, { 100, RGB(0x6e,0x80,0x49) },
+};
+
+static const struct gradient_stop olive_notify_gradient[] =
+{
+    {   0, RGB(0x7d,0x8c,0x58) }, {   1, RGB(0x7d,0x8c,0x58) }, {   6, RGB(0xc9,0xd6,0xa6) },
+    {  10, RGB(0xd6,0xe2,0xb5) }, {  14, RGB(0xc7,0xd4,0xa2) }, {  19, RGB(0xbc,0xcb,0x96) },
+    {  63, RGB(0xb6,0xc5,0x8f) }, {  81, RGB(0xbf,0xcd,0x99) }, {  88, RGB(0xbc,0xcb,0x96) },
+    {  91, RGB(0xb7,0xc6,0x90) }, {  94, RGB(0xae,0xbd,0x87) }, {  97, RGB(0x9f,0xae,0x78) },
+    { 100, RGB(0x86,0x95,0x5f) },
+};
+
+static const struct gradient_stop silver_bar_gradient[] =
+{
+    {   0, RGB(0x8e,0x8e,0xa8) }, {   3, RGB(0xf2,0xf2,0xf7) }, {   6, RGB(0xff,0xff,0xff) },
+    {  10, RGB(0xf7,0xf7,0xfb) }, {  12, RGB(0xec,0xec,0xf3) }, {  15, RGB(0xe3,0xe3,0xec) },
+    {  18, RGB(0xdc,0xdc,0xe6) }, {  20, RGB(0xd8,0xd8,0xe3) }, {  23, RGB(0xd6,0xd6,0xe1) },
+    {  38, RGB(0xd4,0xd4,0xdf) }, {  54, RGB(0xd8,0xd8,0xe3) }, {  86, RGB(0xdc,0xdc,0xe7) },
+    {  89, RGB(0xd9,0xd9,0xe4) }, {  92, RGB(0xd2,0xd2,0xde) }, {  95, RGB(0xc5,0xc5,0xd3) },
+    {  98, RGB(0xa9,0xa9,0xbd) }, { 100, RGB(0xa9,0xa9,0xbd) },
+};
+
+static const struct gradient_stop silver_notify_gradient[] =
+{
+    {   0, RGB(0x9a,0x9a,0xb0) }, {   1, RGB(0x9a,0x9a,0xb0) }, {   6, RGB(0xfb,0xfb,0xfd) },
+    {  10, RGB(0xff,0xff,0xff) }, {  14, RGB(0xf4,0xf4,0xf8) }, {  19, RGB(0xec,0xec,0xf2) },
+    {  63, RGB(0xe6,0xe6,0xee) }, {  81, RGB(0xee,0xee,0xf4) }, {  88, RGB(0xec,0xec,0xf2) },
+    {  91, RGB(0xe6,0xe6,0xee) }, {  94, RGB(0xdc,0xdc,0xe6) }, {  97, RGB(0xca,0xca,0xd8) },
+    { 100, RGB(0xa8,0xa8,0xbc) },
+};
+
+/* colors of the Luna color schemes: Default (blue), Olive Green and Silver */
+struct xp_scheme
+{
+    const struct gradient_stop *bar;
+    unsigned int                bar_count;
+    const struct gradient_stop *notify;
+    unsigned int                notify_count;
+    COLORREF notify_edge, notify_light;
+    COLORREF button_top, button_bottom, button_light_top, button_light_left, button_dark_right, button_dark_bottom;
+    COLORREF down_top, down_bottom, down_dark, down_dark2;
+    COLORREF text;
+    COLORREF grip_light, grip_dark;
+};
+
+static const struct xp_scheme xp_schemes[] =
+{
+    {
+        blue_bar_gradient, ARRAY_SIZE(blue_bar_gradient), blue_notify_gradient, ARRAY_SIZE(blue_notify_gradient),
+        RGB(0x10,0x42,0xaf), RGB(0x18,0xbb,0xff),
+        RGB(0x4f,0x92,0xf7), RGB(0x35,0x78,0xee), RGB(0x78,0xad,0xfa), RGB(0x63,0x9e,0xf8),
+        RGB(0x25,0x57,0xbf), RGB(0x2a,0x62,0xcc),
+        RGB(0x1a,0x4a,0xab), RGB(0x1e,0x55,0xbd), RGB(0x10,0x32,0x7a), RGB(0x16,0x41,0x98),
+        RGB(0xff,0xff,0xff), RGB(0x86,0xb4,0xf8), RGB(0x12,0x3a,0x9c),
+    },
+    {
+        olive_bar_gradient, ARRAY_SIZE(olive_bar_gradient), olive_notify_gradient, ARRAY_SIZE(olive_notify_gradient),
+        RGB(0x6d,0x7c,0x47), RGB(0xdf,0xe9,0xc2),
+        RGB(0xb3,0xc4,0x8c), RGB(0x9a,0xac,0x72), RGB(0xcf,0xdc,0xaa), RGB(0xc2,0xd1,0x9c),
+        RGB(0x75,0x86,0x4f), RGB(0x82,0x94,0x5b),
+        RGB(0x7d,0x8f,0x53), RGB(0x89,0x9c,0x5e), RGB(0x5c,0x6b,0x3a), RGB(0x6c,0x7c,0x45),
+        RGB(0xff,0xff,0xff), RGB(0xdc,0xe7,0xbd), RGB(0x5f,0x6e,0x3c),
+    },
+    {
+        silver_bar_gradient, ARRAY_SIZE(silver_bar_gradient), silver_notify_gradient, ARRAY_SIZE(silver_notify_gradient),
+        RGB(0x9d,0x9d,0xb3), RGB(0xff,0xff,0xff),
+        RGB(0xfc,0xfc,0xfe), RGB(0xe2,0xe2,0xea), RGB(0xff,0xff,0xff), RGB(0xff,0xff,0xff),
+        RGB(0xa4,0xa4,0xb8), RGB(0xb8,0xb8,0xc8),
+        RGB(0xc6,0xc6,0xd4), RGB(0xd6,0xd6,0xe0), RGB(0x8a,0x8a,0xa0), RGB(0xa3,0xa3,0xb6),
+        RGB(0x00,0x00,0x00), RGB(0xff,0xff,0xff), RGB(0x9a,0x9a,0xae),
+    },
+};
+
+static const struct xp_scheme *xp_current_scheme(void)
+{
+    return &xp_schemes[taskbar_scheme < ARRAY_SIZE(xp_schemes) ? taskbar_scheme : 0];
+}
+
+/* the start menu follows the color scheme of the taskbar */
+UINT get_taskbar_scheme(void)
+{
+    return taskbar_scheme < ARRAY_SIZE(xp_schemes) ? taskbar_scheme : 0;
+}
 
 static const struct gradient_stop start_gradient[] =
 {
@@ -1254,33 +1349,35 @@ static void fill_gradient2( HDC hdc, int x, int y, int width, int height, COLORR
 /* paint the taskbar background of the tray window area (x, y, width, height) at (dst_x, dst_y) */
 static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int width, int height )
 {
+    const struct xp_scheme *scheme = xp_current_scheme();
     int split = notify_left - x;  /* start of the notification area */
 
     if (width <= 0 || height <= 0) return;
     if (split > 0)
         fill_gradient( hdc, dst_x, dst_y, min( split, width ), height, y, tray_height,
-                       bar_gradient, ARRAY_SIZE(bar_gradient) );
+                       scheme->bar, scheme->bar_count );
     if (split < width)
     {
         int start = max( split, 0 );
 
         fill_gradient( hdc, dst_x + start, dst_y, width - start, height, y, tray_height,
-                       notify_gradient, ARRAY_SIZE(notify_gradient) );
+                       scheme->notify, scheme->notify_count );
         /* dark edge and highlight on the left of the notification area */
-        if (split >= 0) fill_solid( hdc, dst_x + split, dst_y, 1, height, RGB(0x10,0x42,0xaf) );
+        if (split >= 0) fill_solid( hdc, dst_x + split, dst_y, 1, height, scheme->notify_edge );
         if (split + 1 >= 0 && split + 1 < width)
-            fill_solid( hdc, dst_x + split + 1, dst_y, 1, height, RGB(0x18,0xbb,0xff) );
+            fill_solid( hdc, dst_x + split + 1, dst_y, 1, height, scheme->notify_light );
     }
 }
 
 static void xp_draw_gripper( HDC hdc, int x )
 {
+    const struct xp_scheme *scheme = xp_current_scheme();
     int y, dot = max( xp_scale( 1 ), 1 ), step = max( xp_scale( 4 ), 3 );
 
     for (y = xp_scale( 5 ); y + 2 * dot <= tray_height - xp_scale( 4 ); y += step)
     {
-        fill_solid( hdc, x + dot, y + dot, dot, dot, RGB(0x12,0x3a,0x9c) );
-        fill_solid( hdc, x, y, dot, dot, RGB(0x86,0xb4,0xf8) );
+        fill_solid( hdc, x + dot, y + dot, dot, dot, scheme->grip_dark );
+        fill_solid( hdc, x, y, dot, dot, scheme->grip_light );
     }
 }
 
@@ -1310,11 +1407,16 @@ static void xp_draw_clock( HDC hdc )
     RECT rect, line;
     int top;
 
+    if (!show_clock)
+    {
+        SelectObject( hdc, old_font );
+        return;
+    }
     GetTextMetricsW( hdc, &tm );
     get_clock_rect( &rect );
     top = (tray_height - (int)count * tm.tmHeight) / 2;
     SetBkMode( hdc, TRANSPARENT );
-    SetTextColor( hdc, RGB(0xff,0xff,0xff) );
+    SetTextColor( hdc, xp_current_scheme()->text );
     for (i = 0; i < count; i++)
     {
         SetRect( &line, rect.left, top + i * tm.tmHeight, rect.right, top + (i + 1) * tm.tmHeight );
@@ -1352,7 +1454,7 @@ static BOOL xp_update_clock(void)
     SelectObject( hdc, old_font );
     ReleaseDC( 0, hdc );
 
-    width += xp_scale( 8 );
+    width = show_clock ? width + xp_scale( 8 ) : 0;
     if (width == clock_width) return FALSE;
     clock_width = width;
     return TRUE;
@@ -1529,6 +1631,7 @@ static HICON xp_get_task_icon( struct taskbar_button *win )
 
 static void xp_draw_task_button( HDC hdc, struct taskbar_button *win, int width, int height, BOOL down )
 {
+    const struct xp_scheme *scheme = xp_current_scheme();
     int icon_size = GetSystemMetrics( SM_CXSMICON ), pad = xp_scale( 6 ), shift = down ? 1 : 0;
     int corner = xp_scale( 6 );
     HRGN rgn = CreateRoundRectRgn( 0, 0, width + 1, height + 1, corner, corner );
@@ -1539,19 +1642,19 @@ static void xp_draw_task_button( HDC hdc, struct taskbar_button *win, int width,
     SelectClipRgn( hdc, rgn );
     if (down)
     {
-        fill_gradient2( hdc, 0, 0, width, height, RGB(0x1a,0x4a,0xab), RGB(0x1e,0x55,0xbd) );
-        fill_solid( hdc, 0, 0, width, 1, RGB(0x10,0x32,0x7a) );
-        fill_solid( hdc, 0, 0, 1, height, RGB(0x10,0x32,0x7a) );
-        fill_solid( hdc, 1, 1, width - 1, 1, RGB(0x16,0x41,0x98) );
-        fill_solid( hdc, 1, 1, 1, height - 1, RGB(0x16,0x41,0x98) );
+        fill_gradient2( hdc, 0, 0, width, height, scheme->down_top, scheme->down_bottom );
+        fill_solid( hdc, 0, 0, width, 1, scheme->down_dark );
+        fill_solid( hdc, 0, 0, 1, height, scheme->down_dark );
+        fill_solid( hdc, 1, 1, width - 1, 1, scheme->down_dark2 );
+        fill_solid( hdc, 1, 1, 1, height - 1, scheme->down_dark2 );
     }
     else
     {
-        fill_gradient2( hdc, 0, 0, width, height, RGB(0x4f,0x92,0xf7), RGB(0x35,0x78,0xee) );
-        fill_solid( hdc, 0, 0, width, 1, RGB(0x78,0xad,0xfa) );
-        fill_solid( hdc, 0, 0, 1, height, RGB(0x63,0x9e,0xf8) );
-        fill_solid( hdc, width - 1, 0, 1, height, RGB(0x25,0x57,0xbf) );
-        fill_solid( hdc, 0, height - 1, width, 1, RGB(0x2a,0x62,0xcc) );
+        fill_gradient2( hdc, 0, 0, width, height, scheme->button_top, scheme->button_bottom );
+        fill_solid( hdc, 0, 0, width, 1, scheme->button_light_top );
+        fill_solid( hdc, 0, 0, 1, height, scheme->button_light_left );
+        fill_solid( hdc, width - 1, 0, 1, height, scheme->button_dark_right );
+        fill_solid( hdc, 0, height - 1, width, 1, scheme->button_dark_bottom );
     }
     SelectClipRgn( hdc, NULL );
     DeleteObject( rgn );
@@ -1564,7 +1667,7 @@ static void xp_draw_task_button( HDC hdc, struct taskbar_button *win, int width,
     SetRect( &rect, pad + icon_size + xp_scale( 5 ) + shift, shift, width - xp_scale( 5 ) + shift, height + shift );
     old_font = SelectObject( hdc, xp_font );
     SetBkMode( hdc, TRANSPARENT );
-    SetTextColor( hdc, RGB(0xff,0xff,0xff) );
+    SetTextColor( hdc, scheme->text );
     DrawTextW( hdc, title, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS | DT_NOPREFIX );
     SelectObject( hdc, old_font );
 }
@@ -1696,7 +1799,10 @@ static void xp_update_metrics(void)
     ReleaseDC( 0, hdc );
 
     if (start_icon) DestroyIcon( start_icon );
-    start_icon = LoadImageW( 0, (const WCHAR *)IDI_WINLOGO, IMAGE_ICON, xp_scale( 20 ), xp_scale( 20 ), 0 );
+    start_icon = LoadImageW( GetModuleHandleW( NULL ), MAKEINTRESOURCEW( IDI_WINE_LOGO ), IMAGE_ICON,
+                             xp_scale( 20 ), xp_scale( 20 ), 0 );
+    if (!start_icon)
+        start_icon = LoadImageW( 0, (const WCHAR *)IDI_WINLOGO, IMAGE_ICON, xp_scale( 20 ), xp_scale( 20 ), 0 );
 
     xp_update_clock();
 }
@@ -1739,6 +1845,12 @@ static void xp_load_settings(void)
         size = sizeof(value);
         if (!RegGetValueW( hkey, NULL, L"Locked", RRF_RT_REG_DWORD, NULL, &value, &size ))
             taskbar_locked = value != 0;
+        size = sizeof(value);
+        if (!RegGetValueW( hkey, NULL, L"Scheme", RRF_RT_REG_DWORD, NULL, &value, &size ))
+            taskbar_scheme = value < ARRAY_SIZE(xp_schemes) ? value : 0;
+        size = sizeof(value);
+        if (!RegGetValueW( hkey, NULL, L"ShowClock", RRF_RT_REG_DWORD, NULL, &value, &size ))
+            show_clock = value != 0;
         RegCloseKey( hkey );
     }
     /* WINE_TASKBAR_STYLE=classic brings back the plain Wine taskbar */
@@ -1843,6 +1955,15 @@ static void xp_init_taskbar(void)
 {
     const DWORD flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
 
+    if (xp_initialized)
+    {
+        /* switching back from the classic style */
+        if (clock_tooltip) SendMessageW( clock_tooltip, TTM_ACTIVATE, TRUE, 0 );
+        xp_update_clock_tooltip();
+        xp_set_clock_timer();
+        return;
+    }
+    xp_initialized = TRUE;
     xp_create_clock_tooltip();
     xp_update_clock_tooltip();
     xp_set_clock_timer();
@@ -1851,6 +1972,282 @@ static void xp_init_taskbar(void)
     SetWinEventHook( EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, NULL, xp_winevent_proc, 0, 0, flags );
     SetWinEventHook( EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE, NULL, xp_winevent_proc, 0, 0, flags );
     SetWinEventHook( EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE, NULL, xp_winevent_proc, 0, 0, flags );
+}
+
+/*
+ * Display Properties, opened from the desktop context menu
+ */
+
+#define IDM_DESKTOP_REFRESH     0x7101
+#define IDM_DESKTOP_PROPERTIES  0x7102
+
+struct display_settings
+{
+    BOOL xp;
+    UINT scheme;
+    int  rows;
+    BOOL locked;
+    BOOL clock;
+};
+
+static HWND display_dialog;
+
+static void invalidate_taskbar(void)
+{
+    struct taskbar_button *win;
+    struct icon *icon;
+
+    InvalidateRect( tray_window, NULL, TRUE );
+    LIST_FOR_EACH_ENTRY( win, &taskbar_buttons, struct taskbar_button, entry )
+        InvalidateRect( win->button, NULL, TRUE );
+    LIST_FOR_EACH_ENTRY( icon, &icon_list, struct icon, entry )
+    {
+        POINT pos;
+
+        if (icon->display < 0) continue;
+        pos = get_icon_pos( icon );
+        SetWindowPos( icon->window, 0, pos.x, pos.y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER );
+        InvalidateRect( icon->window, NULL, TRUE );
+        update_tooltip_position( icon );
+    }
+}
+
+/* switch between the Luna and the classic Wine taskbar while running */
+static void set_taskbar_style( BOOL xp )
+{
+    DWORD style = GetWindowLongW( tray_window, GWL_STYLE );
+
+    if (xp == xp_style) return;
+    xp_style = xp;
+    SetWindowLongW( tray_window, GWL_STYLE, xp ? style | WS_CLIPCHILDREN : style & ~WS_CLIPCHILDREN );
+    if (xp) xp_init_taskbar();
+    else
+    {
+        KillTimer( tray_window, CLOCK_TIMER );
+        if (clock_tooltip) SendMessageW( clock_tooltip, TTM_ACTIVATE, FALSE, 0 );
+    }
+    do_show_systray();
+}
+
+static void apply_display_settings( const struct display_settings *settings )
+{
+    HKEY hkey;
+
+    taskbar_scheme = settings->scheme < ARRAY_SIZE(xp_schemes) ? settings->scheme : 0;
+    taskbar_rows = max( 1, min( settings->rows, TASKBAR_MAX_ROWS ));
+    taskbar_locked = settings->locked;
+    show_clock = settings->clock;
+
+    if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, NULL, 0,
+                          KEY_SET_VALUE, NULL, &hkey, NULL ))
+    {
+        const WCHAR *style = settings->xp ? L"xp" : L"classic";
+
+        RegSetValueExW( hkey, L"Style", 0, REG_SZ, (const BYTE *)style, (lstrlenW( style ) + 1) * sizeof(WCHAR) );
+        RegCloseKey( hkey );
+    }
+    xp_save_setting( L"Scheme", taskbar_scheme );
+    xp_save_setting( L"Rows", taskbar_rows );
+    xp_save_setting( L"Locked", taskbar_locked );
+    xp_save_setting( L"ShowClock", show_clock );
+
+    if (settings->xp != xp_style) set_taskbar_style( settings->xp );
+    else do_show_systray();
+    invalidate_taskbar();
+}
+
+static void load_combo_strings( HWND combo, const UINT *ids, unsigned int count, unsigned int selection )
+{
+    WCHAR str[64], *src, *dst;
+    unsigned int i;
+
+    for (i = 0; i < count; i++)
+    {
+        LoadStringW( NULL, ids[i], str, ARRAY_SIZE(str) );
+        /* the menu strings carry accelerator prefixes */
+        for (src = dst = str; *src; src++) if (*src != '&') *dst++ = *src;
+        *dst = 0;
+        SendMessageW( combo, CB_ADDSTRING, 0, (LPARAM)str );
+    }
+    SendMessageW( combo, CB_SETCURSEL, selection, 0 );
+}
+
+static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+{
+    LRESULT sel;
+
+    settings->xp = SendDlgItemMessageW( dlg, IDC_DP_STYLE, CB_GETCURSEL, 0, 0 ) != 1;
+    sel = SendDlgItemMessageW( dlg, IDC_DP_SCHEME, CB_GETCURSEL, 0, 0 );
+    settings->scheme = sel > 0 ? sel : 0;
+    sel = SendDlgItemMessageW( dlg, IDC_DP_ROWS, CB_GETCURSEL, 0, 0 );
+    settings->rows = sel >= 0 ? sel + 1 : 1;
+    settings->locked = IsDlgButtonChecked( dlg, IDC_DP_LOCK ) == BST_CHECKED;
+    settings->clock = IsDlgButtonChecked( dlg, IDC_DP_CLOCK ) == BST_CHECKED;
+}
+
+static void update_dialog_state( HWND dlg )
+{
+    struct display_settings settings;
+    UINT ids[] = { IDC_DP_SCHEME, IDC_DP_ROWS, IDC_DP_LOCK, IDC_DP_CLOCK };
+    unsigned int i;
+
+    get_dialog_settings( dlg, &settings );
+    for (i = 0; i < ARRAY_SIZE(ids); i++) EnableWindow( GetDlgItem( dlg, ids[i] ), settings.xp );
+    InvalidateRect( GetDlgItem( dlg, IDC_DP_PREVIEW ), NULL, FALSE );
+}
+
+/* a small desktop with the taskbar as it would look with the selected settings */
+static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct display_settings *settings )
+{
+    const struct xp_scheme *scheme = &xp_schemes[settings->scheme < ARRAY_SIZE(xp_schemes) ? settings->scheme : 0];
+    int width = dis->rcItem.right - dis->rcItem.left, height = dis->rcItem.bottom - dis->rcItem.top;
+    int bar = max( height / 4, 12 ), top = height - bar, start_width = bar * 3;
+    HGDIOBJ old_bitmap, old_font;
+    HBITMAP bitmap;
+    RECT rect;
+    HRGN rgn;
+    HDC hdc;
+
+    if (width <= 0 || height <= 0) return;
+    hdc = CreateCompatibleDC( dis->hDC );
+    bitmap = CreateCompatibleBitmap( dis->hDC, width, height );
+    old_bitmap = SelectObject( hdc, bitmap );
+    old_font = SelectObject( hdc, xp_font ? xp_font : GetStockObject( DEFAULT_GUI_FONT ));
+    SetBkMode( hdc, TRANSPARENT );
+
+    fill_gradient2( hdc, 0, 0, width, top, RGB(0x3a,0x6e,0xd6), RGB(0x6a,0xa2,0xf0) );
+    if (settings->xp)
+    {
+        fill_gradient( hdc, 0, top, width, bar, 0, bar, scheme->bar, scheme->bar_count );
+        fill_gradient( hdc, width - bar * 3, top, bar * 3, bar, 0, bar, scheme->notify, scheme->notify_count );
+        fill_solid( hdc, width - bar * 3, top, 1, bar, scheme->notify_edge );
+
+        rgn = CreateRoundRectRgn( -bar, top, start_width + 1, height + 1, bar, bar );
+        SelectClipRgn( hdc, rgn );
+        fill_gradient( hdc, 0, top, start_width, bar, 0, bar, start_gradient, ARRAY_SIZE(start_gradient) );
+        SelectClipRgn( hdc, NULL );
+        DeleteObject( rgn );
+
+        rgn = CreateRoundRectRgn( start_width + bar / 2, top + 2, start_width + bar * 5, height - 1, 4, 4 );
+        SelectClipRgn( hdc, rgn );
+        fill_gradient2( hdc, start_width + bar / 2, top + 2, bar * 5, bar - 3, scheme->down_top, scheme->down_bottom );
+        SelectClipRgn( hdc, NULL );
+        DeleteObject( rgn );
+
+        SetTextColor( hdc, RGB(0xff,0xff,0xff) );
+        SetRect( &rect, 0, top, start_width, height );
+        DrawTextW( hdc, start_text[0] ? start_text : L"start", -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX );
+        if (settings->clock)
+        {
+            SetTextColor( hdc, scheme->text );
+            SetRect( &rect, width - bar * 3, top, width, height );
+            DrawTextW( hdc, clock_time, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX );
+        }
+    }
+    else
+    {
+        fill_solid( hdc, 0, top, width, bar, GetSysColor( COLOR_BTNFACE ));
+        SetRect( &rect, 2, top + 2, start_width, height - 2 );
+        DrawFrameControl( hdc, &rect, DFC_BUTTON, DFCS_BUTTONPUSH );
+        SetTextColor( hdc, GetSysColor( COLOR_BTNTEXT ));
+        DrawTextW( hdc, start_label, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX );
+    }
+
+    BitBlt( dis->hDC, dis->rcItem.left, dis->rcItem.top, width, height, hdc, 0, 0, SRCCOPY );
+    SelectObject( hdc, old_font );
+    SelectObject( hdc, old_bitmap );
+    DeleteObject( bitmap );
+    DeleteDC( hdc );
+}
+
+static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lparam )
+{
+    static const UINT style_ids[] = { IDS_DP_STYLE_XP, IDS_DP_STYLE_CLASSIC };
+    static const UINT scheme_ids[] = { IDS_DP_SCHEME_BLUE, IDS_DP_SCHEME_OLIVE, IDS_DP_SCHEME_SILVER };
+    static const UINT rows_ids[] = { IDS_TASKBAR_ROWS1, IDS_TASKBAR_ROWS2, IDS_TASKBAR_ROWS3 };
+    struct display_settings settings;
+
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+        display_dialog = dlg;
+        load_combo_strings( GetDlgItem( dlg, IDC_DP_STYLE ), style_ids, ARRAY_SIZE(style_ids), xp_style ? 0 : 1 );
+        load_combo_strings( GetDlgItem( dlg, IDC_DP_SCHEME ), scheme_ids, ARRAY_SIZE(scheme_ids), get_taskbar_scheme() );
+        load_combo_strings( GetDlgItem( dlg, IDC_DP_ROWS ), rows_ids, ARRAY_SIZE(rows_ids), taskbar_rows - 1 );
+        CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
+        CheckDlgButton( dlg, IDC_DP_CLOCK, show_clock ? BST_CHECKED : BST_UNCHECKED );
+        update_dialog_state( dlg );
+        return TRUE;
+
+    case WM_DRAWITEM:
+        if (wparam != IDC_DP_PREVIEW) break;
+        get_dialog_settings( dlg, &settings );
+        draw_display_preview( (const DRAWITEMSTRUCT *)lparam, &settings );
+        return TRUE;
+
+    case WM_COMMAND:
+        switch (LOWORD( wparam ))
+        {
+        case IDC_DP_STYLE:
+        case IDC_DP_SCHEME:
+        case IDC_DP_ROWS:
+            if (HIWORD( wparam ) == CBN_SELCHANGE) update_dialog_state( dlg );
+            break;
+        case IDC_DP_LOCK:
+        case IDC_DP_CLOCK:
+            update_dialog_state( dlg );
+            break;
+        case IDC_DP_APPLY:
+        case IDOK:
+            get_dialog_settings( dlg, &settings );
+            apply_display_settings( &settings );
+            if (LOWORD( wparam ) == IDOK) EndDialog( dlg, IDOK );
+            break;
+        case IDCANCEL:
+            EndDialog( dlg, IDCANCEL );
+            break;
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static void show_display_properties( HWND owner )
+{
+    if (display_dialog)  /* already open */
+    {
+        SetForegroundWindow( display_dialog );
+        return;
+    }
+    init_common_controls();
+    DialogBoxParamW( GetModuleHandleW( NULL ), MAKEINTRESOURCEW( IDD_DISPLAY_PROPERTIES ), owner,
+                     display_properties_proc, 0 );
+    display_dialog = 0;
+}
+
+/* right click on the desktop */
+void show_desktop_menu( HWND hwnd, LPARAM lparam )
+{
+    WCHAR str[64];
+    HMENU menu;
+    POINT pt;
+    int cmd;
+
+    if (!enable_taskbar || !tray_window) return;
+    pt.x = (short)LOWORD( lparam );
+    pt.y = (short)HIWORD( lparam );
+    ClientToScreen( hwnd, &pt );
+    if (!(menu = CreatePopupMenu())) return;
+    LoadStringW( NULL, IDS_DESKTOP_REFRESH, str, ARRAY_SIZE(str) );
+    AppendMenuW( menu, MF_STRING, IDM_DESKTOP_REFRESH, str );
+    AppendMenuW( menu, MF_SEPARATOR, 0, NULL );
+    LoadStringW( NULL, IDS_DESKTOP_PROPERTIES, str, ARRAY_SIZE(str) );
+    AppendMenuW( menu, MF_STRING, IDM_DESKTOP_PROPERTIES, str );
+    cmd = TrackPopupMenuEx( menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN, pt.x, pt.y, hwnd, NULL );
+    DestroyMenu( menu );
+
+    if (cmd == IDM_DESKTOP_REFRESH) InvalidateRect( hwnd, NULL, TRUE );
+    else if (cmd == IDM_DESKTOP_PROPERTIES) show_display_properties( hwnd );
 }
 
 static void do_hide_systray(void)
