@@ -140,7 +140,7 @@ static BOOL  xp_style;           /* paint the taskbar in the Luna style */
 static BOOL  xp_initialized;     /* clock timer, tooltip and event hooks are set up */
 static UINT  taskbar_scheme;     /* Luna color scheme */
 static BOOL  show_clock = TRUE;  /* show the clock in the notification area */
-static BOOL  xp_frames;          /* XP window frames, drawn by win32u in every process */
+static BOOL  xp_frames = TRUE;   /* XP window frames, drawn by win32u in every process */
 static BOOL  xp_wallpaper = TRUE; /* Wine XP desktop background */
 static BOOL  xp_controls = TRUE;  /* Wine XP visual style for buttons and controls */
 static BOOL  taskbar_locked;     /* taskbar height can't be changed */
