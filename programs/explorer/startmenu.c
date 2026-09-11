@@ -582,6 +582,8 @@ struct xp_menu_scheme
     unsigned int          footer_count;
     COLORREF name, name_shadow, footer_text;
     COLORREF right_back, divider, right_text, right_separator, hot, frame;
+    COLORREF left_back, left_text, left_separator, tile_border, tile_back;
+    COLORREF cascade_back, cascade_border, cascade_text;
 };
 
 static const struct xp_stop blue_header[] =
@@ -629,6 +631,22 @@ static const struct xp_stop silver_footer[] =
     {  88, RGB(0xbc,0xbc,0xcd) }, { 100, RGB(0xbc,0xbc,0xcd) },
 };
 
+/* Silver in dark mode */
+static const struct xp_stop graphite_header[] =
+{
+    {   0, RGB(0x5c,0x5c,0x64) }, {  12, RGB(0x4a,0x4a,0x52) }, {  47, RGB(0x3e,0x3e,0x46) },
+    {  90, RGB(0x34,0x34,0x3a) }, { 100, RGB(0x30,0x30,0x36) },
+};
+
+static const struct xp_stop graphite_footer[] =
+{
+    {   0, RGB(0x3c,0x3c,0x44) }, {  49, RGB(0x30,0x30,0x36) }, { 100, RGB(0x26,0x26,0x2c) },
+};
+
+#define XP_LIGHT_COLUMNS RGB(0xff,0xff,0xff), RGB(0x00,0x00,0x00), RGB(0xc5,0xc2,0xb8), \
+                         RGB(0xd8,0xe4,0xf8), RGB(0xfa,0xfc,0xff), \
+                         RGB(0xff,0xff,0xff), RGB(0xac,0xa8,0x99), RGB(0x00,0x00,0x00)
+
 static const struct xp_menu_scheme xp_menu_schemes[] =
 {
     {
@@ -636,18 +654,30 @@ static const struct xp_menu_scheme xp_menu_schemes[] =
         RGB(0xff,0xff,0xff), RGB(0x0d,0x2a,0x6a), RGB(0xff,0xff,0xff),
         RGB(0xd3,0xe5,0xfa), RGB(0x95,0xbd,0xee), RGB(0x00,0x13,0x6b), RGB(0x87,0xb3,0xe2),
         RGB(0x31,0x6a,0xc5), RGB(0x1c,0x4c,0xc0),
+        XP_LIGHT_COLUMNS,
     },
     {
         olive_header, ARRAY_SIZE(olive_header), olive_footer, ARRAY_SIZE(olive_footer),
         RGB(0xff,0xff,0xff), RGB(0x3b,0x4a,0x1c), RGB(0xff,0xff,0xff),
         RGB(0xe8,0xec,0xd6), RGB(0xb5,0xc3,0x96), RGB(0x37,0x43,0x1c), RGB(0xae,0xbd,0x8a),
         RGB(0x93,0xa5,0x68), RGB(0x6f,0x84,0x46),
+        XP_LIGHT_COLUMNS,
     },
     {
         silver_header, ARRAY_SIZE(silver_header), silver_footer, ARRAY_SIZE(silver_footer),
         RGB(0x1c,0x1c,0x3c), RGB(0xff,0xff,0xff), RGB(0x1c,0x1c,0x3c),
         RGB(0xec,0xec,0xf2), RGB(0xbc,0xbc,0xcc), RGB(0x1c,0x1c,0x3c), RGB(0xb4,0xb4,0xc8),
         RGB(0x9d,0x9d,0xbd), RGB(0x8a,0x8a,0xa4),
+        XP_LIGHT_COLUMNS,
+    },
+    {
+        graphite_header, ARRAY_SIZE(graphite_header), graphite_footer, ARRAY_SIZE(graphite_footer),
+        RGB(0xff,0xff,0xff), RGB(0x00,0x00,0x00), RGB(0xe8,0xe8,0xee),
+        RGB(0x30,0x30,0x34), RGB(0x4a,0x4a,0x52), RGB(0xe4,0xe4,0xec), RGB(0x4a,0x4a,0x52),
+        RGB(0x4a,0x5f,0x8c), RGB(0x1a,0x1a,0x1e),
+        RGB(0x26,0x26,0x2a), RGB(0xee,0xee,0xee), RGB(0x44,0x44,0x48),
+        RGB(0x50,0x50,0x58), RGB(0x2e,0x2e,0x34),
+        RGB(0x2b,0x2b,0x2f), RGB(0x50,0x50,0x58), RGB(0xee,0xee,0xee),
     },
 };
 
@@ -1072,8 +1102,8 @@ static void xp_draw_item( HDC hdc, unsigned int index )
     if (item->action == XP_ACTION_SEPARATOR)
     {
         xp_fade_line( hdc, rect.left + xp_px( 6 ), (rect.top + rect.bottom) / 2, rect.right - rect.left - xp_px( 12 ), 1,
-                      item->right ? xp_scheme->right_back : RGB(0xff,0xff,0xff),
-                      item->right ? xp_scheme->right_separator : RGB(0xc5,0xc2,0xb8) );
+                      item->right ? xp_scheme->right_back : xp_scheme->left_back,
+                      item->right ? xp_scheme->right_separator : xp_scheme->left_separator );
         return;
     }
 
@@ -1104,13 +1134,13 @@ static void xp_draw_item( HDC hdc, unsigned int index )
         int box = xp_px( 18 ), gap = xp_px( 8 ), x;
 
         xp_fade_line( hdc, rect.left + xp_px( 6 ), rect.top - xp_px( 5 ), rect.right - rect.left - xp_px( 12 ), 1,
-                      RGB(0xff,0xff,0xff), RGB(0xc5,0xc2,0xb8) );
+                      xp_scheme->left_back, xp_scheme->left_separator );
         if (hot) xp_fill( hdc, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, xp_scheme->hot );
         SelectObject( hdc, xp_bold_font );
         DrawTextW( hdc, item->text, -1, &text, DT_SINGLELINE | DT_CALCRECT | DT_HIDEPREFIX );
         x = rect.left + (rect.right - rect.left - text.right - gap - box) / 2;
         SetRect( &text, x, rect.top, x + text.right, rect.bottom );
-        SetTextColor( hdc, hot ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
+        SetTextColor( hdc, hot ? RGB(0xff,0xff,0xff) : xp_scheme->left_text );
         DrawTextW( hdc, item->text, -1, &text, DT_SINGLELINE | DT_VCENTER | DT_HIDEPREFIX | DT_NOCLIP );
         xp_draw_arrow_box( hdc, text.right + gap, (rect.top + rect.bottom - box) / 2, box );
         return;
@@ -1125,7 +1155,7 @@ static void xp_draw_item( HDC hdc, unsigned int index )
     rect.right -= xp_px( 4 );
     SelectObject( hdc, item->bold ? xp_bold_font : xp_font );
     if (hot) SetTextColor( hdc, RGB(0xff,0xff,0xff) );
-    else SetTextColor( hdc, item->right ? xp_scheme->right_text : RGB(0x00,0x00,0x00) );
+    else SetTextColor( hdc, item->right ? xp_scheme->right_text : xp_scheme->left_text );
     DrawTextW( hdc, item->text, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_HIDEPREFIX );
 }
 
@@ -1158,9 +1188,9 @@ static void xp_paint( HWND hwnd )
     tile = xp_px( 44 );
     rect.left = xp_px( 8 );
     rect.top = (xp_header_height - tile) / 2;
-    xp_fill( mem, rect.left, rect.top, tile, tile, RGB(0xd8,0xe4,0xf8) );
+    xp_fill( mem, rect.left, rect.top, tile, tile, xp_scheme->tile_border );
     xp_fill( mem, rect.left + xp_px( 2 ), rect.top + xp_px( 2 ), tile - xp_px( 4 ), tile - xp_px( 4 ),
-             RGB(0xfa,0xfc,0xff) );
+             xp_scheme->tile_back );
     logo = tile - xp_px( 8 );
     if (xp_logo)
         DrawIconEx( mem, rect.left + (tile - logo) / 2, rect.top + (tile - logo) / 2, xp_logo,
@@ -1179,7 +1209,7 @@ static void xp_paint( HWND hwnd )
 
     /* the two columns and the footer */
     body_top = xp_header_height + xp_px( 2 );
-    xp_fill( mem, 0, body_top, xp_split, xp_footer_top - body_top, RGB(0xff,0xff,0xff) );
+    xp_fill( mem, 0, body_top, xp_split, xp_footer_top - body_top, xp_scheme->left_back );
     xp_fill( mem, xp_split, body_top, client.right - xp_split, xp_footer_top - body_top, xp_scheme->right_back );
     xp_fill( mem, xp_split, body_top, 1, xp_footer_top - body_top, xp_scheme->divider );
     xp_vgradient( mem, 0, xp_footer_top, client.right, client.bottom - xp_footer_top,
@@ -1436,9 +1466,9 @@ static void xp_cascade_paint( HWND hwnd )
         old_font = SelectObject( mem, xp_font );
         SetBkMode( mem, TRANSPARENT );
 
-        /* white menu with a flat border */
-        xp_fill( mem, 0, 0, client.right, client.bottom, RGB(0xac,0xa8,0x99) );
-        xp_fill( mem, 1, 1, client.right - 2, client.bottom - 2, RGB(0xff,0xff,0xff) );
+        /* flat menu with a border: white, or dark for graphite */
+        xp_fill( mem, 0, 0, client.right, client.bottom, xp_scheme->cascade_border );
+        xp_fill( mem, 1, 1, client.right - 2, client.bottom - 2, xp_scheme->cascade_back );
 
         for (i = 0; i < level->count; i++)
         {
@@ -1451,11 +1481,11 @@ static void xp_cascade_paint( HWND hwnd )
                 DrawIconEx( mem, rect.left + xp_px( 4 ), (rect.top + rect.bottom - icon_size) / 2, node->icon,
                             icon_size, icon_size, 0, NULL, DI_NORMAL );
             SetRect( &text, rect.left + xp_px( 4 ) + icon_size + xp_px( 8 ), rect.top, rect.right - xp_px( 18 ), rect.bottom );
-            SetTextColor( mem, hot ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
+            SetTextColor( mem, hot ? RGB(0xff,0xff,0xff) : xp_scheme->cascade_text );
             DrawTextW( mem, node->name, -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX );
             if (node->folder)
                 xp_draw_submenu_arrow( mem, rect.right - xp_px( 10 ), (rect.top + rect.bottom) / 2,
-                                       hot ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
+                                       hot ? RGB(0xff,0xff,0xff) : xp_scheme->cascade_text );
         }
 
         BitBlt( hdc, 0, 0, client.right, client.bottom, mem, 0, 0, SRCCOPY );
@@ -1867,7 +1897,7 @@ void do_xp_startmenu( HWND tray )
     xp_tray = tray;
     xp_dpi = GetDpiForWindow( tray );
     if (!xp_dpi) xp_dpi = USER_DEFAULT_SCREEN_DPI;
-    xp_scheme = &xp_menu_schemes[min( get_taskbar_scheme(), ARRAY_SIZE(xp_menu_schemes) - 1 )];
+    xp_scheme = &xp_menu_schemes[min( get_taskbar_palette(), ARRAY_SIZE(xp_menu_schemes) - 1 )];
     xp_create_fonts();
     size = ARRAY_SIZE(xp_user);
     if (!GetUserNameW( xp_user, &size )) lstrcpyW( xp_user, L"User" );
