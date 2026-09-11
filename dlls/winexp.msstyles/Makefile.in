@@ -1,0 +1,6 @@
+MODULE = winexp.msstyles
+
+EXTRADLLFLAGS = -Wb,--data-only
+
+SOURCES = \
+	winexp.rc
