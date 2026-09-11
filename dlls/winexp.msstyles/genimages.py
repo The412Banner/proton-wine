@@ -185,57 +185,121 @@ def write_bmp(path, frames, horizontal=False):
         f.write(header + info + data)
 
 
-# the three colour schemes
+# colours: the light and dark bases, and the three schemes with their accents for both
 
 GREEN = [(0.0, hexc('d8f6d6')), (0.35, hexc('5dd65b')), (0.5, hexc('2bc22b')), (0.65, hexc('5dd65b')), (1.0, hexc('d8f6d6'))]
 RED = [(0.0, hexc('f8d8d8')), (0.35, hexc('e36b6b')), (0.5, hexc('cf3434')), (0.65, hexc('e36b6b')), (1.0, hexc('f8d8d8'))]
 YELLOW = [(0.0, hexc('fff4c8')), (0.35, hexc('f0cf4c')), (0.5, hexc('ddb21c')), (0.65, hexc('f0cf4c')), (1.0, hexc('fff4c8'))]
 ORANGE = (hexc('fff0cf'), hexc('f8b330'))
 
+LIGHT = dict(
+    face=[(0.0, hexc('ffffff')), (0.5, hexc('f6f5f0')), (0.8, hexc('eceae2')), (1.0, hexc('d6d0c5'))],
+    face_pressed=[(0.0, hexc('e1dfd3')), (0.3, hexc('e6e4d9')), (1.0, hexc('f3f2ed'))],
+    disabled_border=hexc('c9c7ba'), disabled_face=hexc('f5f4ea'),
+    box_fill=(hexc('dcdcd7'), hexc('ffffff')), box_pressed=(hexc('b0b0a7'), hexc('e3e1d4')),
+    box_disabled=hexc('ffffff'), check=hexc('21a121'), check_disabled=hexc('cac8bb'),
+    dot=[(0.0, hexc('6be067')), (1.0, hexc('1a9b17'))], disabled_glyph=hexc('c9c8c2'),
+    group_border=hexc('d0d0bf'),
+    gel_disabled=(hexc('e3e3db'), (hexc('f5f5f0'), hexc('f0f0ea'))), gel_shine=0.6,
+    track=dict(normal=(hexc('eeede5'), hexc('fefefb')), pressed=(hexc('c2c1b8'), hexc('d9d8d0')),
+               disabled=(hexc('f2f2ee'), hexc('fafaf8'))),
+    tab_face=(hexc('ffffff'), hexc('ecebe6')), tab_selected=(hexc('ffffff'), hexc('fcfcfe')),
+    progress_border=hexc('b2b2b2'), progress_trough=hexc('ffffff'),
+    trackbar_rows=[hexc('9d9c99'), hexc('d7d6cf'), hexc('f3f2ec'), hexc('ffffff')],
+    thumb_body=(hexc('ffffff'), hexc('e7e6df')), thumb_pressed=(hexc('e1dfd3'), hexc('cfccbe')),
+    header_face=(hexc('ffffff'), hexc('ebeadb')), header_pressed=hexc('dedcd2'),
+    header_band=[hexc('e2decd'), hexc('d6d2c2'), hexc('cbc7b8')], header_sep=(hexc('aca899'), hexc('ffffff')),
+    tree_border=hexc('7898b5'), tree_fill=(hexc('ffffff'), hexc('c6c6bb')), tree_glyph=(0, 0, 0),
+    grip_dot=hexc('b8b6a8'), grip_shine=hexc('ffffff'),
+    text=(0, 0, 0), text_disabled=(161, 161, 146), field=(245, 245, 245), field_disabled=(235, 235, 228),
+)
+
+DARK = dict(
+    face=[(0.0, hexc('555555')), (0.5, hexc('464646')), (0.8, hexc('3c3c3c')), (1.0, hexc('2e2e2e'))],
+    face_pressed=[(0.0, hexc('262626')), (0.3, hexc('2c2c2c')), (1.0, hexc('383838'))],
+    disabled_border=hexc('4a4a4a'), disabled_face=hexc('323232'),
+    box_fill=(hexc('262626'), hexc('404040')), box_pressed=(hexc('1c1c1c'), hexc('303030')),
+    box_disabled=hexc('2c2c2c'), check=hexc('3fcc3f'), check_disabled=hexc('5a5a5a'),
+    dot=[(0.0, hexc('86ee82')), (1.0, hexc('26ae22'))], disabled_glyph=hexc('5c5c5c'),
+    group_border=hexc('585858'),
+    gel_disabled=(hexc('3c3c3c'), (hexc('303030'), hexc('2c2c2c'))), gel_shine=0.12,
+    track=dict(normal=(hexc('242424'), hexc('2e2e2e')), pressed=(hexc('161616'), hexc('1e1e1e')),
+               disabled=(hexc('2a2a2a'), hexc('2c2c2c'))),
+    tab_face=(hexc('444444'), hexc('343434')), tab_selected=(hexc('505050'), hexc('444444')),
+    progress_border=hexc('5c5c5c'), progress_trough=hexc('262626'),
+    trackbar_rows=[hexc('141414'), hexc('262626'), hexc('3a3a3a'), hexc('5a5a5a')],
+    thumb_body=(hexc('5a5a5a'), hexc('3c3c3c')), thumb_pressed=(hexc('3c3c3c'), hexc('2c2c2c')),
+    header_face=(hexc('444444'), hexc('363636')), header_pressed=hexc('2c2c2c'),
+    header_band=[hexc('2c2c2c'), hexc('262626'), hexc('202020')], header_sep=(hexc('1c1c1c'), hexc('5a5a5a')),
+    tree_border=hexc('6a7f9a'), tree_fill=(hexc('404040'), hexc('2c2c2c')), tree_glyph=(230, 230, 230),
+    grip_dot=hexc('6a6a6a'), grip_shine=hexc('262626'),
+    text=(230, 230, 230), text_disabled=(120, 120, 120), field=(48, 48, 48), field_disabled=(40, 40, 40),
+)
+
 SCHEMES = {
     'blue': dict(
-        btn_border=hexc('003c74'), btn_default=(hexc('cee7ff'), hexc('6982ee')),
-        box_border=hexc('1c5180'),
-        sb=dict(border=hexc('9db6ed'), fill=(hexc('dde6fe'), hexc('bccefb')),
-                hot_border=hexc('7e9be3'), hot_fill=(hexc('eaf0ff'), hexc('cddbff')),
-                pressed_border=hexc('4f6fd6'), pressed_fill=(hexc('8aa6f0'), hexc('6e8ef1')),
-                glyph=hexc('4d6185'), grip_light=hexc('eef4fe'), grip_dark=hexc('8cb0f8')),
-        edit_border=(127, 157, 185), group_text=(0, 70, 213), group_text_dark=(140, 180, 255),
-        tab_border=hexc('919b9c'), thumb_border=hexc('6a80b4'), tb_border=hexc('bfbcae'),
-    ),
+        light=dict(
+            btn_border=hexc('003c74'), btn_default=(hexc('cee7ff'), hexc('6982ee')), box_border=hexc('1c5180'),
+            sb=dict(border=hexc('9db6ed'), fill=(hexc('dde6fe'), hexc('bccefb')),
+                    hot_border=hexc('7e9be3'), hot_fill=(hexc('eaf0ff'), hexc('cddbff')),
+                    pressed_border=hexc('4f6fd6'), pressed_fill=(hexc('8aa6f0'), hexc('6e8ef1')),
+                    glyph=hexc('4d6185'), grip_light=hexc('eef4fe'), grip_dark=hexc('8cb0f8')),
+            edit_border=(127, 157, 185), group_text=(0, 70, 213),
+            tab_border=hexc('919b9c'), thumb_border=hexc('6a80b4'), tb_border=hexc('bfbcae')),
+        dark=dict(
+            btn_border=hexc('5b86d6'), btn_default=(hexc('9ec8ff'), hexc('4f6fe0')), box_border=hexc('5b86d6'),
+            sb=dict(border=hexc('4a64a8'), fill=(hexc('3d5588'), hexc('2c3f6a')),
+                    hot_border=hexc('6a86d0'), hot_fill=(hexc('4c66a2'), hexc('38507e')),
+                    pressed_border=hexc('7a98e8'), pressed_fill=(hexc('6282dc'), hexc('4d6cc4')),
+                    glyph=hexc('c8d6f4'), grip_light=hexc('7390d4'), grip_dark=hexc('22335a')),
+            edit_border=(91, 123, 160), group_text=(140, 180, 255),
+            tab_border=hexc('5a6470'), thumb_border=hexc('5b78b8'), tb_border=hexc('7a7a7a'))),
     'olive': dict(
-        btn_border=hexc('3d5a1d'), btn_default=(hexc('d3e6a4'), hexc('8ea94b')),
-        box_border=hexc('5c7431'),
-        sb=dict(border=hexc('b3c393'), fill=(hexc('eff3df'), hexc('d7e0bb')),
-                hot_border=hexc('9db372'), hot_fill=(hexc('f6f9ec'), hexc('e3eacd')),
-                pressed_border=hexc('7b8f4c'), pressed_fill=(hexc('bccb92'), hexc('a6b976')),
-                glyph=hexc('657746'), grip_light=hexc('fbfcf5'), grip_dark=hexc('a6b978')),
-        edit_border=(164, 185, 127), group_text=(76, 99, 34), group_text_dark=(190, 212, 140),
-        tab_border=hexc('a2a88a'), thumb_border=hexc('7d8c58'), tb_border=hexc('bcc0a4'),
-    ),
+        light=dict(
+            btn_border=hexc('3d5a1d'), btn_default=(hexc('d3e6a4'), hexc('8ea94b')), box_border=hexc('5c7431'),
+            sb=dict(border=hexc('b3c393'), fill=(hexc('eff3df'), hexc('d7e0bb')),
+                    hot_border=hexc('9db372'), hot_fill=(hexc('f6f9ec'), hexc('e3eacd')),
+                    pressed_border=hexc('7b8f4c'), pressed_fill=(hexc('bccb92'), hexc('a6b976')),
+                    glyph=hexc('657746'), grip_light=hexc('fbfcf5'), grip_dark=hexc('a6b978')),
+            edit_border=(164, 185, 127), group_text=(76, 99, 34),
+            tab_border=hexc('a2a88a'), thumb_border=hexc('7d8c58'), tb_border=hexc('bcc0a4')),
+        dark=dict(
+            btn_border=hexc('8aa65a'), btn_default=(hexc('c8e090'), hexc('7a9a3c')), box_border=hexc('8aa65a'),
+            sb=dict(border=hexc('5f7038'), fill=(hexc('4c5c30'), hexc('38461f')),
+                    hot_border=hexc('7a8f48'), hot_fill=(hexc('586a38'), hexc('42522a')),
+                    pressed_border=hexc('9ab85a'), pressed_fill=(hexc('7a9444'), hexc('667e36')),
+                    glyph=hexc('d6e2b8'), grip_light=hexc('8aa060'), grip_dark=hexc('2a3416')),
+            edit_border=(125, 143, 90), group_text=(190, 212, 140),
+            tab_border=hexc('5f6650'), thumb_border=hexc('7d9050'), tb_border=hexc('7a806a'))),
     'silver': dict(
-        btn_border=hexc('707086'), btn_default=(hexc('d7dbf2'), hexc('9ea3d3')),
-        box_border=hexc('77778e'),
-        sb=dict(border=hexc('b8b8c9'), fill=(hexc('fbfbfd'), hexc('dedee8')),
-                hot_border=hexc('9c9cb4'), hot_fill=(hexc('ffffff'), hexc('e9e9f1')),
-                pressed_border=hexc('83839d'), pressed_fill=(hexc('c9c9da'), hexc('b3b3c8')),
-                glyph=hexc('55556d'), grip_light=hexc('ffffff'), grip_dark=hexc('a9a9bd')),
-        edit_border=(165, 172, 181), group_text=(60, 60, 96), group_text_dark=(208, 208, 230),
-        tab_border=hexc('a5a5b8'), thumb_border=hexc('7b7b94'), tb_border=hexc('b2b2c2'),
-    ),
+        light=dict(
+            btn_border=hexc('707086'), btn_default=(hexc('d7dbf2'), hexc('9ea3d3')), box_border=hexc('77778e'),
+            sb=dict(border=hexc('b8b8c9'), fill=(hexc('fbfbfd'), hexc('dedee8')),
+                    hot_border=hexc('9c9cb4'), hot_fill=(hexc('ffffff'), hexc('e9e9f1')),
+                    pressed_border=hexc('83839d'), pressed_fill=(hexc('c9c9da'), hexc('b3b3c8')),
+                    glyph=hexc('55556d'), grip_light=hexc('ffffff'), grip_dark=hexc('a9a9bd')),
+            edit_border=(165, 172, 181), group_text=(60, 60, 96),
+            tab_border=hexc('a5a5b8'), thumb_border=hexc('7b7b94'), tb_border=hexc('b2b2c2')),
+        dark=dict(
+            btn_border=hexc('9a9ab4'), btn_default=(hexc('d0d4f4'), hexc('8c90c8')), box_border=hexc('9a9ab4'),
+            sb=dict(border=hexc('5a5a70'), fill=(hexc('4c4c5e'), hexc('3a3a4a')),
+                    hot_border=hexc('7a7a94'), hot_fill=(hexc('5a5a6e'), hexc('46465a')),
+                    pressed_border=hexc('9a9ab8'), pressed_fill=(hexc('6e6e8a'), hexc('5c5c78')),
+                    glyph=hexc('d8d8e8'), grip_light=hexc('7c7c94'), grip_dark=hexc('26262e')),
+            edit_border=(106, 106, 128), group_text=(208, 208, 230),
+            tab_border=hexc('5c5c6c'), thumb_border=hexc('8080a0'), tb_border=hexc('74747e'))),
 }
 
-FACE = [(0.0, hexc('ffffff')), (0.5, hexc('f6f5f0')), (0.8, hexc('eceae2')), (1.0, hexc('d6d0c5'))]
-FACE_PRESSED = [(0.0, hexc('e1dfd3')), (0.3, hexc('e6e4d9')), (1.0, hexc('f3f2ed'))]
-DISABLED_BORDER = hexc('c9c7ba')
-DISABLED_FACE = hexc('f5f4ea')
-BOX_FILL = (hexc('dcdcd7'), hexc('ffffff'))
-BOX_PRESSED = (hexc('b0b0a7'), hexc('e3e1d4'))
-CHECK = hexc('21a121')
-CHECK_DISABLED = hexc('cac8bb')
-DOT = [(0.0, hexc('6be067')), (1.0, hexc('1a9b17'))]
-DISABLED_GLYPH = hexc('c9c8c2')
-GROUP_BORDER = hexc('d0d0bf')
+
+def palette(name, dark):
+    """the colours of one scheme in the light or dark variant"""
+    p = dict(DARK if dark else LIGHT)
+    p.update(SCHEMES[name]['dark' if dark else 'light'])
+    return p
+
+
+def two(c):
+    return [(0.0, c[0]), (1.0, c[1])]
 
 
 # push button: normal, hot, pressed, disabled, defaulted, defaulted animating
@@ -243,20 +307,18 @@ GROUP_BORDER = hexc('d0d0bf')
 def pushbutton(s, state):
     w, h = 20, 21
     c = Canvas(w, h)
-    border = DISABLED_BORDER if state == 'disabled' else s['btn_border']
-    c.draw(ring(0, 0, w, h, 3, 1), solid(border))
+    c.draw(ring(0, 0, w, h, 3, 1), solid(s['disabled_border'] if state == 'disabled' else s['btn_border']))
     if state == 'pressed':
-        face = vgrad(1, h - 1, FACE_PRESSED)
+        face = vgrad(1, h - 1, s['face_pressed'])
     elif state == 'disabled':
-        face = solid(DISABLED_FACE)
+        face = solid(s['disabled_face'])
     else:
-        face = vgrad(1, h - 1, FACE)
+        face = vgrad(1, h - 1, s['face'])
     c.draw(rrect(1, 1, w - 1, h - 1, 2), face)
     if state == 'hot':
-        c.draw(ring(1, 1, w - 1, h - 1, 2, 2), vgrad(1, h - 1, [(0.0, ORANGE[0]), (1.0, ORANGE[1])]))
+        c.draw(ring(1, 1, w - 1, h - 1, 2, 2), vgrad(1, h - 1, two(ORANGE)))
     elif state == 'default':
-        top, bottom = s['btn_default']
-        c.draw(ring(1, 1, w - 1, h - 1, 2, 2), vgrad(1, h - 1, [(0.0, top), (1.0, bottom)]))
+        c.draw(ring(1, 1, w - 1, h - 1, 2, 2), vgrad(1, h - 1, two(s['btn_default'])))
     return c
 
 
@@ -266,18 +328,17 @@ def checkbox(s, size, mark, state):
     k = size / 13.0
     c = Canvas(size, size)
     bw = max(1, round(k))
-    c.draw(ring(0, 0, size, size, 0, bw), solid(DISABLED_BORDER if state == 'disabled' else s['box_border']))
+    c.draw(ring(0, 0, size, size, 0, bw), solid(s['disabled_border'] if state == 'disabled' else s['box_border']))
     if state == 'disabled':
-        fill = solid((255, 255, 255))
+        fill = solid(s['box_disabled'])
     elif state == 'pressed':
-        fill = dgrad(bw, bw, size - bw, size - bw, *BOX_PRESSED)
+        fill = dgrad(bw, bw, size - bw, size - bw, *s['box_pressed'])
     else:
-        fill = dgrad(bw, bw, size - bw, size - bw, *BOX_FILL)
+        fill = dgrad(bw, bw, size - bw, size - bw, *s['box_fill'])
     c.draw(rect(bw, bw, size - bw, size - bw), fill)
     if state in ('hot', 'pressed'):
-        c.draw(ring(bw, bw, size - bw, size - bw, 0, max(1, round(2 * k))),
-               vgrad(bw, size - bw, [(0.0, ORANGE[0]), (1.0, ORANGE[1])]))
-    colour = CHECK_DISABLED if state == 'disabled' else CHECK
+        c.draw(ring(bw, bw, size - bw, size - bw, 0, max(1, round(2 * k))), vgrad(bw, size - bw, two(ORANGE)))
+    colour = s['check_disabled'] if state == 'disabled' else s['check']
     if mark == 'checked':
         c.draw(polyline([(3.3 * k, 6.3 * k), (5.4 * k, 8.6 * k), (9.8 * k, 4.2 * k)], 2.1 * k), solid(colour))
     elif mark == 'mixed':
@@ -290,27 +351,27 @@ def radiobutton(s, size, checked, state):
     c = Canvas(size, size)
     r = size / 2.0
     bw = max(1.0, round(k))
-    c.draw(annulus(r, r, r, r - bw), solid(DISABLED_BORDER if state == 'disabled' else s['box_border']))
+    c.draw(annulus(r, r, r, r - bw), solid(s['disabled_border'] if state == 'disabled' else s['box_border']))
     if state == 'disabled':
-        fill = solid((255, 255, 255))
+        fill = solid(s['box_disabled'])
     elif state == 'pressed':
-        fill = dgrad(0, 0, size, size, *BOX_PRESSED)
+        fill = dgrad(0, 0, size, size, *s['box_pressed'])
     else:
-        fill = dgrad(0, 0, size, size, *BOX_FILL)
+        fill = dgrad(0, 0, size, size, *s['box_fill'])
     c.draw(disc(r, r, r - bw), fill)
     if state in ('hot', 'pressed'):
-        c.draw(annulus(r, r, r - bw, r - bw - 2 * k), vgrad(0, size, [(0.0, ORANGE[0]), (1.0, ORANGE[1])]))
+        c.draw(annulus(r, r, r - bw, r - bw - 2 * k), vgrad(0, size, two(ORANGE)))
     if checked:
         if state == 'disabled':
-            c.draw(disc(r, r, 2.6 * k), solid(CHECK_DISABLED))
+            c.draw(disc(r, r, 2.6 * k), solid(s['check_disabled']))
         else:
-            c.draw(disc(r, r, 2.6 * k), radial(r - 0.7 * k, r - 0.7 * k, 3.3 * k, DOT))
+            c.draw(disc(r, r, 2.6 * k), radial(r - 0.7 * k, r - 0.7 * k, 3.3 * k, s['dot']))
     return c
 
 
 def groupbox(s):
     c = Canvas(10, 10)
-    c.draw(ring(0, 0, 10, 10, 3, 1), solid(GROUP_BORDER))
+    c.draw(ring(0, 0, 10, 10, 3, 1), solid(s['group_border']))
     return c
 
 
@@ -320,7 +381,7 @@ def gel(s, w, h, state, vertical=True):
     sb = s['sb']
     c = Canvas(w, h)
     if state == 'disabled':
-        border, fill = hexc('e3e3db'), (hexc('f5f5f0'), hexc('f0f0ea'))
+        border, fill = s['gel_disabled']
     elif state == 'hot':
         border, fill = sb['hot_border'], sb['hot_fill']
     elif state == 'pressed':
@@ -328,10 +389,9 @@ def gel(s, w, h, state, vertical=True):
     else:
         border, fill = sb['border'], sb['fill']
     c.draw(rrect(0, 0, w, h, 2.5), solid(border))
-    grad = [(0.0, fill[0]), (1.0, fill[1])]
-    c.draw(rrect(1, 1, w - 1, h - 1, 1.5), vgrad(1, h - 1, grad) if vertical else hgrad(1, w - 1, grad))
+    c.draw(rrect(1, 1, w - 1, h - 1, 1.5), vgrad(1, h - 1, two(fill)) if vertical else hgrad(1, w - 1, two(fill)))
     if state != 'pressed':
-        c.draw(rect(2, 1, w - 2, 2), solid((255, 255, 255)), 0.6)
+        c.draw(rect(2, 1, w - 2, 2), solid((255, 255, 255)), s['gel_shine'])
     return c
 
 
@@ -344,7 +404,7 @@ def chevron(s, size, direction, state, width=2.2):
            'down': [(m - d, m - e), (m, m + e), (m + d, m - e)],
            'left': [(m + e, m - d), (m - e, m), (m + e, m + d)],
            'right': [(m - e, m - d), (m + e, m), (m - e, m + d)]}[direction]
-    colour = {'pressed': (255, 255, 255), 'disabled': DISABLED_GLYPH}.get(state, s['sb']['glyph'])
+    colour = {'pressed': (255, 255, 255), 'disabled': s['disabled_glyph']}.get(state, s['sb']['glyph'])
     c.draw(polyline(pts, width), solid(colour))
     return c
 
@@ -363,13 +423,8 @@ def gripper(s, state, vertical):
     return c
 
 
-def track(state, vertical):
-    if state == 'pressed':
-        edge, centre = hexc('c2c1b8'), hexc('d9d8d0')
-    elif state == 'disabled':
-        edge, centre = hexc('f2f2ee'), hexc('fafaf8')
-    else:
-        edge, centre = hexc('eeede5'), hexc('fefefb')
+def track(m, state, vertical):
+    edge, centre = m['track'].get(state, m['track']['normal'])
     stops = [(0.0, edge), (0.35, centre), (0.65, centre), (1.0, edge)]
     if vertical:
         c = Canvas(17, 4)
@@ -380,11 +435,11 @@ def track(state, vertical):
     return c
 
 
-def sizebox():
+def sizebox(m):
     c = Canvas(17, 17)
     for x, y in ((12, 12), (12, 8), (8, 12), (12, 4), (8, 8), (4, 12)):
-        c.draw(rect(x, y, x + 2, y + 2), solid(hexc('b8b6a8')))
-        c.draw(rect(x, y, x + 1, y + 1), solid((255, 255, 255)))
+        c.draw(rect(x, y, x + 2, y + 2), solid(m['grip_dot']))
+        c.draw(rect(x, y, x + 1, y + 1), solid(m['grip_shine']))
     return c
 
 
@@ -393,14 +448,14 @@ def sizebox():
 def tab_item(s, state):
     w, h = 16, 21
     c = Canvas(w, h)
-    border = DISABLED_BORDER if state == 'disabled' else s['tab_border']
+    border = s['disabled_border'] if state == 'disabled' else s['tab_border']
     c.draw(both(ring(0, 0, w, h + 4, 3, 1), rect(0, 0, w, h)), solid(border))
     if state == 'selected':
-        fill = vgrad(1, h, [(0.0, hexc('ffffff')), (1.0, hexc('fcfcfe'))])
+        fill = vgrad(1, h, two(s['tab_selected']))
     elif state == 'disabled':
-        fill = solid(DISABLED_FACE)
+        fill = solid(s['disabled_face'])
     else:
-        fill = vgrad(1, h, [(0.0, hexc('ffffff')), (1.0, hexc('ecebe6'))])
+        fill = vgrad(1, h, two(s['tab_face']))
     c.draw(both(rrect(1, 1, w - 1, h + 4, 2), rect(0, 0, w, h)), fill)
     if state in ('hot', 'selected'):
         c.draw(both(rrect(0, 0, w, h + 4, 3), rect(0, 0, w, 3)),
@@ -416,10 +471,10 @@ def tab_pane(s):
 
 # progress bar
 
-def progress_bar():
+def progress_bar(m):
     c = Canvas(12, 12)
-    c.draw(rrect(0, 0, 12, 12, 3), solid(hexc('b2b2b2')))
-    c.draw(rrect(1, 1, 11, 11, 2), solid((255, 255, 255)))
+    c.draw(rrect(0, 0, 12, 12, 3), solid(m['progress_border']))
+    c.draw(rrect(1, 1, 11, 11, 2), solid(m['progress_trough']))
     return c
 
 
@@ -435,10 +490,9 @@ def progress_chunk(stops, vertical):
 
 # trackbar
 
-def trackbar_track(vertical):
-    rows = [hexc('9d9c99'), hexc('d7d6cf'), hexc('f3f2ec'), (255, 255, 255)]
+def trackbar_track(m, vertical):
     c = Canvas(8, 4)
-    for i, colour in enumerate(rows):
+    for i, colour in enumerate(m['trackbar_rows']):
         c.draw(rect(0, i, 8, i + 1), solid(colour))
     return c.transpose() if vertical else c
 
@@ -454,17 +508,16 @@ def trackbar_thumb(s, state, pointed):
     else:
         outline = rrect(0, 0, w, h, 2)
         inner = rrect(1, 1, w - 1, h - 1, 1)
-    border = DISABLED_BORDER if state == 'disabled' else s['thumb_border']
-    c.draw(outline, solid(border))
+    c.draw(outline, solid(s['disabled_border'] if state == 'disabled' else s['thumb_border']))
     if state == 'pressed':
-        body = vgrad(1, h, [(0.0, hexc('e1dfd3')), (1.0, hexc('cfccbe'))])
+        body = vgrad(1, h, two(s['thumb_pressed']))
     elif state == 'disabled':
-        body = solid(DISABLED_FACE)
+        body = solid(s['disabled_face'])
     else:
-        body = vgrad(1, h, [(0.0, hexc('ffffff')), (1.0, hexc('e7e6df'))])
+        body = vgrad(1, h, two(s['thumb_body']))
     c.draw(inner, body)
     if state != 'disabled':
-        accent = ORANGE[1] if state == 'hot' else CHECK
+        accent = ORANGE[1] if state == 'hot' else s['check']
         light = ORANGE[0] if state == 'hot' else hexc('8fdc8f')
         band = rect(0, body_h - 3, w, h) if pointed else rect(0, h - 4, w, h)
         c.draw(both(inner, band), vgrad(body_h - 3 if pointed else h - 4, h, [(0.0, light), (1.0, accent)]))
@@ -473,19 +526,17 @@ def trackbar_thumb(s, state, pointed):
 
 # header
 
-def header_item(state):
+def header_item(m, state):
     w, h = 12, 17
     c = Canvas(w, h)
-    top = hexc('dedcd2') if state == 'pressed' else hexc('ffffff')
-    bottom = hexc('dedcd2') if state == 'pressed' else hexc('ebeadb')
+    top, bottom = (m['header_pressed'], m['header_pressed']) if state == 'pressed' else m['header_face']
     c.draw(rect(0, 0, w, h - 3), vgrad(0, h - 3, [(0.0, top), (1.0, bottom)]))
-    band = ([hexc('f9c64f'), hexc('f9b11f'), hexc('e39a0e')] if state == 'hot'
-            else [hexc('e2decd'), hexc('d6d2c2'), hexc('cbc7b8')])
+    band = [hexc('f9c64f'), hexc('f9b11f'), hexc('e39a0e')] if state == 'hot' else m['header_band']
     for i, colour in enumerate(band):
         c.draw(rect(0, h - 3 + i, w, h - 2 + i), solid(colour))
     if state != 'pressed':
-        c.draw(rect(w - 2, 3, w - 1, h - 5), solid(hexc('aca899')))
-        c.draw(rect(w - 1, 3, w, h - 5), solid((255, 255, 255)))
+        c.draw(rect(w - 2, 3, w - 1, h - 5), solid(m['header_sep'][0]))
+        c.draw(rect(w - 1, 3, w, h - 5), solid(m['header_sep'][1]))
     return c
 
 
@@ -493,11 +544,11 @@ def header_item(state):
 
 def tree_glyph(s, opened):
     c = Canvas(9, 9)
-    c.draw(ring(0, 0, 9, 9, 0, 1), solid(hexc('7898b5')))
-    c.draw(rect(1, 1, 8, 8), dgrad(1, 1, 8, 8, hexc('ffffff'), hexc('c6c6bb')))
-    c.draw(rect(2, 4, 7, 5), solid((0, 0, 0)))
+    c.draw(ring(0, 0, 9, 9, 0, 1), solid(s['tree_border']))
+    c.draw(rect(1, 1, 8, 8), dgrad(1, 1, 8, 8, *s['tree_fill']))
+    c.draw(rect(2, 4, 7, 5), solid(s['tree_glyph']))
     if not opened:
-        c.draw(rect(4, 2, 5, 7), solid((0, 0, 0)))
+        c.draw(rect(4, 2, 5, 7), solid(s['tree_glyph']))
     return c
 
 
@@ -554,11 +605,11 @@ def status_pane():
     return c
 
 
-def status_gripper():
+def status_gripper(m):
     c = Canvas(12, 12)
     for x, y in ((9, 9), (9, 5), (5, 9), (9, 1), (5, 5), (1, 9)):
-        c.draw(rect(x, y, x + 2, y + 2), solid(hexc('b8b6a8')))
-        c.draw(rect(x, y, x + 1, y + 1), solid((255, 255, 255)))
+        c.draw(rect(x, y, x + 2, y + 2), solid(m['grip_dot']))
+        c.draw(rect(x, y, x + 1, y + 1), solid(m['grip_shine']))
     return c
 
 
@@ -634,6 +685,25 @@ def make_images(name, s):
     return images
 
 
+def make_mode_images(mode, m):
+    """the images shared by the three schemes, in the light (mode '') or dark (mode 'dark_') variant"""
+    images = []
+
+    def save(file, frames, horizontal=False):
+        write_bmp(file, frames, horizontal)
+        images.append(file)
+
+    save(f'{mode}track_vert.bmp', [track(m, st, True) for st in ('normal', 'normal', 'pressed', 'disabled', 'normal')])
+    save(f'{mode}track_horz.bmp', [track(m, st, False) for st in ('normal', 'normal', 'pressed', 'disabled', 'normal')])
+    save(f'{mode}sizebox.bmp', [sizebox(m), sizebox(m).flip_h()] * 4)
+    save(f'{mode}progress_bar.bmp', [progress_bar(m)])
+    save(f'{mode}trackbar_track.bmp', [trackbar_track(m, False)])
+    save(f'{mode}trackbar_track_vert.bmp', [trackbar_track(m, True)])
+    save(f'{mode}header_item.bmp', [header_item(m, st) for st in ('normal', 'hot', 'pressed')])
+    save(f'{mode}status_gripper.bmp', [status_gripper(m)])
+    return images
+
+
 def make_shared_images():
     images = []
 
@@ -641,15 +711,8 @@ def make_shared_images():
         write_bmp(file, frames, horizontal)
         images.append(file)
 
-    save('track_vert.bmp', [track(st, True) for st in ('normal', 'normal', 'pressed', 'disabled', 'normal')])
-    save('track_horz.bmp', [track(st, False) for st in ('normal', 'normal', 'pressed', 'disabled', 'normal')])
-    save('sizebox.bmp', [sizebox(), sizebox().flip_h()] * 4)
-    save('progress_bar.bmp', [progress_bar()])
     save('progress_fill.bmp', [progress_chunk(st, False) for st in (GREEN, RED, YELLOW, GREEN)])
     save('progress_fill_vert.bmp', [progress_chunk(st, True) for st in (GREEN, RED, YELLOW, GREEN)])
-    save('trackbar_track.bmp', [trackbar_track(False)])
-    save('trackbar_track_vert.bmp', [trackbar_track(True)])
-    save('header_item.bmp', [header_item(st) for st in ('normal', 'hot', 'pressed')])
     save('toolbar_separator.bmp', [toolbar_separator()])
     save('toolbar_separator_vert.bmp', [toolbar_separator().transpose()])
     save('toolbar_blank.bmp', [Canvas(16, 16)] * len(TOOLBAR_STATES))
@@ -658,7 +721,6 @@ def make_shared_images():
     save('rebar_chevron_vert_glyph.bmp', [double_chevron(True)] * 3)
     save('rebar_gripper.bmp', [rebar_gripper()])
     save('status_pane.bmp', [status_pane()])
-    save('status_gripper.bmp', [status_gripper()])
     return images
 
 
@@ -666,7 +728,8 @@ def rgb(c):
     return f'{c[0]} {c[1]} {c[2]}'
 
 
-def ini(name, s, dark=False):
+def ini(name, s, mode):
+    """name: prefix of the scheme images, mode: prefix of the shared light or dark images"""
     dpi_files = lambda part, sizes: ''.join(
         f'ImageFile{i + 1} = {name}_{part}_{size}px.bmp\nMinDpi{i + 1} = {dpi}\n' for i, (size, dpi) in enumerate(sizes))
     return f"""[Globals]
@@ -685,10 +748,10 @@ SizingType = Stretch
 SizingMargins = 8, 8, 9, 9
 ContentMargins = 3, 3, 3, 3
 Transparent = True
-TextColor = 0 0 0
+TextColor = {rgb(s['text'])}
 
 [Button.Pushbutton(Disabled)]
-TextColor = 161 161 146
+TextColor = {rgb(s['text_disabled'])}
 
 [Button.Checkbox]
 BgType = ImageFile
@@ -701,13 +764,13 @@ TrueSizeScalingType = Dpi
 UniformSizing = True
 {dpi_files('checkbox', CHECK_SIZES)}
 [Button.Checkbox(UncheckedDisabled)]
-TextColor = 161 161 146
+TextColor = {rgb(s['text_disabled'])}
 
 [Button.Checkbox(CheckedDisabled)]
-TextColor = 161 161 146
+TextColor = {rgb(s['text_disabled'])}
 
 [Button.Checkbox(MixedDisabled)]
-TextColor = 161 161 146
+TextColor = {rgb(s['text_disabled'])}
 
 [Button.Radiobutton]
 BgType = ImageFile
@@ -720,10 +783,10 @@ TrueSizeScalingType = Dpi
 UniformSizing = True
 {dpi_files('radiobutton', RADIO_SIZES)}
 [Button.Radiobutton(UncheckedDisabled)]
-TextColor = 161 161 146
+TextColor = {rgb(s['text_disabled'])}
 
 [Button.Radiobutton(CheckedDisabled)]
-TextColor = 161 161 146
+TextColor = {rgb(s['text_disabled'])}
 
 [Button.Groupbox]
 BgType = ImageFile
@@ -732,7 +795,7 @@ SizingType = Stretch
 SizingMargins = 4, 4, 4, 4
 BorderOnly = True
 Transparent = True
-TextColor = {rgb(s['group_text_dark'] if dark else s['group_text'])}
+TextColor = {rgb(s['group_text'])}
 
 [ScrollBar.ArrowBtn]
 BgType = ImageFile
@@ -782,7 +845,7 @@ Transparent = True
 
 [ScrollBar.LowerTrackVert]
 BgType = ImageFile
-ImageFile = track_vert.bmp
+ImageFile = {mode}track_vert.bmp
 ImageCount = 5
 ImageLayout = Vertical
 SizingType = Stretch
@@ -790,7 +853,7 @@ SizingMargins = 3, 3, 0, 0
 
 [ScrollBar.UpperTrackVert]
 BgType = ImageFile
-ImageFile = track_vert.bmp
+ImageFile = {mode}track_vert.bmp
 ImageCount = 5
 ImageLayout = Vertical
 SizingType = Stretch
@@ -798,7 +861,7 @@ SizingMargins = 3, 3, 0, 0
 
 [ScrollBar.LowerTrackHorz]
 BgType = ImageFile
-ImageFile = track_horz.bmp
+ImageFile = {mode}track_horz.bmp
 ImageCount = 5
 ImageLayout = Vertical
 SizingType = Stretch
@@ -806,7 +869,7 @@ SizingMargins = 0, 0, 3, 3
 
 [ScrollBar.UpperTrackHorz]
 BgType = ImageFile
-ImageFile = track_horz.bmp
+ImageFile = {mode}track_horz.bmp
 ImageCount = 5
 ImageLayout = Vertical
 SizingType = Stretch
@@ -814,7 +877,7 @@ SizingMargins = 0, 0, 3, 3
 
 [ScrollBar.SizeBox]
 BgType = ImageFile
-ImageFile = sizebox.bmp
+ImageFile = {mode}sizebox.bmp
 ImageCount = 8
 ImageLayout = Vertical
 SizingType = TrueSize
@@ -823,17 +886,17 @@ VAlign = Bottom
 HAlign = Right
 
 [ScrollBar.SizeBoxBkgnd]
-FillColor = 254 254 251
+FillColor = {rgb(s['track']['normal'][1])}
 
 [ComboBox]
 BgType = BorderFill
 BorderSize = 1
 BorderColor = {rgb(s['edit_border'])}
-FillColor = 255 255 255
+FillColor = {rgb(s['field'])}
 ContentMargins = 0, 0, 0, 0
 
 [ComboBox(Disabled)]
-FillColor = 235 235 228
+FillColor = {rgb(s['field_disabled'])}
 
 [ComboBox.DropDownButton]
 BgType = ImageFile
@@ -851,14 +914,14 @@ GlyphTransparent = True
 BgType = BorderFill
 BorderSize = 1
 BorderColor = {rgb(s['edit_border'])}
-FillColor = 255 255 255
+FillColor = {rgb(s['field'])}
 
 [Edit.EditText(Disabled)]
-FillColor = 235 235 228
-TextColor = 161 161 146
+FillColor = {rgb(s['field_disabled'])}
+TextColor = {rgb(s['text_disabled'])}
 
 [Edit.EditText(ReadOnly)]
-FillColor = 235 235 228
+FillColor = {rgb(s['field_disabled'])}
 
 [Spin.Up]
 BgType = ImageFile
@@ -930,12 +993,12 @@ SizingType = Stretch
 SizingMargins = 5, 5, 5, 2
 ContentMargins = 3, 3, 3, 2
 Transparent = True
-TextColor = 0 0 0
+TextColor = {rgb(s['text'])}
 """ for part in ('TabItem', 'TabItemLeftEdge', 'TabItemRightEdge', 'TabItemBothEdge',
                  'TopTabItem', 'TopTabItemLeftEdge', 'TopTabItemRightEdge', 'TopTabItemBothEdge')) + f"""
 [Progress.Bar]
 BgType = ImageFile
-ImageFile = progress_bar.bmp
+ImageFile = {mode}progress_bar.bmp
 SizingType = Stretch
 SizingMargins = 4, 4, 4, 4
 ContentMargins = 3, 3, 3, 3
@@ -945,7 +1008,7 @@ ProgressSpaceSize = 2
 
 [Progress.BarVert]
 BgType = ImageFile
-ImageFile = progress_bar.bmp
+ImageFile = {mode}progress_bar.bmp
 SizingType = Stretch
 SizingMargins = 4, 4, 4, 4
 ContentMargins = 3, 3, 3, 3
@@ -971,13 +1034,13 @@ Transparent = True
 
 [TrackBar.Track]
 BgType = ImageFile
-ImageFile = trackbar_track.bmp
+ImageFile = {mode}trackbar_track.bmp
 SizingType = Stretch
 SizingMargins = 1, 1, 1, 1
 
 [TrackBar.TrackVert]
 BgType = ImageFile
-ImageFile = trackbar_track_vert.bmp
+ImageFile = {mode}trackbar_track_vert.bmp
 SizingType = Stretch
 SizingMargins = 1, 1, 1, 1
 """ + ''.join(f"""
@@ -991,20 +1054,20 @@ Transparent = True
 """ for part, file in (('Thumb', 'thumb'), ('ThumbBottom', 'thumb_bottom'), ('ThumbTop', 'thumb_top'),
                        ('ThumbVert', 'thumb_vert'), ('ThumbLeft', 'thumb_left'), ('ThumbRight', 'thumb_right'))) + f"""
 [TrackBar.Tics]
-Color = 161 161 146
+Color = {rgb(s['text_disabled'])}
 
 [TrackBar.TicsVert]
-Color = 161 161 146
+Color = {rgb(s['text_disabled'])}
 
 [Header.HeaderItem]
 BgType = ImageFile
-ImageFile = header_item.bmp
+ImageFile = {mode}header_item.bmp
 ImageCount = 3
 ImageLayout = Vertical
 SizingType = Stretch
 SizingMargins = 1, 3, 1, 4
 ContentMargins = 4, 4, 2, 3
-TextColor = 0 0 0
+TextColor = {rgb(s['text'])}
 
 [TreeView.Glyph]
 BgType = ImageFile
@@ -1069,7 +1132,7 @@ Transparent = True
 
 [Status.Gripper]
 BgType = ImageFile
-ImageFile = status_gripper.bmp
+ImageFile = {mode}status_gripper.bmp
 SizingType = TrueSize
 Transparent = True
 
@@ -1213,15 +1276,15 @@ FOOTER = """
 
 
 def main():
-    images = make_shared_images()
+    images = make_shared_images() + make_mode_images('', LIGHT) + make_mode_images('dark_', DARK)
     out = [HEADER]
-    for name in ('blue', 'olive', 'silver'):
-        images += make_images(name, SCHEMES[name])
-    # the dark variants share the bitmaps, only a few text colours change
+    # each scheme comes in a light variant and a dark one, for dark window colours
     for dark in (False, True):
         for name in ('blue', 'olive', 'silver'):
-            res = name.upper() + ('DARK' if dark else '') + '_INI'
-            out.append(f'\n{res} TEXTFILE\n{{\n{rc_text(ini(name, SCHEMES[name], dark))}\n}}\n')
+            img = name + ('dark' if dark else '')
+            images += make_images(img, palette(name, dark))
+            text = ini(img, palette(name, dark), 'dark_' if dark else '')
+            out.append(f'\n{img.upper()}_INI TEXTFILE\n{{\n{rc_text(text)}\n}}\n')
     out.append('\n/* images */\n')
     for file in images:
         out.append(f'/* @makedep: {file} */\n{file.replace(".", "_").upper()} BITMAP "{file}"\n\n')
