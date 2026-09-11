@@ -1710,13 +1710,16 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
 static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,
                                     const struct xp_frame_colors *colors )
 {
-    int size = min( rect->right - rect->left, rect->bottom - rect->top ), x, y, t, radius;
+    int size = min( rect->right - rect->left, rect->bottom - rect->top ), extent, x, y, t, radius;
     BOOL down = (flags & DFCS_PUSHED) != 0, grayed = (flags & DFCS_INACTIVE) != 0;
     UINT type = flags & 0xff;
+    DWORD style, ex_style;
     COLORREF top, bottom, glyph;
+    HBITMAP bitmap, prev_bitmap;
     HBRUSH brush;
     HRGN rgn;
-    RECT box;
+    RECT box, caption;
+    HDC mem;
 
     if (size <= 4) return;
     /* square buttons on the right side of the classic button rectangle */
@@ -1749,51 +1752,76 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
     if (grayed) glyph = RGB( (GetRValue( glyph ) + GetRValue( bottom )) / 2, (GetGValue( glyph ) + GetGValue( bottom )) / 2,
                              (GetBValue( glyph ) + GetBValue( bottom )) / 2 );
 
+    /* The button is drawn in a bitmap, with the caption behind its rounded corners, and copied
+     * to the window in one go: that also works for windows drawn straight to the display. */
+    extent = size + 1;
+    if (!(mem = NtGdiCreateCompatibleDC( hdc ))) return;
+    if (!(bitmap = NtGdiCreateCompatibleBitmap( hdc, extent, extent )))
+    {
+        NtGdiDeleteObjectApp( mem );
+        return;
+    }
+    prev_bitmap = NtGdiSelectBitmap( mem, bitmap );
+
+    style = get_window_long( hwnd, GWL_STYLE );
+    ex_style = get_window_long( hwnd, GWL_EXSTYLE );
+    get_inside_rect( hwnd, COORDS_WINDOW, &caption, style, ex_style );
+    caption.bottom = caption.top + get_system_metrics( (ex_style & WS_EX_TOOLWINDOW) ? SM_CYSMCAPTION : SM_CYCAPTION );
+    OffsetRect( &caption, -box.left, -box.top );
+    xp_vertical_gradient( mem, &caption, colors->caption, colors->caption_count );
+
     radius = max( 3, size / 5 );
-    rgn = NtGdiCreateRoundRectRgn( box.left, box.top, box.right + 1, box.bottom + 1, radius, radius );
-    NtGdiExtSelectClipRgn( hdc, rgn, RGN_AND );
+    rgn = NtGdiCreateRoundRectRgn( 0, 0, extent, extent, radius, radius );
+    NtGdiExtSelectClipRgn( mem, rgn, RGN_COPY );
     {
         const struct xp_stop stops[] = { { 0, top }, { 100, bottom } };
-        xp_vertical_gradient( hdc, &box, stops, ARRAY_SIZE(stops) );
+        RECT inner = { 0, 0, size, size };
+
+        xp_vertical_gradient( mem, &inner, stops, ARRAY_SIZE(stops) );
     }
-    NtGdiExtSelectClipRgn( hdc, 0, RGN_COPY );
+    NtGdiExtSelectClipRgn( mem, 0, RGN_COPY );
     brush = NtGdiCreateSolidBrush( colors->button_border, 0 );
-    NtGdiFrameRgn( hdc, rgn, brush, 1, 1 );
+    NtGdiFrameRgn( mem, rgn, brush, 1, 1 );
     NtGdiDeleteObjectApp( brush );
     NtGdiDeleteObjectApp( rgn );
 
     /* glyphs */
     t = max( 2, size / 8 );
-    x = box.left + (down ? 1 : 0);
-    y = box.top + (down ? 1 : 0);
+    x = down ? 1 : 0;
+    y = down ? 1 : 0;
     switch (type)
     {
     case DFCS_CAPTIONCLOSE:
-        xp_draw_line( hdc, x + size * 3 / 10, y + size * 3 / 10, x + size * 7 / 10, y + size * 7 / 10, t, glyph );
-        xp_draw_line( hdc, x + size * 7 / 10, y + size * 3 / 10, x + size * 3 / 10, y + size * 7 / 10, t, glyph );
+        xp_draw_line( mem, x + size * 3 / 10, y + size * 3 / 10, x + size * 7 / 10, y + size * 7 / 10, t, glyph );
+        xp_draw_line( mem, x + size * 7 / 10, y + size * 3 / 10, x + size * 3 / 10, y + size * 7 / 10, t, glyph );
         break;
     case DFCS_CAPTIONMIN:
-        xp_fill( hdc, x + size * 3 / 10, y + size * 13 / 20, size * 2 / 5, t, glyph );
+        xp_fill( mem, x + size * 3 / 10, y + size * 13 / 20, size * 2 / 5, t, glyph );
         break;
     case DFCS_CAPTIONMAX:
-        xp_fill( hdc, x + size / 4, y + size / 4, size / 2, t, glyph );
-        xp_fill( hdc, x + size / 4, y + size / 4, 1, size / 2, glyph );
-        xp_fill( hdc, x + size * 3 / 4 - 1, y + size / 4, 1, size / 2, glyph );
-        xp_fill( hdc, x + size / 4, y + size * 3 / 4 - 1, size / 2, 1, glyph );
+        xp_fill( mem, x + size / 4, y + size / 4, size / 2, t, glyph );
+        xp_fill( mem, x + size / 4, y + size / 4, 1, size / 2, glyph );
+        xp_fill( mem, x + size * 3 / 4 - 1, y + size / 4, 1, size / 2, glyph );
+        xp_fill( mem, x + size / 4, y + size * 3 / 4 - 1, size / 2, 1, glyph );
         break;
     case DFCS_CAPTIONRESTORE:
     {
         int s = size * 2 / 5, bx = x + size * 3 / 8, by = y + size / 5, fx = x + size / 5, fy = y + size * 2 / 5;
 
-        xp_fill( hdc, bx, by, s, t, glyph );
-        xp_fill( hdc, bx + s - 1, by, 1, s, glyph );
-        xp_fill( hdc, fx, fy, s, t, glyph );
-        xp_fill( hdc, fx, fy, 1, s, glyph );
-        xp_fill( hdc, fx + s - 1, fy, 1, s, glyph );
-        xp_fill( hdc, fx, fy + s - 1, s, 1, glyph );
+        xp_fill( mem, bx, by, s, t, glyph );
+        xp_fill( mem, bx + s - 1, by, 1, s, glyph );
+        xp_fill( mem, fx, fy, s, t, glyph );
+        xp_fill( mem, fx, fy, 1, s, glyph );
+        xp_fill( mem, fx + s - 1, fy, 1, s, glyph );
+        xp_fill( mem, fx, fy + s - 1, s, 1, glyph );
         break;
     }
     }
+
+    NtGdiBitBlt( hdc, box.left, box.top, extent, extent, mem, 0, 0, SRCCOPY, 0, 0 );
+    NtGdiSelectBitmap( mem, prev_bitmap );
+    NtGdiDeleteObjectApp( bitmap );
+    NtGdiDeleteObjectApp( mem );
 }
 
 static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
@@ -2097,9 +2125,10 @@ BOOL WINAPI NtUserDrawCaptionTemp( HWND hwnd, HDC hdc, const RECT *rect, HFONT f
 static void nc_paint( HWND hwnd, HRGN clip )
 {
     const struct xp_frame_colors *xp;
-    HDC hdc;
+    HDC hdc, target, mem_dc = 0;
+    HBITMAP bitmap = 0, prev_bitmap = 0;
     RECT rfuzz, rect, clip_rect;
-    BOOL active;
+    BOOL active, buffered;
     WND *win;
     DWORD style, ex_style;
     WORD flags;
@@ -2110,6 +2139,8 @@ static void nc_paint( HWND hwnd, HRGN clip )
     style = win->dwStyle;
     ex_style = win->dwExStyle;
     flags = win->flags;
+    /* windows with a Vulkan or OpenGL client have no window surface */
+    buffered = win->clip_clients;
     release_win_ptr( win );
 
     active = flags & WIN_NCACTIVATED;
@@ -2138,6 +2169,24 @@ static void nc_paint( HWND hwnd, HRGN clip )
 
     get_window_rect_rel( hwnd, COORDS_WINDOW, &rect, get_thread_dpi() );
     NtGdiGetAppClipBox( hdc, &clip_rect );
+
+    /* Without a window surface the frame goes straight to the display, one drawing request at
+     * a time, and some X servers get fills and lines wrong. Draw it into a bitmap instead and
+     * copy the frame parts over, which only needs images to work. */
+    target = hdc;
+    if (buffered && !(ex_style & WS_EX_LAYOUTRTL) && (mem_dc = NtGdiCreateCompatibleDC( target )))
+    {
+        if ((bitmap = NtGdiCreateCompatibleBitmap( target, rect.right - rect.left, rect.bottom - rect.top )))
+        {
+            prev_bitmap = NtGdiSelectBitmap( mem_dc, bitmap );
+            hdc = mem_dc;
+        }
+        else
+        {
+            NtGdiDeleteObjectApp( mem_dc );
+            mem_dc = 0;
+        }
+    }
 
     NtGdiSelectPen( hdc, get_sys_color_pen( COLOR_WINDOWFRAME ));
 
@@ -2209,6 +2258,31 @@ static void nc_paint( HWND hwnd, HRGN clip )
             r.left = r.right - get_system_metrics( SM_CXVSCROLL ) + 1;
         r.top  = r.bottom - get_system_metrics( SM_CYHSCROLL ) + 1;
         fill_rect( hdc, &r, get_sys_color_brush( COLOR_BTNFACE ) );
+    }
+
+    if (mem_dc)
+    {
+        RECT client;
+        int width, height;
+
+        /* copy the frame around the client area, leaving the client itself alone */
+        get_window_rect_rel( hwnd, COORDS_WINDOW, &rect, get_thread_dpi() );
+        get_client_rect_rel( hwnd, COORDS_WINDOW, &client, get_thread_dpi() );
+        width = rect.right - rect.left;
+        height = rect.bottom - rect.top;
+        if (client.top > 0)
+            NtGdiBitBlt( target, 0, 0, width, client.top, mem_dc, 0, 0, SRCCOPY, 0, 0 );
+        if (client.bottom < height)
+            NtGdiBitBlt( target, 0, client.bottom, width, height - client.bottom, mem_dc, 0, client.bottom, SRCCOPY, 0, 0 );
+        if (client.left > 0 && client.bottom > client.top)
+            NtGdiBitBlt( target, 0, client.top, client.left, client.bottom - client.top, mem_dc, 0, client.top, SRCCOPY, 0, 0 );
+        if (client.right < width && client.bottom > client.top)
+            NtGdiBitBlt( target, client.right, client.top, width - client.right, client.bottom - client.top,
+                         mem_dc, client.right, client.top, SRCCOPY, 0, 0 );
+        NtGdiSelectBitmap( mem_dc, prev_bitmap );
+        NtGdiDeleteObjectApp( bitmap );
+        NtGdiDeleteObjectApp( mem_dc );
+        hdc = target;
     }
 
     NtUserReleaseDC( hwnd, hdc );
