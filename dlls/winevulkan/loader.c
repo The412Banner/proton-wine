@@ -787,6 +787,24 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, void *reserved)
         case DLL_PROCESS_ATTACH:
             hinstance = hinst;
             DisableThreadLibraryCalls(hinst);
+            /* winewayland.drv keeps the bundled Vulkan driver resident (RTLD_NODELETE), so tearing
+             * this module down leaves that driver's globals behind while our own side is destroyed,
+             * and the next load comes up against them. DiRT Rally 2.0 creates a probe device, frees
+             * vulkan-1 and loads it again a moment later: on X11 the second load succeeds, here it
+             * never returns. Pin ourselves so the two sides live and die together. WAYLAND_DISPLAY
+             * marks a Wayland container; an X11 one never has it, so that path is unchanged. */
+            if (GetEnvironmentVariableA("WAYLAND_DISPLAY", NULL, 0) ||
+                GetEnvironmentVariableA("XDG_RUNTIME_DIR", NULL, 0))
+            {
+                HMODULE pinned;
+                if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN |
+                                       GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                                       (const WCHAR *)hinst, &pinned))
+                    ERR("winevulkan: pinned for the Wayland driver\n");
+                else
+                    ERR("winevulkan: failed to pin, err %lu\n", GetLastError());
+            }
+            else ERR("winevulkan: not pinning, no Wayland environment\n");
             break;
     }
     return TRUE;

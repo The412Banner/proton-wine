@@ -131,6 +131,9 @@ static void use_bundled_drivers(void)
         strcat(path, "/lib/libvulkan_freedreno_wayland.so");
         if (!dlopen(path, RTLD_NOW | RTLD_NODELETE))
             MESSAGE("winewayland: could not pin %s: %s\n", path, dlerror());
+        /* Keeping the driver resident leaves its globals alive across a winevulkan unload, so
+         * winevulkan pins itself too when we are the active driver and the two stay in step
+         * (see dlls/winevulkan/loader.c). */
     }
 
     /* OpenGL through EGL on Zink, opt-in for now (BANNER_WAYLAND_GL=1): with WINE_USE_EGL set,
