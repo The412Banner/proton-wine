@@ -131,6 +131,8 @@ static void use_bundled_drivers(void)
     {
         setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
         setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
+        /* win32u only loads EGL when asked to. */
+        setenv("WINE_USE_EGL", "1", 1);
         MESSAGE("winewayland: OpenGL through %s (Zink)\n", path);
     }
 }
