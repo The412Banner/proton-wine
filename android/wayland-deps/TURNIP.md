@@ -1,24 +1,25 @@
 # Wayland Turnip
 
-`usr/lib/libvulkan_freedreno_wayland.so` is `libvulkan_freedreno.so` from Termux's
-`mesa-vulkan-icd-freedreno` 26.0.6-3 (aarch64): Turnip built with the KGSL backend and the
-Wayland WSI. The containers' own Vulkan drivers (the wrapper, adrenotools Turnip builds) have
-no Wayland WSI, so winewayland points `VK_ICD_FILENAMES` at
+`usr/lib/libvulkan_freedreno_wayland.so` is the Banners-Turnip **combined** driver: the release's
+A6xx/A7xx Turnip (Android platform, KGSL, Mesa at the release commit) built with the Wayland WSI
+as well (`build_turnip_wayland_wsi.sh` on the Banners-Turnip `wayland` branch, `-Dplatforms=
+android,wayland`). The same file, zipped with `meta.json`, is the AdrenoTools driver for X11, so one
+driver serves both paths. It links Termux's libwayland-client (bundled next to it) and Android's
+libhardware/libnativewindow/libsync from /system/lib64. The containers' own Vulkan drivers (the
+wrapper, plain adrenotools builds) have no Wayland WSI, so winewayland points `VK_ICD_FILENAMES` at
 `share/vulkan/icd.d/banner_wayland_turnip.json` when it runs on the Bannerlator compositor.
 
-Its libraries (libdrm, libxcb*, libX11-xcb, libxshmfence, libandroid-shmem, libc++_shared,
-libz, libzstd) come from the imagefs; libwayland-client is bundled next to it.
-
-Source: https://packages-cf.termux.dev/apt/termux-main/pool/main/m/mesa-vulkan-icd-freedreno/mesa-vulkan-icd-freedreno_26.0.6-3_aarch64.deb
+Before 2026-09-12 15:25 this was Termux's `mesa-vulkan-icd-freedreno` 26.0.6-3 Turnip.
 
 # OpenGL (EGL + Zink)
 
 `usr/lib/libEGL.so.1`, `libGLESv2.so.2` and `libgallium-26.3.0-devel.so` are Mesa 26.3.0-devel at
 7cda7850edd103ace21aac37d416d2fdf7a282e1 (the Banners-Turnip release commit), built by the
 Banners-Turnip `wayland` branch (`build_wayland.sh`): EGL on the Wayland platform with Zink, no LLVM,
-no GLX, as a Linux-style build on bionic like Termux's Mesa. winewayland points Mesa at Zink
-(`MESA_LOADER_DRIVER_OVERRIDE=zink`, `LIBGL_ALWAYS_SOFTWARE=1`: without a DRM device EGL only reaches
-Zink through its software path, which then draws with Vulkan through kopper) when these are present.
+no GLX, as a Linux-style build on bionic like Termux's Mesa, with EGL patched to take its kopper (Zink)
+path for a Wayland display without a DRM device. winewayland points Mesa at Zink
+(`MESA_LOADER_DRIVER_OVERRIDE=zink`, `WINE_USE_EGL=1`; NOT `LIBGL_ALWAYS_SOFTWARE`, which makes
+Zink demand a CPU Vulkan device) when these are present.
 Zink opens `libvulkan.so.1`, the imagefs Vulkan loader, which follows `VK_ICD_FILENAMES` to the
 Wayland Turnip above.
 

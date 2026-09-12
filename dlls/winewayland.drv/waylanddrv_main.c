@@ -130,8 +130,8 @@ static void use_bundled_drivers(void)
     if (!access(path, R_OK))
     {
         setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
-        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
-        /* win32u only loads EGL when asked to. */
+        /* NOT LIBGL_ALWAYS_SOFTWARE: that makes Zink demand a CPU Vulkan device. Our bundled Mesa
+         * takes the kopper (Zink) path for a Wayland display without a DRM device on its own. */
         setenv("WINE_USE_EGL", "1", 1);
         MESSAGE("winewayland: OpenGL through %s (Zink)\n", path);
     }
