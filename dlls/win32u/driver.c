@@ -898,6 +898,13 @@ static void nulldrv_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_h
 {
 }
 
+/* TRUE: windows with GL/Vulkan clients get no window surface (the driver draws their frame).
+ * A driver that can't draw outside a window surface returns FALSE to keep one for the frame. */
+static BOOL nulldrv_ClipClientSurfaces( HWND hwnd )
+{
+    return TRUE;
+}
+
 static BOOL nulldrv_SystemParametersInfo( UINT action, UINT int_param, void *ptr_param, UINT flags )
 {
     return FALSE;
@@ -1315,6 +1322,7 @@ static const struct user_driver_funcs lazy_load_driver =
     nulldrv_CreateWindowSurface,
     nulldrv_MoveWindowBits,
     nulldrv_WindowPosChanged,
+    nulldrv_ClipClientSurfaces,
     /* system parameters */
     nulldrv_SystemParametersInfo,
     /* wintab support */
@@ -1415,6 +1423,7 @@ void __wine_set_user_driver( const struct user_driver_funcs *funcs, UINT version
     SET_USER_FUNC(CreateWindowSurface);
     SET_USER_FUNC(MoveWindowBits);
     SET_USER_FUNC(WindowPosChanged);
+    SET_USER_FUNC(ClipClientSurfaces);
     SET_USER_FUNC(SystemParametersInfo);
     SET_USER_FUNC(WintabProc);
     SET_USER_FUNC(VulkanInit);

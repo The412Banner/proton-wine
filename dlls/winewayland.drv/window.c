@@ -673,6 +673,18 @@ BOOL WAYLAND_WindowPosChanging(HWND hwnd, UINT swp_flags, BOOL shaped, const str
 }
 
 /***********************************************************************
+ *           WAYLAND_ClipClientSurfaces
+ *
+ * Wayland has no way to draw a window frame outside a window surface. On the
+ * virtual desktop keep one for Vulkan/GL windows too, so their title bar and
+ * borders are painted like on X11; the client surface sits above it.
+ */
+BOOL WAYLAND_ClipClientSurfaces(HWND hwnd)
+{
+    return !wayland_desktop_mode();
+}
+
+/***********************************************************************
  *           WAYLAND_WindowPosChanged
  */
 void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UINT swp_flags,

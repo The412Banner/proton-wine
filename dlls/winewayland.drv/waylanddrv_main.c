@@ -59,6 +59,7 @@ static const struct user_driver_funcs waylanddrv_funcs =
     .pUpdateDisplayDevices = WAYLAND_UpdateDisplayDevices,
     .pWindowMessage = WAYLAND_WindowMessage,
     .pWindowPosChanged = WAYLAND_WindowPosChanged,
+    .pClipClientSurfaces = WAYLAND_ClipClientSurfaces,
     .pWindowPosChanging = WAYLAND_WindowPosChanging,
     .pCreateWindowSurface = WAYLAND_CreateWindowSurface,
     .pVulkanInit = WAYLAND_VulkanInit,
