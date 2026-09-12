@@ -1,15 +1,19 @@
 # Wayland Turnip
 
-`usr/lib/libvulkan_freedreno_wayland.so` is the Banners-Turnip `wayland` branch's Linux-style
-Turnip (`build_wayland.sh`: KGSL, Wayland WSI, Mesa at the release commit, built for the
-Bannerlator imagefs like Termux's Mesa). The combined Android+Wayland driver from the same branch
-loads through AdrenoTools on X11 but not through the imagefs Vulkan loader (it needs Android's
-libhardware/libnativewindow), so Wayland uses this sibling build. It links Termux's
-libwayland-client, bundled next to it. The containers' own Vulkan drivers have no Wayland WSI, so
+`usr/lib/libvulkan_freedreno_wayland.so` is `libvulkan_freedreno.so` from Termux's
+`mesa-vulkan-icd-freedreno` 26.0.6-3 (aarch64): Turnip built with the KGSL backend and the Wayland
+WSI. The containers' own Vulkan drivers (the wrapper, adrenotools builds) have no Wayland WSI, so
 winewayland points `VK_ICD_FILENAMES` at `share/vulkan/icd.d/banner_wayland_turnip.json` when it
-runs on the Bannerlator compositor.
+runs on the Bannerlator compositor. Its libraries come from the imagefs; libwayland-client is
+bundled next to it.
 
-Before 2026-09-12 this was Termux's `mesa-vulkan-icd-freedreno` 26.0.6-3 Turnip.
+Source: https://packages-cf.termux.dev/apt/termux-main/pool/main/m/mesa-vulkan-icd-freedreno/mesa-vulkan-icd-freedreno_26.0.6-3_aarch64.deb
+
+Tried and reverted (2026-09-12): the Banners-Turnip `wayland` branch's own builds. The combined
+Android+Wayland driver loads through AdrenoTools but not through the imagefs Vulkan loader (it needs
+Android's libhardware/libnativewindow); the Linux-style `build_wayland.sh` Turnip loads and creates a
+device ("turnip Mesa driver 26.2.99") but crashes in vkCreateSwapchainKHR (0xc0000005). Termux's
+package applies a set of patches for bionic that ours doesn't yet; revisit with those.
 
 # OpenGL (EGL + Zink)
 
