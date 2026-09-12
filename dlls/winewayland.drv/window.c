@@ -683,7 +683,7 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     struct wayland_client_surface *client;
     struct wayland_win_data *data, *toplevel_data;
     BOOL managed, fullscreen = swp_flags & WINE_SWP_FULLSCREEN;
-    BOOL desktop_mode = wayland_desktop_mode(), report_zorder = FALSE;
+    BOOL desktop_mode = wayland_desktop_mode(), report_zorder = FALSE, keep_toplevel = FALSE;
 
     TRACE("hwnd %p new_rects %s after %p flags %08x\n", hwnd, debugstr_window_rects(new_rects), insert_after, swp_flags);
 
@@ -710,7 +710,14 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     data->is_fullscreen = fullscreen;
     data->managed = managed;
 
-    if (!surface)
+    /* Windows drawn only through Vulkan or OpenGL get no window surface (win32u clips
+     * them to their client surface). On the virtual desktop they still need a placed
+     * toplevel for that client surface to live in, or their frames never show. */
+    if (!surface && desktop_mode && data->client_surface && toplevel == hwnd &&
+        NtUserIsWindowVisible(hwnd))
+        keep_toplevel = TRUE;
+
+    if (!surface && !keep_toplevel)
     {
         if ((client = data->client_surface))
         {
@@ -1063,6 +1070,7 @@ void set_client_surface(HWND hwnd, struct wayland_client_surface *new_client)
     HWND toplevel = NtUserGetAncestor(hwnd, GA_ROOT);
     struct wayland_client_surface *old_client;
     struct wayland_win_data *data;
+    BOOL desktop_mode = wayland_desktop_mode(), placed = FALSE;
 
     /* ownership is shared with the callers, the last caller to release
      * its reference will also destroy it and clear our pointer. */
@@ -1076,7 +1084,17 @@ void set_client_surface(HWND hwnd, struct wayland_client_surface *new_client)
 
         if ((data->client_surface = new_client))
         {
-            if (toplevel && NtUserIsWindowVisible(hwnd))
+            /* On the virtual desktop a top-level window drawn only through the new client
+             * surface may have no surface of its own yet; give it one to live in. Creating
+             * it also attaches the client surface. */
+            if (desktop_mode && toplevel == hwnd && !data->wayland_surface &&
+                NtUserIsWindowVisible(hwnd) && wayland_win_data_create_wayland_surface(data, NULL))
+            {
+                wayland_win_data_update_wayland_state(data);
+                wayland_desktop_report_window(data);
+                placed = TRUE;
+            }
+            else if (toplevel && NtUserIsWindowVisible(hwnd))
                 wayland_client_surface_attach(new_client, toplevel);
             else
                 wayland_client_surface_attach(new_client, NULL);
@@ -1084,6 +1102,8 @@ void set_client_surface(HWND hwnd, struct wayland_client_surface *new_client)
     }
 
     wayland_win_data_release(data);
+
+    if (placed) wayland_desktop_report_zorder();
 }
 
 BOOL set_window_surface_contents(HWND hwnd, struct wayland_shm_buffer *shm_buffer, HRGN damage_region)
