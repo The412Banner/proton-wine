@@ -12,11 +12,9 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
-        api_level: [28, 35]
-        exclude:
-          - arch: aarch64
-            api_level: 35
+        # Wayland desktop build: only the arm64ec layer carries winewayland.
+        arch: [aarch64]
+        api_level: [28]
       fail-fast: false
     
     steps:
