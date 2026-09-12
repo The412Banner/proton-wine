@@ -102,6 +102,7 @@ static void use_bundled_drivers(void)
     static const char json[] = "/share/vulkan/icd.d/banner_wayland_turnip.json";
     static const char egl[] = "/lib/libEGL.so.1";
     char wine[PATH_MAX], path[PATH_MAX], *p;
+    const char *env;
     Dl_info info;
     int i;
 
@@ -123,11 +124,12 @@ static void use_bundled_drivers(void)
         MESSAGE("winewayland: Vulkan driver %s\n", path);
     }
 
-    /* OpenGL through EGL on Zink. There's no DRM device on Android, so Mesa's EGL needs its
-     * software path with Zink forced, which then draws with Vulkan through kopper. */
+    /* OpenGL through EGL on Zink, opt-in for now (BANNER_WAYLAND_GL=1): with WINE_USE_EGL set,
+     * win32u probes the GPU at every process start, and that probe in the desktop process
+     * deadlocks other processes opening a display DC. */
     strcpy(path, wine);
     strcat(path, egl);
-    if (!access(path, R_OK))
+    if (!access(path, R_OK) && (env = getenv("BANNER_WAYLAND_GL")) && atoi(env))
     {
         setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
         /* NOT LIBGL_ALWAYS_SOFTWARE: that makes Zink demand a CPU Vulkan device. Our bundled Mesa
