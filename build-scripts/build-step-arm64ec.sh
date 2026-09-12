@@ -384,6 +384,13 @@ do
         cp "$_WLD"/../share/vulkan/icd.d/banner_wayland_turnip.json "$OUTPUT_DIR/share/vulkan/icd.d/"
         echo "Bundled the Wayland Turnip ICD into wcp"
       fi
+      # Mesa's EGL (Wayland platform) + Zink for OpenGL, from the same build as that Turnip,
+      # with the libwayland-server its EGL links.
+      if [ -f "$_WLD"/libEGL.so.1 ]; then
+        cp "$_WLD"/libEGL.so.1 "$_WLD"/libGLESv2.so.2 "$_WLD"/libgallium-*.so \
+           "$OUTPUT_DIR/lib/"
+        echo "Bundled Mesa EGL + Zink into wcp"
+      fi
     fi
 
     # Strip the packaged binaries to shrink the tree. llvm-strip ($STRIP) is arm64ec/COFF-aware AND

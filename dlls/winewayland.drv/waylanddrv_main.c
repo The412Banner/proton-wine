@@ -95,28 +95,44 @@ static void wayland_init_process_name(void)
 }
 
 /* Containers on the Bannerlator compositor point VK_ICD_FILENAMES at a wrapper driver that
- * can only present to X11. This build ships a Wayland-capable Turnip next to Wine, so use
- * that one when we're on that compositor. */
-static void use_bundled_vulkan_driver(void)
+ * can only present to X11, and their OpenGL is GLX-only. This build ships a Wayland-capable
+ * Turnip and Mesa's EGL + Zink next to Wine, so use those when we're on that compositor. */
+static void use_bundled_drivers(void)
 {
     static const char json[] = "/share/vulkan/icd.d/banner_wayland_turnip.json";
-    char path[PATH_MAX], *p;
+    static const char egl[] = "/lib/libEGL.so.1";
+    char wine[PATH_MAX], path[PATH_MAX], *p;
     Dl_info info;
     int i;
 
-    if (!dladdr((void *)use_bundled_vulkan_driver, &info) || !info.dli_fname) return;
-    if (strlen(info.dli_fname) >= sizeof(path) - sizeof(json)) return;
-    strcpy(path, info.dli_fname);
+    if (!dladdr((void *)use_bundled_drivers, &info) || !info.dli_fname) return;
+    if (strlen(info.dli_fname) >= sizeof(wine) - sizeof(json)) return;
+    strcpy(wine, info.dli_fname);
     /* <wine>/lib/wine/aarch64-unix/winewayland.so -> <wine> */
     for (i = 0; i < 4; i++)
     {
-        if (!(p = strrchr(path, '/'))) return;
+        if (!(p = strrchr(wine, '/'))) return;
         *p = 0;
     }
+
+    strcpy(path, wine);
     strcat(path, json);
-    if (access(path, R_OK)) return;
-    setenv("VK_ICD_FILENAMES", path, 1);
-    MESSAGE("winewayland: Vulkan driver %s\n", path);
+    if (!access(path, R_OK))
+    {
+        setenv("VK_ICD_FILENAMES", path, 1);
+        MESSAGE("winewayland: Vulkan driver %s\n", path);
+    }
+
+    /* OpenGL through EGL on Zink. There's no DRM device on Android, so Mesa's EGL needs its
+     * software path with Zink forced, which then draws with Vulkan through kopper. */
+    strcpy(path, wine);
+    strcat(path, egl);
+    if (!access(path, R_OK))
+    {
+        setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
+        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
+        MESSAGE("winewayland: OpenGL through %s (Zink)\n", path);
+    }
 }
 
 static NTSTATUS waylanddrv_unix_init(void *arg)
@@ -129,7 +145,7 @@ static NTSTATUS waylanddrv_unix_init(void *arg)
 
     if (!wayland_process_init()) goto err;
 
-    if (process_wayland.banner_desktop_v1) use_bundled_vulkan_driver();
+    if (process_wayland.banner_desktop_v1) use_bundled_drivers();
 
     return 0;
 
