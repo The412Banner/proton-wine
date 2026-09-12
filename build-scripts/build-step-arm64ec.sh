@@ -376,6 +376,14 @@ do
       cp -n "$_WLD"/libwayland-client.so "$_WLD"/libwayland-egl.so \
             "$_WLD"/libxkbcommon.so "$_WLD"/libxkbregistry.so "$OUTPUT_DIR/lib/" 2>/dev/null || true
       echo "Bundled wayland/xkb runtime libs into wcp lib/"
+      # Wayland-capable Turnip (Termux mesa-vulkan-icd-freedreno) + its ICD manifest, which
+      # winewayland selects when running on the Bannerlator compositor.
+      if [ -f "$_WLD"/libvulkan_freedreno_wayland.so ]; then
+        cp "$_WLD"/libvulkan_freedreno_wayland.so "$OUTPUT_DIR/lib/"
+        mkdir -p "$OUTPUT_DIR/share/vulkan/icd.d"
+        cp "$_WLD"/../share/vulkan/icd.d/banner_wayland_turnip.json "$OUTPUT_DIR/share/vulkan/icd.d/"
+        echo "Bundled the Wayland Turnip ICD into wcp"
+      fi
     fi
 
     # Strip the packaged binaries to shrink the tree. llvm-strip ($STRIP) is arm64ec/COFF-aware AND

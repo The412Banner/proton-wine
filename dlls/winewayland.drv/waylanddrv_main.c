@@ -24,12 +24,18 @@
 
 #include "config.h"
 
+#include <dlfcn.h>
+#include <limits.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 
 #include "waylanddrv.h"
+
+#include "wine/debug.h"
 
 char *process_name = NULL;
 
@@ -87,6 +93,31 @@ static void wayland_init_process_name(void)
     }
 }
 
+/* Containers on the Bannerlator compositor point VK_ICD_FILENAMES at a wrapper driver that
+ * can only present to X11. This build ships a Wayland-capable Turnip next to Wine, so use
+ * that one when we're on that compositor. */
+static void use_bundled_vulkan_driver(void)
+{
+    static const char json[] = "/share/vulkan/icd.d/banner_wayland_turnip.json";
+    char path[PATH_MAX], *p;
+    Dl_info info;
+    int i;
+
+    if (!dladdr((void *)use_bundled_vulkan_driver, &info) || !info.dli_fname) return;
+    if (strlen(info.dli_fname) >= sizeof(path) - sizeof(json)) return;
+    strcpy(path, info.dli_fname);
+    /* <wine>/lib/wine/aarch64-unix/winewayland.so -> <wine> */
+    for (i = 0; i < 4; i++)
+    {
+        if (!(p = strrchr(path, '/'))) return;
+        *p = 0;
+    }
+    strcat(path, json);
+    if (access(path, R_OK)) return;
+    setenv("VK_ICD_FILENAMES", path, 1);
+    MESSAGE("winewayland: Vulkan driver %s\n", path);
+}
+
 static NTSTATUS waylanddrv_unix_init(void *arg)
 {
     /* Set the user driver functions now so that they are available during
@@ -96,6 +127,8 @@ static NTSTATUS waylanddrv_unix_init(void *arg)
     wayland_init_process_name();
 
     if (!wayland_process_init()) goto err;
+
+    if (process_wayland.banner_desktop_v1) use_bundled_vulkan_driver();
 
     return 0;
 
