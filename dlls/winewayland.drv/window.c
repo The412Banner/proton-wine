@@ -149,7 +149,9 @@ void wayland_win_data_release(struct wayland_win_data *data)
     pthread_mutex_unlock(&win_data_mutex);
 }
 
-/* -1 until checked; the thread desktop only changes when SetDesktopWindow runs again. */
+/* -1 until checked, then sticky once a virtual desktop is seen: helper threads can sit
+ * on the process's non-virtual startup desktop (explorer's clipboard thread does) and
+ * must not switch the whole process back to rootless mode. */
 static int virtual_desktop_state = -1;
 
 static BOOL is_virtual_desktop(void)
@@ -173,8 +175,8 @@ static BOOL is_virtual_desktop(void)
 BOOL wayland_desktop_mode(void)
 {
     if (!process_wayland.banner_desktop_v1) return FALSE;
-    if (virtual_desktop_state < 0) virtual_desktop_state = is_virtual_desktop();
-    return virtual_desktop_state;
+    if (virtual_desktop_state != 1) virtual_desktop_state = is_virtual_desktop();
+    return virtual_desktop_state == 1;
 }
 
 static void wayland_win_data_get_config(struct wayland_win_data *data,
@@ -542,7 +544,52 @@ static void wayland_desktop_init(HWND hwnd)
 
     pthread_mutex_unlock(&win_data_mutex);
 
-    WARN("virtual desktop %p %s on the compositor\n", hwnd, wine_dbgstr_rect(&rect));
+    MESSAGE("winewayland: virtual desktop %p %s on the compositor\n", hwnd, wine_dbgstr_rect(&rect));
+}
+
+/***********************************************************************
+ *           wayland_desktop_resize
+ *
+ * Follow the desktop window: explorer applies the requested desktop size
+ * only after creating the window, and display changes resize it later.
+ */
+static void wayland_desktop_resize(HWND hwnd, const RECT *rect)
+{
+    int width = rect->right - rect->left, height = rect->bottom - rect->top;
+    struct wayland_shm_buffer *shm_buffer, *old;
+    struct wayland_surface *surface;
+    struct wayland_win_data *data;
+
+    if (width <= 0 || height <= 0) return;
+    if (!(data = wayland_win_data_get(hwnd))) return;
+    if (!(surface = data->wayland_surface) ||
+        (EqualRect(&data->rects.window, rect) && data->window_contents))
+    {
+        wayland_win_data_release(data);
+        return;
+    }
+    if (!(shm_buffer = wayland_shm_buffer_create(width, height, WL_SHM_FORMAT_XRGB8888)))
+    {
+        wayland_win_data_release(data);
+        return;
+    }
+    wayland_desktop_fill(shm_buffer);
+
+    data->rects.window = data->rects.client = data->rects.visible = *rect;
+    surface->window.rect = *rect;
+    surface->window.client_rect = *rect;
+    old = data->window_contents;
+    data->window_contents = shm_buffer;
+
+    shm_buffer->busy = TRUE;
+    wl_surface_attach(surface->wl_surface, shm_buffer->wl_buffer, 0, 0);
+    wl_surface_damage_buffer(surface->wl_surface, 0, 0, width, height);
+    wl_surface_commit(surface->wl_surface);
+    wl_display_flush(process_wayland.wl_display);
+    wayland_win_data_release(data);
+
+    if (old) wayland_shm_buffer_unref(old);
+    MESSAGE("winewayland: virtual desktop resized to %dx%d\n", width, height);
 }
 
 /***********************************************************************
@@ -552,8 +599,9 @@ void WAYLAND_SetDesktopWindow(HWND hwnd)
 {
     DWORD pid;
 
-    virtual_desktop_state = -1;
-    if (!wayland_desktop_mode()) return;
+    /* Check this thread's own desktop, not the process-wide answer. */
+    if (!process_wayland.banner_desktop_v1 || !is_virtual_desktop()) return;
+    virtual_desktop_state = 1;
     /* Only the process that owns the desktop window provides its surface. */
     if (!NtUserGetWindowThread(hwnd, &pid) || pid != GetCurrentProcessId()) return;
 
@@ -639,8 +687,12 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     TRACE("hwnd %p new_rects %s after %p flags %08x\n", hwnd, debugstr_window_rects(new_rects), insert_after, swp_flags);
 
-    /* The desktop surface is ours; its window has no Win32 surface to track. */
-    if (desktop_mode && hwnd == NtUserGetDesktopWindow()) return;
+    /* The desktop surface is ours; its window has no Win32 surface, only a size. */
+    if (desktop_mode && hwnd == NtUserGetDesktopWindow())
+    {
+        wayland_desktop_resize(hwnd, &new_rects->window);
+        return;
+    }
 
     /* Get the managed state with win_data unlocked, as is_window_managed
      * may need to query win_data information about other HWNDs and thus
