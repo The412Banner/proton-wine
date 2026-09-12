@@ -188,8 +188,8 @@ jobs:
           {
             "type": "Proton",
             "versionName": "11.0-1-${ARCH_NAME}",
-            "versionCode": 7,
-            "description": "Proton 11.0-1 ${ARCH_NAME} (bionic) — stock Valve + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
+            "versionCode": 90,
+            "description": "Wayland desktop test build — Proton 11.0-1 ${ARCH_NAME} (bionic) with the Wayland display driver and the Bannerlator virtual desktop. Proton 11.0-1: stock Valve + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh arm64ec container.",
             "files": [],
             "wine": {
               "binPath": "bin",
@@ -226,6 +226,12 @@ jobs:
           fi
           
           cd $OUTPUT_DIR
+
+          # The Wayland driver on its own, laid out like the installed Proton directory.
+          for f in lib/wine/aarch64-unix/winewayland.so lib/wine/aarch64-windows/winewayland.drv \
+                   lib/wine/i386-windows/winewayland.drv; do
+            if [ -f "$f" ]; then mkdir -p "$GITHUB_WORKSPACE/winewayland-files/$(dirname "$f")"; cp "$f" "$GITHUB_WORKSPACE/winewayland-files/$f"; fi
+          done
           
           # Create Proton WCP - zstd (tar.zst) for fast in-app install. The app's ContentsManager
           # tries XZ then falls back to ZSTD, so a zstd .wcp installs with no app change and decompresses
@@ -256,6 +262,15 @@ jobs:
           path: proton-11.0-1-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
       
+      # Just the Wayland driver, for replacing it in an installed copy of this same build.
+      - name: Upload Wayland driver for ${{ matrix.arch }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: winewayland-${{ env.ARCH_NAME }}
+          path: winewayland-files
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload Wine build artifacts for ${{ matrix.arch }}
         uses: actions/upload-artifact@v4
         with:

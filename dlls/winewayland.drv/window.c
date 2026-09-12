@@ -33,6 +33,7 @@
 #include "waylanddrv.h"
 
 #include "wine/debug.h"
+#include "wine/server.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 
@@ -148,6 +149,34 @@ void wayland_win_data_release(struct wayland_win_data *data)
     pthread_mutex_unlock(&win_data_mutex);
 }
 
+/* -1 until checked; the thread desktop only changes when SetDesktopWindow runs again. */
+static int virtual_desktop_state = -1;
+
+static BOOL is_virtual_desktop(void)
+{
+    USEROBJECTFLAGS flags = {0};
+    HANDLE desktop = NtUserGetThreadDesktop(GetCurrentThreadId());
+
+    if (!desktop || !NtUserGetObjectInformation(desktop, UOI_FLAGS, &flags, sizeof(flags), NULL))
+        return FALSE;
+    return !!(flags.dwFlags & DF_WINE_VIRTUAL_DESKTOP);
+}
+
+/***********************************************************************
+ *           wayland_desktop_mode
+ *
+ * Whether windows live on a Windows virtual desktop laid out by the
+ * compositor (banner_desktop_v1), like winex11's virtual desktop mode.
+ * In this mode Win32 owns all window geometry and stacking; the compositor
+ * only places surfaces where we report them.
+ */
+BOOL wayland_desktop_mode(void)
+{
+    if (!process_wayland.banner_desktop_v1) return FALSE;
+    if (virtual_desktop_state < 0) virtual_desktop_state = is_virtual_desktop();
+    return virtual_desktop_state;
+}
+
 static void wayland_win_data_get_config(struct wayland_win_data *data,
                                         struct wayland_window_config *conf)
 {
@@ -172,6 +201,10 @@ static void wayland_win_data_get_config(struct wayland_win_data *data,
     {
         window_state |= WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED;
     }
+
+    /* On the virtual desktop maximized and fullscreen are plain Win32 window
+     * sizes; don't negotiate them with the compositor. */
+    if (wayland_desktop_mode()) window_state = 0;
 
     conf->state = window_state;
     conf->scale = NtUserGetSystemDpiForProcess(0) / 96.0;
@@ -370,6 +403,164 @@ static inline HWND get_active_window(void)
 }
 
 /***********************************************************************
+ *           wayland_desktop_report_window
+ *
+ * Tell the compositor where a top-level window sits on the virtual desktop.
+ */
+static void wayland_desktop_report_window(struct wayland_win_data *data)
+{
+    struct wayland_surface *surface = data->wayland_surface;
+
+    if (!surface || surface->role != WAYLAND_SURFACE_ROLE_TOPLEVEL || !surface->xdg_toplevel)
+        return;
+
+    TRACE("hwnd=%p pos=%d,%d\n", data->hwnd, (int)data->rects.window.left, (int)data->rects.window.top);
+    banner_desktop_v1_set_window(process_wayland.banner_desktop_v1, surface->wl_surface,
+                                 HandleToUlong(data->hwnd),
+                                 data->rects.window.left, data->rects.window.top);
+    wl_display_flush(process_wayland.wl_display);
+}
+
+/***********************************************************************
+ *           wayland_desktop_report_zorder
+ *
+ * Send the stacking order of every visible top-level window on the desktop.
+ * The list comes from the server, so any process can report it for all.
+ */
+static void wayland_desktop_report_zorder(void)
+{
+    struct wl_array hwnds;
+    uint32_t *entry;
+    HWND *list;
+    UINT i;
+
+    if (!(list = build_hwnd_list())) return;
+
+    wl_array_init(&hwnds);
+    for (i = 0; list[i] != HWND_BOTTOM; i++)
+    {
+        if (!NtUserIsWindowVisible(list[i])) continue;
+        if ((entry = wl_array_add(&hwnds, sizeof(*entry)))) *entry = HandleToUlong(list[i]);
+    }
+    free(list);
+
+    banner_desktop_v1_set_zorder(process_wayland.banner_desktop_v1, &hwnds);
+    wl_array_release(&hwnds);
+    wl_display_flush(process_wayland.wl_display);
+}
+
+/* Fill the desktop surface; the wallpaper is drawn by user32, which the
+ * unix side can't reach, so use the desktop colour. */
+static void wayland_desktop_fill(struct wayland_shm_buffer *shm_buffer)
+{
+    COLORREF color = NtUserGetSysColor(COLOR_BACKGROUND);
+    uint32_t pixel = 0xff000000 | (GetRValue(color) << 16) | (GetGValue(color) << 8) | GetBValue(color);
+    uint32_t *pixels = shm_buffer->map_data;
+    size_t i, count = (size_t)shm_buffer->width * shm_buffer->height;
+
+    for (i = 0; i < count; i++) pixels[i] = pixel;
+}
+
+/***********************************************************************
+ *           wayland_desktop_init
+ *
+ * Give the desktop window a surface in the process that owns it and mark it
+ * as the virtual desktop. Pointer and keyboard input arrive on this surface
+ * in desktop coordinates, and the server routes them to the window under
+ * the pointer (or the focus window) in whichever process owns it.
+ */
+static void wayland_desktop_init(HWND hwnd)
+{
+    RECT rect = NtUserGetVirtualScreenRect(MDT_DEFAULT);
+    int width = rect.right - rect.left, height = rect.bottom - rect.top;
+    struct wayland_shm_buffer *shm_buffer;
+    struct wayland_surface *surface;
+    struct wayland_win_data *data;
+
+    if (width <= 0 || height <= 0) return;
+
+    /* Only winex11 initializes the desktop rect; mirror X11DRV_SetDesktopWindow
+     * so window coordinates and hit testing match the X11 virtual desktop. */
+    SERVER_START_REQ(get_window_rectangles)
+    {
+        req->handle = wine_server_user_handle(hwnd);
+        req->relative = COORDS_CLIENT;
+        if (!wine_server_call(req) && !reply->window.right && !reply->window.bottom)
+            width = -width;  /* not initialized yet */
+    }
+    SERVER_END_REQ;
+
+    if (width < 0)
+    {
+        width = -width;
+        SERVER_START_REQ(set_window_pos)
+        {
+            req->handle    = wine_server_user_handle(hwnd);
+            req->previous  = 0;
+            req->swp_flags = SWP_NOZORDER;
+            req->window    = wine_server_rectangle(rect);
+            req->client    = req->window;
+            wine_server_call(req);
+        }
+        SERVER_END_REQ;
+    }
+
+    if (!(shm_buffer = wayland_shm_buffer_create(width, height, WL_SHM_FORMAT_XRGB8888))) return;
+    wayland_desktop_fill(shm_buffer);
+
+    if (!(data = calloc(1, sizeof(*data))))
+    {
+        wayland_shm_buffer_unref(shm_buffer);
+        return;
+    }
+    data->hwnd = hwnd;
+    data->rects.window = data->rects.client = data->rects.visible = rect;
+
+    pthread_mutex_lock(&win_data_mutex);
+    if (rb_get(&win_data_rb, hwnd) || !(surface = wayland_surface_create(hwnd)))
+    {
+        pthread_mutex_unlock(&win_data_mutex);
+        wayland_shm_buffer_unref(shm_buffer);
+        free(data);
+        return;
+    }
+    rb_put(&win_data_rb, hwnd, &data->entry);
+
+    surface->window.rect = rect;
+    surface->window.client_rect = rect;
+    surface->window.visible = TRUE;
+    surface->window.managed = FALSE;
+    data->wayland_surface = surface;
+    data->window_contents = shm_buffer;
+
+    banner_desktop_v1_set_desktop(process_wayland.banner_desktop_v1, surface->wl_surface);
+    shm_buffer->busy = TRUE;
+    wl_surface_attach(surface->wl_surface, shm_buffer->wl_buffer, 0, 0);
+    wl_surface_damage_buffer(surface->wl_surface, 0, 0, width, height);
+    wl_surface_commit(surface->wl_surface);
+    wl_display_flush(process_wayland.wl_display);
+
+    pthread_mutex_unlock(&win_data_mutex);
+
+    WARN("virtual desktop %p %s on the compositor\n", hwnd, wine_dbgstr_rect(&rect));
+}
+
+/***********************************************************************
+ *           WAYLAND_SetDesktopWindow
+ */
+void WAYLAND_SetDesktopWindow(HWND hwnd)
+{
+    DWORD pid;
+
+    virtual_desktop_state = -1;
+    if (!wayland_desktop_mode()) return;
+    /* Only the process that owns the desktop window provides its surface. */
+    if (!NtUserGetWindowThread(hwnd, &pid) || pid != GetCurrentProcessId()) return;
+
+    wayland_desktop_init(hwnd);
+}
+
+/***********************************************************************
  *		is_window_managed
  *
  * Check if a given window should be managed
@@ -444,13 +635,20 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     struct wayland_client_surface *client;
     struct wayland_win_data *data, *toplevel_data;
     BOOL managed, fullscreen = swp_flags & WINE_SWP_FULLSCREEN;
+    BOOL desktop_mode = wayland_desktop_mode(), report_zorder = FALSE;
 
     TRACE("hwnd %p new_rects %s after %p flags %08x\n", hwnd, debugstr_window_rects(new_rects), insert_after, swp_flags);
 
+    /* The desktop surface is ours; its window has no Win32 surface to track. */
+    if (desktop_mode && hwnd == NtUserGetDesktopWindow()) return;
+
     /* Get the managed state with win_data unlocked, as is_window_managed
      * may need to query win_data information about other HWNDs and thus
-     * acquire the lock itself internally. */
-    if (!(managed = is_window_managed(hwnd, swp_flags, fullscreen)) && surface) toplevel = owner_hint;
+     * acquire the lock itself internally. On the virtual desktop even
+     * unmanaged popups are placed and stacked as top-level windows, since a
+     * subsurface of their owner can't rise above other processes' windows. */
+    if (!(managed = is_window_managed(hwnd, swp_flags, fullscreen)) && surface && !desktop_mode)
+        toplevel = owner_hint;
 
     if (!(data = wayland_win_data_get(hwnd))) return;
     toplevel_data = toplevel && toplevel != hwnd ? wayland_win_data_get_nolock(toplevel) : NULL;
@@ -476,12 +674,29 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
             data->wayland_surface = NULL;
         }
     }
-    else if (wayland_win_data_create_wayland_surface(data, toplevel_surface))
+    else
     {
-        wayland_win_data_update_wayland_state(data);
+        struct wayland_surface *old_surface = data->wayland_surface;
+        enum wayland_surface_role old_role = old_surface ? old_surface->role : WAYLAND_SURFACE_ROLE_NONE;
+
+        if (wayland_win_data_create_wayland_surface(data, toplevel_surface))
+        {
+            wayland_win_data_update_wayland_state(data);
+            if (desktop_mode)
+            {
+                wayland_desktop_report_window(data);
+                /* A new top-level needs a place in the compositor's stack. */
+                report_zorder = data->wayland_surface != old_surface ||
+                                data->wayland_surface->role != old_role;
+            }
+        }
     }
 
     wayland_win_data_release(data);
+
+    if (desktop_mode && (report_zorder || !(swp_flags & SWP_NOZORDER) ||
+                         (swp_flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW))))
+        wayland_desktop_report_zorder();
 }
 
 static void wayland_configure_window(HWND hwnd)
@@ -520,6 +735,16 @@ static void wayland_configure_window(HWND hwnd)
 
     surface->processing = surface->requested;
     memset(&surface->requested, 0, sizeof(surface->requested));
+
+    if (wayland_desktop_mode())
+    {
+        /* Win32 owns window geometry on the virtual desktop: acknowledge the
+         * configure without resizing, restyling or re-stacking the window. */
+        surface->processing.processed = TRUE;
+        wayland_win_data_release(data);
+        ensure_window_surface_contents(hwnd);
+        return;
+    }
 
     state = surface->processing.state;
     /* Ignore size hints if we don't have a state that requires strict
@@ -740,6 +965,10 @@ LRESULT WAYLAND_SysCommand(HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
 
     TRACE("cmd=%lx hwnd=%p, %lx, %lx\n",
           (long)command, hwnd, (long)wparam, lparam);
+
+    /* On the virtual desktop the default Win32 move/size loop moves windows,
+     * exactly as with winex11's virtual desktop. */
+    if (wayland_desktop_mode()) return -1;
 
     pthread_mutex_lock(&process_wayland.pointer.mutex);
     if (process_wayland.pointer.focused_hwnd == hwnd)
