@@ -122,6 +122,15 @@ static void use_bundled_drivers(void)
     {
         setenv("VK_ICD_FILENAMES", path, 1);
         MESSAGE("winewayland: Vulkan driver %s\n", path);
+
+        /* The Vulkan loader unloads the driver when a program destroys its last instance,
+         * and a later call still reaching into it then jumps into unmapped code (DiRT Rally
+         * 2.0 probes a device, releases it, and spins on that fault). Keep the library
+         * resident for the life of the process. */
+        strcpy(path, wine);
+        strcat(path, "/lib/libvulkan_freedreno_wayland.so");
+        if (!dlopen(path, RTLD_NOW | RTLD_NODELETE))
+            MESSAGE("winewayland: could not pin %s: %s\n", path, dlerror());
     }
 
     /* OpenGL through EGL on Zink, opt-in for now (BANNER_WAYLAND_GL=1): with WINE_USE_EGL set,
