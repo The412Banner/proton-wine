@@ -61,6 +61,8 @@ void destroy_handle_table(struct handle_table *lpTable);
 BOOL release_handle      (struct handle_table *lpTable, HCRYPTKEY handle, DWORD dwType);
 BOOL copy_handle         (struct handle_table *lpTable, HCRYPTKEY handle, DWORD dwType, HCRYPTKEY *copy);
 BOOL lookup_handle       (struct handle_table *lpTable, HCRYPTKEY handle, DWORD dwType, OBJECTHDR **lplpObject);
+BOOL lookup_handle_ref   (struct handle_table *lpTable, HCRYPTKEY handle, DWORD dwType, OBJECTHDR **lplpObject);
+void release_object_ref  (OBJECTHDR *pObject);
 BOOL is_valid_handle     (struct handle_table *lpTable, HCRYPTKEY handle, DWORD dwType);
 
 HCRYPTKEY new_object     (struct handle_table *lpTable, size_t cbSize, DWORD dwType, DESTRUCTOR destructor,
