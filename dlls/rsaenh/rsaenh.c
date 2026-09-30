@@ -5009,8 +5009,10 @@ BOOL WINAPI RSAENH_CPVerifySignature(HCRYPTPROV hProv, HCRYPTHASH hHash, const B
         return FALSE;
     }
  
-    if (!lookup_handle(&handle_table, hPubKey, RSAENH_MAGIC_KEY,
-                       (OBJECTHDR**)&pCryptKey))
+    /* Hold a reference for the whole call: another thread may CryptDestroyKey(hPubKey)
+     * while decrypt_block_impl is still reading the key (seen in Steam networking). */
+    if (!lookup_handle_ref(&handle_table, hPubKey, RSAENH_MAGIC_KEY,
+                           (OBJECTHDR**)&pCryptKey))
     {
         SetLastError(NTE_BAD_KEY);
         return FALSE;
@@ -5022,28 +5024,28 @@ BOOL WINAPI RSAENH_CPVerifySignature(HCRYPTPROV hProv, HCRYPTHASH hHash, const B
     if (dwSigLen != pCryptKey->dwKeyLen)
     {
         SetLastError(NTE_BAD_SIGNATURE);
-        return FALSE;
+        goto cleanup;
     }
 
     if (!hHash || !pbSignature)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
-        return FALSE;
+        goto cleanup;
     }
 
     if (sDescription) {
         if (!RSAENH_CPHashData(hProv, hHash, (const BYTE*)sDescription,
                                 (DWORD)lstrlenW(sDescription)*sizeof(WCHAR), 0))
         {
-            return FALSE;
+            goto cleanup;
         }
     }
     
     dwHashLen = sizeof(DWORD);
-    if (!RSAENH_CPGetHashParam(hProv, hHash, HP_ALGID, (BYTE*)&aiAlgid, &dwHashLen, 0)) return FALSE;
+    if (!RSAENH_CPGetHashParam(hProv, hHash, HP_ALGID, (BYTE*)&aiAlgid, &dwHashLen, 0)) goto cleanup;
     
     dwHashLen = RSAENH_MAX_HASH_SIZE;
-    if (!RSAENH_CPGetHashParam(hProv, hHash, HP_HASHVAL, abHashValue, &dwHashLen, 0)) return FALSE;
+    if (!RSAENH_CPGetHashParam(hProv, hHash, HP_HASHVAL, abHashValue, &dwHashLen, 0)) goto cleanup;
 
     pbConstructed = malloc(dwSigLen);
     if (!pbConstructed) {
@@ -5078,6 +5080,7 @@ BOOL WINAPI RSAENH_CPVerifySignature(HCRYPTPROV hProv, HCRYPTHASH hHash, const B
     SetLastError(NTE_BAD_SIGNATURE);
 
 cleanup:
+    release_object_ref(&pCryptKey->header);
     free(pbConstructed);
     free(pbDecrypted);
     return res;
