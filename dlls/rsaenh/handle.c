@@ -291,6 +291,45 @@ exit:
 }
 
 /******************************************************************************
+ *  lookup_handle_ref
+ *
+ * Like lookup_handle, but also takes a reference on the object while the
+ * handle table is still locked, so a concurrent release_handle() cannot
+ * destroy it before the caller is done. Drop it with release_object_ref().
+ */
+BOOL lookup_handle_ref(struct handle_table *lpTable, HCRYPTKEY handle, DWORD dwType, OBJECTHDR **lplpObject)
+{
+    BOOL ret = FALSE;
+
+    EnterCriticalSection(&lpTable->mutex);
+    if (!is_valid_handle(lpTable, handle, dwType))
+    {
+        *lplpObject = NULL;
+        goto exit;
+    }
+    *lplpObject = lpTable->paEntries[HANDLE2INDEX(handle)].pObject;
+    InterlockedIncrement(&(*lplpObject)->refcount);
+
+    ret = TRUE;
+exit:
+    LeaveCriticalSection(&lpTable->mutex);
+    return ret;
+}
+
+/******************************************************************************
+ *  release_object_ref
+ *
+ * Drops a reference taken by lookup_handle_ref(). Unlike release_handle() it
+ * leaves the handle table slot alone: the handle still belongs to its owner.
+ * Runs the destructor if this was the last reference.
+ */
+void release_object_ref(OBJECTHDR *pObject)
+{
+    if (!InterlockedDecrement(&pObject->refcount) && pObject->destructor)
+        pObject->destructor(pObject);
+}
+
+/******************************************************************************
  *  copy_handle
  *
  * Copies a handle. Increments the reference count of the object referenced
