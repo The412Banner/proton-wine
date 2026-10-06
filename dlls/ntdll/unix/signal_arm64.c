@@ -313,7 +313,7 @@ static void save_context( CONTEXT *context, const ucontext_t *sigcontext )
     context->Lr   = LR_sig(sigcontext);     /* Link register */
     context->Sp   = SP_sig(sigcontext);     /* Stack pointer */
     context->Pc   = PC_sig(sigcontext);     /* Program Counter */
-    context->Cpsr = PSTATE_sig(sigcontext); /* Current State Register */
+    context->Cpsr = PSTATE_sig(sigcontext) | (0x1000); /* Current State Register */
     for (i = 0; i <= 28; i++) context->X[i] = REGn_sig( i, sigcontext );
     save_fpu( context, sigcontext );
 }
@@ -332,7 +332,7 @@ static void restore_context( const CONTEXT *context, ucontext_t *sigcontext )
     LR_sig(sigcontext)     = context->Lr;   /* Link register */
     SP_sig(sigcontext)     = context->Sp;   /* Stack pointer */
     PC_sig(sigcontext)     = context->Pc;   /* Program Counter */
-    PSTATE_sig(sigcontext) = context->Cpsr; /* Current State Register */
+    PSTATE_sig(sigcontext) = context->Cpsr | (0x1000); /* Current State Register */
     for (i = 0; i <= 28; i++) REGn_sig( i, sigcontext ) = context->X[i];
     restore_fpu( context, sigcontext );
 }
@@ -425,7 +425,7 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
         frame->lr    = context->Lr;
         frame->sp    = context->Sp;
         frame->pc    = context->Pc;
-        frame->cpsr  = context->Cpsr;
+        frame->cpsr  = context->Cpsr | (0x1000);
     }
     if (flags & CONTEXT_FLOATING_POINT)
     {
@@ -470,7 +470,7 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
         context->Lr   = frame->lr;
         context->Sp   = frame->sp;
         context->Pc   = frame->pc;
-        context->Cpsr = frame->cpsr;
+        context->Cpsr = frame->cpsr | (0x1000);
         context->ContextFlags |= CONTEXT_CONTROL;
     }
     if (needed_flags & CONTEXT_FLOATING_POINT)
@@ -594,7 +594,7 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
             wow_frame->Sp = context->Sp;
             wow_frame->Lr = context->Lr;
             wow_frame->Pc = context->Pc & ~1;
-            wow_frame->Cpsr = context->Cpsr;
+            wow_frame->Cpsr = context->Cpsr | (0x1000);
             if (context->Cpsr & 0x20) wow_frame->Pc |= 1; /* thumb */
         }
         if (flags & CONTEXT_FLOATING_POINT)
@@ -720,7 +720,7 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
             context->Sp   = wow_frame->Sp;
             context->Lr   = wow_frame->Lr;
             context->Pc   = wow_frame->Pc;
-            context->Cpsr = wow_frame->Cpsr;
+            context->Cpsr = wow_frame->Cpsr | (0x1000);
             context->ContextFlags |= CONTEXT_CONTROL;
         }
         if (needed_flags & CONTEXT_FLOATING_POINT)
@@ -1385,7 +1385,7 @@ static void usr2_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     LR_sig(context)     = frame->lr;
     SP_sig(context)     = frame->sp;
     PC_sig(context)     = frame->pc;
-    PSTATE_sig(context) = frame->cpsr;
+    PSTATE_sig(context) = frame->cpsr | (0x1000);
     for (i = 0; i <= 28; i++) REGn_sig( i, context ) = frame->x[i];
 
 #ifdef linux

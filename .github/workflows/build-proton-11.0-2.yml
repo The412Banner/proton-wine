@@ -18,7 +18,7 @@ jobs:
       matrix:
         # Both legs ship in the AIO. Only the arm64ec leg carries winewayland;
         # x86_64 (box64) is a plain Proton layer built from the same v8 tree.
-        arch: [aarch64, x86_64]
+        arch: [aarch64]  # staging/force-ssbs: arm64ec only
         api_level: [28]
       fail-fast: false
     
@@ -269,14 +269,14 @@ jobs:
             DESC="Proton 11.0-2 x86_64 (bionic, box64) — stock Valve + fast-yield gate + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 (box64) container. v10: Media Foundation cutscene fixes (WMV/WMA). v11: shared-texture description driver, so DXVK before 3.0 shares D3D9/D3D11 textures again (NGS cutscenes on any DXVK)."
           else
             ARCH_NAME="arm64ec"
-            DESC="Proton 11.0-2 ${ARCH_NAME} (bionic) — stock Valve + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Wayland + HDR10 added. v10: Media Foundation cutscene fixes (WMV/WMA). v11: shared-texture description driver, so DXVK before 3.0 shares D3D9/D3D11 textures again (NGS cutscenes on any DXVK)."
+            DESC="Proton 11.0-2 ${ARCH_NAME} (bionic) TEST: force SSBS (PSTATE bit 12) on every context restore — stock Valve + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Wayland + HDR10 added. v10: Media Foundation cutscene fixes (WMV/WMA). v11: shared-texture description driver, so DXVK before 3.0 shares D3D9/D3D11 textures again (NGS cutscenes on any DXVK)."
           fi
           
           # Generate Proton profile.json
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
-            "versionName": "11.0-2-${ARCH_NAME}",
+            "versionName": "11.0-2-ssbs-${ARCH_NAME}",
             "versionCode": 13,
             "description": "${DESC}",
             "files": [],
@@ -292,7 +292,7 @@ jobs:
           cat > $GITHUB_WORKSPACE/profile-wine.json << EOF
           {
             "type": "Wine",
-            "versionName": "11.0-2-${ARCH_NAME}",
+            "versionName": "11.0-2-ssbs-${ARCH_NAME}",
             "versionCode": 13,
             "description": "${DESC}",
             "files": [],
@@ -327,13 +327,13 @@ jobs:
           # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar -I 'zstd -T0 -19' -cf proton-11.0-2-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
-          mv proton-11.0-2-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
+          tar -I 'zstd -T0 -19' -cf proton-11.0-2-ssbs-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
+          mv proton-11.0-2-ssbs-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
           
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
           cp $GITHUB_WORKSPACE/profile-wine.json profile.json
-          tar cJf proton-wine-11.0-2-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
-          mv proton-wine-11.0-2-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
+          tar cJf proton-wine-11.0-2-ssbs-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
+          mv proton-wine-11.0-2-ssbs-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
       
       # The packaged archive must carry exactly what the app's ContentsManager expects.
       - name: Verify wcp archives
@@ -401,7 +401,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: proton-11.0-2-${{ env.ARCH_NAME }}.wcp
+          path: proton-11.0-2-ssbs-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
       
       # Just the Wayland driver, for replacing it in an installed copy of this same build.
@@ -418,7 +418,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-wine-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: proton-wine-11.0-2-${{ env.ARCH_NAME }}.wcp.xz
+          path: proton-wine-11.0-2-ssbs-${{ env.ARCH_NAME }}.wcp.xz
           retention-days: 30
   
   release:

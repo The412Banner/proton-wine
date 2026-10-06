@@ -129,7 +129,7 @@ static inline void context_x64_to_arm( ARM64_NT_CONTEXT *arm_ctx, const ARM64EC_
     UINT64 fpcsr;
 
     arm_ctx->ContextFlags = ctx_flags_x64_to_arm( ec_ctx->ContextFlags );
-    arm_ctx->Cpsr = eflags_to_cpsr( ec_ctx->AMD64_EFlags );
+    arm_ctx->Cpsr = eflags_to_cpsr( ec_ctx->AMD64_EFlags ) | 0x1000; // Enable SSBS
     arm_ctx->X0   = ec_ctx->X0;
     arm_ctx->X1   = ec_ctx->X1;
     arm_ctx->X2   = ec_ctx->X2;
