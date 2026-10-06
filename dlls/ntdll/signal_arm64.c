@@ -453,7 +453,7 @@ void CDECL RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
         context->Sp   = jmp->Sp;
         context->Fpcr = jmp->Fpcr;
         context->Fpsr = jmp->Fpsr;
-        context->Cpsr = 0x1000; // Enable SSBS
+        context->Cpsr = ntdll_ssbs_bit; /* PSTATE.SSBS unless WINE_FORCE_SSBS=0 */
 
         for (i = 0; i < 8; i++)
             context->V[8+i].D[0] = jmp->D[i];

@@ -4401,11 +4401,16 @@ PIMAGE_NT_HEADERS WINAPI RtlImageNtHeader(HMODULE hModule)
     return ret;
 }
 
+/* PSTATE.SSBS bit forced into rebuilt arm64 contexts; WINE_FORCE_SSBS=0 restores stock behaviour. */
+ULONG ntdll_ssbs_bit = 0x1000;
+
 /***********************************************************************
  *           load_global_options
  */
 static void load_global_options(void)
 {
+    UNICODE_STRING force_ssbs_str = RTL_CONSTANT_STRING( L"WINE_FORCE_SSBS" );
+    WCHAR force_ssbs_val[2];
     OBJECT_ATTRIBUTES attr;
     UNICODE_STRING bootstrap_mode_str = RTL_CONSTANT_STRING( L"WINEBOOTSTRAPMODE" );
     UNICODE_STRING session_manager_str =
@@ -4416,6 +4421,12 @@ static void load_global_options(void)
     val_str.MaximumLength = 0;
     is_prefix_bootstrap =
         RtlQueryEnvironmentVariable_U( NULL, &bootstrap_mode_str, &val_str ) != STATUS_VARIABLE_NOT_FOUND;
+
+    val_str.Buffer = force_ssbs_val;
+    val_str.MaximumLength = sizeof(force_ssbs_val);
+    if (!RtlQueryEnvironmentVariable_U( NULL, &force_ssbs_str, &val_str ) &&
+        val_str.Length && force_ssbs_val[0] == '0')
+        ntdll_ssbs_bit = 0;
 
     InitializeObjectAttributes( &attr, &session_manager_str, OBJ_CASE_INSENSITIVE, 0, NULL );
     if (!NtOpenKey( &hkey, KEY_QUERY_VALUE, &attr ))

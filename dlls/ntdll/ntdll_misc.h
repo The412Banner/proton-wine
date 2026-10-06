@@ -52,6 +52,7 @@ static const USHORT current_machine = IMAGE_FILE_MACHINE_UNKNOWN;
 static const UINT_PTR page_size = 0x1000;
 
 extern BOOL delay_heap_free;
+extern ULONG ntdll_ssbs_bit;
 extern BOOL heap_zero_hack;
 extern BOOL heap_top_down_hack;
 
