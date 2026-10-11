@@ -54,6 +54,11 @@ struct transform
     bool have_video_input;
     bool have_decoded_output;
     REFERENCE_TIME next_output_time;
+
+    /* Row order requested by the downstream allocator through
+     * IMediaSample::GetMediaType(), overriding the connection type. */
+    bool have_sample_row_order;
+    bool sample_bottom_up;
 };
 
 struct transform_ops
@@ -175,6 +180,85 @@ static HRESULT transform_query_interface(struct strmbase_filter *iface, REFIID i
     return S_OK;
 }
 
+static void init_video_output_format(struct transform *filter, MFVIDEOFORMAT *output_fmt)
+{
+    const AM_MEDIA_TYPE *source_mt = &filter->source.pin.mt;
+    const VIDEOINFOHEADER *vih = (const VIDEOINFOHEADER *)source_mt->pbFormat;
+    bool bottom_up = vih->bmiHeader.biHeight > 0;
+
+    if (filter->have_sample_row_order)
+        bottom_up = filter->sample_bottom_up;
+
+    memset(output_fmt, 0, sizeof(*output_fmt));
+    output_fmt->dwSize = sizeof(*output_fmt);
+    output_fmt->guidFormat = source_mt->subtype;
+    output_fmt->videoInfo.dwWidth = vih->bmiHeader.biWidth;
+    output_fmt->videoInfo.dwHeight = abs(vih->bmiHeader.biHeight);
+    if (bottom_up && is_rgb_video_subtype(&source_mt->subtype))
+        output_fmt->videoInfo.VideoFlags |= MFVideoFlag_BottomUpLinearRep;
+    if (vih->AvgTimePerFrame)
+    {
+        output_fmt->videoInfo.FramesPerSecond.Numerator = 10000000;
+        output_fmt->videoInfo.FramesPerSecond.Denominator = vih->AvgTimePerFrame;
+    }
+}
+
+/* A downstream allocator may hand out samples whose media type differs from
+ * the connection type. amstream's DirectDraw stream connects with bottom-up
+ * RGB but its samples are locked DirectDraw surfaces, which are top-down, and
+ * it reports that with a negative biHeight from the sample's GetMediaType().
+ * Native decoders (and Wine's own AVI decompressor) honor that; follow the
+ * row order of such a type so the frame is not written upside down. */
+static void transform_update_sample_row_order(struct transform *filter, IMediaSample *sample)
+{
+    const AM_MEDIA_TYPE *source_mt = &filter->source.pin.mt;
+    const VIDEOINFOHEADER *sample_vih;
+    AM_MEDIA_TYPE *sample_mt;
+    MFVIDEOFORMAT output_fmt;
+    bool bottom_up;
+    HRESULT hr;
+
+    if ((hr = IMediaSample_GetMediaType(sample, &sample_mt)) != S_OK)
+    {
+        if (hr != S_FALSE)
+            WARN("Failed to get sample media type, hr %#lx.\n", hr);
+        return;
+    }
+
+    if (!IsEqualGUID(&source_mt->majortype, &MEDIATYPE_Video)
+            || !IsEqualGUID(&source_mt->formattype, &FORMAT_VideoInfo)
+            || source_mt->cbFormat < sizeof(VIDEOINFOHEADER)
+            || !is_rgb_video_subtype(&source_mt->subtype)
+            || !IsEqualGUID(&sample_mt->majortype, &MEDIATYPE_Video)
+            || !IsEqualGUID(&sample_mt->formattype, &FORMAT_VideoInfo)
+            || sample_mt->cbFormat < sizeof(VIDEOINFOHEADER)
+            || !IsEqualGUID(&sample_mt->subtype, &source_mt->subtype))
+    {
+        FIXME("Ignoring unsupported dynamic format change.\n");
+        strmbase_dump_media_type(sample_mt);
+        DeleteMediaType(sample_mt);
+        return;
+    }
+
+    sample_vih = (const VIDEOINFOHEADER *)sample_mt->pbFormat;
+    bottom_up = sample_vih->bmiHeader.biHeight > 0;
+    DeleteMediaType(sample_mt);
+
+    if (filter->have_sample_row_order && filter->sample_bottom_up == bottom_up)
+        return;
+
+    filter->have_sample_row_order = true;
+    filter->sample_bottom_up = bottom_up;
+    TRACE("downstream sample asks for %s RGB rows.\n", bottom_up ? "bottom-up" : "top-down");
+
+    init_video_output_format(filter, &output_fmt);
+    EnterCriticalSection(&filter->filter.stream_cs);
+    if (filter->winedmo_transform.handle)
+        winedmo_transform_set_output_format(filter->winedmo_transform,
+                (const union winedmo_format *)&output_fmt, sizeof(output_fmt));
+    LeaveCriticalSection(&filter->filter.stream_cs);
+}
+
 static HRESULT transform_init_stream(struct strmbase_filter *iface)
 {
     struct transform *filter = impl_from_strmbase_filter(iface);
@@ -188,7 +272,6 @@ static HRESULT transform_init_stream(struct strmbase_filter *iface)
         if (IsEqualGUID(&sink_mt->majortype, &MEDIATYPE_Video))
         {
             const VIDEOINFOHEADER *input_vih = (const VIDEOINFOHEADER *)sink_mt->pbFormat;
-            const VIDEOINFOHEADER *vih = (const VIDEOINFOHEADER *)source_mt->pbFormat;
             MFVIDEOFORMAT input_fmt = {0}, output_fmt = {0}, *input_format = &input_fmt;
 
             input_fmt.dwSize = sizeof(input_fmt);
@@ -221,17 +304,7 @@ static HRESULT transform_init_stream(struct strmbase_filter *iface)
                 }
             }
 
-            output_fmt.dwSize = sizeof(output_fmt);
-            output_fmt.guidFormat = source_mt->subtype;
-            output_fmt.videoInfo.dwWidth = vih->bmiHeader.biWidth;
-            output_fmt.videoInfo.dwHeight = abs(vih->bmiHeader.biHeight);
-            if (vih->bmiHeader.biHeight > 0 && is_rgb_video_subtype(&source_mt->subtype))
-                output_fmt.videoInfo.VideoFlags |= MFVideoFlag_BottomUpLinearRep;
-            if (vih->AvgTimePerFrame)
-            {
-                output_fmt.videoInfo.FramesPerSecond.Numerator = 10000000;
-                output_fmt.videoInfo.FramesPerSecond.Denominator = vih->AvgTimePerFrame;
-            }
+            init_video_output_format(filter, &output_fmt);
 
             status = winedmo_transform_create(MFMediaType_Video,
                     (union winedmo_format *)input_format, input_format->dwSize,
@@ -453,6 +526,9 @@ static HRESULT transform_drain_output(struct transform *filter, BOOL *delivered,
         hr = IMemAllocator_GetBuffer(filter->source.pAllocator, &output_sample, NULL, NULL, 0);
         if (FAILED(hr))
             return hr;
+
+        if (IsEqualGUID(&filter->source.pin.mt.majortype, &MEDIATYPE_Video))
+            transform_update_sample_row_order(filter, output_sample);
 
         if (FAILED(hr = IMediaSample_GetPointer(output_sample, &out_data)))
         {
@@ -814,6 +890,10 @@ static HRESULT transform_source_query_interface(struct strmbase_pin *pin, REFIID
 static HRESULT WINAPI transform_source_DecideBufferSize(struct strmbase_source *pin, IMemAllocator *allocator, ALLOCATOR_PROPERTIES *props)
 {
     struct transform *filter = impl_from_strmbase_filter(pin->pin.filter);
+
+    /* New connection: the row order follows the connection type again until
+     * a sample says otherwise. */
+    filter->have_sample_row_order = false;
 
     return filter->ops->source_decide_buffer_size(filter, allocator, props);
 }
