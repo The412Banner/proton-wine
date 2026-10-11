@@ -43,6 +43,9 @@
 
 #include "handle.h"
 #include "request.h"
+#include "process.h"
+#include "thread.h"
+#include "esync.h"
 #include "fsync.h"
 
 #include "pshpack4.h"
@@ -359,6 +362,11 @@ void fsync_abandon_mutex( unsigned int shm_idx, thread_id_t tid )
 
 DECL_HANDLER(fsync_free_shm_idx)
 {
+    if (do_esync())
+    {
+        esync_client_release( get_process_id( current->process ), req->shm_idx );
+        return;
+    }
     if (!req->shm_idx || req->shm_idx >= shm_idx_free_map_size * BITS_IN_FREE_MAP_WORD)
     {
         set_error( STATUS_INVALID_PARAMETER );

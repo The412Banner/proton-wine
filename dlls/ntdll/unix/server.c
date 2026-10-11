@@ -85,6 +85,7 @@
 #include "unix_private.h"
 #include "ddk/wdm.h"
 
+#include "esync.h"
 #include "fsync.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(server);
@@ -1771,6 +1772,14 @@ size_t server_init_process(void)
             {
                 inproc_device_fd = FSYNC_USED_BY_SERVER;
                 fsync_init( pid );
+            }
+            else if (reply->inproc_device == ESYNC_USED_BY_SERVER)
+            {
+                int shm_fd = wine_server_receive_fd( &handle );
+                assert( handle == ESYNC_SHM_TOKEN );
+                if (shm_fd < 0) fatal_error( "droiddeck-esync: no shared memory from wineserver\n" );
+                inproc_device_fd = ESYNC_USED_BY_SERVER;
+                esync_init( shm_fd );
             }
             else if (reply->inproc_device)
             {
