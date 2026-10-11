@@ -516,6 +516,12 @@ static HRESULT WINAPI segment_GetAudioPathConfig(IDirectMusicSegment8 *iface, IU
 {
     struct segment *This = impl_from_IDirectMusicSegment8(iface);
     FIXME("(%p, %p): stub\n", This, ppAudioPathConfig);
+
+    if (!ppAudioPathConfig)
+        return E_POINTER;
+
+    create_dmaudiopath_config(&IID_IUnknown, (void**)ppAudioPathConfig);
+
     return S_OK;
 }
 

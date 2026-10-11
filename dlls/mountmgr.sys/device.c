@@ -1021,8 +1021,8 @@ static NTSTATUS set_volume_info( struct volume *volume, struct dos_drive *drive,
         id = disk_device->unix_mount;
         id_len = strlen( disk_device->unix_mount ) + 1;
     }
-    if (volume->mount) set_mount_point_id( volume->mount, id, id_len );
-    if (drive && drive->mount) set_mount_point_id( drive->mount, id, id_len );
+    if (volume->mount) set_mount_point_id( volume->mount, id, id_len, -1 );
+    if (drive && drive->mount) set_mount_point_id( drive->mount, id, id_len, drive->drive );
 
     return STATUS_SUCCESS;
 }
@@ -1920,7 +1920,7 @@ static BOOL create_port_device( DRIVER_OBJECT *driver, int n, const char *unix_p
     DEVICE_OBJECT *dev_obj;
     NTSTATUS status;
     const WCHAR *windows_ports_key_name;
-    struct set_dosdev_symlink_params params = { dosdevices_path, unix_path };
+    struct set_dosdev_symlink_params params = { dosdevices_path, unix_path, driver == serial_driver };
 
     /* create DOS device */
     if (MOUNTMGR_CALL( set_dosdev_symlink, &params )) return FALSE;

@@ -1,0 +1,7 @@
+MODULE    = win32k.sys
+IMPORTS   = ntoskrnl
+EXTRADLLFLAGS = -mno-cygwin -Wl,--subsystem,native
+
+SOURCES = \
+	main.c \
+	win32k.sys.spec

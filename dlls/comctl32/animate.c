@@ -39,14 +39,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(animate);
 
-static struct {
-    HMODULE	hModule;
-    HIC         (WINAPI *fnICOpen)(DWORD, DWORD, UINT);
-    LRESULT     (WINAPI *fnICClose)(HIC);
-    LRESULT     (WINAPI *fnICSendMessage)(HIC, UINT, DWORD_PTR, DWORD_PTR);
-    DWORD       (WINAPIV *fnICDecompress)(HIC,DWORD,LPBITMAPINFOHEADER,LPVOID,LPBITMAPINFOHEADER,LPVOID);
-} fnIC;
-
 typedef struct
 {
    /* reference to input stream (file or resource) */
@@ -189,11 +181,6 @@ static void ANIMATE_Free(ANIMATE_INFO *infoPtr)
         }
         Free (infoPtr->lpIndex);
         infoPtr->lpIndex = NULL;
-        if (infoPtr->hic)
-        {
-            fnIC.fnICClose(infoPtr->hic);
-            infoPtr->hic = 0;
-        }
         Free (infoPtr->inbih);
         infoPtr->inbih = NULL;
         Free (infoPtr->outbih);
@@ -341,13 +328,6 @@ static BOOL ANIMATE_DrawFrame(ANIMATE_INFO *infoPtr, HDC hDC)
 
     mmioSeek(infoPtr->hMMio, infoPtr->lpIndex[infoPtr->currFrame], SEEK_SET);
     mmioRead(infoPtr->hMMio, infoPtr->indata, infoPtr->ash.dwSuggestedBufferSize);
-
-    if (infoPtr->hic &&
-	fnIC.fnICDecompress(infoPtr->hic, 0, infoPtr->inbih, infoPtr->indata,
-		     infoPtr->outbih, infoPtr->outdata) != ICERR_OK) {
-	WARN("Decompression error\n");
-	return FALSE;
-    }
 
     ANIMATE_PaintFrame(infoPtr, hDC);
 
@@ -639,47 +619,20 @@ static BOOL ANIMATE_GetAviInfo(ANIMATE_INFO *infoPtr)
 
 static BOOL ANIMATE_GetAviCodec(ANIMATE_INFO *infoPtr)
 {
-    DWORD	outSize;
-
     /* check uncompressed AVI */
     if ((infoPtr->ash.fccHandler == mmioFOURCC('D', 'I', 'B', ' ')) ||
        (infoPtr->ash.fccHandler == mmioFOURCC('R', 'L', 'E', ' ')) ||
+       (infoPtr->ash.fccHandler == mmioFOURCC('m', 's', 'v', 'c')) ||
+       (infoPtr->ash.fccHandler == mmioFOURCC('m', 'r', 'l', 'e')) ||
        (infoPtr->ash.fccHandler == mmioFOURCC(0, 0, 0, 0)))
     {
         infoPtr->hic = 0;
-	return TRUE;
+        return TRUE;
     }
 
-    /* try to get a decompressor for that type */
-    infoPtr->hic = fnIC.fnICOpen(ICTYPE_VIDEO, infoPtr->ash.fccHandler, ICMODE_DECOMPRESS);
-    if (!infoPtr->hic) {
-	WARN("Can't load codec for the file\n");
-	return FALSE;
-    }
+    FIXME("Unsupported %s\n", debugstr_fourcc(infoPtr->ash.fccHandler));
 
-    outSize = fnIC.fnICSendMessage(infoPtr->hic, ICM_DECOMPRESS_GET_FORMAT,
-			    (DWORD_PTR)infoPtr->inbih, 0L);
-
-    if (!(infoPtr->outbih = Alloc(outSize)))
-        return FALSE;
-
-    if (fnIC.fnICSendMessage(infoPtr->hic, ICM_DECOMPRESS_GET_FORMAT,
-		      (DWORD_PTR)infoPtr->inbih, (DWORD_PTR)infoPtr->outbih) != ICERR_OK) 
-    {
-	WARN("Can't get output BIH\n");
-	return FALSE;
-    }
-
-    if (!(infoPtr->outdata = Alloc(infoPtr->outbih->biSizeImage)))
-        return FALSE;
-
-    if (fnIC.fnICSendMessage(infoPtr->hic, ICM_DECOMPRESS_BEGIN,
-		      (DWORD_PTR)infoPtr->inbih, (DWORD_PTR)infoPtr->outbih) != ICERR_OK) {
-	WARN("Can't begin decompression\n");
-	return FALSE;
-    }
-
-    return TRUE;
+    return FALSE;
 }
 
 
@@ -787,17 +740,6 @@ static BOOL ANIMATE_Stop(ANIMATE_INFO *infoPtr)
 static BOOL ANIMATE_Create(HWND hWnd, const CREATESTRUCTW *lpcs)
 {
     ANIMATE_INFO *infoPtr;
-
-    if (!fnIC.hModule)
-    {
-	fnIC.hModule = LoadLibraryW(L"msvfw32.dll");
-	if (!fnIC.hModule) return FALSE;
-
-	fnIC.fnICOpen        = (void*)GetProcAddress(fnIC.hModule, "ICOpen");
-	fnIC.fnICClose       = (void*)GetProcAddress(fnIC.hModule, "ICClose");
-	fnIC.fnICSendMessage = (void*)GetProcAddress(fnIC.hModule, "ICSendMessage");
-	fnIC.fnICDecompress  = (void*)GetProcAddress(fnIC.hModule, "ICDecompress");
-    }
 
     /* allocate memory for info structure */
     infoPtr = Alloc(sizeof(*infoPtr));

@@ -42,6 +42,17 @@ STRINGTABLE
   0 "String resource"
   1 "Another string resource"
   2 L"This is a wide string resource"
+
+  100 "Yes"
+  101 "No"
+  102 "OK"
+  103 "Abort"
+  104 "Retry"
+  105 "Cancel"
+  106 "Ignore"
+  107 "Try Again"
+  108 "Continue"
+
   65534 "Test high id"
 }
 
