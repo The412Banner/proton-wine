@@ -1804,6 +1804,45 @@ static HRESULT __stdcall scale_factory(IUnknown **effect)
     return d2d_effect_create_impl(effect, &properties, sizeof(properties));
 }
 
+static const WCHAR tint_description[] =
+L"<?xml version='1.0'?>                                                   \
+  <Effect>                                                                \
+    <Property name='DisplayName' type='string' value='Tint'/>             \
+    <Property name='Author'      type='string' value='The Wine Project'/> \
+    <Property name='Category'    type='string' value='Stub'/>             \
+    <Property name='Description' type='string' value='Tint'/>             \
+    <Inputs>                                                              \
+      <Input name='Source'/>                                              \
+    </Inputs>                                                             \
+    <Property name='Color' type='vector4' />                              \
+    <Property name='ClampOutput' type='bool' />                           \
+  </Effect>";
+
+struct tint_properties
+{
+    D2D_VECTOR_4F color;
+    BOOL clamp_output;
+};
+
+EFFECT_PROPERTY_RW(tint, color, VECTOR4)
+EFFECT_PROPERTY_RW(tint, clamp_output, BOOL)
+
+static const D2D1_PROPERTY_BINDING tint_bindings[] =
+{
+    { L"Color", BINDING_RW(tint, color) },
+    { L"ClampOutput", BINDING_RW(tint, clamp_output) },
+};
+
+static HRESULT __stdcall tint_factory(IUnknown **effect)
+{
+    static const struct tint_properties properties =
+    {
+        .color = {1.0f, 1.0f, 1.0f, 1.0f},
+        .clamp_output = FALSE,
+    };
+    return d2d_effect_create_impl(effect, &properties, sizeof(properties));
+}
+
 void d2d_effects_init_builtins(struct d2d_factory *factory)
 {
     static const struct builtin_description
@@ -1835,6 +1874,7 @@ void d2d_effects_init_builtins(struct d2d_factory *factory)
         { &CLSID_D2D1HueRotation, X2(hue_rotation) },
         { &CLSID_D2D1Saturation, X2(saturation) },
         { &CLSID_D2D1Scale, X2(scale) },
+        { &CLSID_D2D1Tint, X2(tint) },
 #undef X2
 #undef X
     };

@@ -1386,6 +1386,7 @@ BOOL d2d_brush_fill_cb(const struct d2d_brush *brush, struct d2d_brush_cb *cb)
 
     cb->type = brush->type;
     cb->opacity = brush->opacity;
+    cb->clamp_source = FALSE;
 
     switch (brush->type)
     {
@@ -1492,6 +1493,12 @@ BOOL d2d_brush_fill_cb(const struct d2d_brush *brush, struct d2d_brush_cb *cb)
             }
 
             cb->u.bitmap.ignore_alpha = bitmap->format.alphaMode == D2D1_ALPHA_MODE_IGNORE;
+
+            if (brush->type == D2D_BRUSH_TYPE_BITMAP && brush->u.bitmap.clamp_source)
+            {
+                cb->clamp_source = TRUE;
+                cb->u.bitmap.source_bounds = brush->u.bitmap.source_bounds;
+            }
 
             if (image_bitmap)
                 ID2D1Bitmap_Release(image_bitmap);

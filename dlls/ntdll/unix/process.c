@@ -967,6 +967,7 @@ LONG terminate_process_exit_code;
  */
 NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
 {
+    sigset_t sigset;
     unsigned int ret;
     BOOL self;
 
@@ -983,11 +984,14 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
         terminate_process_exit_code = exit_code;
     }
 
+    /* Do not dispatch APCs after killing the other threads until process_exiting
+     * is set: they may need a mutex left locked by one of those threads. */
+    pthread_sigmask( SIG_BLOCK, &server_block_set, &sigset );
     SERVER_START_REQ( terminate_process )
     {
         req->handle    = wine_server_obj_handle( handle );
         req->exit_code = exit_code;
-        ret = wine_server_call( req );
+        ret = server_call_unlocked( req );
         self = reply->self;
     }
     SERVER_END_REQ;
@@ -999,6 +1003,7 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
         else if (process_exiting) exit_process( exit_code );
         else abort_process( exit_code );
     }
+    pthread_sigmask( SIG_SETMASK, &sigset, NULL );
     return ret;
 }
 

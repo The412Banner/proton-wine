@@ -20,6 +20,8 @@
 
 #include "qcap_private.h"
 
+#include <limits.h>
+
 WINE_DEFAULT_DEBUG_CHANNEL(quartz);
 
 typedef struct {
@@ -139,6 +141,14 @@ static HRESULT copy_sample(IMediaSample *inputSample, IMemAllocator *allocator, 
 
     hr = IMemAllocator_GetBuffer(allocator, &outputSample,
             haveStartTime ? &startTime : NULL, haveEndTime ? &endTime : NULL, 0);
+    if (hr == VFW_E_NOT_COMMITTED)
+    {
+        HRESULT commit_hr;
+        commit_hr = IMemAllocator_Commit(allocator);
+        if (SUCCEEDED(commit_hr))
+            hr = IMemAllocator_GetBuffer(allocator, &outputSample,
+                    haveStartTime ? &startTime : NULL, haveEndTime ? &endTime : NULL, 0);
+    }
     if (FAILED(hr)) goto end;
     if (IMediaSample_GetSize(outputSample) < IMediaSample_GetActualDataLength(inputSample)) {
         ERR("insufficient space in sample\n");
@@ -196,6 +206,95 @@ end:
     return hr;
 }
 
+static BOOL mt_is_rgb24_video(const AM_MEDIA_TYPE *mt)
+{
+    return IsEqualGUID(&mt->majortype, &MEDIATYPE_Video)
+            && IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_RGB24)
+            && IsEqualGUID(&mt->formattype, &FORMAT_VideoInfo)
+            && mt->cbFormat >= sizeof(VIDEOINFOHEADER)
+            && mt->pbFormat;
+}
+
+static BOOL mt_is_rgb32_video(const AM_MEDIA_TYPE *mt)
+{
+    return IsEqualGUID(&mt->majortype, &MEDIATYPE_Video)
+            && IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_RGB32)
+            && IsEqualGUID(&mt->formattype, &FORMAT_VideoInfo)
+            && mt->cbFormat >= sizeof(VIDEOINFOHEADER)
+            && mt->pbFormat;
+}
+
+static HRESULT convert_sample_rgb24_to_rgb32(IMediaSample *sample, const AM_MEDIA_TYPE *src_mt,
+        const AM_MEDIA_TYPE *dst_mt)
+{
+    const VIDEOINFOHEADER *src_vih = (const VIDEOINFOHEADER *)src_mt->pbFormat;
+    const VIDEOINFOHEADER *dst_vih = (const VIDEOINFOHEADER *)dst_mt->pbFormat;
+    BYTE *data;
+    LONG input_len, output_len, sample_size;
+    LONG src_row, dst_row, width, height, row;
+    LONG src_offset, dst_offset;
+    HRESULT hr;
+
+    if (!src_mt->pbFormat || src_mt->cbFormat < sizeof(*src_vih)
+            || !dst_mt->pbFormat || dst_mt->cbFormat < sizeof(*dst_vih))
+        return VFW_E_INVALIDMEDIATYPE;
+
+    width = src_vih->bmiHeader.biWidth;
+    if (width < 0)
+        width = -width;
+    height = src_vih->bmiHeader.biHeight;
+    if (height < 0)
+        height = -height;
+
+    if (!width || !height)
+        return VFW_E_INVALIDMEDIATYPE;
+
+    if (width > LONG_MAX / 32)
+        return VFW_E_INVALIDMEDIATYPE;
+
+    src_row = ((width * 24 + 31) / 32) * 4;
+    dst_row = ((width * 32 + 31) / 32) * 4;
+
+    if (height > LONG_MAX / src_row || height > LONG_MAX / dst_row)
+        return VFW_E_BUFFER_OVERFLOW;
+
+    input_len = src_row * height;
+    output_len = dst_row * height;
+
+    sample_size = IMediaSample_GetActualDataLength(sample);
+    if (sample_size < input_len)
+        return VFW_E_TYPE_NOT_ACCEPTED;
+
+    sample_size = IMediaSample_GetSize(sample);
+    if (output_len > sample_size)
+        return VFW_E_BUFFER_OVERFLOW;
+
+    if (FAILED(hr = IMediaSample_GetPointer(sample, &data)))
+        return hr;
+
+    for (row = height - 1; row >= 0; --row)
+    {
+        LONG x;
+
+        src_offset = row * src_row;
+        dst_offset = row * dst_row;
+
+        for (x = width - 1; x >= 0; --x)
+        {
+            BYTE b = data[src_offset + x * 3 + 0];
+            BYTE g = data[src_offset + x * 3 + 1];
+            BYTE r = data[src_offset + x * 3 + 2];
+
+            data[dst_offset + x * 4 + 0] = b;
+            data[dst_offset + x * 4 + 1] = g;
+            data[dst_offset + x * 4 + 2] = r;
+            data[dst_offset + x * 4 + 3] = 0xff;
+        }
+    }
+
+    return IMediaSample_SetActualDataLength(sample, output_len);
+}
+
 static HRESULT WINAPI SmartTeeFilterInput_Receive(struct strmbase_sink *base, IMediaSample *inputSample)
 {
     SmartTeeFilter *This = impl_from_strmbase_pin(&base->pin);
@@ -224,6 +323,11 @@ static HRESULT WINAPI SmartTeeFilterInput_Receive(struct strmbase_sink *base, IM
     if (This->preview.pin.peer)
         hrPreview = copy_sample(inputSample, This->preview.pAllocator, &previewSample);
     LeaveCriticalSection(&This->filter.filter_cs);
+
+    if (SUCCEEDED(hrPreview) && mt_is_rgb24_video(&This->sink.pin.mt)
+            && mt_is_rgb32_video(&This->preview.pin.mt))
+        hrPreview = convert_sample_rgb24_to_rgb32(previewSample, &This->sink.pin.mt, &This->preview.pin.mt);
+
     /* No timestamps on preview stream: */
     if (SUCCEEDED(hrPreview))
         hrPreview = IMediaSample_SetTime(previewSample, NULL, NULL);
@@ -258,11 +362,49 @@ static HRESULT source_get_media_type(struct strmbase_pin *iface,
 {
     SmartTeeFilter *filter = impl_from_strmbase_pin(iface);
     HRESULT hr = S_OK;
+    BOOL is_preview = iface == &filter->preview.pin;
+    BOOL rgb24_video;
 
     EnterCriticalSection(&filter->filter.filter_cs);
 
     if (!filter->sink.pin.peer)
         hr = VFW_E_NOT_CONNECTED;
+    else if (is_preview)
+    {
+        rgb24_video = mt_is_rgb24_video(&filter->sink.pin.mt);
+
+        if (!index)
+        {
+            CopyMediaType(mt, &filter->sink.pin.mt);
+            if (rgb24_video)
+            {
+                VIDEOINFOHEADER *vih = (VIDEOINFOHEADER *)mt->pbFormat;
+                LONG width = vih->bmiHeader.biWidth;
+                LONG height = vih->bmiHeader.biHeight < 0 ? -vih->bmiHeader.biHeight : vih->bmiHeader.biHeight;
+                LONG row_size;
+
+                if (width < 0)
+                    width = -width;
+
+                if (!width || !height || width > LONG_MAX / 4 || height > LONG_MAX / (width * 4))
+                    hr = VFW_E_INVALIDMEDIATYPE;
+                else
+                {
+                    row_size = ((width * 32 + 31) / 32) * 4;
+
+                    mt->subtype = MEDIASUBTYPE_RGB32;
+                    mt->lSampleSize = row_size * height;
+                    vih->bmiHeader.biBitCount = 32;
+                    vih->bmiHeader.biCompression = BI_RGB;
+                    vih->bmiHeader.biSizeImage = mt->lSampleSize;
+                }
+            }
+        }
+        else if (index == 1 && rgb24_video)
+            CopyMediaType(mt, &filter->sink.pin.mt);
+        else
+            hr = VFW_S_NO_MORE_ITEMS;
+    }
     else if (!index)
         CopyMediaType(mt, &filter->sink.pin.mt);
     else
@@ -301,9 +443,57 @@ static HRESULT WINAPI SmartTeeFilterPreview_DecideAllocator(struct strmbase_sour
 {
     SmartTeeFilter *This = impl_from_strmbase_pin(&base->pin);
     TRACE("(%p, %p, %p)\n", This, pPin, pAlloc);
-    *pAlloc = This->sink.pAllocator;
-    IMemAllocator_AddRef(This->sink.pAllocator);
-    return IMemInputPin_NotifyAllocator(pPin, This->sink.pAllocator, TRUE);
+    return BaseOutputPinImpl_DecideAllocator(base, pPin, pAlloc);
+}
+
+static HRESULT WINAPI SmartTeeFilterPreview_DecideBufferSize(struct strmbase_source *base,
+        IMemAllocator *allocator, ALLOCATOR_PROPERTIES *props)
+{
+    SmartTeeFilter *filter = impl_from_strmbase_pin(&base->pin);
+    ALLOCATOR_PROPERTIES input_props = {0}, ret_props;
+    BOOL have_input_props = FALSE;
+    HRESULT hr;
+
+    if (!props)
+        return E_POINTER;
+
+    if (filter->sink.pAllocator
+            && SUCCEEDED(IMemAllocator_GetProperties(filter->sink.pAllocator, &input_props)))
+        have_input_props = TRUE;
+
+    if (!props->cBuffers)
+        props->cBuffers = have_input_props && input_props.cBuffers ? input_props.cBuffers : 3;
+
+    if (!props->cbBuffer)
+    {
+        if (base->pin.mt.lSampleSize)
+        {
+            props->cbBuffer = base->pin.mt.lSampleSize;
+        }
+        else if (IsEqualGUID(&base->pin.mt.formattype, &FORMAT_VideoInfo)
+                 && base->pin.mt.cbFormat >= sizeof(VIDEOINFOHEADER)
+                 && base->pin.mt.pbFormat)
+        {
+            VIDEOINFOHEADER *format = (VIDEOINFOHEADER *)base->pin.mt.pbFormat;
+            props->cbBuffer = format->bmiHeader.biSizeImage;
+        }
+        else if (have_input_props && input_props.cbBuffer)
+        {
+            props->cbBuffer = input_props.cbBuffer;
+        }
+
+        if (!props->cbBuffer)
+            props->cbBuffer = 65536;
+    }
+
+    if (!props->cbAlign)
+        props->cbAlign = have_input_props && input_props.cbAlign ? input_props.cbAlign : 1;
+
+    if (!props->cbPrefix && have_input_props && input_props.cbPrefix)
+        props->cbPrefix = input_props.cbPrefix;
+
+    hr = IMemAllocator_SetProperties(allocator, props, &ret_props);
+    return SUCCEEDED(hr) ? S_OK : hr;
 }
 
 static const struct strmbase_source_ops preview_ops =
@@ -312,6 +502,7 @@ static const struct strmbase_source_ops preview_ops =
     .base.pin_get_media_type = source_get_media_type,
     .pfnAttemptConnection = BaseOutputPinImpl_AttemptConnection,
     .pfnDecideAllocator = SmartTeeFilterPreview_DecideAllocator,
+    .pfnDecideBufferSize = SmartTeeFilterPreview_DecideBufferSize,
 };
 
 HRESULT smart_tee_create(IUnknown *outer, IUnknown **out)

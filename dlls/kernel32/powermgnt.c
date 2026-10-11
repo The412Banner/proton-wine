@@ -29,6 +29,55 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(powermgnt);
 
+static RTL_SRWLOCK battery_lock = RTL_SRWLOCK_INIT;
+static SYSTEM_BATTERY_STATE battery_state;
+static NTSTATUS battery_status = STATUS_NOT_IMPLEMENTED;
+static ULONGLONG battery_refresh_time;
+static BOOL battery_update_pending;
+
+static DWORD WINAPI update_battery_state(void *arg)
+{
+    SYSTEM_BATTERY_STATE bs;
+    NTSTATUS status;
+
+    /* Sysfs battery reads can wait several seconds for ACPI firmware. */
+    status = NtPowerInformation(SystemBatteryState, NULL, 0, &bs, sizeof(bs));
+
+    RtlAcquireSRWLockExclusive(&battery_lock);
+    if (!status) battery_state = bs;
+    battery_status = status;
+    battery_refresh_time = GetTickCount64() + 5000;
+    battery_update_pending = FALSE;
+    RtlReleaseSRWLockExclusive(&battery_lock);
+    return 0;
+}
+
+static NTSTATUS get_cached_battery_state(SYSTEM_BATTERY_STATE *bs)
+{
+    NTSTATUS status;
+    BOOL update;
+
+    RtlAcquireSRWLockExclusive(&battery_lock);
+    *bs = battery_state;
+    status = battery_status;
+    update = !battery_update_pending && GetTickCount64() >= battery_refresh_time;
+    if (update)
+    {
+        battery_update_pending = TRUE;
+        /* Rate-limit retries if queuing the worker fails. */
+        battery_refresh_time = GetTickCount64() + 5000;
+    }
+    RtlReleaseSRWLockExclusive(&battery_lock);
+
+    if (update && !QueueUserWorkItem(update_battery_state, NULL, WT_EXECUTELONGFUNCTION))
+    {
+        RtlAcquireSRWLockExclusive(&battery_lock);
+        battery_update_pending = FALSE;
+        RtlReleaseSRWLockExclusive(&battery_lock);
+    }
+    return status;
+}
+
 /******************************************************************************
  *           GetDevicePowerState   (KERNEL32.@)
  */
@@ -55,7 +104,7 @@ BOOL WINAPI GetSystemPowerStatus(LPSYSTEM_POWER_STATUS ps)
     ps->BatteryLifeTime     = BATTERY_LIFE_UNKNOWN;
     ps->BatteryFullLifeTime = BATTERY_LIFE_UNKNOWN;
 
-    status = NtPowerInformation(SystemBatteryState, NULL, 0, &bs, sizeof(bs));
+    status = get_cached_battery_state(&bs);
     if (status == STATUS_NOT_IMPLEMENTED) return TRUE;
     if (FAILED(status)) return FALSE;
 

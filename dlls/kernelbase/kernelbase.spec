@@ -552,7 +552,7 @@
 @ stdcall GetFileTime(long ptr ptr ptr)
 @ stdcall GetFileType(long)
 @ stdcall GetFileVersionInfoA(str long long ptr)
-# @ stub GetFileVersionInfoByHandle
+@ stdcall GetFileVersionInfoByHandle(long long long ptr)
 @ stdcall GetFileVersionInfoExA(long str long long ptr)
 @ stdcall GetFileVersionInfoExW(long wstr long long ptr)
 @ stdcall GetFileVersionInfoSizeA(str ptr)

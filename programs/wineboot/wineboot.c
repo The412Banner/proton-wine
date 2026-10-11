@@ -82,6 +82,7 @@
 #include <wininet.h>
 #include <newdev.h>
 #include <wincrypt.h>
+#include <rpc.h>
 #include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wineboot);
@@ -1856,6 +1857,41 @@ done:
     RegCloseKey( key );
 }
 
+static void create_sqm_machine_id(void)
+{
+    WCHAR buffer[39];
+    RPC_STATUS status;
+    DWORD size = 0;
+    UUID uuid;
+    HKEY key;
+    LSTATUS ret;
+
+    if ((ret = RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\SQMClient", 0, NULL, 0,
+                               KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL )))
+    {
+        WINE_WARN( "Failed to open SQMClient key, error %ld.\n", ret );
+        return;
+    }
+
+    /* Do not change an existing identity, including one installed by native .NET. */
+    if (RegQueryValueExW( key, L"MachineId", NULL, NULL, NULL, &size ) != ERROR_FILE_NOT_FOUND)
+        goto done;
+
+    status = UuidCreate( &uuid );
+    if (status != RPC_S_OK && status != RPC_S_UUID_LOCAL_ONLY)
+    {
+        WINE_WARN( "Failed to generate SQM machine id, error %ld.\n", status );
+        goto done;
+    }
+    swprintf( buffer, ARRAY_SIZE(buffer), L"{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+              (unsigned int)uuid.Data1, uuid.Data2, uuid.Data3, uuid.Data4[0], uuid.Data4[1], uuid.Data4[2],
+              uuid.Data4[3], uuid.Data4[4], uuid.Data4[5], uuid.Data4[6], uuid.Data4[7] );
+    if ((ret = RegSetValueExW( key, L"MachineId", 0, REG_SZ, (const BYTE *)buffer, sizeof(buffer) )))
+        WINE_WARN( "Failed to store SQM machine id, error %ld.\n", ret );
+done:
+    RegCloseKey( key );
+}
+
 int __cdecl main( int argc, char *argv[] )
 {
     /* First, set the current directory to SystemRoot */
@@ -1970,6 +2006,7 @@ int __cdecl main( int argc, char *argv[] )
     if (init || update) update_wineprefix( update );
 
     create_digitalproductid();
+    create_sqm_machine_id();
     create_volatile_environment_registry_key();
     create_known_dlls();
     initialize_internet();
