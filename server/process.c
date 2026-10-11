@@ -65,6 +65,7 @@
 #include "user.h"
 #include "security.h"
 
+#include "esync.h"
 #include "fsync.h"
 
 /* process object */
@@ -620,6 +621,8 @@ static void process_died( struct process *process )
         if (!--user_processes && !shutdown_stage && master_socket_timeout != TIMEOUT_INFINITE)
             shutdown_timeout = add_timeout_user( master_socket_timeout, server_shutdown_timeout, NULL );
     }
+    abandon_dead_inproc_mutexes( process );
+    if (do_esync()) esync_cleanup_process( process->id );
     release_object( process );
     if (!--running_processes && shutdown_stage) close_master_socket( 0 );
 }

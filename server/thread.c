@@ -61,6 +61,7 @@
 #include "user.h"
 #include "security.h"
 
+#include "esync.h"
 #include "fsync.h"
 
 /* thread queues */
@@ -1674,7 +1675,11 @@ void kill_thread( struct thread *thread, int violent_death )
     kill_console_processes( thread, 0 );
     abandon_mutexes( thread );
     signal_sync( thread->sync );
-    if (violent_death) send_thread_signal( thread, SIGQUIT );
+    if (violent_death)
+    {
+        send_thread_signal( thread, SIGQUIT );
+        abandon_inproc_mutexes_later( thread );
+    }
     cleanup_thread( thread );
     remove_process_thread( thread->process, thread );
     release_object( thread );
@@ -1854,7 +1859,12 @@ DECL_HANDLER(init_first_thread)
     {
         reply->inproc_device = FSYNC_USED_BY_SERVER;
     }
-    else if ((fd = get_inproc_device_fd()) >= 0)
+    else if ((fd = get_inproc_device_fd()) == ESYNC_USED_BY_SERVER)
+    {
+        reply->inproc_device = ESYNC_USED_BY_SERVER;
+        send_client_fd( process, esync_shm_fd(), ESYNC_SHM_TOKEN );
+    }
+    else if (fd >= 0)
     {
         reply->inproc_device = get_process_id( process ) | 1;
         send_client_fd( process, fd, reply->inproc_device );
@@ -2508,7 +2518,10 @@ DECL_HANDLER(get_inproc_alert_fd)
 {
     int fd;
 
-    if ((fd = get_inproc_sync_fd( current->alert_sync )) < 0) set_error( STATUS_INVALID_PARAMETER );
+    if ((fd = get_inproc_sync_fd( current->alert_sync )) < 0)
+    {
+        if (!get_error()) set_error( STATUS_INVALID_PARAMETER );
+    }
     else if (do_fsync()) reply->fsync_shm_idx = fd;
     else
     {
