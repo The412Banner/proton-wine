@@ -86,6 +86,7 @@ extern struct fd *open_fd( struct fd *root, const char *name, struct unicode_str
                            unsigned int sharing, unsigned int options );
 extern struct fd *create_anonymous_fd( const struct fd_ops *fd_user_ops,
                                        int unix_fd, struct object *user, unsigned int options );
+extern struct object *create_file_obj( struct fd *fd, unsigned int access, mode_t mode, const struct security_descriptor *sd );
 extern struct fd *dup_fd_object( struct fd *orig, unsigned int access, unsigned int sharing,
                                  unsigned int options );
 extern struct fd *get_fd_object_for_mapping( struct fd *fd, unsigned int access, unsigned int sharing );

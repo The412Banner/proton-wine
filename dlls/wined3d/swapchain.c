@@ -23,9 +23,14 @@
 #include "wined3d_private.h"
 #include "wined3d_gl.h"
 #include "wined3d_vk.h"
+#include "wine/hwnd_dmabuf.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d);
 WINE_DECLARE_DEBUG_CHANNEL(d3d_perf);
+
+static LONGLONG volatile wined3d_gl_hwnd_dmabuf_next_producer_id;
+
+static void wined3d_gl_hwnd_dmabuf_cleanup(struct wined3d_swapchain_gl *swapchain_gl);
 
 static BOOL set_window_present_rect(HWND hwnd, UINT x, UINT y, UINT width, UINT height)
 {
@@ -101,8 +106,18 @@ void wined3d_swapchain_cleanup(struct wined3d_swapchain *swapchain)
     }
 }
 
+static void wined3d_swapchain_gl_destroy_object(void *object)
+{
+    wined3d_gl_hwnd_dmabuf_cleanup(object);
+}
+
 void wined3d_swapchain_gl_cleanup(struct wined3d_swapchain_gl *swapchain_gl)
 {
+    struct wined3d_cs *cs = swapchain_gl->s.device->cs;
+
+    wined3d_cs_destroy_object(cs, wined3d_swapchain_gl_destroy_object, swapchain_gl);
+    wined3d_cs_finish(cs, WINED3D_CS_QUEUE_DEFAULT);
+
     wined3d_swapchain_cleanup(&swapchain_gl->s);
 }
 
@@ -172,7 +187,10 @@ ULONG CDECL wined3d_swapchain_decref(struct wined3d_swapchain *swapchain)
         wined3d_cs_finish(device->cs, WINED3D_CS_QUEUE_DEFAULT);
 
         if (swapchain->dc)
+        {
             wined3d_release_dc(swapchain->win_handle, swapchain->dc);
+            swapchain->dc = NULL;
+        }
 
         swapchain->parent_ops->wined3d_object_destroyed(swapchain->parent);
         swapchain->device->adapter->adapter_ops->adapter_destroy_swapchain(swapchain);
@@ -203,7 +221,10 @@ void CDECL wined3d_swapchain_set_window(struct wined3d_swapchain *swapchain, HWN
     wined3d_cs_finish(swapchain->device->cs, WINED3D_CS_QUEUE_DEFAULT);
 
     if (swapchain->dc)
+    {
         wined3d_release_dc(swapchain->win_handle, swapchain->dc);
+        swapchain->dc = NULL;
+    }
 
     swapchain->win_handle = window;
 
@@ -222,8 +243,14 @@ HRESULT CDECL wined3d_swapchain_present(struct wined3d_swapchain *swapchain,
             swapchain, wine_dbgstr_rect(src_rect), wine_dbgstr_rect(dst_rect),
             dst_window_override, swap_interval, flags);
 
-    if (flags)
-        FIXME("Ignoring flags %#x.\n", flags);
+    if (flags & ~WINED3D_PRESENT_NO_WINDOW_UPDATE)
+        FIXME("Ignoring flags %#x.\n", flags & ~WINED3D_PRESENT_NO_WINDOW_UPDATE);
+    if ((flags & WINED3D_PRESENT_NO_WINDOW_UPDATE)
+            && !wined3d_swapchain_supports_hwnd_dmabuf(swapchain))
+    {
+        TRACE("HWND dmabuf unsupported, updating the window.\n");
+        flags &= ~WINED3D_PRESENT_NO_WINDOW_UPDATE;
+    }
 
     wined3d_mutex_lock();
 
@@ -276,6 +303,16 @@ HRESULT CDECL wined3d_swapchain_get_front_buffer_data(const struct wined3d_swapc
 
     return wined3d_device_context_blt(&swapchain->device->cs->c, dst_texture, sub_resource_idx, &dst_rect,
             swapchain->front_buffer, 0, &src_rect, 0, NULL, WINED3D_TEXF_POINT);
+}
+
+BOOL CDECL wined3d_swapchain_supports_hwnd_dmabuf(const struct wined3d_swapchain *swapchain)
+{
+    TRACE("swapchain %p.\n", swapchain);
+
+    if (!swapchain || !swapchain->swapchain_ops->swapchain_supports_hwnd_dmabuf)
+        return FALSE;
+
+    return swapchain->swapchain_ops->swapchain_supports_hwnd_dmabuf(swapchain);
 }
 
 struct wined3d_texture * CDECL wined3d_swapchain_get_back_buffer(const struct wined3d_swapchain *swapchain,
@@ -580,6 +617,706 @@ static void wined3d_swapchain_gl_rotate(struct wined3d_swapchain *swapchain, str
     device_invalidate_state(swapchain->device, STATE_FRAMEBUFFER);
 }
 
+static void wined3d_gl_hwnd_dmabuf_close_fd(struct wined3d_gl_hwnd_dmabuf_ring *ring, int *fd)
+{
+    if (*fd < 0)
+        return;
+
+    if (ring->p_wglWineCloseDmaBufWINE)
+        ring->p_wglWineCloseDmaBufWINE(*fd);
+    else
+        ERR("Leaking HWND dmabuf fd %d, no close helper.\n", *fd);
+
+    *fd = -1;
+}
+
+static enum wined3d_gl_hwnd_dmabuf_support wined3d_gl_hwnd_dmabuf_get_support(
+        const struct wined3d_gl_hwnd_dmabuf_ring *ring)
+{
+    return InterlockedCompareExchange((LONG volatile *)&ring->support,
+            WINED3D_GL_HWND_DMABUF_SUPPORT_UNKNOWN, WINED3D_GL_HWND_DMABUF_SUPPORT_UNKNOWN);
+}
+
+static bool wined3d_gl_hwnd_dmabuf_probe_support(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        const struct wined3d_gl_info *gl_info)
+{
+    enum wined3d_gl_hwnd_dmabuf_support support = wined3d_gl_hwnd_dmabuf_get_support(ring);
+
+    if (support == WINED3D_GL_HWND_DMABUF_SUPPORT_YES)
+        return true;
+    if (support == WINED3D_GL_HWND_DMABUF_SUPPORT_NO)
+        return false;
+
+    if (!gl_info->p_wglWineCloseDmaBufWINE || !gl_info->p_wglWineDmaBufExportSupportedWINE
+            || !gl_info->p_wglWineExportDmaBufWINE || !gl_info->p_wglWineHwndDmaBufGetCapsWINE)
+    {
+        InterlockedExchange(&ring->support, WINED3D_GL_HWND_DMABUF_SUPPORT_NO);
+        return false;
+    }
+    if (!gl_info->p_wglWineDmaBufExportSupportedWINE())
+        return false;
+
+    ring->p_wglWineCloseDmaBufWINE = gl_info->p_wglWineCloseDmaBufWINE;
+    ring->p_wglWineHwndDmaBufGetCapsWINE = gl_info->p_wglWineHwndDmaBufGetCapsWINE;
+    InterlockedExchange(&ring->support, WINED3D_GL_HWND_DMABUF_SUPPORT_YES);
+    return true;
+}
+
+static void wined3d_gl_hwnd_dmabuf_clear_caps(struct wined3d_gl_hwnd_dmabuf_ring *ring)
+{
+    free(ring->format_modifiers);
+    ring->format_modifiers = NULL;
+    ring->format_modifier_count = 0;
+    ring->caps_hwnd = NULL;
+    ring->hwnd_has_caps = false;
+    ring->logged_implicit_modifier = false;
+    ring->logged_opaque_fourcc = false;
+    ring->logged_unsupported_modifier = false;
+}
+
+static bool wined3d_gl_hwnd_dmabuf_query_caps(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        HWND hwnd)
+{
+    hwnd_dmabuf_format_modifier_t *format_modifiers;
+    hwnd_dmabuf_host_caps_t caps = {0};
+    UINT count = 0;
+
+    wined3d_gl_hwnd_dmabuf_clear_caps(ring);
+
+    if (!ring->p_wglWineHwndDmaBufGetCapsWINE)
+        return false;
+    if (ring->p_wglWineHwndDmaBufGetCapsWINE(hwnd, &caps, NULL, 0, &count) != HWND_DMABUF_OK
+            || !count)
+        return false;
+    if (!(format_modifiers = calloc(count, sizeof(*format_modifiers))))
+        return false;
+
+    memset(&caps, 0, sizeof(caps));
+    if (ring->p_wglWineHwndDmaBufGetCapsWINE(hwnd, &caps, format_modifiers,
+            count, &count) != HWND_DMABUF_OK || !caps.format_modifier_count)
+    {
+        free(format_modifiers);
+        return false;
+    }
+
+    ring->format_modifiers = format_modifiers;
+    ring->format_modifier_count = caps.format_modifier_count;
+    return true;
+}
+
+static bool wined3d_gl_hwnd_dmabuf_hwnd_has_caps(const struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        HWND hwnd)
+{
+    hwnd_dmabuf_host_caps_t caps = {0};
+    UINT count = 0;
+
+    if (!hwnd || hwnd == GetDesktopWindow() || !ring->p_wglWineHwndDmaBufGetCapsWINE)
+        return false;
+
+    return ring->p_wglWineHwndDmaBufGetCapsWINE(hwnd, &caps, NULL, 0, &count) == HWND_DMABUF_OK
+            && count;
+}
+
+static bool wined3d_gl_hwnd_dmabuf_cached_hwnd_has_caps(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        HWND hwnd)
+{
+    if (ring->caps_hwnd != hwnd)
+    {
+        ring->caps_hwnd = hwnd;
+        ring->hwnd_has_caps = wined3d_gl_hwnd_dmabuf_hwnd_has_caps(ring, hwnd);
+    }
+
+    return ring->hwnd_has_caps;
+}
+
+static bool wined3d_gl_hwnd_dmabuf_modifier_supported(const struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        UINT fourcc, UINT64 modifier)
+{
+    unsigned int i;
+
+    for (i = 0; i < ring->format_modifier_count; ++i)
+    {
+        if (ring->format_modifiers[i].fourcc == fourcc &&
+                ring->format_modifiers[i].modifier == modifier)
+            return true;
+    }
+    return false;
+}
+
+static UINT wined3d_gl_hwnd_dmabuf_opaque_fourcc(UINT fourcc)
+{
+    switch (fourcc)
+    {
+        case WINEMAKEFOURCC('A','B','2','4'):
+            return WINEMAKEFOURCC('X','B','2','4');
+        case WINEMAKEFOURCC('A','R','2','4'):
+            return WINEMAKEFOURCC('X','R','2','4');
+        default:
+            return 0;
+    }
+}
+
+static bool wined3d_gl_hwnd_dmabuf_negotiate_format(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        struct wgl_dmabuf_desc *desc, UINT fourcc)
+{
+    if (wined3d_gl_hwnd_dmabuf_modifier_supported(ring, fourcc, desc->modifier))
+    {
+        desc->fourcc = fourcc;
+        return true;
+    }
+
+    if (desc->modifier == HWND_DMABUF_MOD_LINEAR &&
+            wined3d_gl_hwnd_dmabuf_modifier_supported(ring, fourcc, HWND_DMABUF_MOD_INVALID))
+    {
+        if (!ring->logged_implicit_modifier)
+        {
+            TRACE("Using implicit HWND dmabuf modifier for fourcc %s.\n",
+                    debugstr_fourcc(fourcc));
+            ring->logged_implicit_modifier = true;
+        }
+        desc->fourcc = fourcc;
+        desc->modifier = HWND_DMABUF_MOD_INVALID;
+        return true;
+    }
+
+    return false;
+}
+
+static void wined3d_gl_hwnd_dmabuf_negotiate_desc(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        struct wgl_dmabuf_desc *desc)
+{
+    UINT exported_fourcc = desc->fourcc;
+    UINT opaque_fourcc;
+
+    if (wined3d_gl_hwnd_dmabuf_negotiate_format(ring, desc, exported_fourcc))
+        return;
+
+    if ((opaque_fourcc = wined3d_gl_hwnd_dmabuf_opaque_fourcc(exported_fourcc)) &&
+            wined3d_gl_hwnd_dmabuf_negotiate_format(ring, desc, opaque_fourcc))
+    {
+        if (!ring->logged_opaque_fourcc)
+        {
+            TRACE("Using opaque HWND dmabuf fourcc %s for alpha fourcc %s.\n",
+                    debugstr_fourcc(opaque_fourcc), debugstr_fourcc(exported_fourcc));
+            ring->logged_opaque_fourcc = true;
+        }
+        return;
+    }
+
+    if (!ring->logged_unsupported_modifier)
+    {
+        TRACE("HWND dmabuf export fourcc %s modifier 0x%08x%08x missing from cached caps; "
+                "publishing for consumer validation.\n", debugstr_fourcc(exported_fourcc),
+                (unsigned int)(desc->modifier >> 32), (unsigned int)desc->modifier);
+        ring->logged_unsupported_modifier = true;
+    }
+}
+
+static void wined3d_gl_hwnd_dmabuf_clear_busy(struct wined3d_gl_hwnd_dmabuf_image *image)
+{
+    image->busy_producer_unique_id = 0;
+}
+
+static void wined3d_gl_hwnd_dmabuf_release_token(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        UINT64 release_token, UINT release_flags, UINT ring_generation)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(ring->images); ++i)
+    {
+        struct wined3d_gl_hwnd_dmabuf_image *image = &ring->images[i];
+
+        if (image->release_token != release_token)
+            continue;
+
+        wined3d_gl_hwnd_dmabuf_clear_busy(image);
+        /* A stale cache confirmation must not suppress the next slot fd. */
+        image->consumer_cached = ring_generation == ring->ring_generation &&
+                (release_flags & HWND_DMABUF_RELEASE_CACHED);
+        if (release_flags & (HWND_DMABUF_RELEASE_FAILED | HWND_DMABUF_RELEASE_ORPHANED))
+            image->valid = false;
+        return;
+    }
+}
+
+static unsigned int wined3d_gl_hwnd_dmabuf_reclaim_channel_slots(
+        struct wined3d_gl_hwnd_dmabuf_ring *ring, uint64_t producer_unique_id)
+{
+    unsigned int count = 0, i;
+
+    if (!producer_unique_id)
+        return 0;
+
+    for (i = 0; i < ARRAY_SIZE(ring->images); ++i)
+    {
+        struct wined3d_gl_hwnd_dmabuf_image *image = &ring->images[i];
+
+        if (image->busy_producer_unique_id != producer_unique_id)
+            continue;
+
+        wined3d_gl_hwnd_dmabuf_clear_busy(image);
+        image->valid = false;
+        image->consumer_cached = false;
+        ++count;
+    }
+
+    if (count)
+        TRACE("Reclaimed %u HWND dmabuf channel slot(s) for producer %s.\n",
+                count, wine_dbgstr_longlong(producer_unique_id));
+    return count;
+}
+
+static void wined3d_gl_hwnd_dmabuf_close_channel(struct wined3d_gl_hwnd_dmabuf_ring *ring)
+{
+    uint64_t producer_unique_id;
+
+    if (ring->channel_fd < 0)
+    {
+        wined3d_gl_hwnd_dmabuf_clear_caps(ring);
+        return;
+    }
+
+    producer_unique_id = ring->producer_unique_id;
+    TRACE("Closing HWND dmabuf channel fd %d hwnd %p producer %s.\n",
+            ring->channel_fd, ring->channel_hwnd, wine_dbgstr_longlong(producer_unique_id));
+
+    if (ring->p_wglWineHwndDmaBufCloseProducerWINE)
+        ring->p_wglWineHwndDmaBufCloseProducerWINE(ring->channel_hwnd, ring->channel_fd);
+    else
+        ERR("Leaking HWND dmabuf channel fd %d, no close helper.\n", ring->channel_fd);
+
+    wined3d_gl_hwnd_dmabuf_reclaim_channel_slots(ring, producer_unique_id);
+    ring->channel_fd = -1;
+    ring->channel_hwnd = NULL;
+    ring->producer_unique_id = 0;
+    wined3d_gl_hwnd_dmabuf_clear_caps(ring);
+}
+
+static void wined3d_gl_hwnd_dmabuf_drain_channel(struct wined3d_gl_hwnd_dmabuf_ring *ring)
+{
+    hwnd_dmabuf_release_t release;
+    int ret;
+
+    if (ring->channel_fd < 0 || !ring->p_wglWineHwndDmaBufDrainReleaseWINE)
+        return;
+
+    for (;;)
+    {
+        ret = ring->p_wglWineHwndDmaBufDrainReleaseWINE(ring->channel_fd, &release);
+        if (ret == HWND_DMABUF_CHANNEL_OK)
+        {
+            if (release.producer_unique_id != ring->producer_unique_id)
+                continue;
+            wined3d_gl_hwnd_dmabuf_release_token(ring, release.release_token, release.flags,
+                    release.ring_generation);
+            continue;
+        }
+        if (ret == HWND_DMABUF_CHANNEL_EMPTY)
+            return;
+
+        WARN("HWND dmabuf channel release drain failed, ret %d.\n", ret);
+        wined3d_gl_hwnd_dmabuf_close_channel(ring);
+        return;
+    }
+}
+
+static BOOL wined3d_gl_hwnd_dmabuf_ensure_channel(struct wined3d_swapchain_gl *swapchain_gl,
+        const struct wined3d_gl_info *gl_info)
+{
+    struct wined3d_gl_hwnd_dmabuf_ring *ring = &swapchain_gl->hwnd_dmabuf;
+    HWND hwnd = swapchain_gl->s.win_handle;
+    LONGLONG producer_id;
+    unsigned int i;
+    int channel_fd;
+
+    if (!hwnd || hwnd == GetDesktopWindow())
+        return FALSE;
+    if (!gl_info->p_wglWineHwndDmaBufOpenProducerWINE
+            || !gl_info->p_wglWineHwndDmaBufGetCapsWINE
+            || !gl_info->p_wglWineHwndDmaBufCloseProducerWINE
+            || !gl_info->p_wglWineHwndDmaBufPublishWINE
+            || !gl_info->p_wglWineHwndDmaBufDrainReleaseWINE)
+        return FALSE;
+
+    if (ring->channel_fd >= 0 && ring->channel_hwnd == hwnd)
+        return TRUE;
+    wined3d_gl_hwnd_dmabuf_close_channel(ring);
+
+    if (!wined3d_gl_hwnd_dmabuf_query_caps(ring, hwnd))
+        return FALSE;
+
+    channel_fd = gl_info->p_wglWineHwndDmaBufOpenProducerWINE(hwnd);
+    if (channel_fd < 0)
+    {
+        wined3d_gl_hwnd_dmabuf_clear_caps(ring);
+        return FALSE;
+    }
+
+    producer_id = InterlockedIncrement64(&wined3d_gl_hwnd_dmabuf_next_producer_id);
+    if (!producer_id)
+        producer_id = InterlockedIncrement64(&wined3d_gl_hwnd_dmabuf_next_producer_id);
+
+    ring->channel_fd = channel_fd;
+    ring->channel_hwnd = hwnd;
+    ring->producer_unique_id = producer_id;
+    for (i = 0; i < ARRAY_SIZE(ring->images); ++i)
+        ring->images[i].consumer_cached = false;
+    ring->p_wglWineHwndDmaBufCloseProducerWINE = gl_info->p_wglWineHwndDmaBufCloseProducerWINE;
+    ring->p_wglWineHwndDmaBufPublishWINE = gl_info->p_wglWineHwndDmaBufPublishWINE;
+    ring->p_wglWineHwndDmaBufDrainReleaseWINE = gl_info->p_wglWineHwndDmaBufDrainReleaseWINE;
+    TRACE("Opened HWND dmabuf channel fd %d hwnd %p producer %s.\n",
+            ring->channel_fd, ring->channel_hwnd, wine_dbgstr_longlong(ring->producer_unique_id));
+
+    return TRUE;
+}
+
+static void wined3d_gl_hwnd_dmabuf_desc_from_image(const struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        const struct wined3d_gl_hwnd_dmabuf_image *image, hwnd_dmabuf_frame_desc_t *desc)
+{
+    memset(desc, 0, sizeof(*desc));
+    desc->version = HWND_DMABUF_DESC_VERSION_V1;
+    desc->flags = HWND_DMABUF_FLAG_STABLE_SLOT;
+    desc->ring_generation = ring->ring_generation;
+    desc->width = image->width;
+    desc->height = image->height;
+    desc->fourcc = image->dmabuf_desc.fourcc;
+    desc->stride = image->dmabuf_desc.stride;
+    desc->offset = image->dmabuf_desc.offset;
+    desc->frame_seq = (UINT)image->present_count;
+    desc->image_id = image->image_id - 1;
+    desc->modifier = image->dmabuf_desc.modifier;
+    desc->alpha_mode = HWND_DMABUF_ALPHA_MODE_IGNORE;
+    desc->producer_unique_id = ring->producer_unique_id;
+    desc->release_token = image->release_token;
+    desc->plane_count = 1;
+    desc->plane_offsets[0] = image->dmabuf_desc.offset;
+    desc->plane_strides[0] = image->dmabuf_desc.stride;
+}
+
+static void wined3d_gl_hwnd_dmabuf_publish_channel(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        struct wined3d_gl_hwnd_dmabuf_image *image)
+{
+    hwnd_dmabuf_frame_desc_t desc;
+    int ret;
+
+    if (ring->channel_fd < 0 || !ring->p_wglWineHwndDmaBufPublishWINE)
+        return;
+
+    wined3d_gl_hwnd_dmabuf_desc_from_image(ring, image, &desc);
+    image->busy_producer_unique_id = ring->producer_unique_id;
+    /* The consumer needs the fd until it confirms the slot is cached. */
+    ret = ring->p_wglWineHwndDmaBufPublishWINE(ring->channel_hwnd, ring->channel_fd,
+            &desc, image->consumer_cached ? -1 : image->dmabuf_fd);
+    if (!ret)
+        return;
+
+    wined3d_gl_hwnd_dmabuf_clear_busy(image);
+    TRACE("Failed to publish HWND dmabuf frame, ret %d.\n", ret);
+    if (ret == HWND_DMABUF_CHANNEL_CLOSED)
+        wined3d_gl_hwnd_dmabuf_close_channel(ring);
+}
+
+static void wined3d_gl_hwnd_dmabuf_probe_support_cs(void *object)
+{
+    struct wined3d_swapchain_gl *swapchain_gl = object;
+    struct wined3d_gl_hwnd_dmabuf_ring *ring = &swapchain_gl->hwnd_dmabuf;
+    struct wined3d_context_gl *context_gl;
+    struct wined3d_context *context;
+
+    if (wined3d_gl_hwnd_dmabuf_get_support(ring) != WINED3D_GL_HWND_DMABUF_SUPPORT_UNKNOWN
+            || !swapchain_gl->s.front_buffer)
+        return;
+
+    context = context_acquire(swapchain_gl->s.device, swapchain_gl->s.front_buffer, 0);
+    context_gl = wined3d_context_gl(context);
+    wined3d_gl_hwnd_dmabuf_probe_support(ring, context_gl->gl_info);
+    context_release(context);
+}
+
+static void wined3d_gl_hwnd_dmabuf_destroy_image(struct wined3d_gl_hwnd_dmabuf_ring *ring,
+        struct wined3d_gl_hwnd_dmabuf_image *image, struct wined3d_context_gl *context_gl)
+{
+    const struct wined3d_gl_info *gl_info = context_gl->gl_info;
+    unsigned int i;
+
+    wined3d_gl_hwnd_dmabuf_close_fd(ring, &image->dmabuf_fd);
+
+    if (image->fbo)
+    {
+        /* Deleting a bound FBO reverts the GL binding to 0; keep wined3d's
+         * cached binding in sync so a later context that reuses this GL id is
+         * not skipped by the bind_fbo cache (which short-circuits on a match). */
+        if (context_gl->fbo_read_binding == image->fbo)
+            context_gl->fbo_read_binding = 0;
+        if (context_gl->fbo_draw_binding == image->fbo)
+            context_gl->fbo_draw_binding = 0;
+        gl_info->fbo_ops.glDeleteFramebuffers(1, &image->fbo);
+        image->fbo = 0;
+    }
+    if (image->texture)
+    {
+        gl_info->gl_ops.gl.p_glDeleteTextures(1, &image->texture);
+        image->texture = 0;
+    }
+
+    image->valid = false;
+    wined3d_gl_hwnd_dmabuf_clear_busy(image);
+    image->width = 0;
+    image->height = 0;
+    image->present_count = 0;
+    image->release_token = 0;
+    memset(&image->dmabuf_desc, 0, sizeof(image->dmabuf_desc));
+
+    /* Recreating a slot invalidates all cached imports from this ring. */
+    if (!++ring->ring_generation) ++ring->ring_generation;
+    for (i = 0; i < ARRAY_SIZE(ring->images); ++i)
+        ring->images[i].consumer_cached = false;
+}
+
+static void wined3d_gl_hwnd_dmabuf_cleanup(struct wined3d_swapchain_gl *swapchain_gl)
+{
+    struct wined3d_gl_hwnd_dmabuf_ring *ring = &swapchain_gl->hwnd_dmabuf;
+    struct wined3d_context_gl *context_gl;
+    struct wined3d_context *context;
+    unsigned int i;
+
+    wined3d_gl_hwnd_dmabuf_close_channel(ring);
+
+    for (i = 0; i < ARRAY_SIZE(ring->images); ++i)
+        wined3d_gl_hwnd_dmabuf_close_fd(ring, &ring->images[i].dmabuf_fd);
+
+    if (!swapchain_gl->s.front_buffer)
+        return;
+
+    context = context_acquire(swapchain_gl->s.device, swapchain_gl->s.front_buffer, 0);
+    context_gl = wined3d_context_gl(context);
+    if (context_gl->valid)
+    {
+        for (i = 0; i < ARRAY_SIZE(ring->images); ++i)
+            wined3d_gl_hwnd_dmabuf_destroy_image(ring, &ring->images[i], context_gl);
+    }
+    context_release(context);
+}
+
+static bool wined3d_gl_hwnd_dmabuf_ensure_image(struct wined3d_swapchain_gl *swapchain_gl,
+        struct wined3d_gl_hwnd_dmabuf_image *image, struct wined3d_context_gl *context_gl,
+        unsigned int width, unsigned int height)
+{
+    const struct wined3d_gl_info *gl_info = context_gl->gl_info;
+    struct wined3d_gl_hwnd_dmabuf_ring *ring = &swapchain_gl->hwnd_dmabuf;
+    GLenum status;
+
+    if (image->texture && image->width == width && image->height == height)
+        return true;
+
+    if (image->busy_producer_unique_id)
+        return false;
+
+    if (image->texture || image->fbo)
+        wined3d_gl_hwnd_dmabuf_destroy_image(ring, image, context_gl);
+
+    gl_info->gl_ops.gl.p_glGenTextures(1, &image->texture);
+    wined3d_context_gl_bind_texture(context_gl, GL_TEXTURE_2D, image->texture);
+    gl_info->gl_ops.gl.p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    gl_info->gl_ops.gl.p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    gl_info->gl_ops.gl.p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl_info->gl_ops.gl.p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    gl_info->gl_ops.gl.p_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
+            GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    checkGLcall("create HWND dmabuf texture");
+
+    gl_info->fbo_ops.glGenFramebuffers(1, &image->fbo);
+    gl_info->fbo_ops.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, image->fbo);
+    context_gl->fbo_draw_binding = image->fbo;
+    gl_info->fbo_ops.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D, image->texture, 0);
+    gl_info->gl_ops.gl.p_glDrawBuffer(GL_COLOR_ATTACHMENT0);
+    status = gl_info->fbo_ops.glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE)
+    {
+        WARN("Failed to create HWND dmabuf FBO, status %#x.\n", status);
+        wined3d_gl_hwnd_dmabuf_destroy_image(ring, image, context_gl);
+        device_invalidate_state(swapchain_gl->s.device, STATE_FRAMEBUFFER);
+        return false;
+    }
+
+    image->width = width;
+    image->height = height;
+    device_invalidate_state(swapchain_gl->s.device, STATE_FRAMEBUFFER);
+    return true;
+}
+
+static void wined3d_gl_hwnd_dmabuf_capture(struct wined3d_swapchain *swapchain,
+        struct wined3d_context *context)
+{
+    struct wined3d_swapchain_gl *swapchain_gl = wined3d_swapchain_gl(swapchain);
+    struct wined3d_gl_hwnd_dmabuf_ring *ring = &swapchain_gl->hwnd_dmabuf;
+    struct wined3d_texture *back_buffer = swapchain->back_buffers[0];
+    struct wined3d_gl_hwnd_dmabuf_image *image = NULL;
+    const struct wined3d_gl_info *gl_info;
+    struct wined3d_context_gl *context_gl;
+    struct wined3d_texture_sub_resource *sub_resource;
+    struct wgl_dmabuf_desc dmabuf_desc;
+    bool preserve_last;
+    GLenum read_buffer = GL_COLOR_ATTACHMENT0;
+    RECT src_rect;
+    unsigned int width, height, i, idx;
+    DWORD src_location;
+    int dmabuf_fd = -1;
+
+    context_gl = wined3d_context_gl(context);
+    gl_info = context_gl->gl_info;
+    if (!wined3d_gl_hwnd_dmabuf_probe_support(ring, gl_info))
+        return;
+    if (!wined3d_gl_hwnd_dmabuf_ensure_channel(swapchain_gl, gl_info))
+        return;
+    wined3d_gl_hwnd_dmabuf_drain_channel(ring);
+
+    preserve_last = ring->images[ring->last_image].valid;
+    for (i = 0; i < ARRAY_SIZE(ring->images); ++i)
+    {
+        idx = (ring->next_image + i) % ARRAY_SIZE(ring->images);
+        if (preserve_last && idx == ring->last_image)
+            continue;
+        if (!ring->images[idx].busy_producer_unique_id)
+        {
+            image = &ring->images[idx];
+            break;
+        }
+    }
+    if (!image)
+    {
+        TRACE("No free HWND dmabuf image for present %s.\n",
+                wine_dbgstr_longlong(ring->present_count));
+        return;
+    }
+
+    width = back_buffer->resource.width;
+    height = back_buffer->resource.height;
+    if (!width || !height)
+        return;
+
+    if (!wined3d_gl_hwnd_dmabuf_ensure_image(swapchain_gl, image, context_gl, width, height))
+        return;
+
+    SetRect(&src_rect, 0, 0, width, height);
+    sub_resource = &back_buffer->sub_resources[0];
+    src_location = back_buffer->resource.multisample_type ? WINED3D_LOCATION_RB_RESOLVED
+            : WINED3D_LOCATION_TEXTURE_RGB;
+    if (sub_resource->locations & back_buffer->resource.draw_binding)
+        src_location = back_buffer->resource.draw_binding;
+    wined3d_texture_load_location(back_buffer, 0, context, src_location);
+
+    wined3d_context_gl_apply_fbo_state_explicit(context_gl, GL_READ_FRAMEBUFFER,
+            &back_buffer->resource, 0, NULL, 0, src_location);
+    if (src_location == WINED3D_LOCATION_DRAWABLE)
+    {
+        read_buffer = wined3d_texture_get_gl_buffer(back_buffer);
+        wined3d_texture_translate_drawable_coords(back_buffer, context_gl->window, &src_rect);
+    }
+    gl_info->gl_ops.gl.p_glReadBuffer(read_buffer);
+
+    gl_info->fbo_ops.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, image->fbo);
+    context_gl->fbo_draw_binding = image->fbo;
+    gl_info->gl_ops.gl.p_glDrawBuffer(GL_COLOR_ATTACHMENT0);
+
+    gl_info->gl_ops.gl.p_glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    context_invalidate_state(context, STATE_BLEND);
+
+    gl_info->gl_ops.gl.p_glDisable(GL_SCISSOR_TEST);
+    context_invalidate_state(context, STATE_RASTERIZER);
+
+    gl_info->fbo_ops.glBlitFramebuffer(src_rect.left, src_rect.top, src_rect.right, src_rect.bottom,
+            0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+    /* SYNC_NONE consumers need the copy complete before the frame publishes. */
+    gl_info->gl_ops.gl.p_glFinish();
+    checkGLcall("copy HWND dmabuf image");
+
+    /* Export each texture once and retain its fd for the slot's lifetime. */
+    if (image->dmabuf_fd < 0)
+    {
+        memset(&dmabuf_desc, 0, sizeof(dmabuf_desc));
+        if (!gl_info->p_wglWineExportDmaBufWINE(image->texture, GL_TEXTURE_2D,
+                &dmabuf_desc, &dmabuf_fd) || dmabuf_fd < 0)
+        {
+            wined3d_gl_hwnd_dmabuf_close_fd(ring, &dmabuf_fd);
+            memset(&image->dmabuf_desc, 0, sizeof(image->dmabuf_desc));
+            image->present_count = 0;
+            image->release_token = 0;
+            image->valid = false;
+            wined3d_gl_hwnd_dmabuf_clear_busy(image);
+            return;
+        }
+        wined3d_gl_hwnd_dmabuf_negotiate_desc(ring, &dmabuf_desc);
+
+        image->dmabuf_desc = dmabuf_desc;
+        image->dmabuf_fd = dmabuf_fd;
+        image->consumer_cached = false;
+    }
+    image->present_count = ring->present_count;
+    image->release_token = ++ring->next_release_token;
+    if (!image->release_token)
+        image->release_token = ++ring->next_release_token;
+    image->valid = true;
+    wined3d_gl_hwnd_dmabuf_clear_busy(image);
+    ring->last_image = idx;
+    ring->next_image = (idx + 1) % ARRAY_SIZE(ring->images);
+    wined3d_gl_hwnd_dmabuf_publish_channel(ring, image);
+
+    device_invalidate_state(swapchain->device, STATE_FRAMEBUFFER);
+}
+
+static bool wined3d_gl_hwnd_dmabuf_should_present(struct wined3d_swapchain_gl *swapchain_gl,
+        const struct wined3d_gl_info *gl_info, uint32_t flags)
+{
+    struct wined3d_gl_hwnd_dmabuf_ring *ring = &swapchain_gl->hwnd_dmabuf;
+    HWND hwnd = swapchain_gl->s.win_handle;
+    bool no_window_update = flags & WINED3D_PRESENT_NO_WINDOW_UPDATE;
+
+    if (ring->channel_fd >= 0 && ring->channel_hwnd == hwnd)
+        return true;
+
+    if (!wined3d_gl_hwnd_dmabuf_probe_support(ring, gl_info))
+        return false;
+
+    if (!no_window_update && !wined3d_gl_hwnd_dmabuf_cached_hwnd_has_caps(ring, hwnd))
+        return false;
+
+    if (wined3d_gl_hwnd_dmabuf_ensure_channel(swapchain_gl, gl_info))
+        return true;
+
+    return no_window_update;
+}
+
+static BOOL swapchain_gl_supports_hwnd_dmabuf(const struct wined3d_swapchain *swapchain)
+{
+    const struct wined3d_swapchain_gl *swapchain_gl = wined3d_swapchain_gl_const(swapchain);
+    const struct wined3d_gl_hwnd_dmabuf_ring *ring = &swapchain_gl->hwnd_dmabuf;
+    enum wined3d_gl_hwnd_dmabuf_support support = wined3d_gl_hwnd_dmabuf_get_support(ring);
+
+    if (support == WINED3D_GL_HWND_DMABUF_SUPPORT_UNKNOWN)
+    {
+        /* Cold cache fill emits a CS callback. */
+        wined3d_mutex_lock();
+        if (wined3d_gl_hwnd_dmabuf_get_support(ring) == WINED3D_GL_HWND_DMABUF_SUPPORT_UNKNOWN)
+        {
+            wined3d_cs_init_object(swapchain->device->cs, wined3d_gl_hwnd_dmabuf_probe_support_cs,
+                    (void *)swapchain_gl);
+            wined3d_cs_finish(swapchain->device->cs, WINED3D_CS_QUEUE_DEFAULT);
+        }
+        support = wined3d_gl_hwnd_dmabuf_get_support(ring);
+        wined3d_mutex_unlock();
+    }
+
+    if (support != WINED3D_GL_HWND_DMABUF_SUPPORT_YES)
+        return FALSE;
+    if (ring->channel_fd >= 0 && ring->channel_hwnd == swapchain_gl->s.win_handle
+            && ring->format_modifier_count)
+        return TRUE;
+    return wined3d_gl_hwnd_dmabuf_hwnd_has_caps(ring, swapchain_gl->s.win_handle);
+}
+
 static bool swapchain_present_is_partial_copy(struct wined3d_swapchain *swapchain, const RECT *dst_rect)
 {
     enum wined3d_swap_effect swap_effect = swapchain->state.desc.swap_effect;
@@ -617,6 +1354,7 @@ static void swapchain_gl_present(struct wined3d_swapchain *swapchain,
     const struct wined3d_pixel_format *pixel_format;
     const struct wined3d_gl_info *gl_info;
     struct wined3d_context_gl *context_gl;
+    bool hwnd_dmabuf_present;
     struct wined3d_context *context;
 
     context = context_acquire(swapchain->device, swapchain->front_buffer, 0);
@@ -629,32 +1367,50 @@ static void swapchain_gl_present(struct wined3d_swapchain *swapchain,
     }
 
     TRACE("Presenting DC %p.\n", context_gl->dc);
+    gl_info = context_gl->gl_info;
+    hwnd_dmabuf_present = wined3d_gl_hwnd_dmabuf_should_present(wined3d_swapchain_gl(swapchain),
+            gl_info, flags);
 
-    pixel_format = &wined3d_adapter_gl(swapchain->device->adapter)->pixel_formats[context_gl->pixel_format];
-    if (context_gl->dc == wined3d_device_gl(swapchain->device)->backup_dc
-            || (pixel_format->swap_method != WGL_SWAP_COPY_ARB
-            && swapchain_present_is_partial_copy(swapchain, dst_rect)))
+    /* The gated dmabuf path captures below without updating the window. */
+    if (hwnd_dmabuf_present)
     {
-        swapchain_blit_gdi(swapchain, context, src_rect, dst_rect);
+        TRACE("Skipping window update.\n");
     }
     else
     {
-        gl_info = context_gl->gl_info;
-
-        swapchain_gl_set_swap_interval(swapchain, context_gl, swap_interval);
-
-        wined3d_texture_load_location(back_buffer, 0, context, back_buffer->resource.draw_binding);
-
-        swapchain_blit(swapchain, context, src_rect, dst_rect);
-
-        if (swapchain->device->context_count > 1)
+        pixel_format = &wined3d_adapter_gl(swapchain->device->adapter)->pixel_formats[context_gl->pixel_format];
+        if (context_gl->dc == wined3d_device_gl(swapchain->device)->backup_dc
+                || (pixel_format->swap_method != WGL_SWAP_COPY_ARB
+                && swapchain_present_is_partial_copy(swapchain, dst_rect)))
         {
-            WARN_(d3d_perf)("Multiple contexts, calling glFinish() to enforce ordering.\n");
-            gl_info->gl_ops.gl.p_glFinish();
+            swapchain_blit_gdi(swapchain, context, src_rect, dst_rect);
         }
+        else
+        {
+            swapchain_gl_set_swap_interval(swapchain, context_gl, swap_interval);
 
-        /* call wglSwapBuffers through the gl table to avoid confusing the Steam overlay */
-        gl_info->gl_ops.wgl.p_wglSwapBuffers(context_gl->dc);
+            wined3d_texture_load_location(back_buffer, 0, context, back_buffer->resource.draw_binding);
+
+            swapchain_blit(swapchain, context, src_rect, dst_rect);
+
+            if (swapchain->device->context_count > 1)
+            {
+                WARN_(d3d_perf)("Multiple contexts, calling glFinish() to enforce ordering.\n");
+                gl_info->gl_ops.gl.p_glFinish();
+            }
+
+            /* call wglSwapBuffers through the gl table to avoid confusing the Steam overlay */
+            gl_info->gl_ops.wgl.p_wglSwapBuffers(context_gl->dc);
+        }
+    }
+
+    if (hwnd_dmabuf_present)
+    {
+        struct wined3d_gl_hwnd_dmabuf_ring *ring = &wined3d_swapchain_gl(swapchain)->hwnd_dmabuf;
+
+        /* Capture before rotating the back buffer out. */
+        ++ring->present_count;
+        wined3d_gl_hwnd_dmabuf_capture(swapchain, context);
     }
 
     if (context->d3d_info->fences)
@@ -664,8 +1420,11 @@ static void swapchain_gl_present(struct wined3d_swapchain *swapchain,
 
     TRACE("SwapBuffers called, Starting new frame\n");
 
-    wined3d_texture_validate_location(swapchain->front_buffer, 0, WINED3D_LOCATION_DRAWABLE);
-    wined3d_texture_invalidate_location(swapchain->front_buffer, 0, ~WINED3D_LOCATION_DRAWABLE);
+    if (!hwnd_dmabuf_present)
+    {
+        wined3d_texture_validate_location(swapchain->front_buffer, 0, WINED3D_LOCATION_DRAWABLE);
+        wined3d_texture_invalidate_location(swapchain->front_buffer, 0, ~WINED3D_LOCATION_DRAWABLE);
+    }
 
     context_release(context);
 }
@@ -685,6 +1444,7 @@ static const struct wined3d_swapchain_ops swapchain_gl_ops =
 {
     swapchain_gl_present,
     swapchain_frontbuffer_updated,
+    swapchain_gl_supports_hwnd_dmabuf,
 };
 
 static bool wined3d_swapchain_vk_present_mode_supported(struct wined3d_swapchain_vk *swapchain_vk,
@@ -1259,6 +2019,7 @@ static void swapchain_vk_present(struct wined3d_swapchain *swapchain, const RECT
     VkResult vr;
     HRESULT hr;
 
+    (void)flags;
     context_vk = wined3d_context_vk(context_acquire(swapchain->device, back_buffer, 0));
 
     if (!swapchain_vk->vk_swapchain || swapchain_present_is_partial_copy(swapchain, dst_rect))
@@ -1351,6 +2112,7 @@ static void swapchain_gdi_present(struct wined3d_swapchain *swapchain,
     void *heap_memory;
     HDC dc;
 
+    (void)flags;
     front = &swapchain->front_buffer->dc_info[0];
     back = &swapchain->back_buffers[0]->dc_info[0];
 
@@ -1726,7 +2488,10 @@ err:
     }
 
     if (swapchain->dc)
+    {
         wined3d_release_dc(swapchain->win_handle, swapchain->dc);
+        swapchain->dc = NULL;
+    }
 
     wined3d_swapchain_state_cleanup(&swapchain->state);
     wined3d_mutex_unlock();
@@ -1749,11 +2514,25 @@ HRESULT wined3d_swapchain_gl_init(struct wined3d_swapchain_gl *swapchain_gl, str
         const struct wined3d_swapchain_desc *desc, struct wined3d_swapchain_state_parent *state_parent,
         void *parent, const struct wined3d_parent_ops *parent_ops)
 {
+    HRESULT hr;
+    unsigned int i;
+
     TRACE("swapchain_gl %p, device %p, desc %p, state_parent %p, parent %p, parent_ops %p.\n",
             swapchain_gl, device, desc, state_parent, parent, parent_ops);
 
-    return wined3d_swapchain_init(&swapchain_gl->s, device, desc, state_parent, parent,
-            parent_ops, &swapchain_gl_ops);
+    if (FAILED(hr = wined3d_swapchain_init(&swapchain_gl->s, device, desc, state_parent, parent,
+            parent_ops, &swapchain_gl_ops)))
+        return hr;
+
+    swapchain_gl->hwnd_dmabuf.channel_fd = -1;
+    swapchain_gl->hwnd_dmabuf.ring_generation = 1;
+    for (i = 0; i < ARRAY_SIZE(swapchain_gl->hwnd_dmabuf.images); ++i)
+    {
+        swapchain_gl->hwnd_dmabuf.images[i].image_id = i + 1;
+        swapchain_gl->hwnd_dmabuf.images[i].dmabuf_fd = -1;
+    }
+
+    return WINED3D_OK;
 }
 
 HRESULT wined3d_swapchain_vk_init(struct wined3d_swapchain_vk *swapchain_vk, struct wined3d_device *device,
@@ -1835,6 +2614,7 @@ static struct wined3d_context_gl *wined3d_swapchain_gl_create_context(struct win
         free(context_gl);
         return NULL;
     }
+    wined3d_gl_hwnd_dmabuf_probe_support(&swapchain_gl->hwnd_dmabuf, context_gl->gl_info);
 
     if (!device_context_add(device, &context_gl->c))
     {

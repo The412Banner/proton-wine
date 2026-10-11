@@ -30,6 +30,8 @@
 #include <stdint.h>
 
 #include "wine/wgl.h"
+#include "wine/opengl_driver.h"
+#include "wine/hwnd_dmabuf.h"
 
 struct wined3d_swapchain_gl;
 struct wined3d_texture_gl;
@@ -372,6 +374,14 @@ struct wined3d_gl_info
     struct wined3d_gl_funcs gl_ops;
     struct wined3d_fbo_ops fbo_ops;
 
+    PFN_wglWineCloseDmaBufWINE p_wglWineCloseDmaBufWINE;
+    PFN_wglWineDmaBufExportSupportedWINE p_wglWineDmaBufExportSupportedWINE;
+    PFN_wglWineExportDmaBufWINE p_wglWineExportDmaBufWINE;
+    PFN_wglWineHwndDmaBufOpenProducerWINE p_wglWineHwndDmaBufOpenProducerWINE;
+    PFN_wglWineHwndDmaBufGetCapsWINE p_wglWineHwndDmaBufGetCapsWINE;
+    PFN_wglWineHwndDmaBufCloseProducerWINE p_wglWineHwndDmaBufCloseProducerWINE;
+    PFN_wglWineHwndDmaBufPublishWINE p_wglWineHwndDmaBufPublishWINE;
+    PFN_wglWineHwndDmaBufDrainReleaseWINE p_wglWineHwndDmaBufDrainReleaseWINE;
     void (WINE_GLAPI *p_glDisableWINE)(GLenum cap);
     void (WINE_GLAPI *p_glEnableWINE)(GLenum cap);
 };
@@ -1138,12 +1148,71 @@ HRESULT wined3d_unordered_access_view_gl_init(struct wined3d_unordered_access_vi
 void wined3d_unordered_access_view_gl_update(struct wined3d_unordered_access_view_gl *uav_gl,
         struct wined3d_context_gl *context_gl);
 
+/* Produced by GL presents and drained by the HWND dmabuf API. */
+struct wined3d_gl_hwnd_dmabuf_image
+{
+    struct wgl_dmabuf_desc dmabuf_desc;
+    GLuint texture;
+    GLuint fbo;
+    int dmabuf_fd;
+    unsigned int width;
+    unsigned int height;
+    uint64_t present_count;
+    uint64_t release_token;
+    unsigned int image_id;
+    bool valid;
+    bool consumer_cached;
+    uint64_t busy_producer_unique_id;
+};
+
+#define WINED3D_GL_HWND_DMABUF_RING_SIZE 4
+
+enum wined3d_gl_hwnd_dmabuf_support
+{
+    WINED3D_GL_HWND_DMABUF_SUPPORT_UNKNOWN,
+    WINED3D_GL_HWND_DMABUF_SUPPORT_NO,
+    WINED3D_GL_HWND_DMABUF_SUPPORT_YES,
+};
+
+struct wined3d_gl_hwnd_dmabuf_ring
+{
+    struct wined3d_gl_hwnd_dmabuf_image images[WINED3D_GL_HWND_DMABUF_RING_SIZE];
+    hwnd_dmabuf_format_modifier_t *format_modifiers;
+    unsigned int next_image;
+    unsigned int last_image;
+    unsigned int ring_generation;
+    unsigned int format_modifier_count;
+    uint64_t present_count;
+    uint64_t next_release_token;
+    volatile LONG support;
+    HWND caps_hwnd;
+    HWND channel_hwnd;
+    int channel_fd;
+    bool hwnd_has_caps;
+    uint64_t producer_unique_id;
+    bool logged_implicit_modifier;
+    bool logged_opaque_fourcc;
+    bool logged_unsupported_modifier;
+    PFN_wglWineCloseDmaBufWINE p_wglWineCloseDmaBufWINE;
+    PFN_wglWineHwndDmaBufGetCapsWINE p_wglWineHwndDmaBufGetCapsWINE;
+    PFN_wglWineHwndDmaBufCloseProducerWINE p_wglWineHwndDmaBufCloseProducerWINE;
+    PFN_wglWineHwndDmaBufPublishWINE p_wglWineHwndDmaBufPublishWINE;
+    PFN_wglWineHwndDmaBufDrainReleaseWINE p_wglWineHwndDmaBufDrainReleaseWINE;
+};
+
 struct wined3d_swapchain_gl
 {
     struct wined3d_swapchain s;
+    struct wined3d_gl_hwnd_dmabuf_ring hwnd_dmabuf;
 };
 
 static inline struct wined3d_swapchain_gl *wined3d_swapchain_gl(struct wined3d_swapchain *swapchain)
+{
+    return CONTAINING_RECORD(swapchain, struct wined3d_swapchain_gl, s);
+}
+
+static inline const struct wined3d_swapchain_gl *wined3d_swapchain_gl_const(
+        const struct wined3d_swapchain *swapchain)
 {
     return CONTAINING_RECORD(swapchain, struct wined3d_swapchain_gl, s);
 }

@@ -5806,6 +5806,9 @@ typedef unsigned int GLhandleARB;
 #define GL_ZOOM_Y                                                     0x0D17
 #define GL_Z_EXT                                                      0x87D7
 #define WGL_ACCELERATION_ARB                                          0x2003
+#define WGL_ACCESS_READ_ONLY_NV                                       0x00000000
+#define WGL_ACCESS_READ_WRITE_NV                                      0x00000001
+#define WGL_ACCESS_WRITE_DISCARD_NV                                   0x00000002
 #define WGL_ACCUM_ALPHA_BITS_ARB                                      0x2021
 #define WGL_ACCUM_BITS_ARB                                            0x201D
 #define WGL_ACCUM_BLUE_BITS_ARB                                       0x2020
@@ -9520,6 +9523,14 @@ typedef BOOL       (GLAPIENTRY *PFN_wglBindTexImageARB)( HPBUFFERARB hPbuffer, i
 typedef BOOL       (GLAPIENTRY *PFN_wglChoosePixelFormatARB)( HDC hdc, const int *piAttribIList, const FLOAT *pfAttribFList, UINT nMaxFormats, int *piFormats, UINT *nNumFormats );
 typedef HGLRC      (GLAPIENTRY *PFN_wglCreateContextAttribsARB)( HDC hDC, HGLRC hShareContext, const int *attribList );
 typedef HPBUFFERARB (GLAPIENTRY *PFN_wglCreatePbufferARB)( HDC hDC, int iPixelFormat, int iWidth, int iHeight, const int *piAttribList );
+typedef BOOL       (GLAPIENTRY *PFN_wglDXCloseDeviceNV)( HANDLE hDevice );
+typedef BOOL       (GLAPIENTRY *PFN_wglDXLockObjectsNV)( HANDLE hDevice, GLint count, HANDLE *hObjects );
+typedef BOOL       (GLAPIENTRY *PFN_wglDXObjectAccessNV)( HANDLE hObject, GLenum access );
+typedef HANDLE     (GLAPIENTRY *PFN_wglDXOpenDeviceNV)( void *dxDevice );
+typedef HANDLE     (GLAPIENTRY *PFN_wglDXRegisterObjectNV)( HANDLE hDevice, void *dxObject, GLuint name, GLenum type, GLenum access );
+typedef BOOL       (GLAPIENTRY *PFN_wglDXSetResourceShareHandleNV)( void *dxObject, HANDLE shareHandle );
+typedef BOOL       (GLAPIENTRY *PFN_wglDXUnlockObjectsNV)( HANDLE hDevice, GLint count, HANDLE *hObjects );
+typedef BOOL       (GLAPIENTRY *PFN_wglDXUnregisterObjectNV)( HANDLE hDevice, HANDLE hObject );
 typedef BOOL       (GLAPIENTRY *PFN_wglDestroyPbufferARB)( HPBUFFERARB hPbuffer );
 typedef void       (GLAPIENTRY *PFN_wglFreeMemoryNV)( void *pointer );
 typedef HDC        (GLAPIENTRY *PFN_wglGetCurrentReadDCARB)(void);
@@ -9573,6 +9584,14 @@ typedef BOOL       (GLAPIENTRY *PFN_wglSwapIntervalEXT)( int interval );
     USE_GL_FUNC(wglChoosePixelFormatARB) \
     USE_GL_FUNC(wglCreateContextAttribsARB) \
     USE_GL_FUNC(wglCreatePbufferARB) \
+    USE_GL_FUNC(wglDXCloseDeviceNV) \
+    USE_GL_FUNC(wglDXLockObjectsNV) \
+    USE_GL_FUNC(wglDXObjectAccessNV) \
+    USE_GL_FUNC(wglDXOpenDeviceNV) \
+    USE_GL_FUNC(wglDXRegisterObjectNV) \
+    USE_GL_FUNC(wglDXSetResourceShareHandleNV) \
+    USE_GL_FUNC(wglDXUnlockObjectsNV) \
+    USE_GL_FUNC(wglDXUnregisterObjectNV) \
     USE_GL_FUNC(wglDestroyPbufferARB) \
     USE_GL_FUNC(wglFreeMemoryNV) \
     USE_GL_FUNC(wglGetCurrentReadDCARB) \

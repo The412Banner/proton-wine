@@ -1,0 +1,11933 @@
+/* Automatically generated from OpenXR xr.xml; DO NOT EDIT!
+ *
+ * This file is generated from OpenXR xr.xml file covered
+ * by the following copyright and permission notice:
+ *
+ * Copyright (c) 2017-2026 The Khronos Group Inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
+ *
+ * ------------------------------------------------------------------------
+ *
+ * This file, xr.xml, is the OpenXR API Registry. It is a critically important
+ * and normative part of the OpenXR Specification, including a canonical
+ * machine-readable definition of the API, parameter and member validation
+ * language incorporated into the Specification and reference pages, and other
+ * material which is registered by Khronos, such as tags used by extension and
+ * layer authors. The only authoritative version of xr.xml is the one
+ * maintained in the default branch of the Khronos OpenXR GitHub project.
+ *
+ */
+
+#ifndef __WINE_OPENXR_H
+#define __WINE_OPENXR_H
+
+#include <windef.h>
+#include <stdint.h>
+
+/* Define WINE_XR_HOST to get 'host' headers. */
+#ifdef WINE_XR_HOST
+#define XRAPI_CALL
+#define WINE_XR_ALIGN(x)
+#endif
+
+#ifndef XRAPI_CALL
+#define XRAPI_CALL __stdcall
+#endif
+
+#ifndef XRAPI_PTR
+#define XRAPI_PTR XRAPI_CALL
+#endif
+
+#ifndef WINE_XR_ALIGN
+#define WINE_XR_ALIGN DECLSPEC_ALIGN
+#endif
+
+#if defined(__x86_64__) || defined(__aarch64__)
+#define XR_PTR_SIZE 8
+#endif
+
+typedef uint64_t XrVersion;
+#if !defined(XR_DEFINE_ATOM)
+    #define XR_DEFINE_ATOM(object) typedef uint64_t object;
+#endif
+XR_DEFINE_ATOM(XrSpatialBufferIdEXT)
+#if !defined(XR_DEFINE_OPAQUE_64)
+    #if (XR_PTR_SIZE == 8)
+        #define XR_DEFINE_OPAQUE_64(object) typedef struct object##_T* object;
+    #else
+        #define XR_DEFINE_OPAQUE_64(object) typedef uint64_t object;
+    #endif
+#endif
+typedef uint32_t XrBool32;
+typedef int64_t XrDuration;
+XR_DEFINE_ATOM(XrPath)
+XR_DEFINE_ATOM(XrSpatialEntityIdBD)
+typedef int64_t XrTime;
+XR_DEFINE_ATOM(XrTrackableANDROID)
+#define XR_MAKE_VERSION(major, minor, patch) \
+    ((((major) & 0xffffULL) << 48) | (((minor) & 0xffffULL) << 32) | ((patch) & 0xffffffffULL))
+XR_DEFINE_ATOM(XrAsyncRequestIdFB)
+XR_DEFINE_ATOM(XrCameraIdBD)
+XR_DEFINE_ATOM(XrCameraImageIdBD)
+XR_DEFINE_ATOM(XrControllerModelKeyMSFT)
+XR_DEFINE_OPAQUE_64(XrFutureEXT)
+XR_DEFINE_ATOM(XrMarkerML)
+XR_DEFINE_ATOM(XrRenderModelIdEXT)
+XR_DEFINE_ATOM(XrRenderModelKeyFB)
+typedef uint64_t XrSpaceUserIdFB;
+XR_DEFINE_ATOM(XrSpatialEntityIdEXT)
+XR_DEFINE_ATOM(XrSystemId)
+#define XR_API_LAYER_CREATE_INFO_STRUCT_VERSION 1
+#define XR_API_LAYER_INFO_STRUCT_VERSION 1
+#define XR_API_LAYER_MAX_SETTINGS_PATH_SIZE 512
+#define XR_API_LAYER_NEXT_INFO_STRUCT_VERSION 1
+#define XR_API_VERSION_1_0 XR_MAKE_VERSION(1, 0, XR_VERSION_PATCH(XR_CURRENT_API_VERSION))
+#define XR_API_VERSION_1_1 XR_MAKE_VERSION(1, 1, XR_VERSION_PATCH(XR_CURRENT_API_VERSION))
+#define XR_BODY_JOINT_COUNT_BD 24
+#define XR_BODY_JOINT_COUNT_HTC 26
+#define XR_BODY_JOINT_WITHOUT_ARM_COUNT_BD 16
+#define XR_CURRENT_API_VERSION XR_MAKE_VERSION(1, 1, 63)
+#define XR_CURRENT_LOADER_API_LAYER_VERSION 1
+#define XR_CURRENT_LOADER_RUNTIME_VERSION 1
+#if !defined(XR_DEFINE_HANDLE)
+#if (XR_PTR_SIZE == 8)
+    #define XR_DEFINE_HANDLE(object) typedef struct object##_T* object;
+#else
+    #define XR_DEFINE_HANDLE(object) typedef uint64_t object;
+#endif
+#endif
+#define XR_EXTENSION_ENUM_BASE 1000000000
+#define XR_EXTENSION_ENUM_STRIDE 1000
+#define XR_FACE_EXPRESSION_COUNT_BD 52
+#define XR_FACE_EXPRESSSION_SET_DEFAULT_FB XR_FACE_EXPRESSION_SET_DEFAULT_FB
+#define XR_FACIAL_EXPRESSION_EYE_COUNT_HTC 14
+#define XR_FACIAL_EXPRESSION_LIP_COUNT_HTC 37
+#define XR_FAILED(result) ((result) < 0)
+#define XR_FALSE 0
+#define XR_FREQUENCY_UNSPECIFIED 0
+#define XR_HAND_FOREARM_JOINT_COUNT_ULTRALEAP 27
+#define XR_HAND_JOINT_COUNT_EXT 26
+#define XR_HAPTIC_PARAMETRIC_FREQUENCY_MAX_HZ_EXT 1000
+#define XR_HAPTIC_PARAMETRIC_FREQUENCY_MIN_HZ_EXT 1
+#define XR_HAPTIC_PARAMETRIC_MAX_POINTS_TRANSIENTS_EXT 500
+#define XR_HAPTIC_PARAMETRIC_VIBRATION_EXTEND_DURATION_EXT 50000000
+#define XR_INFINITE_DURATION 0x7fffffffffffffffLL
+#define XR_LIP_EXPRESSION_COUNT_BD 20
+#define XR_LOADER_INFO_STRUCT_VERSION 1
+#define XR_MAX_ACTION_NAME_SIZE 64
+#define XR_MAX_ACTION_SET_NAME_SIZE 64
+#define XR_MAX_API_LAYER_DESCRIPTION_SIZE 256
+#define XR_MAX_API_LAYER_NAME_SIZE 256
+#define XR_MAX_APPLICATION_NAME_SIZE 128
+#define XR_MAX_ENGINE_NAME_SIZE 128
+#define XR_MAX_EVENT_DATA_SIZE sizeof(XrEventDataBuffer)
+#define XR_MAX_EXTENSION_NAME_SIZE 128
+#define XR_MAX_GRAPHICS_APIS_SUPPORTED 32
+#define XR_MAX_HAPTIC_AMPLITUDE_ENVELOPE_SAMPLES_FB 4000u
+#define XR_MAX_HAPTIC_PCM_BUFFER_SIZE_FB 4000
+#define XR_MAX_LOCALIZED_ACTION_NAME_SIZE 128
+#define XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE 128
+#define XR_MAX_PATH_LENGTH 256
+#define XR_MAX_RESULT_STRING_SIZE 64
+#define XR_MAX_RUNTIME_NAME_SIZE 128
+#define XR_MAX_STRUCTURE_NAME_SIZE 64
+#define XR_MAX_SYSTEM_NAME_SIZE 256
+#if !defined(XR_MAY_ALIAS)
+#if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4))
+#define XR_MAY_ALIAS __attribute__((__may_alias__))
+#else
+#define XR_MAY_ALIAS
+#endif
+#endif
+#define XR_MIN_COMPOSITION_LAYERS_SUPPORTED 16
+#define XR_MIN_HAPTIC_DURATION -1
+#define XR_NO_DURATION 0
+#define XR_NULL_CONTROLLER_MODEL_KEY_MSFT 0
+#if !defined(XR_NULL_HANDLE)
+#if (XR_PTR_SIZE == 8) && XR_CPP_NULLPTR_SUPPORTED
+    #define XR_NULL_HANDLE nullptr
+#else
+    #define XR_NULL_HANDLE 0
+#endif
+#endif
+#define XR_NULL_PATH 0
+#define XR_NULL_RENDER_MODEL_KEY_FB 0
+#define XR_NULL_SPATIAL_BUFFER_ID_EXT 0
+#define XR_NULL_SPATIAL_ENTITY_ID_EXT 0
+#define XR_NULL_SYSTEM_ID 0
+#define XR_NULL_TRACKABLE_ANDROID 0
+#define XR_RUNTIME_INFO_STRUCT_VERSION 1
+#define XR_SUCCEEDED(result) ((result) >= 0)
+#define XR_TRUE 1
+#define XR_UNQUALIFIED_SUCCESS(result) ((result) == 0)
+#define XR_UUID_SIZE 16
+#define XR_VERSION_MAJOR(version) (uint16_t)(((uint64_t)(version) >> 48)& 0xffffULL)
+#define XR_VERSION_MINOR(version) (uint16_t)(((uint64_t)(version) >> 32) & 0xffffULL)
+#define XR_VERSION_PATCH(version) (uint32_t)((uint64_t)(version) & 0xffffffffULL)
+typedef uint64_t XrFlags64;
+#define XR_ALMALENCE_DIGITAL_LENS_CONTROL_EXTENSION_NAME "XR_ALMALENCE_digital_lens_control"
+#define XR_ALMALENCE_digital_lens_control_SPEC_VERSION 1
+#define XR_ANDROID_COMPOSITION_LAYER_PASSTHROUGH_MESH_EXTENSION_NAME "XR_ANDROID_composition_layer_passthrough_mesh"
+#define XR_ANDROID_DEVICE_ANCHOR_PERSISTENCE_EXTENSION_NAME "XR_ANDROID_device_anchor_persistence"
+#define XR_ANDROID_EYE_TRACKING_EXTENSION_NAME "XR_ANDROID_eye_tracking"
+#define XR_ANDROID_FACE_TRACKING_EXTENSION_NAME "XR_ANDROID_face_tracking"
+#define XR_ANDROID_GEOSPATIAL_ANCHOR_EXTENSION_NAME "XR_ANDROID_geospatial_anchor"
+#define XR_ANDROID_GEOSPATIAL_EXTENSION_NAME "XR_ANDROID_geospatial"
+#define XR_ANDROID_GOOGLE_CLOUD_AUTH_EXTENSION_NAME "XR_ANDROID_google_cloud_auth"
+#define XR_ANDROID_LIGHT_ESTIMATION_EXTENSION_NAME "XR_ANDROID_light_estimation"
+#define XR_ANDROID_MOUSE_INTERACTION_EXTENSION_NAME "XR_ANDROID_mouse_interaction"
+#define XR_ANDROID_PASSTHROUGH_CAMERA_STATE_EXTENSION_NAME "XR_ANDROID_passthrough_camera_state"
+#define XR_ANDROID_PERFORMANCE_METRICS_EXTENSION_NAME "XR_ANDROID_performance_metrics"
+#define XR_ANDROID_RAYCAST_EXTENSION_NAME "XR_ANDROID_raycast"
+#define XR_ANDROID_RECOMMENDED_RESOLUTION_EXTENSION_NAME "XR_ANDROID_recommended_resolution"
+#define XR_ANDROID_SCENE_MESHING_EXTENSION_NAME "XR_ANDROID_scene_meshing"
+#define XR_ANDROID_SPATIAL_ANCHOR_SPACE_EXTENSION_NAME "XR_ANDROID_spatial_anchor_space"
+#define XR_ANDROID_SPATIAL_COMPONENT_SUBSUMED_BY_EXTENSION_NAME "XR_ANDROID_spatial_component_subsumed_by"
+#define XR_ANDROID_SPATIAL_DISCOVERY_BOUNDS_EXTENSION_NAME "XR_ANDROID_spatial_discovery_bounds"
+#define XR_ANDROID_SPATIAL_DISCOVERY_RAYCAST_EXTENSION_NAME "XR_ANDROID_spatial_discovery_raycast"
+#define XR_ANDROID_SPATIAL_ENTITY_BOUND_ANCHOR_EXTENSION_NAME "XR_ANDROID_spatial_entity_bound_anchor"
+#define XR_ANDROID_SPATIAL_OBJECT_TRACKING_EXTENSION_NAME "XR_ANDROID_spatial_object_tracking"
+#define XR_ANDROID_TRACKABLES_EXTENSION_NAME "XR_ANDROID_trackables"
+#define XR_ANDROID_TRACKABLES_IMAGE_EXTENSION_NAME "XR_ANDROID_trackables_image"
+#define XR_ANDROID_TRACKABLES_MARKER_EXTENSION_NAME "XR_ANDROID_trackables_marker"
+#define XR_ANDROID_TRACKABLES_OBJECT_EXTENSION_NAME "XR_ANDROID_trackables_object"
+#define XR_ANDROID_TRACKABLES_QR_CODE_EXTENSION_NAME "XR_ANDROID_trackables_qr_code"
+#define XR_ANDROID_UNBOUNDED_REFERENCE_SPACE_EXTENSION_NAME "XR_ANDROID_unbounded_reference_space"
+#define XR_ANDROID_composition_layer_passthrough_mesh_SPEC_VERSION 1
+#define XR_ANDROID_device_anchor_persistence_SPEC_VERSION 1
+#define XR_ANDROID_eye_tracking_SPEC_VERSION 1
+#define XR_ANDROID_face_tracking_SPEC_VERSION 1
+#define XR_ANDROID_geospatial_SPEC_VERSION 1
+#define XR_ANDROID_geospatial_anchor_SPEC_VERSION 1
+#define XR_ANDROID_google_cloud_auth_SPEC_VERSION 1
+#define XR_ANDROID_light_estimation_SPEC_VERSION 1
+#define XR_ANDROID_mouse_interaction_SPEC_VERSION 1
+#define XR_ANDROID_passthrough_camera_state_SPEC_VERSION 1
+#define XR_ANDROID_performance_metrics_SPEC_VERSION 1
+#define XR_ANDROID_raycast_SPEC_VERSION 1
+#define XR_ANDROID_recommended_resolution_SPEC_VERSION 1
+#define XR_ANDROID_scene_meshing_SPEC_VERSION 3
+#define XR_ANDROID_spatial_anchor_space_SPEC_VERSION 1
+#define XR_ANDROID_spatial_component_subsumed_by_SPEC_VERSION 1
+#define XR_ANDROID_spatial_discovery_bounds_SPEC_VERSION 1
+#define XR_ANDROID_spatial_discovery_raycast_SPEC_VERSION 1
+#define XR_ANDROID_spatial_entity_bound_anchor_SPEC_VERSION 2
+#define XR_ANDROID_spatial_object_tracking_SPEC_VERSION 2
+#define XR_ANDROID_trackables_SPEC_VERSION 2
+#define XR_ANDROID_trackables_image_SPEC_VERSION 1
+#define XR_ANDROID_trackables_marker_SPEC_VERSION 1
+#define XR_ANDROID_trackables_object_SPEC_VERSION 2
+#define XR_ANDROID_trackables_qr_code_SPEC_VERSION 1
+#define XR_ANDROID_unbounded_reference_space_SPEC_VERSION 1
+#define XR_BD_BODY_TRACKING_AUXILIARY_METRICS_EXTENSION_NAME "XR_BD_body_tracking_auxiliary_metrics"
+#define XR_BD_BODY_TRACKING_EXTENSION_NAME "XR_BD_body_tracking"
+#define XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_BD_controller_interaction"
+#define XR_BD_DYNAMIC_OBJECT_KEYBOARD_EXTENSION_NAME "XR_BD_dynamic_object_keyboard"
+#define XR_BD_DYNAMIC_OBJECT_MOUSE_EXTENSION_NAME "XR_BD_dynamic_object_mouse"
+#define XR_BD_DYNAMIC_OBJECT_TRACKING_EXTENSION_NAME "XR_BD_dynamic_object_tracking"
+#define XR_BD_FACIAL_SIMULATION_EXTENSION_NAME "XR_BD_facial_simulation"
+#define XR_BD_FUTURE_PROGRESS_EXTENSION_NAME "XR_BD_future_progress"
+#define XR_BD_SPATIAL_ANCHOR_EXTENSION_NAME "XR_BD_spatial_anchor"
+#define XR_BD_SPATIAL_ANCHOR_SHARING_EXTENSION_NAME "XR_BD_spatial_anchor_sharing"
+#define XR_BD_SPATIAL_AUDIO_RENDERING_EXTENSION_NAME "XR_BD_spatial_audio_rendering"
+#define XR_BD_SPATIAL_LIGHT_ESTIMATION_EXTENSION_NAME "XR_BD_spatial_light_estimation"
+#define XR_BD_SPATIAL_MESH_EXTENSION_NAME "XR_BD_spatial_mesh"
+#define XR_BD_SPATIAL_PLANE_EXTENSION_NAME "XR_BD_spatial_plane"
+#define XR_BD_SPATIAL_SCENE_EXTENSION_NAME "XR_BD_spatial_scene"
+#define XR_BD_SPATIAL_SENSING_EXTENSION_NAME "XR_BD_spatial_sensing"
+#define XR_BD_ULTRA_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_BD_ultra_controller_interaction"
+#define XR_BD_body_tracking_SPEC_VERSION 1
+#define XR_BD_body_tracking_auxiliary_metrics_SPEC_VERSION 1
+#define XR_BD_controller_interaction_SPEC_VERSION 2
+#define XR_BD_dynamic_object_keyboard_SPEC_VERSION 1
+#define XR_BD_dynamic_object_mouse_SPEC_VERSION 1
+#define XR_BD_dynamic_object_tracking_SPEC_VERSION 1
+#define XR_BD_facial_simulation_SPEC_VERSION 1
+#define XR_BD_future_progress_SPEC_VERSION 1
+#define XR_BD_spatial_anchor_SPEC_VERSION 2
+#define XR_BD_spatial_anchor_sharing_SPEC_VERSION 2
+#define XR_BD_spatial_audio_rendering_SPEC_VERSION 1
+#define XR_BD_spatial_light_estimation_SPEC_VERSION 1
+#define XR_BD_spatial_mesh_SPEC_VERSION 1
+#define XR_BD_spatial_plane_SPEC_VERSION 1
+#define XR_BD_spatial_scene_SPEC_VERSION 1
+#define XR_BD_spatial_sensing_SPEC_VERSION 3
+#define XR_BD_ultra_controller_interaction_SPEC_VERSION 1
+#define XR_EPIC_VIEW_CONFIGURATION_FOV_EXTENSION_NAME "XR_EPIC_view_configuration_fov"
+#define XR_EPIC_view_configuration_fov_SPEC_VERSION 2
+#define XR_EXTX_OVERLAY_EXTENSION_NAME "XR_EXTX_overlay"
+#define XR_EXTX_overlay_SPEC_VERSION 5
+#define XR_EXT_ACTIVE_ACTION_SET_PRIORITY_EXTENSION_NAME "XR_EXT_active_action_set_priority"
+#define XR_EXT_COMPOSITION_LAYER_INVERTED_ALPHA_EXTENSION_NAME "XR_EXT_composition_layer_inverted_alpha"
+#define XR_EXT_CONFORMANCE_AUTOMATION_EXTENSION_NAME "XR_EXT_conformance_automation"
+#define XR_EXT_DPAD_BINDING_EXTENSION_NAME "XR_EXT_dpad_binding"
+#define XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME "XR_EXT_eye_gaze_interaction"
+#define XR_EXT_FRAME_SYNTHESIS_EXTENSION_NAME "XR_EXT_frame_synthesis"
+#define XR_EXT_FUTURE_EXTENSION_NAME "XR_EXT_future"
+#define XR_EXT_HAND_INTERACTION_EXTENSION_NAME "XR_EXT_hand_interaction"
+#define XR_EXT_HAND_JOINTS_MOTION_RANGE_EXTENSION_NAME "XR_EXT_hand_joints_motion_range"
+#define XR_EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME "XR_EXT_hand_tracking_data_source"
+#define XR_EXT_HAND_TRACKING_EXTENSION_NAME "XR_EXT_hand_tracking"
+#define XR_EXT_HAPTIC_PARAMETRIC_EXTENSION_NAME "XR_EXT_haptic_parametric"
+#define XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME "XR_EXT_hp_mixed_reality_controller"
+#define XR_EXT_INTERACTION_PROFILE_BATTERY_STATE_DISPLAY_EXTENSION_NAME "XR_EXT_interaction_profile_battery_state_display"
+#define XR_EXT_INTERACTION_RENDER_MODEL_EXTENSION_NAME "XR_EXT_interaction_render_model"
+#define XR_EXT_LOADER_INIT_PROPERTIES_EXTENSION_NAME "XR_EXT_loader_init_properties"
+#define XR_EXT_LOCAL_FLOOR_EXTENSION_NAME "XR_EXT_local_floor"
+#define XR_EXT_PALM_POSE_EXTENSION_NAME "XR_EXT_palm_pose"
+#define XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME "XR_EXT_performance_settings"
+#define XR_EXT_PLANE_DETECTION_EXTENSION_NAME "XR_EXT_plane_detection"
+#define XR_EXT_RENDER_MODEL_EXTENSION_NAME "XR_EXT_render_model"
+#define XR_EXT_SAMSUNG_ODYSSEY_CONTROLLER_EXTENSION_NAME "XR_EXT_samsung_odyssey_controller"
+#define XR_EXT_SPATIAL_ANCHOR_EXTENSION_NAME "XR_EXT_spatial_anchor"
+#define XR_EXT_SPATIAL_CONTAINER_EXTENSION_NAME "XR_EXT_spatial_container"
+#define XR_EXT_SPATIAL_CONTAINER_SELF_RENDERING_EXTENSION_NAME "XR_EXT_spatial_container_self_rendering"
+#define XR_EXT_SPATIAL_ENTITY_EXTENSION_NAME "XR_EXT_spatial_entity"
+#define XR_EXT_SPATIAL_IMAGE_TRACKING_EXTENSION_NAME "XR_EXT_spatial_image_tracking"
+#define XR_EXT_SPATIAL_MARKER_TRACKING_EXTENSION_NAME "XR_EXT_spatial_marker_tracking"
+#define XR_EXT_SPATIAL_PERSISTENCE_EXTENSION_NAME "XR_EXT_spatial_persistence"
+#define XR_EXT_SPATIAL_PERSISTENCE_OPERATIONS_EXTENSION_NAME "XR_EXT_spatial_persistence_operations"
+#define XR_EXT_SPATIAL_PLANE_TRACKING_EXTENSION_NAME "XR_EXT_spatial_plane_tracking"
+#define XR_EXT_STATIONARY_REFERENCE_SPACE_EXTENSION_NAME "XR_EXT_stationary_reference_space"
+#define XR_EXT_THERMAL_QUERY_EXTENSION_NAME "XR_EXT_thermal_query"
+#define XR_EXT_USER_PRESENCE_EXTENSION_NAME "XR_EXT_user_presence"
+#define XR_EXT_UUID_EXTENSION_NAME "XR_EXT_uuid"
+#define XR_EXT_VIEW_CONFIGURATION_DEPTH_RANGE_EXTENSION_NAME "XR_EXT_view_configuration_depth_range"
+#define XR_EXT_VIEW_CONFIGURATION_VIEWS_CHANGE_EXTENSION_NAME "XR_EXT_view_configuration_views_change"
+#define XR_EXT_WIN32_APPCONTAINER_COMPATIBLE_EXTENSION_NAME "XR_EXT_win32_appcontainer_compatible"
+#define XR_EXT_active_action_set_priority_SPEC_VERSION 1
+#define XR_EXT_composition_layer_inverted_alpha_SPEC_VERSION 1
+#define XR_EXT_conformance_automation_SPEC_VERSION 3
+#define XR_EXT_dpad_binding_SPEC_VERSION 1
+#define XR_EXT_eye_gaze_interaction_SPEC_VERSION 2
+#define XR_EXT_frame_synthesis_SPEC_VERSION 1
+#define XR_EXT_future_SPEC_VERSION 2
+#define XR_EXT_hand_interaction_SPEC_VERSION 2
+#define XR_EXT_hand_joints_motion_range_SPEC_VERSION 1
+#define XR_EXT_hand_tracking_SPEC_VERSION 4
+#define XR_EXT_hand_tracking_data_source_SPEC_VERSION 1
+#define XR_EXT_haptic_parametric_SPEC_VERSION 1
+#define XR_EXT_hp_mixed_reality_controller_SPEC_VERSION 1
+#define XR_EXT_interaction_profile_battery_state_display_SPEC_VERSION 1
+#define XR_EXT_interaction_render_model_SPEC_VERSION 1
+#define XR_EXT_loader_init_properties_SPEC_VERSION 1
+#define XR_EXT_local_floor_SPEC_VERSION 1
+#define XR_EXT_palm_pose_SPEC_VERSION 3
+#define XR_EXT_performance_settings_SPEC_VERSION 4
+#define XR_EXT_plane_detection_SPEC_VERSION 2
+#define XR_EXT_render_model_SPEC_VERSION 1
+#define XR_EXT_samsung_odyssey_controller_SPEC_VERSION 1
+#define XR_EXT_spatial_anchor_SPEC_VERSION 1
+#define XR_EXT_spatial_container_SPEC_VERSION 1
+#define XR_EXT_spatial_container_self_rendering_SPEC_VERSION 1
+#define XR_EXT_spatial_entity_SPEC_VERSION 1
+#define XR_EXT_spatial_image_tracking_SPEC_VERSION 1
+#define XR_EXT_spatial_marker_tracking_SPEC_VERSION 1
+#define XR_EXT_spatial_persistence_SPEC_VERSION 1
+#define XR_EXT_spatial_persistence_operations_SPEC_VERSION 1
+#define XR_EXT_spatial_plane_tracking_SPEC_VERSION 1
+#define XR_EXT_stationary_reference_space_SPEC_VERSION 1
+#define XR_EXT_thermal_query_SPEC_VERSION 2
+#define XR_EXT_user_presence_SPEC_VERSION 1
+#define XR_EXT_uuid_SPEC_VERSION 1
+#define XR_EXT_view_configuration_depth_range_SPEC_VERSION 1
+#define XR_EXT_view_configuration_views_change_SPEC_VERSION 1
+#define XR_EXT_win32_appcontainer_compatible_SPEC_VERSION 1
+#define XR_EYE_MAX_ANDROID 2
+#define XR_FACE_PARAMETER_COUNT_ANDROID 68
+#define XR_FACE_REGION_CONFIDENCE_COUNT_ANDROID 3
+#define XR_FACE_TRACKING_VISEME_COUNT_META 15
+#define XR_FB_BODY_TRACKING_EXTENSION_NAME "XR_FB_body_tracking"
+#define XR_FB_COLOR_SPACE_EXTENSION_NAME "XR_FB_color_space"
+#define XR_FB_COMPOSITION_LAYER_ALPHA_BLEND_EXTENSION_NAME "XR_FB_composition_layer_alpha_blend"
+#define XR_FB_COMPOSITION_LAYER_DEPTH_TEST_EXTENSION_NAME "XR_FB_composition_layer_depth_test"
+#define XR_FB_COMPOSITION_LAYER_IMAGE_LAYOUT_EXTENSION_NAME "XR_FB_composition_layer_image_layout"
+#define XR_FB_COMPOSITION_LAYER_SECURE_CONTENT_EXTENSION_NAME "XR_FB_composition_layer_secure_content"
+#define XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME "XR_FB_composition_layer_settings"
+#define XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME "XR_FB_display_refresh_rate"
+#define XR_FB_EYE_TRACKING_SOCIAL_EXTENSION_NAME "XR_FB_eye_tracking_social"
+#define XR_FB_FACE_TRACKING2_EXTENSION_NAME "XR_FB_face_tracking2"
+#define XR_FB_FACE_TRACKING_EXTENSION_NAME "XR_FB_face_tracking"
+#define XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME "XR_FB_foveation_configuration"
+#define XR_FB_FOVEATION_EXTENSION_NAME "XR_FB_foveation"
+#define XR_FB_FOVEATION_VULKAN_EXTENSION_NAME "XR_FB_foveation_vulkan"
+#define XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME "XR_FB_hand_tracking_aim"
+#define XR_FB_HAND_TRACKING_CAPSULES_EXTENSION_NAME "XR_FB_hand_tracking_capsules"
+#define XR_FB_HAND_TRACKING_CAPSULE_COUNT XR_HAND_TRACKING_CAPSULE_COUNT_FB
+#define XR_FB_HAND_TRACKING_CAPSULE_POINT_COUNT XR_HAND_TRACKING_CAPSULE_POINT_COUNT_FB
+#define XR_FB_HAND_TRACKING_MESH_EXTENSION_NAME "XR_FB_hand_tracking_mesh"
+#define XR_FB_HAPTIC_AMPLITUDE_ENVELOPE_EXTENSION_NAME "XR_FB_haptic_amplitude_envelope"
+#define XR_FB_HAPTIC_PCM_EXTENSION_NAME "XR_FB_haptic_pcm"
+#define XR_FB_KEYBOARD_TRACKING_EXTENSION_NAME "XR_FB_keyboard_tracking"
+#define XR_FB_PASSTHROUGH_EXTENSION_NAME "XR_FB_passthrough"
+#define XR_FB_PASSTHROUGH_KEYBOARD_HANDS_EXTENSION_NAME "XR_FB_passthrough_keyboard_hands"
+#define XR_FB_RENDER_MODEL_EXTENSION_NAME "XR_FB_render_model"
+#define XR_FB_SCENE_CAPTURE_EXTENSION_NAME "XR_FB_scene_capture"
+#define XR_FB_SCENE_EXTENSION_NAME "XR_FB_scene"
+#define XR_FB_SPACE_WARP_EXTENSION_NAME "XR_FB_space_warp"
+#define XR_FB_SPATIAL_ENTITY_CONTAINER_EXTENSION_NAME "XR_FB_spatial_entity_container"
+#define XR_FB_SPATIAL_ENTITY_EXTENSION_NAME "XR_FB_spatial_entity"
+#define XR_FB_SPATIAL_ENTITY_QUERY_EXTENSION_NAME "XR_FB_spatial_entity_query"
+#define XR_FB_SPATIAL_ENTITY_SHARING_EXTENSION_NAME "XR_FB_spatial_entity_sharing"
+#define XR_FB_SPATIAL_ENTITY_STORAGE_BATCH_EXTENSION_NAME "XR_FB_spatial_entity_storage_batch"
+#define XR_FB_SPATIAL_ENTITY_STORAGE_EXTENSION_NAME "XR_FB_spatial_entity_storage"
+#define XR_FB_SPATIAL_ENTITY_USER_EXTENSION_NAME "XR_FB_spatial_entity_user"
+#define XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME "XR_FB_swapchain_update_state"
+#define XR_FB_SWAPCHAIN_UPDATE_STATE_VULKAN_EXTENSION_NAME "XR_FB_swapchain_update_state_vulkan"
+#define XR_FB_TOUCH_CONTROLLER_PROXIMITY_EXTENSION_NAME "XR_FB_touch_controller_proximity"
+#define XR_FB_TOUCH_CONTROLLER_PRO_EXTENSION_NAME "XR_FB_touch_controller_pro"
+#define XR_FB_body_tracking_SPEC_VERSION 1
+#define XR_FB_color_space_SPEC_VERSION 3
+#define XR_FB_composition_layer_alpha_blend_SPEC_VERSION 3
+#define XR_FB_composition_layer_depth_test_SPEC_VERSION 1
+#define XR_FB_composition_layer_image_layout_SPEC_VERSION 1
+#define XR_FB_composition_layer_secure_content_SPEC_VERSION 1
+#define XR_FB_composition_layer_settings_SPEC_VERSION 1
+#define XR_FB_display_refresh_rate_SPEC_VERSION 1
+#define XR_FB_eye_tracking_social_SPEC_VERSION 1
+#define XR_FB_face_tracking2_SPEC_VERSION 1
+#define XR_FB_face_tracking_SPEC_VERSION 1
+#define XR_FB_foveation_SPEC_VERSION 1
+#define XR_FB_foveation_configuration_SPEC_VERSION 1
+#define XR_FB_foveation_vulkan_SPEC_VERSION 1
+#define XR_FB_hand_tracking_aim_SPEC_VERSION 2
+#define XR_FB_hand_tracking_capsules_SPEC_VERSION 3
+#define XR_FB_hand_tracking_mesh_SPEC_VERSION 3
+#define XR_FB_haptic_amplitude_envelope_SPEC_VERSION 1
+#define XR_FB_haptic_pcm_SPEC_VERSION 1
+#define XR_FB_keyboard_tracking_SPEC_VERSION 1
+#define XR_FB_passthrough_SPEC_VERSION 5
+#define XR_FB_passthrough_keyboard_hands_SPEC_VERSION 2
+#define XR_FB_render_model_SPEC_VERSION 4
+#define XR_FB_scene_SPEC_VERSION 4
+#define XR_FB_scene_capture_SPEC_VERSION 1
+#define XR_FB_space_warp_SPEC_VERSION 2
+#define XR_FB_spatial_entity_SPEC_VERSION 3
+#define XR_FB_spatial_entity_container_SPEC_VERSION 2
+#define XR_FB_spatial_entity_query_SPEC_VERSION 1
+#define XR_FB_spatial_entity_sharing_SPEC_VERSION 1
+#define XR_FB_spatial_entity_storage_SPEC_VERSION 1
+#define XR_FB_spatial_entity_storage_batch_SPEC_VERSION 1
+#define XR_FB_spatial_entity_user_SPEC_VERSION 1
+#define XR_FB_swapchain_update_state_SPEC_VERSION 3
+#define XR_FB_swapchain_update_state_vulkan_SPEC_VERSION 1
+#define XR_FB_touch_controller_pro_SPEC_VERSION 1
+#define XR_FB_touch_controller_proximity_SPEC_VERSION 1
+#define XR_FOVEATION_CENTER_SIZE_META 2
+#define XR_GUID_SIZE_MSFT 16
+#define XR_HAND_TRACKING_CAPSULE_COUNT_FB 19
+#define XR_HAND_TRACKING_CAPSULE_POINT_COUNT_FB 2
+#define XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME "XR_HTCX_vive_tracker_interaction"
+#define XR_HTCX_vive_tracker_interaction_SPEC_VERSION 3
+#define XR_HTC_ANCHOR_EXTENSION_NAME "XR_HTC_anchor"
+#define XR_HTC_BODY_TRACKING_EXTENSION_NAME "XR_HTC_body_tracking"
+#define XR_HTC_FACIAL_TRACKING_EXTENSION_NAME "XR_HTC_facial_tracking"
+#define XR_HTC_HAND_INTERACTION_EXTENSION_NAME "XR_HTC_hand_interaction"
+#define XR_HTC_PASSTHROUGH_EXTENSION_NAME "XR_HTC_passthrough"
+#define XR_HTC_VIVE_COSMOS_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_HTC_vive_cosmos_controller_interaction"
+#define XR_HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_HTC_vive_focus3_controller_interaction"
+#define XR_HTC_VIVE_WRIST_TRACKER_INTERACTION_EXTENSION_NAME "XR_HTC_vive_wrist_tracker_interaction"
+#define XR_HTC_anchor_SPEC_VERSION 1
+#define XR_HTC_body_tracking_SPEC_VERSION 1
+#define XR_HTC_facial_tracking_SPEC_VERSION 3
+#define XR_HTC_hand_interaction_SPEC_VERSION 1
+#define XR_HTC_passthrough_SPEC_VERSION 1
+#define XR_HTC_vive_cosmos_controller_interaction_SPEC_VERSION 1
+#define XR_HTC_vive_focus3_controller_interaction_SPEC_VERSION 2
+#define XR_HTC_vive_wrist_tracker_interaction_SPEC_VERSION 1
+#define XR_HUAWEI_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_HUAWEI_controller_interaction"
+#define XR_HUAWEI_controller_interaction_SPEC_VERSION 1
+#define XR_KHR_BINDING_MODIFICATION_EXTENSION_NAME "XR_KHR_binding_modification"
+#define XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME "XR_KHR_composition_layer_color_scale_bias"
+#define XR_KHR_COMPOSITION_LAYER_CUBE_EXTENSION_NAME "XR_KHR_composition_layer_cube"
+#define XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME "XR_KHR_composition_layer_cylinder"
+#define XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME "XR_KHR_composition_layer_depth"
+#define XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME "XR_KHR_composition_layer_equirect2"
+#define XR_KHR_COMPOSITION_LAYER_EQUIRECT_EXTENSION_NAME "XR_KHR_composition_layer_equirect"
+#define XR_KHR_D3D11_ENABLE_EXTENSION_NAME "XR_KHR_D3D11_enable"
+#define XR_KHR_D3D11_enable_SPEC_VERSION 11
+#define XR_KHR_D3D12_ENABLE_EXTENSION_NAME "XR_KHR_D3D12_enable"
+#define XR_KHR_D3D12_enable_SPEC_VERSION 11
+#define XR_KHR_EXTENDED_RESULT_NAME_LENGTHS_EXTENSION_NAME "XR_KHR_extended_result_name_lengths"
+#define XR_KHR_EXTENDED_STRUCT_NAME_LENGTHS_EXTENSION_NAME "XR_KHR_extended_struct_name_lengths"
+#define XR_KHR_GENERIC_CONTROLLER_EXTENSION_NAME "XR_KHR_generic_controller"
+#define XR_KHR_LOCATE_SPACES_EXTENSION_NAME "XR_KHR_locate_spaces"
+#define XR_KHR_MAINTENANCE1_EXTENSION_NAME "XR_KHR_maintenance1"
+#define XR_KHR_OPENGL_ENABLE_EXTENSION_NAME "XR_KHR_opengl_enable"
+#define XR_KHR_SWAPCHAIN_USAGE_INPUT_ATTACHMENT_BIT_EXTENSION_NAME "XR_KHR_swapchain_usage_input_attachment_bit"
+#define XR_KHR_VISIBILITY_MASK_EXTENSION_NAME "XR_KHR_visibility_mask"
+#define XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME "XR_KHR_vulkan_enable2"
+#define XR_KHR_VULKAN_ENABLE_EXTENSION_NAME "XR_KHR_vulkan_enable"
+#define XR_KHR_VULKAN_SWAPCHAIN_FORMAT_LIST_EXTENSION_NAME "XR_KHR_vulkan_swapchain_format_list"
+#define XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME "XR_KHR_win32_convert_performance_counter_time"
+#define XR_KHR_binding_modification_SPEC_VERSION 1
+#define XR_KHR_composition_layer_color_scale_bias_SPEC_VERSION 5
+#define XR_KHR_composition_layer_cube_SPEC_VERSION 8
+#define XR_KHR_composition_layer_cylinder_SPEC_VERSION 4
+#define XR_KHR_composition_layer_depth_SPEC_VERSION 6
+#define XR_KHR_composition_layer_equirect2_SPEC_VERSION 1
+#define XR_KHR_composition_layer_equirect_SPEC_VERSION 3
+#define XR_KHR_extended_result_name_lengths_SPEC_VERSION 1
+#define XR_KHR_extended_struct_name_lengths_SPEC_VERSION 2
+#define XR_KHR_generic_controller_SPEC_VERSION 1
+#define XR_KHR_locate_spaces_SPEC_VERSION 1
+#define XR_KHR_maintenance1_SPEC_VERSION 1
+#define XR_KHR_opengl_enable_SPEC_VERSION 12
+#define XR_KHR_swapchain_usage_input_attachment_bit_SPEC_VERSION 3
+#define XR_KHR_visibility_mask_SPEC_VERSION 2
+#define XR_KHR_vulkan_enable2_SPEC_VERSION 4
+#define XR_KHR_vulkan_enable_SPEC_VERSION 10
+#define XR_KHR_vulkan_swapchain_format_list_SPEC_VERSION 5
+#define XR_KHR_win32_convert_performance_counter_time_SPEC_VERSION 1
+#define XR_LOGITECH_MX_INK_STYLUS_INTERACTION_EXTENSION_NAME "XR_LOGITECH_mx_ink_stylus_interaction"
+#define XR_LOGITECH_mx_ink_stylus_interaction_SPEC_VERSION 1
+#define XR_MAX_AUDIO_DEVICE_STR_SIZE_OCULUS 128
+#define XR_MAX_COLOCATION_DISCOVERY_BUFFER_SIZE_META 1024
+#define XR_MAX_CONTROLLER_MODEL_NODE_NAME_SIZE_MSFT 64
+#define XR_MAX_EXTERNAL_CAMERA_NAME_SIZE_OCULUS 32
+#define XR_MAX_KEYBOARD_TRACKING_NAME_SIZE_FB 128
+#define XR_MAX_LOCALIZATION_MAP_NAME_LENGTH_ML 64
+#define XR_MAX_RENDER_MODEL_ASSET_NODE_NAME_SIZE_EXT 64
+#define XR_MAX_RENDER_MODEL_NAME_SIZE_FB 64
+#define XR_MAX_RESULT_STRING_SIZE_EXTENDED_KHR 256
+#define XR_MAX_SPACES_PER_SHARE_REQUEST_META 32
+#define XR_MAX_SPATIAL_ANCHOR_NAME_SIZE_HTC 256
+#define XR_MAX_SPATIAL_ANCHOR_NAME_SIZE_MSFT 256
+#define XR_MAX_STRUCTURE_NAME_SIZE_EXTENDED_KHR 256
+#define XR_MAX_VIRTUAL_KEYBOARD_COMMIT_TEXT_SIZE_META 3992
+#define XR_META_AUTOMATIC_LAYER_FILTER_EXTENSION_NAME "XR_META_automatic_layer_filter"
+#define XR_META_BODY_TRACKING_CALIBRATION_EXTENSION_NAME "XR_META_body_tracking_calibration"
+#define XR_META_BODY_TRACKING_FIDELITY_EXTENSION_NAME "XR_META_body_tracking_fidelity"
+#define XR_META_BODY_TRACKING_FULL_BODY_EXTENSION_NAME "XR_META_body_tracking_full_body"
+#define XR_META_BOUNDARY_VISIBILITY_EXTENSION_NAME "XR_META_boundary_visibility"
+#define XR_META_COLOCATION_DISCOVERY_EXTENSION_NAME "XR_META_colocation_discovery"
+#define XR_META_DETACHED_CONTROLLERS_EXTENSION_NAME "XR_META_detached_controllers"
+#define XR_META_FACE_TRACKING_VISEMES_EXTENSION_NAME "XR_META_face_tracking_visemes"
+#define XR_META_FOVEATION_EYE_TRACKED_EXTENSION_NAME "XR_META_foveation_eye_tracked"
+#define XR_META_HAND_TRACKING_FREQUENCY_HINT_EXTENSION_NAME "XR_META_hand_tracking_frequency_hint"
+#define XR_META_HAND_TRACKING_MICROGESTURES_EXTENSION_NAME "XR_META_hand_tracking_microgestures"
+#define XR_META_HAND_TRACKING_UNEXTRAPOLATED_POSES_EXTENSION_NAME "XR_META_hand_tracking_unextrapolated_poses"
+#define XR_META_HAND_TRACKING_WIDE_MOTION_MODE2_EXTENSION_NAME "XR_META_hand_tracking_wide_motion_mode2"
+#define XR_META_HEADSET_ID_EXTENSION_NAME "XR_META_headset_id"
+#define XR_META_LOCAL_DIMMING_EXTENSION_NAME "XR_META_local_dimming"
+#define XR_META_PASSTHROUGH_COLOR_LUT_EXTENSION_NAME "XR_META_passthrough_color_lut"
+#define XR_META_PASSTHROUGH_LAYER_RESUMED_EVENT_EXTENSION_NAME "XR_META_passthrough_layer_resumed_event"
+#define XR_META_PASSTHROUGH_PREFERENCES_EXTENSION_NAME "XR_META_passthrough_preferences"
+#define XR_META_PERFORMANCE_METRICS_EXTENSION_NAME "XR_META_performance_metrics"
+#define XR_META_RECOMMENDED_LAYER_RESOLUTION_EXTENSION_NAME "XR_META_recommended_layer_resolution"
+#define XR_META_SIMULTANEOUS_HANDS_AND_CONTROLLERS_EXTENSION_NAME "XR_META_simultaneous_hands_and_controllers"
+#define XR_META_SPATIAL_ENTITY_GROUP_SHARING_EXTENSION_NAME "XR_META_spatial_entity_group_sharing"
+#define XR_META_SPATIAL_ENTITY_MESH_EXTENSION_NAME "XR_META_spatial_entity_mesh"
+#define XR_META_SPATIAL_ENTITY_PERSISTENCE_EXTENSION_NAME "XR_META_spatial_entity_persistence"
+#define XR_META_SPATIAL_ENTITY_ROOM_MESH_EXTENSION_NAME "XR_META_spatial_entity_room_mesh"
+#define XR_META_SPATIAL_ENTITY_SEMANTIC_LABEL_EXTENSION_NAME "XR_META_spatial_entity_semantic_label"
+#define XR_META_SPATIAL_ENTITY_SHARING_EXTENSION_NAME "XR_META_spatial_entity_sharing"
+#define XR_META_TILE_PROPERTIES_HINT_EXTENSION_NAME "XR_META_tile_properties_hint"
+#define XR_META_TOUCH_CONTROLLER_PLUS_EXTENSION_NAME "XR_META_touch_controller_plus"
+#define XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME "XR_META_virtual_keyboard"
+#define XR_META_VULKAN_SWAPCHAIN_CREATE_INFO_EXTENSION_NAME "XR_META_vulkan_swapchain_create_info"
+#define XR_META_automatic_layer_filter_SPEC_VERSION 1
+#define XR_META_body_tracking_calibration_SPEC_VERSION 1
+#define XR_META_body_tracking_fidelity_SPEC_VERSION 1
+#define XR_META_body_tracking_full_body_SPEC_VERSION 1
+#define XR_META_boundary_visibility_SPEC_VERSION 1
+#define XR_META_colocation_discovery_SPEC_VERSION 1
+#define XR_META_detached_controllers_SPEC_VERSION 1
+#define XR_META_face_tracking_visemes_SPEC_VERSION 1
+#define XR_META_foveation_eye_tracked_SPEC_VERSION 1
+#define XR_META_hand_tracking_frequency_hint_SPEC_VERSION 1
+#define XR_META_hand_tracking_microgestures_SPEC_VERSION 1
+#define XR_META_hand_tracking_unextrapolated_poses_SPEC_VERSION 1
+#define XR_META_hand_tracking_wide_motion_mode2_SPEC_VERSION 1
+#define XR_META_headset_id_SPEC_VERSION 2
+#define XR_META_local_dimming_SPEC_VERSION 1
+#define XR_META_passthrough_color_lut_SPEC_VERSION 1
+#define XR_META_passthrough_layer_resumed_event_SPEC_VERSION 1
+#define XR_META_passthrough_preferences_SPEC_VERSION 1
+#define XR_META_performance_metrics_SPEC_VERSION 2
+#define XR_META_recommended_layer_resolution_SPEC_VERSION 1
+#define XR_META_simultaneous_hands_and_controllers_SPEC_VERSION 1
+#define XR_META_spatial_entity_group_sharing_SPEC_VERSION 1
+#define XR_META_spatial_entity_mesh_SPEC_VERSION 1
+#define XR_META_spatial_entity_persistence_SPEC_VERSION 1
+#define XR_META_spatial_entity_room_mesh_SPEC_VERSION 1
+#define XR_META_spatial_entity_semantic_label_SPEC_VERSION 1
+#define XR_META_spatial_entity_sharing_SPEC_VERSION 1
+#define XR_META_tile_properties_hint_SPEC_VERSION 1
+#define XR_META_touch_controller_plus_SPEC_VERSION 1
+#define XR_META_virtual_keyboard_SPEC_VERSION 1
+#define XR_META_vulkan_swapchain_create_info_SPEC_VERSION 1
+#define XR_ML_FACIAL_EXPRESSION_EXTENSION_NAME "XR_ML_facial_expression"
+#define XR_ML_FRAME_END_INFO_EXTENSION_NAME "XR_ML_frame_end_info"
+#define XR_ML_GLOBAL_DIMMER_EXTENSION_NAME "XR_ML_global_dimmer"
+#define XR_ML_LOCALIZATION_MAP_EXTENSION_NAME "XR_ML_localization_map"
+#define XR_ML_MARKER_UNDERSTANDING_EXTENSION_NAME "XR_ML_marker_understanding"
+#define XR_ML_ML2_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_ML_ml2_controller_interaction"
+#define XR_ML_SPATIAL_ANCHORS_EXTENSION_NAME "XR_ML_spatial_anchors"
+#define XR_ML_SPATIAL_ANCHORS_STORAGE_EXTENSION_NAME "XR_ML_spatial_anchors_storage"
+#define XR_ML_SYSTEM_NOTIFICATIONS_EXTENSION_NAME "XR_ML_system_notifications"
+#define XR_ML_USER_CALIBRATION_EXTENSION_NAME "XR_ML_user_calibration"
+#define XR_ML_VIEW_CONFIGURATION_DEPTH_RANGE_CHANGE_EXTENSION_NAME "XR_ML_view_configuration_depth_range_change"
+#define XR_ML_WORLD_MESH_DETECTION_EXTENSION_NAME "XR_ML_world_mesh_detection"
+#define XR_ML_facial_expression_SPEC_VERSION 1
+#define XR_ML_frame_end_info_SPEC_VERSION 1
+#define XR_ML_global_dimmer_SPEC_VERSION 1
+#define XR_ML_localization_map_SPEC_VERSION 1
+#define XR_ML_marker_understanding_SPEC_VERSION 1
+#define XR_ML_ml2_controller_interaction_SPEC_VERSION 1
+#define XR_ML_spatial_anchors_SPEC_VERSION 1
+#define XR_ML_spatial_anchors_storage_SPEC_VERSION 1
+#define XR_ML_system_notifications_SPEC_VERSION 1
+#define XR_ML_user_calibration_SPEC_VERSION 1
+#define XR_ML_view_configuration_depth_range_change_SPEC_VERSION 1
+#define XR_ML_world_mesh_detection_SPEC_VERSION 1
+#define XR_MNDX_FORCE_FEEDBACK_CURL_EXTENSION_NAME "XR_MNDX_force_feedback_curl"
+#define XR_MNDX_force_feedback_curl_SPEC_VERSION 1
+#define XR_MND_HEADLESS_EXTENSION_NAME "XR_MND_headless"
+#define XR_MND_SWAPCHAIN_USAGE_INPUT_ATTACHMENT_BIT_EXTENSION_NAME "XR_MND_swapchain_usage_input_attachment_bit"
+#define XR_MND_headless_SPEC_VERSION 3
+#define XR_MND_swapchain_usage_input_attachment_bit_SPEC_VERSION 2
+#define XR_MSFT_COMPOSITION_LAYER_REPROJECTION_EXTENSION_NAME "XR_MSFT_composition_layer_reprojection"
+#define XR_MSFT_CONTROLLER_MODEL_EXTENSION_NAME "XR_MSFT_controller_model"
+#define XR_MSFT_FIRST_PERSON_OBSERVER_EXTENSION_NAME "XR_MSFT_first_person_observer"
+#define XR_MSFT_HAND_INTERACTION_EXTENSION_NAME "XR_MSFT_hand_interaction"
+#define XR_MSFT_HAND_TRACKING_MESH_EXTENSION_NAME "XR_MSFT_hand_tracking_mesh"
+#define XR_MSFT_HOLOGRAPHIC_WINDOW_ATTACHMENT_EXTENSION_NAME "XR_MSFT_holographic_window_attachment"
+#define XR_MSFT_SCENE_MARKER_EXTENSION_NAME "XR_MSFT_scene_marker"
+#define XR_MSFT_SCENE_UNDERSTANDING_EXTENSION_NAME "XR_MSFT_scene_understanding"
+#define XR_MSFT_SCENE_UNDERSTANDING_SERIALIZATION_EXTENSION_NAME "XR_MSFT_scene_understanding_serialization"
+#define XR_MSFT_SECONDARY_VIEW_CONFIGURATION_EXTENSION_NAME "XR_MSFT_secondary_view_configuration"
+#define XR_MSFT_SPATIAL_ANCHOR_EXTENSION_NAME "XR_MSFT_spatial_anchor"
+#define XR_MSFT_SPATIAL_ANCHOR_PERSISTENCE_EXTENSION_NAME "XR_MSFT_spatial_anchor_persistence"
+#define XR_MSFT_SPATIAL_GRAPH_BRIDGE_EXTENSION_NAME "XR_MSFT_spatial_graph_bridge"
+#define XR_MSFT_UNBOUNDED_REFERENCE_SPACE_EXTENSION_NAME "XR_MSFT_unbounded_reference_space"
+#define XR_MSFT_composition_layer_reprojection_SPEC_VERSION 1
+#define XR_MSFT_controller_model_SPEC_VERSION 2
+#define XR_MSFT_first_person_observer_SPEC_VERSION 1
+#define XR_MSFT_hand_interaction_SPEC_VERSION 1
+#define XR_MSFT_hand_tracking_mesh_SPEC_VERSION 4
+#define XR_MSFT_holographic_window_attachment_SPEC_VERSION 1
+#define XR_MSFT_scene_marker_SPEC_VERSION 1
+#define XR_MSFT_scene_understanding_SPEC_VERSION 2
+#define XR_MSFT_scene_understanding_serialization_SPEC_VERSION 2
+#define XR_MSFT_secondary_view_configuration_SPEC_VERSION 1
+#define XR_MSFT_spatial_anchor_SPEC_VERSION 2
+#define XR_MSFT_spatial_anchor_persistence_SPEC_VERSION 2
+#define XR_MSFT_spatial_graph_bridge_SPEC_VERSION 2
+#define XR_MSFT_unbounded_reference_space_SPEC_VERSION 1
+#define XR_NULL_FUTURE_EXT 0
+#define XR_NULL_RENDER_MODEL_ID_EXT 0
+#define XR_OCULUS_ANDROID_SESSION_STATE_ENABLE_EXTENSION_NAME "XR_OCULUS_android_session_state_enable"
+#define XR_OCULUS_AUDIO_DEVICE_GUID_EXTENSION_NAME "XR_OCULUS_audio_device_guid"
+#define XR_OCULUS_EXTERNAL_CAMERA_EXTENSION_NAME "XR_OCULUS_external_camera"
+#define XR_OCULUS_android_session_state_enable_SPEC_VERSION 1
+#define XR_OCULUS_audio_device_guid_SPEC_VERSION 1
+#define XR_OCULUS_external_camera_SPEC_VERSION 1
+#define XR_OPPO_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_OPPO_controller_interaction"
+#define XR_OPPO_controller_interaction_SPEC_VERSION 1
+#define XR_PASSTHROUGH_COLOR_MAP_MONO_SIZE_FB 256
+#define XR_QCOM_HAND_TRACKING_GESTURE_EXTENSION_NAME "XR_QCOM_hand_tracking_gesture"
+#define XR_QCOM_TRACKING_OPTIMIZATION_SETTINGS_EXTENSION_NAME "XR_QCOM_tracking_optimization_settings"
+#define XR_QCOM_hand_tracking_gesture_SPEC_VERSION 1
+#define XR_QCOM_tracking_optimization_settings_SPEC_VERSION 2
+#define XR_SONY_HDR_METADATA_EXTENSION_NAME "XR_SONY_hdr_metadata"
+#define XR_SONY_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME "XR_SONY_swapchain_color_space"
+#define XR_SONY_hdr_metadata_SPEC_VERSION 1
+#define XR_SONY_swapchain_color_space_SPEC_VERSION 1
+#define XR_ULTRALEAP_HAND_TRACKING_FOREARM_EXTENSION_NAME "XR_ULTRALEAP_hand_tracking_forearm"
+#define XR_ULTRALEAP_hand_tracking_forearm_SPEC_VERSION 1
+#define XR_UUID_SIZE_EXT 16
+#define XR_VALVE_ANALOG_THRESHOLD_EXTENSION_NAME "XR_VALVE_analog_threshold"
+#define XR_VALVE_analog_threshold_SPEC_VERSION 2
+#define XR_VARJO_COMPOSITION_LAYER_DEPTH_TEST_EXTENSION_NAME "XR_VARJO_composition_layer_depth_test"
+#define XR_VARJO_ENVIRONMENT_DEPTH_ESTIMATION_EXTENSION_NAME "XR_VARJO_environment_depth_estimation"
+#define XR_VARJO_FOVEATED_RENDERING_EXTENSION_NAME "XR_VARJO_foveated_rendering"
+#define XR_VARJO_MARKER_TRACKING_EXTENSION_NAME "XR_VARJO_marker_tracking"
+#define XR_VARJO_QUAD_VIEWS_EXTENSION_NAME "XR_VARJO_quad_views"
+#define XR_VARJO_VIEW_OFFSET_EXTENSION_NAME "XR_VARJO_view_offset"
+#define XR_VARJO_XR4_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_VARJO_xr4_controller_interaction"
+#define XR_VARJO_composition_layer_depth_test_SPEC_VERSION 2
+#define XR_VARJO_environment_depth_estimation_SPEC_VERSION 1
+#define XR_VARJO_foveated_rendering_SPEC_VERSION 3
+#define XR_VARJO_marker_tracking_SPEC_VERSION 1
+#define XR_VARJO_quad_views_SPEC_VERSION 2
+#define XR_VARJO_view_offset_SPEC_VERSION 1
+#define XR_VARJO_xr4_controller_interaction_SPEC_VERSION 2
+#define XR_YVR_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_YVR_controller_interaction"
+#define XR_YVR_controller_interaction_SPEC_VERSION 1
+
+XR_DEFINE_HANDLE(XrAction)
+XR_DEFINE_HANDLE(XrActionSet)
+XR_DEFINE_HANDLE(XrAnchorBD)
+XR_DEFINE_HANDLE(XrBodyTrackerBD)
+XR_DEFINE_HANDLE(XrBodyTrackerFB)
+XR_DEFINE_HANDLE(XrBodyTrackerHTC)
+XR_DEFINE_HANDLE(XrDeviceAnchorPersistenceANDROID)
+XR_DEFINE_HANDLE(XrExportedLocalizationMapML)
+XR_DEFINE_HANDLE(XrEyeTrackerANDROID)
+XR_DEFINE_HANDLE(XrEyeTrackerFB)
+XR_DEFINE_HANDLE(XrFaceTracker2FB)
+XR_DEFINE_HANDLE(XrFaceTrackerANDROID)
+XR_DEFINE_HANDLE(XrFaceTrackerBD)
+XR_DEFINE_HANDLE(XrFaceTrackerFB)
+XR_DEFINE_HANDLE(XrFacialExpressionClientML)
+XR_DEFINE_HANDLE(XrFacialTrackerHTC)
+XR_DEFINE_HANDLE(XrFoveationProfileFB)
+XR_DEFINE_HANDLE(XrGeometryInstanceFB)
+XR_DEFINE_HANDLE(XrGeospatialTrackerANDROID)
+XR_DEFINE_HANDLE(XrHandTrackerEXT)
+XR_DEFINE_HANDLE(XrInstance)
+XR_DEFINE_HANDLE(XrLightEstimatorANDROID)
+XR_DEFINE_HANDLE(XrMarkerDetectorML)
+XR_DEFINE_HANDLE(XrPassthroughColorLutMETA)
+XR_DEFINE_HANDLE(XrPassthroughFB)
+XR_DEFINE_HANDLE(XrPassthroughHTC)
+XR_DEFINE_HANDLE(XrPassthroughLayerANDROID)
+XR_DEFINE_HANDLE(XrPassthroughLayerFB)
+XR_DEFINE_HANDLE(XrPlaneDetectorEXT)
+XR_DEFINE_HANDLE(XrRenderModelAssetEXT)
+XR_DEFINE_HANDLE(XrRenderModelEXT)
+XR_DEFINE_HANDLE(XrSceneMSFT)
+XR_DEFINE_HANDLE(XrSceneMeshSnapshotANDROID)
+XR_DEFINE_HANDLE(XrSceneMeshingTrackerANDROID)
+XR_DEFINE_HANDLE(XrSceneObserverMSFT)
+XR_DEFINE_HANDLE(XrSenseDataProviderBD)
+XR_DEFINE_HANDLE(XrSenseDataSnapshotBD)
+XR_DEFINE_HANDLE(XrSession)
+XR_DEFINE_HANDLE(XrSoundFieldBD)
+XR_DEFINE_HANDLE(XrSoundObjectBD)
+XR_DEFINE_HANDLE(XrSoundObstacleBD)
+XR_DEFINE_HANDLE(XrSoundObstacleMaterialBD)
+XR_DEFINE_HANDLE(XrSpace)
+XR_DEFINE_HANDLE(XrSpaceUserFB)
+XR_DEFINE_HANDLE(XrSpatialAnchorMSFT)
+XR_DEFINE_HANDLE(XrSpatialAnchorStoreConnectionMSFT)
+XR_DEFINE_HANDLE(XrSpatialAnchorsStorageML)
+XR_DEFINE_HANDLE(XrSpatialAudioRendererBD)
+XR_DEFINE_HANDLE(XrSpatialContainerEXT)
+XR_DEFINE_HANDLE(XrSpatialContextEXT)
+XR_DEFINE_HANDLE(XrSpatialEntityEXT)
+XR_DEFINE_HANDLE(XrSpatialGraphNodeBindingMSFT)
+XR_DEFINE_HANDLE(XrSpatialImageTrackingDatabaseEXT)
+XR_DEFINE_HANDLE(XrSpatialPersistenceContextEXT)
+XR_DEFINE_HANDLE(XrSpatialSnapshotEXT)
+XR_DEFINE_HANDLE(XrSwapchain)
+XR_DEFINE_HANDLE(XrTrackableImageDatabaseANDROID)
+XR_DEFINE_HANDLE(XrTrackableTrackerANDROID)
+XR_DEFINE_HANDLE(XrTriangleMeshFB)
+XR_DEFINE_HANDLE(XrVirtualKeyboardMETA)
+XR_DEFINE_HANDLE(XrWorldMeshDetectorML)
+
+typedef XrFlags64 XrInstanceCreateFlags;
+typedef XrFlags64 XrCompositionLayerFlags;
+typedef XrFlags64 XrExternalCameraStatusFlagsOCULUS;
+typedef XrFlags64 XrSpaceAccelerationFlagsBD;
+typedef XrFlags64 XrSpaceLocationFlags;
+typedef XrFlags64 XrSpaceVelocityFlags;
+typedef XrFlags64 XrWorldMeshDetectorFlagsML;
+typedef XrFlags64 XrBatteryStateDisplayStateFlagsEXT;
+typedef XrFlags64 XrCompositionLayerImageLayoutFlagsFB;
+typedef XrFlags64 XrCompositionLayerSecureContentFlagsFB;
+typedef XrFlags64 XrCompositionLayerSettingsFlagsFB;
+typedef XrFlags64 XrCompositionLayerSpaceWarpInfoFlagsFB;
+typedef XrFlags64 XrDigitalLensControlFlagsALMALENCE;
+typedef XrFlags64 XrFacialExpressionBlendShapePropertiesFlagsML;
+typedef XrFlags64 XrFoveationEyeTrackedProfileCreateFlagsMETA;
+typedef XrFlags64 XrFoveationEyeTrackedStateFlagsMETA;
+typedef XrFlags64 XrFrameEndInfoFlagsML;
+typedef XrFlags64 XrFrameSynthesisInfoFlagsEXT;
+typedef XrFlags64 XrGeospatialPoseFlagsANDROID;
+typedef XrFlags64 XrGlobalDimmerFrameEndInfoFlagsML;
+typedef XrFlags64 XrHandTrackingAimFlagsFB;
+typedef XrFlags64 XrInputSourceLocalizedNameFlags;
+typedef XrFlags64 XrKeyboardTrackingFlagsFB;
+typedef XrFlags64 XrKeyboardTrackingQueryFlagsFB;
+typedef XrFlags64 XrLightEstimationCreateFlagsBD;
+typedef XrFlags64 XrLocalizationMapErrorFlagsML;
+typedef XrFlags64 XrOverlayMainSessionFlagsEXTX;
+typedef XrFlags64 XrOverlaySessionCreateFlagsEXTX;
+typedef XrFlags64 XrPassthroughCapabilityFlagsFB;
+typedef XrFlags64 XrPassthroughFlagsFB;
+typedef XrFlags64 XrPassthroughPreferenceFlagsMETA;
+typedef XrFlags64 XrPassthroughStateChangedFlagsFB;
+typedef XrFlags64 XrPerformanceMetricsCounterFlagsANDROID;
+typedef XrFlags64 XrPerformanceMetricsCounterFlagsMETA;
+typedef XrFlags64 XrPlaneDetectionCapabilityFlagsEXT;
+typedef XrFlags64 XrPlaneDetectorFlagsEXT;
+typedef XrFlags64 XrRenderModelFlagsFB;
+typedef XrFlags64 XrSemanticLabelsSupportFlagsFB;
+typedef XrFlags64 XrSessionCreateFlags;
+typedef XrFlags64 XrSpatialMeshConfigFlagsBD;
+typedef XrFlags64 XrSwapchainCreateFlags;
+typedef XrFlags64 XrSwapchainCreateFoveationFlagsFB;
+typedef XrFlags64 XrSwapchainStateFoveationFlagsFB;
+typedef XrFlags64 XrSwapchainUsageFlags;
+typedef XrFlags64 XrViewStateFlags;
+typedef XrFlags64 XrVirtualKeyboardInputStateFlagsMETA;
+typedef XrFlags64 XrVulkanDeviceCreateFlagsKHR;
+typedef XrFlags64 XrVulkanInstanceCreateFlagsKHR;
+typedef XrFlags64 XrSoundFieldFlagsBD;
+typedef XrFlags64 XrSoundObjectFlagsBD;
+typedef XrFlags64 XrSoundObstacleFlagsBD;
+
+typedef enum XrActionType
+{
+    XR_ACTION_TYPE_BOOLEAN_INPUT = 1,
+    XR_ACTION_TYPE_FLOAT_INPUT = 2,
+    XR_ACTION_TYPE_VECTOR2F_INPUT = 3,
+    XR_ACTION_TYPE_POSE_INPUT = 4,
+    XR_ACTION_TYPE_VIBRATION_OUTPUT = 100,
+    XR_ACTION_TYPE_MAX_ENUM = 0x7fffffff,
+} XrActionType;
+
+typedef enum XrAnchorPersistStateANDROID
+{
+    XR_ANCHOR_PERSIST_STATE_PERSIST_NOT_REQUESTED_ANDROID = 0,
+    XR_ANCHOR_PERSIST_STATE_PERSIST_PENDING_ANDROID = 1,
+    XR_ANCHOR_PERSIST_STATE_PERSISTED_ANDROID = 2,
+    XR_ANCHOR_PERSIST_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrAnchorPersistStateANDROID;
+
+typedef enum XrAudioBufferChannelLayoutBD
+{
+    XR_AUDIO_BUFFER_CHANNEL_LAYOUT_INTERLEAVED_BD = 0,
+    XR_AUDIO_BUFFER_CHANNEL_LAYOUT_PLANAR_BD = 1,
+    XR_AUDIO_BUFFER_CHANNEL_LAYOUT_BD_MAX_ENUM = 0x7fffffff,
+} XrAudioBufferChannelLayoutBD;
+
+typedef enum XrAudioSampleRateBD
+{
+    XR_AUDIO_SAMPLE_RATE_192000_HZ_BD = 1,
+    XR_AUDIO_SAMPLE_RATE_96000_HZ_BD = 2,
+    XR_AUDIO_SAMPLE_RATE_48000_HZ_BD = 3,
+    XR_AUDIO_SAMPLE_RATE_44100_HZ_BD = 4,
+    XR_AUDIO_SAMPLE_RATE_32000_HZ_BD = 5,
+    XR_AUDIO_SAMPLE_RATE_24000_HZ_BD = 6,
+    XR_AUDIO_SAMPLE_RATE_22050_HZ_BD = 7,
+    XR_AUDIO_SAMPLE_RATE_16000_HZ_BD = 8,
+    XR_AUDIO_SAMPLE_RATE_12000_HZ_BD = 9,
+    XR_AUDIO_SAMPLE_RATE_11025_HZ_BD = 10,
+    XR_AUDIO_SAMPLE_RATE_8000_HZ_BD = 11,
+    XR_AUDIO_SAMPLE_RATE_BD_MAX_ENUM = 0x7fffffff,
+} XrAudioSampleRateBD;
+
+typedef enum XrBatteryStateDisplayStateFlagBitsEXT
+{
+    XR_BATTERY_STATE_DISPLAY_STATE_VALID_BIT_EXT = 0x00000001,
+    XR_BATTERY_STATE_DISPLAY_STATE_CHARGING_BIT_EXT = 0x00000002,
+    XR_BATTERY_STATE_DISPLAY_STATE_PLUGGED_IN_BIT_EXT = 0x00000004,
+    XR_BATTERY_STATE_DISPLAY_STATE_NO_BATTERY_BIT_EXT = 0x00000008,
+    XR_BATTERY_STATE_DISPLAY_STATE_FLAG_BITS_EXT_MAX_ENUM = 0x7fffffff,
+} XrBatteryStateDisplayStateFlagBitsEXT;
+
+typedef enum XrBlendFactorFB
+{
+    XR_BLEND_FACTOR_ZERO_FB = 0,
+    XR_BLEND_FACTOR_ONE_FB = 1,
+    XR_BLEND_FACTOR_SRC_ALPHA_FB = 2,
+    XR_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA_FB = 3,
+    XR_BLEND_FACTOR_DST_ALPHA_FB = 4,
+    XR_BLEND_FACTOR_ONE_MINUS_DST_ALPHA_FB = 5,
+    XR_BLEND_FACTOR_FB_MAX_ENUM = 0x7fffffff,
+} XrBlendFactorFB;
+
+typedef enum XrBodyJointBD
+{
+    XR_BODY_JOINT_PELVIS_BD = 0,
+    XR_BODY_JOINT_LEFT_HIP_BD = 1,
+    XR_BODY_JOINT_RIGHT_HIP_BD = 2,
+    XR_BODY_JOINT_SPINE1_BD = 3,
+    XR_BODY_JOINT_LEFT_KNEE_BD = 4,
+    XR_BODY_JOINT_RIGHT_KNEE_BD = 5,
+    XR_BODY_JOINT_SPINE2_BD = 6,
+    XR_BODY_JOINT_LEFT_ANKLE_BD = 7,
+    XR_BODY_JOINT_RIGHT_ANKLE_BD = 8,
+    XR_BODY_JOINT_SPINE3_BD = 9,
+    XR_BODY_JOINT_LEFT_FOOT_BD = 10,
+    XR_BODY_JOINT_RIGHT_FOOT_BD = 11,
+    XR_BODY_JOINT_NECK_BD = 12,
+    XR_BODY_JOINT_LEFT_COLLAR_BD = 13,
+    XR_BODY_JOINT_RIGHT_COLLAR_BD = 14,
+    XR_BODY_JOINT_HEAD_BD = 15,
+    XR_BODY_JOINT_LEFT_SHOULDER_BD = 16,
+    XR_BODY_JOINT_RIGHT_SHOULDER_BD = 17,
+    XR_BODY_JOINT_LEFT_ELBOW_BD = 18,
+    XR_BODY_JOINT_RIGHT_ELBOW_BD = 19,
+    XR_BODY_JOINT_LEFT_WRIST_BD = 20,
+    XR_BODY_JOINT_RIGHT_WRIST_BD = 21,
+    XR_BODY_JOINT_LEFT_HAND_BD = 22,
+    XR_BODY_JOINT_RIGHT_HAND_BD = 23,
+    XR_BODY_JOINT_BD_MAX_ENUM = 0x7fffffff,
+} XrBodyJointBD;
+
+typedef enum XrBodyJointConfidenceHTC
+{
+    XR_BODY_JOINT_CONFIDENCE_NONE_HTC = 0,
+    XR_BODY_JOINT_CONFIDENCE_LOW_HTC = 1,
+    XR_BODY_JOINT_CONFIDENCE_HIGH_HTC = 2,
+    XR_BODY_JOINT_CONFIDENCE_HTC_MAX_ENUM = 0x7fffffff,
+} XrBodyJointConfidenceHTC;
+
+typedef enum XrBodyJointFB
+{
+    XR_BODY_JOINT_NONE_FB = -1,
+    XR_BODY_JOINT_ROOT_FB = 0,
+    XR_BODY_JOINT_HIPS_FB = 1,
+    XR_BODY_JOINT_SPINE_LOWER_FB = 2,
+    XR_BODY_JOINT_SPINE_MIDDLE_FB = 3,
+    XR_BODY_JOINT_SPINE_UPPER_FB = 4,
+    XR_BODY_JOINT_CHEST_FB = 5,
+    XR_BODY_JOINT_NECK_FB = 6,
+    XR_BODY_JOINT_HEAD_FB = 7,
+    XR_BODY_JOINT_LEFT_SHOULDER_FB = 8,
+    XR_BODY_JOINT_LEFT_SCAPULA_FB = 9,
+    XR_BODY_JOINT_LEFT_ARM_UPPER_FB = 10,
+    XR_BODY_JOINT_LEFT_ARM_LOWER_FB = 11,
+    XR_BODY_JOINT_LEFT_HAND_WRIST_TWIST_FB = 12,
+    XR_BODY_JOINT_RIGHT_SHOULDER_FB = 13,
+    XR_BODY_JOINT_RIGHT_SCAPULA_FB = 14,
+    XR_BODY_JOINT_RIGHT_ARM_UPPER_FB = 15,
+    XR_BODY_JOINT_RIGHT_ARM_LOWER_FB = 16,
+    XR_BODY_JOINT_RIGHT_HAND_WRIST_TWIST_FB = 17,
+    XR_BODY_JOINT_LEFT_HAND_PALM_FB = 18,
+    XR_BODY_JOINT_LEFT_HAND_WRIST_FB = 19,
+    XR_BODY_JOINT_LEFT_HAND_THUMB_METACARPAL_FB = 20,
+    XR_BODY_JOINT_LEFT_HAND_THUMB_PROXIMAL_FB = 21,
+    XR_BODY_JOINT_LEFT_HAND_THUMB_DISTAL_FB = 22,
+    XR_BODY_JOINT_LEFT_HAND_THUMB_TIP_FB = 23,
+    XR_BODY_JOINT_LEFT_HAND_INDEX_METACARPAL_FB = 24,
+    XR_BODY_JOINT_LEFT_HAND_INDEX_PROXIMAL_FB = 25,
+    XR_BODY_JOINT_LEFT_HAND_INDEX_INTERMEDIATE_FB = 26,
+    XR_BODY_JOINT_LEFT_HAND_INDEX_DISTAL_FB = 27,
+    XR_BODY_JOINT_LEFT_HAND_INDEX_TIP_FB = 28,
+    XR_BODY_JOINT_LEFT_HAND_MIDDLE_METACARPAL_FB = 29,
+    XR_BODY_JOINT_LEFT_HAND_MIDDLE_PROXIMAL_FB = 30,
+    XR_BODY_JOINT_LEFT_HAND_MIDDLE_INTERMEDIATE_FB = 31,
+    XR_BODY_JOINT_LEFT_HAND_MIDDLE_DISTAL_FB = 32,
+    XR_BODY_JOINT_LEFT_HAND_MIDDLE_TIP_FB = 33,
+    XR_BODY_JOINT_LEFT_HAND_RING_METACARPAL_FB = 34,
+    XR_BODY_JOINT_LEFT_HAND_RING_PROXIMAL_FB = 35,
+    XR_BODY_JOINT_LEFT_HAND_RING_INTERMEDIATE_FB = 36,
+    XR_BODY_JOINT_LEFT_HAND_RING_DISTAL_FB = 37,
+    XR_BODY_JOINT_LEFT_HAND_RING_TIP_FB = 38,
+    XR_BODY_JOINT_LEFT_HAND_LITTLE_METACARPAL_FB = 39,
+    XR_BODY_JOINT_LEFT_HAND_LITTLE_PROXIMAL_FB = 40,
+    XR_BODY_JOINT_LEFT_HAND_LITTLE_INTERMEDIATE_FB = 41,
+    XR_BODY_JOINT_LEFT_HAND_LITTLE_DISTAL_FB = 42,
+    XR_BODY_JOINT_LEFT_HAND_LITTLE_TIP_FB = 43,
+    XR_BODY_JOINT_RIGHT_HAND_PALM_FB = 44,
+    XR_BODY_JOINT_RIGHT_HAND_WRIST_FB = 45,
+    XR_BODY_JOINT_RIGHT_HAND_THUMB_METACARPAL_FB = 46,
+    XR_BODY_JOINT_RIGHT_HAND_THUMB_PROXIMAL_FB = 47,
+    XR_BODY_JOINT_RIGHT_HAND_THUMB_DISTAL_FB = 48,
+    XR_BODY_JOINT_RIGHT_HAND_THUMB_TIP_FB = 49,
+    XR_BODY_JOINT_RIGHT_HAND_INDEX_METACARPAL_FB = 50,
+    XR_BODY_JOINT_RIGHT_HAND_INDEX_PROXIMAL_FB = 51,
+    XR_BODY_JOINT_RIGHT_HAND_INDEX_INTERMEDIATE_FB = 52,
+    XR_BODY_JOINT_RIGHT_HAND_INDEX_DISTAL_FB = 53,
+    XR_BODY_JOINT_RIGHT_HAND_INDEX_TIP_FB = 54,
+    XR_BODY_JOINT_RIGHT_HAND_MIDDLE_METACARPAL_FB = 55,
+    XR_BODY_JOINT_RIGHT_HAND_MIDDLE_PROXIMAL_FB = 56,
+    XR_BODY_JOINT_RIGHT_HAND_MIDDLE_INTERMEDIATE_FB = 57,
+    XR_BODY_JOINT_RIGHT_HAND_MIDDLE_DISTAL_FB = 58,
+    XR_BODY_JOINT_RIGHT_HAND_MIDDLE_TIP_FB = 59,
+    XR_BODY_JOINT_RIGHT_HAND_RING_METACARPAL_FB = 60,
+    XR_BODY_JOINT_RIGHT_HAND_RING_PROXIMAL_FB = 61,
+    XR_BODY_JOINT_RIGHT_HAND_RING_INTERMEDIATE_FB = 62,
+    XR_BODY_JOINT_RIGHT_HAND_RING_DISTAL_FB = 63,
+    XR_BODY_JOINT_RIGHT_HAND_RING_TIP_FB = 64,
+    XR_BODY_JOINT_RIGHT_HAND_LITTLE_METACARPAL_FB = 65,
+    XR_BODY_JOINT_RIGHT_HAND_LITTLE_PROXIMAL_FB = 66,
+    XR_BODY_JOINT_RIGHT_HAND_LITTLE_INTERMEDIATE_FB = 67,
+    XR_BODY_JOINT_RIGHT_HAND_LITTLE_DISTAL_FB = 68,
+    XR_BODY_JOINT_RIGHT_HAND_LITTLE_TIP_FB = 69,
+    XR_BODY_JOINT_COUNT_FB = 70,
+    XR_BODY_JOINT_FB_MAX_ENUM = 0x7fffffff,
+} XrBodyJointFB;
+
+typedef enum XrBodyJointHTC
+{
+    XR_BODY_JOINT_PELVIS_HTC = 0,
+    XR_BODY_JOINT_LEFT_HIP_HTC = 1,
+    XR_BODY_JOINT_LEFT_KNEE_HTC = 2,
+    XR_BODY_JOINT_LEFT_ANKLE_HTC = 3,
+    XR_BODY_JOINT_LEFT_FEET_HTC = 4,
+    XR_BODY_JOINT_RIGHT_HIP_HTC = 5,
+    XR_BODY_JOINT_RIGHT_KNEE_HTC = 6,
+    XR_BODY_JOINT_RIGHT_ANKLE_HTC = 7,
+    XR_BODY_JOINT_RIGHT_FEET_HTC = 8,
+    XR_BODY_JOINT_WAIST_HTC = 9,
+    XR_BODY_JOINT_SPINE_LOWER_HTC = 10,
+    XR_BODY_JOINT_SPINE_MIDDLE_HTC = 11,
+    XR_BODY_JOINT_SPINE_HIGH_HTC = 12,
+    XR_BODY_JOINT_CHEST_HTC = 13,
+    XR_BODY_JOINT_NECK_HTC = 14,
+    XR_BODY_JOINT_HEAD_HTC = 15,
+    XR_BODY_JOINT_LEFT_CLAVICLE_HTC = 16,
+    XR_BODY_JOINT_LEFT_SCAPULA_HTC = 17,
+    XR_BODY_JOINT_LEFT_ARM_HTC = 18,
+    XR_BODY_JOINT_LEFT_ELBOW_HTC = 19,
+    XR_BODY_JOINT_LEFT_WRIST_HTC = 20,
+    XR_BODY_JOINT_RIGHT_CLAVICLE_HTC = 21,
+    XR_BODY_JOINT_RIGHT_SCAPULA_HTC = 22,
+    XR_BODY_JOINT_RIGHT_ARM_HTC = 23,
+    XR_BODY_JOINT_RIGHT_ELBOW_HTC = 24,
+    XR_BODY_JOINT_RIGHT_WRIST_HTC = 25,
+    XR_BODY_JOINT_HTC_MAX_ENUM = 0x7fffffff,
+} XrBodyJointHTC;
+
+typedef enum XrBodyJointSetBD
+{
+    XR_BODY_JOINT_SET_BODY_WITHOUT_ARM_BD = 1,
+    XR_BODY_JOINT_SET_FULL_BODY_JOINTS_BD = 2,
+    XR_BODY_JOINT_SET_BD_MAX_ENUM = 0x7fffffff,
+} XrBodyJointSetBD;
+
+typedef enum XrBodyJointSetFB
+{
+    XR_BODY_JOINT_SET_DEFAULT_FB = 0,
+    XR_BODY_JOINT_SET_FULL_BODY_META = 1000274000,
+    XR_BODY_JOINT_SET_FB_MAX_ENUM = 0x7fffffff,
+} XrBodyJointSetFB;
+
+typedef enum XrBodyJointSetHTC
+{
+    XR_BODY_JOINT_SET_FULL_HTC = 0,
+    XR_BODY_JOINT_SET_HTC_MAX_ENUM = 0x7fffffff,
+} XrBodyJointSetHTC;
+
+typedef enum XrBodyTrackingCalibrationStateMETA
+{
+    XR_BODY_TRACKING_CALIBRATION_STATE_VALID_META = 1,
+    XR_BODY_TRACKING_CALIBRATION_STATE_CALIBRATING_META = 2,
+    XR_BODY_TRACKING_CALIBRATION_STATE_INVALID_META = 3,
+    XR_BODY_TRACKING_CALIBRATION_STATE_META_MAX_ENUM = 0x7fffffff,
+} XrBodyTrackingCalibrationStateMETA;
+
+typedef enum XrBodyTrackingFidelityMETA
+{
+    XR_BODY_TRACKING_FIDELITY_LOW_META = 1,
+    XR_BODY_TRACKING_FIDELITY_HIGH_META = 2,
+    XR_BODY_TRACKING_FIDELITY_META_MAX_ENUM = 0x7fffffff,
+} XrBodyTrackingFidelityMETA;
+
+typedef enum XrBodyTrackingMessageBD
+{
+    XR_BODY_TRACKING_MESSAGE_NO_ERROR_BD = 0,
+    XR_BODY_TRACKING_MESSAGE_TRACKER_NOT_CALIBRATED_BD = 1,
+    XR_BODY_TRACKING_MESSAGE_TRACKER_NUM_NOT_ENOUGH_BD = 2,
+    XR_BODY_TRACKING_MESSAGE_TRACKER_STATE_NOT_SATISFIED_BD = 3,
+    XR_BODY_TRACKING_MESSAGE_TRACKER_PERSISTENT_INVISIBILITY_BD = 4,
+    XR_BODY_TRACKING_MESSAGE_TRACKER_DATA_ERROR_BD = 5,
+    XR_BODY_TRACKING_MESSAGE_USER_CHANGE_BD = 6,
+    XR_BODY_TRACKING_MESSAGE_TRACKING_POSE_ERROR_BD = 7,
+    XR_BODY_TRACKING_MESSAGE_BD_MAX_ENUM = 0x7fffffff,
+} XrBodyTrackingMessageBD;
+
+typedef enum XrBodyTrackingPostureBD
+{
+    XR_BODY_TRACKING_POSTURE_STOMP_BD = 1,
+    XR_BODY_TRACKING_POSTURE_STATIC_BD = 2,
+    XR_BODY_TRACKING_POSTURE_BD_MAX_ENUM = 0x7fffffff,
+} XrBodyTrackingPostureBD;
+
+typedef enum XrBodyTrackingStatusBD
+{
+    XR_BODY_TRACKING_STATUS_INVALID_BD = 0,
+    XR_BODY_TRACKING_STATUS_VALID_BD = 1,
+    XR_BODY_TRACKING_STATUS_LIMITED_BD = 2,
+    XR_BODY_TRACKING_STATUS_BD_MAX_ENUM = 0x7fffffff,
+} XrBodyTrackingStatusBD;
+
+typedef enum XrBoundaryVisibilityMETA
+{
+    XR_BOUNDARY_VISIBILITY_NOT_SUPPRESSED_META = 1,
+    XR_BOUNDARY_VISIBILITY_SUPPRESSED_META = 2,
+    XR_BOUNDARY_VISIBILITY_META_MAX_ENUM = 0x7fffffff,
+} XrBoundaryVisibilityMETA;
+
+typedef enum XrColorSpaceFB
+{
+    XR_COLOR_SPACE_UNMANAGED_FB = 0,
+    XR_COLOR_SPACE_REC2020_FB = 1,
+    XR_COLOR_SPACE_REC709_FB = 2,
+    XR_COLOR_SPACE_RIFT_CV1_FB = 3,
+    XR_COLOR_SPACE_RIFT_S_FB = 4,
+    XR_COLOR_SPACE_QUEST_FB = 5,
+    XR_COLOR_SPACE_P3_FB = 6,
+    XR_COLOR_SPACE_ADOBE_RGB_FB = 7,
+    XR_COLOR_SPACE_FB_MAX_ENUM = 0x7fffffff,
+} XrColorSpaceFB;
+
+typedef enum XrColorSpaceSONY
+{
+    XR_COLOR_SPACE_SRGB_NONLINEAR_SONY = 0,
+    XR_COLOR_SPACE_DISPLAY_P3_LINEAR_SONY = 1,
+    XR_COLOR_SPACE_DISPLAY_P3_NONLINEAR_SONY = 2,
+    XR_COLOR_SPACE_DCI_P3_LINEAR_SONY = 3,
+    XR_COLOR_SPACE_DCI_P3_NONLINEAR_SONY = 4,
+    XR_COLOR_SPACE_EXTENDED_SRGB_LINEAR_SONY = 5,
+    XR_COLOR_SPACE_BT709_LINEAR_SONY = 6,
+    XR_COLOR_SPACE_BT709_NONLINEAR_SONY = 7,
+    XR_COLOR_SPACE_BT2020_LINEAR_SONY = 8,
+    XR_COLOR_SPACE_BT2020_PQ_SONY = 9,
+    XR_COLOR_SPACE_BT2020_HLG_SONY = 10,
+    XR_COLOR_SPACE_SONY_MAX_ENUM = 0x7fffffff,
+} XrColorSpaceSONY;
+
+typedef enum XrCompareOpFB
+{
+    XR_COMPARE_OP_NEVER_FB = 0,
+    XR_COMPARE_OP_LESS_FB = 1,
+    XR_COMPARE_OP_EQUAL_FB = 2,
+    XR_COMPARE_OP_LESS_OR_EQUAL_FB = 3,
+    XR_COMPARE_OP_GREATER_FB = 4,
+    XR_COMPARE_OP_NOT_EQUAL_FB = 5,
+    XR_COMPARE_OP_GREATER_OR_EQUAL_FB = 6,
+    XR_COMPARE_OP_ALWAYS_FB = 7,
+    XR_COMPARE_OP_FB_MAX_ENUM = 0x7fffffff,
+} XrCompareOpFB;
+
+typedef enum XrCompositionLayerFlagBits
+{
+    XR_COMPOSITION_LAYER_CORRECT_CHROMATIC_ABERRATION_BIT = 0x00000001,
+    XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT = 0x00000002,
+    XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT = 0x00000004,
+    XR_COMPOSITION_LAYER_INVERTED_ALPHA_BIT_EXT = 0x00000008,
+    XR_COMPOSITION_LAYER_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrCompositionLayerFlagBits;
+
+typedef enum XrCompositionLayerImageLayoutFlagBitsFB
+{
+    XR_COMPOSITION_LAYER_IMAGE_LAYOUT_VERTICAL_FLIP_BIT_FB = 0x00000001,
+    XR_COMPOSITION_LAYER_IMAGE_LAYOUT_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrCompositionLayerImageLayoutFlagBitsFB;
+
+typedef enum XrCompositionLayerSecureContentFlagBitsFB
+{
+    XR_COMPOSITION_LAYER_SECURE_CONTENT_EXCLUDE_LAYER_BIT_FB = 0x00000001,
+    XR_COMPOSITION_LAYER_SECURE_CONTENT_REPLACE_LAYER_BIT_FB = 0x00000002,
+    XR_COMPOSITION_LAYER_SECURE_CONTENT_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrCompositionLayerSecureContentFlagBitsFB;
+
+typedef enum XrCompositionLayerSettingsFlagBitsFB
+{
+    XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SUPER_SAMPLING_BIT_FB = 0x00000001,
+    XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB = 0x00000002,
+    XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SHARPENING_BIT_FB = 0x00000004,
+    XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB = 0x00000008,
+    XR_COMPOSITION_LAYER_SETTINGS_AUTO_LAYER_FILTER_BIT_META = 0x00000020,
+    XR_COMPOSITION_LAYER_SETTINGS_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrCompositionLayerSettingsFlagBitsFB;
+
+typedef enum XrCompositionLayerSpaceWarpInfoFlagBitsFB
+{
+    XR_COMPOSITION_LAYER_SPACE_WARP_INFO_FRAME_SKIP_BIT_FB = 0x00000001,
+    XR_COMPOSITION_LAYER_SPACE_WARP_INFO_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrCompositionLayerSpaceWarpInfoFlagBitsFB;
+
+typedef enum XrDigitalLensControlFlagBitsALMALENCE
+{
+    XR_DIGITAL_LENS_CONTROL_PROCESSING_DISABLE_BIT_ALMALENCE = 0x00000001,
+    XR_DIGITAL_LENS_CONTROL_FLAG_BITS_ALMALENCE_MAX_ENUM = 0x7fffffff,
+} XrDigitalLensControlFlagBitsALMALENCE;
+
+typedef enum XrDynamicObjectTypeBD
+{
+    XR_DYNAMIC_OBJECT_TYPE_UNKNOWN_BD = 0,
+    XR_DYNAMIC_OBJECT_TYPE_KEYBOARD_BD = 1000747000,
+    XR_DYNAMIC_OBJECT_TYPE_MOUSE_BD = 1000748000,
+    XR_DYNAMIC_OBJECT_TYPE_BD_MAX_ENUM = 0x7fffffff,
+} XrDynamicObjectTypeBD;
+
+typedef enum XrEnvironmentBlendMode
+{
+    XR_ENVIRONMENT_BLEND_MODE_OPAQUE = 1,
+    XR_ENVIRONMENT_BLEND_MODE_ADDITIVE = 2,
+    XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND = 3,
+    XR_ENVIRONMENT_BLEND_MODE_MAX_ENUM = 0x7fffffff,
+} XrEnvironmentBlendMode;
+
+typedef enum XrEnvironmentTexturePixelFormatBD
+{
+    XR_ENVIRONMENT_TEXTURE_PIXEL_FORMAT_RGB_16FLOAT_BD = 0,
+    XR_ENVIRONMENT_TEXTURE_PIXEL_FORMAT_RGBA_16FLOAT_BD = 1,
+    XR_ENVIRONMENT_TEXTURE_PIXEL_FORMAT_BD_MAX_ENUM = 0x7fffffff,
+} XrEnvironmentTexturePixelFormatBD;
+
+typedef enum XrEnvironmentTextureResolutionBD
+{
+    XR_ENVIRONMENT_TEXTURE_RESOLUTION_8_8_BD = 0,
+    XR_ENVIRONMENT_TEXTURE_RESOLUTION_16_16_BD = 1,
+    XR_ENVIRONMENT_TEXTURE_RESOLUTION_32_32_BD = 2,
+    XR_ENVIRONMENT_TEXTURE_RESOLUTION_64_64_BD = 3,
+    XR_ENVIRONMENT_TEXTURE_RESOLUTION_128_128_BD = 4,
+    XR_ENVIRONMENT_TEXTURE_RESOLUTION_BD_MAX_ENUM = 0x7fffffff,
+} XrEnvironmentTextureResolutionBD;
+
+typedef enum XrEnvironmentTextureTransferTypeBD
+{
+    XR_ENVIRONMENT_TEXTURE_TRANSFER_TYPE_RAW_BD = 0,
+    XR_ENVIRONMENT_TEXTURE_TRANSFER_TYPE_BD_MAX_ENUM = 0x7fffffff,
+} XrEnvironmentTextureTransferTypeBD;
+
+typedef enum XrExternalCameraAttachedToDeviceOCULUS
+{
+    XR_EXTERNAL_CAMERA_ATTACHED_TO_DEVICE_NONE_OCULUS = 0,
+    XR_EXTERNAL_CAMERA_ATTACHED_TO_DEVICE_HMD_OCULUS = 1,
+    XR_EXTERNAL_CAMERA_ATTACHED_TO_DEVICE_LTOUCH_OCULUS = 2,
+    XR_EXTERNAL_CAMERA_ATTACHED_TO_DEVICE_RTOUCH_OCULUS = 3,
+    XR_EXTERNAL_CAMERA_ATTACHED_TO_DEVICE_OCULUS_MAX_ENUM = 0x7fffffff,
+} XrExternalCameraAttachedToDeviceOCULUS;
+
+typedef enum XrExternalCameraStatusFlagBitsOCULUS
+{
+    XR_EXTERNAL_CAMERA_STATUS_CONNECTED_BIT_OCULUS = 0x00000001,
+    XR_EXTERNAL_CAMERA_STATUS_CALIBRATING_BIT_OCULUS = 0x00000002,
+    XR_EXTERNAL_CAMERA_STATUS_CALIBRATION_FAILED_BIT_OCULUS = 0x00000004,
+    XR_EXTERNAL_CAMERA_STATUS_CALIBRATED_BIT_OCULUS = 0x00000008,
+    XR_EXTERNAL_CAMERA_STATUS_CAPTURING_BIT_OCULUS = 0x00000010,
+    XR_EXTERNAL_CAMERA_STATUS_FLAG_BITS_OCULUS_MAX_ENUM = 0x7fffffff,
+} XrExternalCameraStatusFlagBitsOCULUS;
+
+typedef enum XrEyeCalibrationStatusML
+{
+    XR_EYE_CALIBRATION_STATUS_UNKNOWN_ML = 0,
+    XR_EYE_CALIBRATION_STATUS_NONE_ML = 1,
+    XR_EYE_CALIBRATION_STATUS_COARSE_ML = 2,
+    XR_EYE_CALIBRATION_STATUS_FINE_ML = 3,
+    XR_EYE_CALIBRATION_STATUS_ML_MAX_ENUM = 0x7fffffff,
+} XrEyeCalibrationStatusML;
+
+typedef enum XrEyeExpressionHTC
+{
+    XR_EYE_EXPRESSION_LEFT_BLINK_HTC = 0,
+    XR_EYE_EXPRESSION_LEFT_WIDE_HTC = 1,
+    XR_EYE_EXPRESSION_RIGHT_BLINK_HTC = 2,
+    XR_EYE_EXPRESSION_RIGHT_WIDE_HTC = 3,
+    XR_EYE_EXPRESSION_LEFT_SQUEEZE_HTC = 4,
+    XR_EYE_EXPRESSION_RIGHT_SQUEEZE_HTC = 5,
+    XR_EYE_EXPRESSION_LEFT_DOWN_HTC = 6,
+    XR_EYE_EXPRESSION_RIGHT_DOWN_HTC = 7,
+    XR_EYE_EXPRESSION_LEFT_OUT_HTC = 8,
+    XR_EYE_EXPRESSION_RIGHT_IN_HTC = 9,
+    XR_EYE_EXPRESSION_LEFT_IN_HTC = 10,
+    XR_EYE_EXPRESSION_RIGHT_OUT_HTC = 11,
+    XR_EYE_EXPRESSION_LEFT_UP_HTC = 12,
+    XR_EYE_EXPRESSION_RIGHT_UP_HTC = 13,
+    XR_EYE_EXPRESSION_HTC_MAX_ENUM = 0x7fffffff,
+} XrEyeExpressionHTC;
+
+typedef enum XrEyeIndexANDROID
+{
+    XR_EYE_INDEX_LEFT_ANDROID = 0,
+    XR_EYE_INDEX_RIGHT_ANDROID = 1,
+    XR_EYE_INDEX_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrEyeIndexANDROID;
+
+typedef enum XrEyePositionFB
+{
+    XR_EYE_POSITION_LEFT_FB = 0,
+    XR_EYE_POSITION_RIGHT_FB = 1,
+    XR_EYE_POSITION_COUNT_FB = 2,
+    XR_EYE_POSITION_FB_MAX_ENUM = 0x7fffffff,
+} XrEyePositionFB;
+
+typedef enum XrEyeStateANDROID
+{
+    XR_EYE_STATE_INVALID_ANDROID = 0,
+    XR_EYE_STATE_GAZING_ANDROID = 1,
+    XR_EYE_STATE_SHUT_ANDROID = 2,
+    XR_EYE_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrEyeStateANDROID;
+
+typedef enum XrEyeTrackingModeANDROID
+{
+    XR_EYE_TRACKING_MODE_NOT_TRACKING_ANDROID = 0,
+    XR_EYE_TRACKING_MODE_RIGHT_ANDROID = 1,
+    XR_EYE_TRACKING_MODE_LEFT_ANDROID = 2,
+    XR_EYE_TRACKING_MODE_BOTH_ANDROID = 3,
+    XR_EYE_TRACKING_MODE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrEyeTrackingModeANDROID;
+
+typedef enum XrEyeVisibility
+{
+    XR_EYE_VISIBILITY_BOTH = 0,
+    XR_EYE_VISIBILITY_LEFT = 1,
+    XR_EYE_VISIBILITY_RIGHT = 2,
+    XR_EYE_VISIBILITY_MAX_ENUM = 0x7fffffff,
+} XrEyeVisibility;
+
+typedef enum XrFaceConfidence2FB
+{
+    XR_FACE_CONFIDENCE2_LOWER_FACE_FB = 0,
+    XR_FACE_CONFIDENCE2_UPPER_FACE_FB = 1,
+    XR_FACE_CONFIDENCE2_COUNT_FB = 2,
+    XR_FACE_CONFIDENCE_2FB_MAX_ENUM = 0x7fffffff,
+} XrFaceConfidence2FB;
+
+typedef enum XrFaceConfidenceFB
+{
+    XR_FACE_CONFIDENCE_LOWER_FACE_FB = 0,
+    XR_FACE_CONFIDENCE_UPPER_FACE_FB = 1,
+    XR_FACE_CONFIDENCE_COUNT_FB = 2,
+    XR_FACE_CONFIDENCE_FB_MAX_ENUM = 0x7fffffff,
+} XrFaceConfidenceFB;
+
+typedef enum XrFaceConfidenceRegionsANDROID
+{
+    XR_FACE_CONFIDENCE_REGIONS_LOWER_ANDROID = 0,
+    XR_FACE_CONFIDENCE_REGIONS_LEFT_UPPER_ANDROID = 1,
+    XR_FACE_CONFIDENCE_REGIONS_RIGHT_UPPER_ANDROID = 2,
+    XR_FACE_CONFIDENCE_REGIONS_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrFaceConfidenceRegionsANDROID;
+
+typedef enum XrFaceExpression2FB
+{
+    XR_FACE_EXPRESSION2_BROW_LOWERER_L_FB = 0,
+    XR_FACE_EXPRESSION2_BROW_LOWERER_R_FB = 1,
+    XR_FACE_EXPRESSION2_CHEEK_PUFF_L_FB = 2,
+    XR_FACE_EXPRESSION2_CHEEK_PUFF_R_FB = 3,
+    XR_FACE_EXPRESSION2_CHEEK_RAISER_L_FB = 4,
+    XR_FACE_EXPRESSION2_CHEEK_RAISER_R_FB = 5,
+    XR_FACE_EXPRESSION2_CHEEK_SUCK_L_FB = 6,
+    XR_FACE_EXPRESSION2_CHEEK_SUCK_R_FB = 7,
+    XR_FACE_EXPRESSION2_CHIN_RAISER_B_FB = 8,
+    XR_FACE_EXPRESSION2_CHIN_RAISER_T_FB = 9,
+    XR_FACE_EXPRESSION2_DIMPLER_L_FB = 10,
+    XR_FACE_EXPRESSION2_DIMPLER_R_FB = 11,
+    XR_FACE_EXPRESSION2_EYES_CLOSED_L_FB = 12,
+    XR_FACE_EXPRESSION2_EYES_CLOSED_R_FB = 13,
+    XR_FACE_EXPRESSION2_EYES_LOOK_DOWN_L_FB = 14,
+    XR_FACE_EXPRESSION2_EYES_LOOK_DOWN_R_FB = 15,
+    XR_FACE_EXPRESSION2_EYES_LOOK_LEFT_L_FB = 16,
+    XR_FACE_EXPRESSION2_EYES_LOOK_LEFT_R_FB = 17,
+    XR_FACE_EXPRESSION2_EYES_LOOK_RIGHT_L_FB = 18,
+    XR_FACE_EXPRESSION2_EYES_LOOK_RIGHT_R_FB = 19,
+    XR_FACE_EXPRESSION2_EYES_LOOK_UP_L_FB = 20,
+    XR_FACE_EXPRESSION2_EYES_LOOK_UP_R_FB = 21,
+    XR_FACE_EXPRESSION2_INNER_BROW_RAISER_L_FB = 22,
+    XR_FACE_EXPRESSION2_INNER_BROW_RAISER_R_FB = 23,
+    XR_FACE_EXPRESSION2_JAW_DROP_FB = 24,
+    XR_FACE_EXPRESSION2_JAW_SIDEWAYS_LEFT_FB = 25,
+    XR_FACE_EXPRESSION2_JAW_SIDEWAYS_RIGHT_FB = 26,
+    XR_FACE_EXPRESSION2_JAW_THRUST_FB = 27,
+    XR_FACE_EXPRESSION2_LID_TIGHTENER_L_FB = 28,
+    XR_FACE_EXPRESSION2_LID_TIGHTENER_R_FB = 29,
+    XR_FACE_EXPRESSION2_LIP_CORNER_DEPRESSOR_L_FB = 30,
+    XR_FACE_EXPRESSION2_LIP_CORNER_DEPRESSOR_R_FB = 31,
+    XR_FACE_EXPRESSION2_LIP_CORNER_PULLER_L_FB = 32,
+    XR_FACE_EXPRESSION2_LIP_CORNER_PULLER_R_FB = 33,
+    XR_FACE_EXPRESSION2_LIP_FUNNELER_LB_FB = 34,
+    XR_FACE_EXPRESSION2_LIP_FUNNELER_LT_FB = 35,
+    XR_FACE_EXPRESSION2_LIP_FUNNELER_RB_FB = 36,
+    XR_FACE_EXPRESSION2_LIP_FUNNELER_RT_FB = 37,
+    XR_FACE_EXPRESSION2_LIP_PRESSOR_L_FB = 38,
+    XR_FACE_EXPRESSION2_LIP_PRESSOR_R_FB = 39,
+    XR_FACE_EXPRESSION2_LIP_PUCKER_L_FB = 40,
+    XR_FACE_EXPRESSION2_LIP_PUCKER_R_FB = 41,
+    XR_FACE_EXPRESSION2_LIP_STRETCHER_L_FB = 42,
+    XR_FACE_EXPRESSION2_LIP_STRETCHER_R_FB = 43,
+    XR_FACE_EXPRESSION2_LIP_SUCK_LB_FB = 44,
+    XR_FACE_EXPRESSION2_LIP_SUCK_LT_FB = 45,
+    XR_FACE_EXPRESSION2_LIP_SUCK_RB_FB = 46,
+    XR_FACE_EXPRESSION2_LIP_SUCK_RT_FB = 47,
+    XR_FACE_EXPRESSION2_LIP_TIGHTENER_L_FB = 48,
+    XR_FACE_EXPRESSION2_LIP_TIGHTENER_R_FB = 49,
+    XR_FACE_EXPRESSION2_LIPS_TOWARD_FB = 50,
+    XR_FACE_EXPRESSION2_LOWER_LIP_DEPRESSOR_L_FB = 51,
+    XR_FACE_EXPRESSION2_LOWER_LIP_DEPRESSOR_R_FB = 52,
+    XR_FACE_EXPRESSION2_MOUTH_LEFT_FB = 53,
+    XR_FACE_EXPRESSION2_MOUTH_RIGHT_FB = 54,
+    XR_FACE_EXPRESSION2_NOSE_WRINKLER_L_FB = 55,
+    XR_FACE_EXPRESSION2_NOSE_WRINKLER_R_FB = 56,
+    XR_FACE_EXPRESSION2_OUTER_BROW_RAISER_L_FB = 57,
+    XR_FACE_EXPRESSION2_OUTER_BROW_RAISER_R_FB = 58,
+    XR_FACE_EXPRESSION2_UPPER_LID_RAISER_L_FB = 59,
+    XR_FACE_EXPRESSION2_UPPER_LID_RAISER_R_FB = 60,
+    XR_FACE_EXPRESSION2_UPPER_LIP_RAISER_L_FB = 61,
+    XR_FACE_EXPRESSION2_UPPER_LIP_RAISER_R_FB = 62,
+    XR_FACE_EXPRESSION2_TONGUE_TIP_INTERDENTAL_FB = 63,
+    XR_FACE_EXPRESSION2_TONGUE_TIP_ALVEOLAR_FB = 64,
+    XR_FACE_EXPRESSION2_TONGUE_FRONT_DORSAL_PALATE_FB = 65,
+    XR_FACE_EXPRESSION2_TONGUE_MID_DORSAL_PALATE_FB = 66,
+    XR_FACE_EXPRESSION2_TONGUE_BACK_DORSAL_VELAR_FB = 67,
+    XR_FACE_EXPRESSION2_TONGUE_OUT_FB = 68,
+    XR_FACE_EXPRESSION2_TONGUE_RETREAT_FB = 69,
+    XR_FACE_EXPRESSION2_COUNT_FB = 70,
+    XR_FACE_EXPRESSION_2FB_MAX_ENUM = 0x7fffffff,
+} XrFaceExpression2FB;
+
+typedef enum XrFaceExpressionBD
+{
+    XR_FACE_EXPRESSION_BROW_DROP_L_BD = 0,
+    XR_FACE_EXPRESSION_BROW_DROP_R_BD = 1,
+    XR_FACE_EXPRESSION_BROW_INNER_UPWARDS_BD = 2,
+    XR_FACE_EXPRESSION_BROW_OUTER_UPWARDS_L_BD = 3,
+    XR_FACE_EXPRESSION_BROW_OUTER_UPWARDS_R_BD = 4,
+    XR_FACE_EXPRESSION_EYE_BLINK_L_BD = 5,
+    XR_FACE_EXPRESSION_EYE_LOOK_DROP_L_BD = 6,
+    XR_FACE_EXPRESSION_EYE_LOOK_IN_L_BD = 7,
+    XR_FACE_EXPRESSION_EYE_LOOK_OUT_L_BD = 8,
+    XR_FACE_EXPRESSION_EYE_LOOK_UPWARDS_L_BD = 9,
+    XR_FACE_EXPRESSION_EYE_LOOK_SQUINT_L_BD = 10,
+    XR_FACE_EXPRESSION_EYE_LOOK_WIDE_L_BD = 11,
+    XR_FACE_EXPRESSION_EYE_BLINK_R_BD = 12,
+    XR_FACE_EXPRESSION_EYE_LOOK_DROP_R_BD = 13,
+    XR_FACE_EXPRESSION_EYE_LOOK_IN_R_BD = 14,
+    XR_FACE_EXPRESSION_EYE_LOOK_OUT_R_BD = 15,
+    XR_FACE_EXPRESSION_EYE_LOOK_UPWARDS_R_BD = 16,
+    XR_FACE_EXPRESSION_EYE_LOOK_SQUINT_R_BD = 17,
+    XR_FACE_EXPRESSION_EYE_LOOK_WIDE_R_BD = 18,
+    XR_FACE_EXPRESSION_NOSE_SNEER_L_BD = 19,
+    XR_FACE_EXPRESSION_NOSE_SNEER_R_BD = 20,
+    XR_FACE_EXPRESSION_CHEEK_PUFF_BD = 21,
+    XR_FACE_EXPRESSION_CHEEK_SQUINT_L_BD = 22,
+    XR_FACE_EXPRESSION_CHEEK_SQUINT_R_BD = 23,
+    XR_FACE_EXPRESSION_MOUTH_CLOSE_BD = 24,
+    XR_FACE_EXPRESSION_MOUTH_FUNNEL_BD = 25,
+    XR_FACE_EXPRESSION_MOUTH_PUCKER_BD = 26,
+    XR_FACE_EXPRESSION_MOUTH_L_BD = 27,
+    XR_FACE_EXPRESSION_MOUTH_R_BD = 28,
+    XR_FACE_EXPRESSION_MOUTH_SMILE_L_BD = 29,
+    XR_FACE_EXPRESSION_MOUTH_SMILE_R_BD = 30,
+    XR_FACE_EXPRESSION_MOUTH_FROWN_L_BD = 31,
+    XR_FACE_EXPRESSION_MOUTH_FROWN_R_BD = 32,
+    XR_FACE_EXPRESSION_MOUTH_DIMPLE_L_BD = 33,
+    XR_FACE_EXPRESSION_MOUTH_DIMPLE_R_BD = 34,
+    XR_FACE_EXPRESSION_MOUTH_STRETCH_L_BD = 35,
+    XR_FACE_EXPRESSION_MOUTH_STRETCH_R_BD = 36,
+    XR_FACE_EXPRESSION_MOUTH_ROLL_LOWER_BD = 37,
+    XR_FACE_EXPRESSION_MOUTH_ROLL_UPPER_BD = 38,
+    XR_FACE_EXPRESSION_MOUTH_SHRUG_LOWER_BD = 39,
+    XR_FACE_EXPRESSION_MOUTH_SHRUG_UPPER_BD = 40,
+    XR_FACE_EXPRESSION_MOUTH_PRESS_L_BD = 41,
+    XR_FACE_EXPRESSION_MOUTH_PRESS_R_BD = 42,
+    XR_FACE_EXPRESSION_MOUTH_LOWER_DROP_L_BD = 43,
+    XR_FACE_EXPRESSION_MOUTH_LOWER_DROP_R_BD = 44,
+    XR_FACE_EXPRESSION_MOUTH_UPPER_UPWARDS_L_BD = 45,
+    XR_FACE_EXPRESSION_MOUTH_UPPER_UPWARDS_R_BD = 46,
+    XR_FACE_EXPRESSION_JAW_FORWARD_BD = 47,
+    XR_FACE_EXPRESSION_JAW_L_BD = 48,
+    XR_FACE_EXPRESSION_JAW_R_BD = 49,
+    XR_FACE_EXPRESSION_JAW_OPEN_BD = 50,
+    XR_FACE_EXPRESSION_TONGUE_OUT_BD = 51,
+    XR_FACE_EXPRESSION_BD_MAX_ENUM = 0x7fffffff,
+} XrFaceExpressionBD;
+
+typedef enum XrFaceExpressionFB
+{
+    XR_FACE_EXPRESSION_BROW_LOWERER_L_FB = 0,
+    XR_FACE_EXPRESSION_BROW_LOWERER_R_FB = 1,
+    XR_FACE_EXPRESSION_CHEEK_PUFF_L_FB = 2,
+    XR_FACE_EXPRESSION_CHEEK_PUFF_R_FB = 3,
+    XR_FACE_EXPRESSION_CHEEK_RAISER_L_FB = 4,
+    XR_FACE_EXPRESSION_CHEEK_RAISER_R_FB = 5,
+    XR_FACE_EXPRESSION_CHEEK_SUCK_L_FB = 6,
+    XR_FACE_EXPRESSION_CHEEK_SUCK_R_FB = 7,
+    XR_FACE_EXPRESSION_CHIN_RAISER_B_FB = 8,
+    XR_FACE_EXPRESSION_CHIN_RAISER_T_FB = 9,
+    XR_FACE_EXPRESSION_DIMPLER_L_FB = 10,
+    XR_FACE_EXPRESSION_DIMPLER_R_FB = 11,
+    XR_FACE_EXPRESSION_EYES_CLOSED_L_FB = 12,
+    XR_FACE_EXPRESSION_EYES_CLOSED_R_FB = 13,
+    XR_FACE_EXPRESSION_EYES_LOOK_DOWN_L_FB = 14,
+    XR_FACE_EXPRESSION_EYES_LOOK_DOWN_R_FB = 15,
+    XR_FACE_EXPRESSION_EYES_LOOK_LEFT_L_FB = 16,
+    XR_FACE_EXPRESSION_EYES_LOOK_LEFT_R_FB = 17,
+    XR_FACE_EXPRESSION_EYES_LOOK_RIGHT_L_FB = 18,
+    XR_FACE_EXPRESSION_EYES_LOOK_RIGHT_R_FB = 19,
+    XR_FACE_EXPRESSION_EYES_LOOK_UP_L_FB = 20,
+    XR_FACE_EXPRESSION_EYES_LOOK_UP_R_FB = 21,
+    XR_FACE_EXPRESSION_INNER_BROW_RAISER_L_FB = 22,
+    XR_FACE_EXPRESSION_INNER_BROW_RAISER_R_FB = 23,
+    XR_FACE_EXPRESSION_JAW_DROP_FB = 24,
+    XR_FACE_EXPRESSION_JAW_SIDEWAYS_LEFT_FB = 25,
+    XR_FACE_EXPRESSION_JAW_SIDEWAYS_RIGHT_FB = 26,
+    XR_FACE_EXPRESSION_JAW_THRUST_FB = 27,
+    XR_FACE_EXPRESSION_LID_TIGHTENER_L_FB = 28,
+    XR_FACE_EXPRESSION_LID_TIGHTENER_R_FB = 29,
+    XR_FACE_EXPRESSION_LIP_CORNER_DEPRESSOR_L_FB = 30,
+    XR_FACE_EXPRESSION_LIP_CORNER_DEPRESSOR_R_FB = 31,
+    XR_FACE_EXPRESSION_LIP_CORNER_PULLER_L_FB = 32,
+    XR_FACE_EXPRESSION_LIP_CORNER_PULLER_R_FB = 33,
+    XR_FACE_EXPRESSION_LIP_FUNNELER_LB_FB = 34,
+    XR_FACE_EXPRESSION_LIP_FUNNELER_LT_FB = 35,
+    XR_FACE_EXPRESSION_LIP_FUNNELER_RB_FB = 36,
+    XR_FACE_EXPRESSION_LIP_FUNNELER_RT_FB = 37,
+    XR_FACE_EXPRESSION_LIP_PRESSOR_L_FB = 38,
+    XR_FACE_EXPRESSION_LIP_PRESSOR_R_FB = 39,
+    XR_FACE_EXPRESSION_LIP_PUCKER_L_FB = 40,
+    XR_FACE_EXPRESSION_LIP_PUCKER_R_FB = 41,
+    XR_FACE_EXPRESSION_LIP_STRETCHER_L_FB = 42,
+    XR_FACE_EXPRESSION_LIP_STRETCHER_R_FB = 43,
+    XR_FACE_EXPRESSION_LIP_SUCK_LB_FB = 44,
+    XR_FACE_EXPRESSION_LIP_SUCK_LT_FB = 45,
+    XR_FACE_EXPRESSION_LIP_SUCK_RB_FB = 46,
+    XR_FACE_EXPRESSION_LIP_SUCK_RT_FB = 47,
+    XR_FACE_EXPRESSION_LIP_TIGHTENER_L_FB = 48,
+    XR_FACE_EXPRESSION_LIP_TIGHTENER_R_FB = 49,
+    XR_FACE_EXPRESSION_LIPS_TOWARD_FB = 50,
+    XR_FACE_EXPRESSION_LOWER_LIP_DEPRESSOR_L_FB = 51,
+    XR_FACE_EXPRESSION_LOWER_LIP_DEPRESSOR_R_FB = 52,
+    XR_FACE_EXPRESSION_MOUTH_LEFT_FB = 53,
+    XR_FACE_EXPRESSION_MOUTH_RIGHT_FB = 54,
+    XR_FACE_EXPRESSION_NOSE_WRINKLER_L_FB = 55,
+    XR_FACE_EXPRESSION_NOSE_WRINKLER_R_FB = 56,
+    XR_FACE_EXPRESSION_OUTER_BROW_RAISER_L_FB = 57,
+    XR_FACE_EXPRESSION_OUTER_BROW_RAISER_R_FB = 58,
+    XR_FACE_EXPRESSION_UPPER_LID_RAISER_L_FB = 59,
+    XR_FACE_EXPRESSION_UPPER_LID_RAISER_R_FB = 60,
+    XR_FACE_EXPRESSION_UPPER_LIP_RAISER_L_FB = 61,
+    XR_FACE_EXPRESSION_UPPER_LIP_RAISER_R_FB = 62,
+    XR_FACE_EXPRESSION_COUNT_FB = 63,
+    XR_FACE_EXPRESSION_FB_MAX_ENUM = 0x7fffffff,
+} XrFaceExpressionFB;
+
+typedef enum XrFaceExpressionSet2FB
+{
+    XR_FACE_EXPRESSION_SET2_DEFAULT_FB = 0,
+    XR_FACE_EXPRESSION_SET_2FB_MAX_ENUM = 0x7fffffff,
+} XrFaceExpressionSet2FB;
+
+typedef enum XrFaceExpressionSetFB
+{
+    XR_FACE_EXPRESSION_SET_DEFAULT_FB = 0,
+    XR_FACE_EXPRESSION_SET_FB_MAX_ENUM = 0x7fffffff,
+} XrFaceExpressionSetFB;
+
+typedef enum XrFaceParameterIndicesANDROID
+{
+    XR_FACE_PARAMETER_INDICES_BROW_LOWERER_L_ANDROID = 0,
+    XR_FACE_PARAMETER_INDICES_BROW_LOWERER_R_ANDROID = 1,
+    XR_FACE_PARAMETER_INDICES_CHEEK_PUFF_L_ANDROID = 2,
+    XR_FACE_PARAMETER_INDICES_CHEEK_PUFF_R_ANDROID = 3,
+    XR_FACE_PARAMETER_INDICES_CHEEK_RAISER_L_ANDROID = 4,
+    XR_FACE_PARAMETER_INDICES_CHEEK_RAISER_R_ANDROID = 5,
+    XR_FACE_PARAMETER_INDICES_CHEEK_SUCK_L_ANDROID = 6,
+    XR_FACE_PARAMETER_INDICES_CHEEK_SUCK_R_ANDROID = 7,
+    XR_FACE_PARAMETER_INDICES_CHIN_RAISER_B_ANDROID = 8,
+    XR_FACE_PARAMETER_INDICES_CHIN_RAISER_T_ANDROID = 9,
+    XR_FACE_PARAMETER_INDICES_DIMPLER_L_ANDROID = 10,
+    XR_FACE_PARAMETER_INDICES_DIMPLER_R_ANDROID = 11,
+    XR_FACE_PARAMETER_INDICES_EYES_CLOSED_L_ANDROID = 12,
+    XR_FACE_PARAMETER_INDICES_EYES_CLOSED_R_ANDROID = 13,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_DOWN_L_ANDROID = 14,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_DOWN_R_ANDROID = 15,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_LEFT_L_ANDROID = 16,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_LEFT_R_ANDROID = 17,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_RIGHT_L_ANDROID = 18,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_RIGHT_R_ANDROID = 19,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_UP_L_ANDROID = 20,
+    XR_FACE_PARAMETER_INDICES_EYES_LOOK_UP_R_ANDROID = 21,
+    XR_FACE_PARAMETER_INDICES_INNER_BROW_RAISER_L_ANDROID = 22,
+    XR_FACE_PARAMETER_INDICES_INNER_BROW_RAISER_R_ANDROID = 23,
+    XR_FACE_PARAMETER_INDICES_JAW_DROP_ANDROID = 24,
+    XR_FACE_PARAMETER_INDICES_JAW_SIDEWAYS_LEFT_ANDROID = 25,
+    XR_FACE_PARAMETER_INDICES_JAW_SIDEWAYS_RIGHT_ANDROID = 26,
+    XR_FACE_PARAMETER_INDICES_JAW_THRUST_ANDROID = 27,
+    XR_FACE_PARAMETER_INDICES_LID_TIGHTENER_L_ANDROID = 28,
+    XR_FACE_PARAMETER_INDICES_LID_TIGHTENER_R_ANDROID = 29,
+    XR_FACE_PARAMETER_INDICES_LIP_CORNER_DEPRESSOR_L_ANDROID = 30,
+    XR_FACE_PARAMETER_INDICES_LIP_CORNER_DEPRESSOR_R_ANDROID = 31,
+    XR_FACE_PARAMETER_INDICES_LIP_CORNER_PULLER_L_ANDROID = 32,
+    XR_FACE_PARAMETER_INDICES_LIP_CORNER_PULLER_R_ANDROID = 33,
+    XR_FACE_PARAMETER_INDICES_LIP_FUNNELER_LB_ANDROID = 34,
+    XR_FACE_PARAMETER_INDICES_LIP_FUNNELER_LT_ANDROID = 35,
+    XR_FACE_PARAMETER_INDICES_LIP_FUNNELER_RB_ANDROID = 36,
+    XR_FACE_PARAMETER_INDICES_LIP_FUNNELER_RT_ANDROID = 37,
+    XR_FACE_PARAMETER_INDICES_LIP_PRESSOR_L_ANDROID = 38,
+    XR_FACE_PARAMETER_INDICES_LIP_PRESSOR_R_ANDROID = 39,
+    XR_FACE_PARAMETER_INDICES_LIP_PUCKER_L_ANDROID = 40,
+    XR_FACE_PARAMETER_INDICES_LIP_PUCKER_R_ANDROID = 41,
+    XR_FACE_PARAMETER_INDICES_LIP_STRETCHER_L_ANDROID = 42,
+    XR_FACE_PARAMETER_INDICES_LIP_STRETCHER_R_ANDROID = 43,
+    XR_FACE_PARAMETER_INDICES_LIP_SUCK_LB_ANDROID = 44,
+    XR_FACE_PARAMETER_INDICES_LIP_SUCK_LT_ANDROID = 45,
+    XR_FACE_PARAMETER_INDICES_LIP_SUCK_RB_ANDROID = 46,
+    XR_FACE_PARAMETER_INDICES_LIP_SUCK_RT_ANDROID = 47,
+    XR_FACE_PARAMETER_INDICES_LIP_TIGHTENER_L_ANDROID = 48,
+    XR_FACE_PARAMETER_INDICES_LIP_TIGHTENER_R_ANDROID = 49,
+    XR_FACE_PARAMETER_INDICES_LIPS_TOWARD_ANDROID = 50,
+    XR_FACE_PARAMETER_INDICES_LOWER_LIP_DEPRESSOR_L_ANDROID = 51,
+    XR_FACE_PARAMETER_INDICES_LOWER_LIP_DEPRESSOR_R_ANDROID = 52,
+    XR_FACE_PARAMETER_INDICES_MOUTH_LEFT_ANDROID = 53,
+    XR_FACE_PARAMETER_INDICES_MOUTH_RIGHT_ANDROID = 54,
+    XR_FACE_PARAMETER_INDICES_NOSE_WRINKLER_L_ANDROID = 55,
+    XR_FACE_PARAMETER_INDICES_NOSE_WRINKLER_R_ANDROID = 56,
+    XR_FACE_PARAMETER_INDICES_OUTER_BROW_RAISER_L_ANDROID = 57,
+    XR_FACE_PARAMETER_INDICES_OUTER_BROW_RAISER_R_ANDROID = 58,
+    XR_FACE_PARAMETER_INDICES_UPPER_LID_RAISER_L_ANDROID = 59,
+    XR_FACE_PARAMETER_INDICES_UPPER_LID_RAISER_R_ANDROID = 60,
+    XR_FACE_PARAMETER_INDICES_UPPER_LIP_RAISER_L_ANDROID = 61,
+    XR_FACE_PARAMETER_INDICES_UPPER_LIP_RAISER_R_ANDROID = 62,
+    XR_FACE_PARAMETER_INDICES_TONGUE_OUT_ANDROID = 63,
+    XR_FACE_PARAMETER_INDICES_TONGUE_LEFT_ANDROID = 64,
+    XR_FACE_PARAMETER_INDICES_TONGUE_RIGHT_ANDROID = 65,
+    XR_FACE_PARAMETER_INDICES_TONGUE_UP_ANDROID = 66,
+    XR_FACE_PARAMETER_INDICES_TONGUE_DOWN_ANDROID = 67,
+    XR_FACE_PARAMETER_INDICES_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrFaceParameterIndicesANDROID;
+
+typedef enum XrFaceTrackingDataSource2FB
+{
+    XR_FACE_TRACKING_DATA_SOURCE2_VISUAL_FB = 0,
+    XR_FACE_TRACKING_DATA_SOURCE2_AUDIO_FB = 1,
+    XR_FACE_TRACKING_DATA_SOURCE_2FB_MAX_ENUM = 0x7fffffff,
+} XrFaceTrackingDataSource2FB;
+
+typedef enum XrFaceTrackingStateANDROID
+{
+    XR_FACE_TRACKING_STATE_PAUSED_ANDROID = 0,
+    XR_FACE_TRACKING_STATE_STOPPED_ANDROID = 1,
+    XR_FACE_TRACKING_STATE_TRACKING_ANDROID = 2,
+    XR_FACE_TRACKING_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrFaceTrackingStateANDROID;
+
+typedef enum XrFaceTrackingVisemeMETA
+{
+    XR_FACE_TRACKING_VISEME_SIL_META = 0,
+    XR_FACE_TRACKING_VISEME_PP_META = 1,
+    XR_FACE_TRACKING_VISEME_FF_META = 2,
+    XR_FACE_TRACKING_VISEME_TH_META = 3,
+    XR_FACE_TRACKING_VISEME_DD_META = 4,
+    XR_FACE_TRACKING_VISEME_KK_META = 5,
+    XR_FACE_TRACKING_VISEME_CH_META = 6,
+    XR_FACE_TRACKING_VISEME_SS_META = 7,
+    XR_FACE_TRACKING_VISEME_NN_META = 8,
+    XR_FACE_TRACKING_VISEME_RR_META = 9,
+    XR_FACE_TRACKING_VISEME_AA_META = 10,
+    XR_FACE_TRACKING_VISEME_E_META = 11,
+    XR_FACE_TRACKING_VISEME_IH_META = 12,
+    XR_FACE_TRACKING_VISEME_OH_META = 13,
+    XR_FACE_TRACKING_VISEME_OU_META = 14,
+    XR_FACE_TRACKING_VISEME_META_MAX_ENUM = 0x7fffffff,
+} XrFaceTrackingVisemeMETA;
+
+typedef enum XrFacialBlendShapeML
+{
+    XR_FACIAL_BLEND_SHAPE_BROW_LOWERER_L_ML = 0,
+    XR_FACIAL_BLEND_SHAPE_BROW_LOWERER_R_ML = 1,
+    XR_FACIAL_BLEND_SHAPE_CHEEK_RAISER_L_ML = 2,
+    XR_FACIAL_BLEND_SHAPE_CHEEK_RAISER_R_ML = 3,
+    XR_FACIAL_BLEND_SHAPE_CHIN_RAISER_ML = 4,
+    XR_FACIAL_BLEND_SHAPE_DIMPLER_L_ML = 5,
+    XR_FACIAL_BLEND_SHAPE_DIMPLER_R_ML = 6,
+    XR_FACIAL_BLEND_SHAPE_EYES_CLOSED_L_ML = 7,
+    XR_FACIAL_BLEND_SHAPE_EYES_CLOSED_R_ML = 8,
+    XR_FACIAL_BLEND_SHAPE_INNER_BROW_RAISER_L_ML = 9,
+    XR_FACIAL_BLEND_SHAPE_INNER_BROW_RAISER_R_ML = 10,
+    XR_FACIAL_BLEND_SHAPE_JAW_DROP_ML = 11,
+    XR_FACIAL_BLEND_SHAPE_LID_TIGHTENER_L_ML = 12,
+    XR_FACIAL_BLEND_SHAPE_LID_TIGHTENER_R_ML = 13,
+    XR_FACIAL_BLEND_SHAPE_LIP_CORNER_DEPRESSOR_L_ML = 14,
+    XR_FACIAL_BLEND_SHAPE_LIP_CORNER_DEPRESSOR_R_ML = 15,
+    XR_FACIAL_BLEND_SHAPE_LIP_CORNER_PULLER_L_ML = 16,
+    XR_FACIAL_BLEND_SHAPE_LIP_CORNER_PULLER_R_ML = 17,
+    XR_FACIAL_BLEND_SHAPE_LIP_FUNNELER_LB_ML = 18,
+    XR_FACIAL_BLEND_SHAPE_LIP_FUNNELER_LT_ML = 19,
+    XR_FACIAL_BLEND_SHAPE_LIP_FUNNELER_RB_ML = 20,
+    XR_FACIAL_BLEND_SHAPE_LIP_FUNNELER_RT_ML = 21,
+    XR_FACIAL_BLEND_SHAPE_LIP_PRESSOR_L_ML = 22,
+    XR_FACIAL_BLEND_SHAPE_LIP_PRESSOR_R_ML = 23,
+    XR_FACIAL_BLEND_SHAPE_LIP_PUCKER_L_ML = 24,
+    XR_FACIAL_BLEND_SHAPE_LIP_PUCKER_R_ML = 25,
+    XR_FACIAL_BLEND_SHAPE_LIP_STRETCHER_L_ML = 26,
+    XR_FACIAL_BLEND_SHAPE_LIP_STRETCHER_R_ML = 27,
+    XR_FACIAL_BLEND_SHAPE_LIP_SUCK_LB_ML = 28,
+    XR_FACIAL_BLEND_SHAPE_LIP_SUCK_LT_ML = 29,
+    XR_FACIAL_BLEND_SHAPE_LIP_SUCK_RB_ML = 30,
+    XR_FACIAL_BLEND_SHAPE_LIP_SUCK_RT_ML = 31,
+    XR_FACIAL_BLEND_SHAPE_LIP_TIGHTENER_L_ML = 32,
+    XR_FACIAL_BLEND_SHAPE_LIP_TIGHTENER_R_ML = 33,
+    XR_FACIAL_BLEND_SHAPE_LIPS_TOWARD_ML = 34,
+    XR_FACIAL_BLEND_SHAPE_LOWER_LIP_DEPRESSOR_L_ML = 35,
+    XR_FACIAL_BLEND_SHAPE_LOWER_LIP_DEPRESSOR_R_ML = 36,
+    XR_FACIAL_BLEND_SHAPE_NOSE_WRINKLER_L_ML = 37,
+    XR_FACIAL_BLEND_SHAPE_NOSE_WRINKLER_R_ML = 38,
+    XR_FACIAL_BLEND_SHAPE_OUTER_BROW_RAISER_L_ML = 39,
+    XR_FACIAL_BLEND_SHAPE_OUTER_BROW_RAISER_R_ML = 40,
+    XR_FACIAL_BLEND_SHAPE_UPPER_LID_RAISER_L_ML = 41,
+    XR_FACIAL_BLEND_SHAPE_UPPER_LID_RAISER_R_ML = 42,
+    XR_FACIAL_BLEND_SHAPE_UPPER_LIP_RAISER_L_ML = 43,
+    XR_FACIAL_BLEND_SHAPE_UPPER_LIP_RAISER_R_ML = 44,
+    XR_FACIAL_BLEND_SHAPE_TONGUE_OUT_ML = 45,
+    XR_FACIAL_BLEND_SHAPE_ML_MAX_ENUM = 0x7fffffff,
+} XrFacialBlendShapeML;
+
+typedef enum XrFacialExpressionBlendShapePropertiesFlagBitsML
+{
+    XR_FACIAL_EXPRESSION_BLEND_SHAPE_PROPERTIES_VALID_BIT_ML = 0x00000001,
+    XR_FACIAL_EXPRESSION_BLEND_SHAPE_PROPERTIES_TRACKED_BIT_ML = 0x00000002,
+    XR_FACIAL_EXPRESSION_BLEND_SHAPE_PROPERTIES_FLAG_BITS_ML_MAX_ENUM = 0x7fffffff,
+} XrFacialExpressionBlendShapePropertiesFlagBitsML;
+
+typedef enum XrFacialSimulationModeBD
+{
+    XR_FACIAL_SIMULATION_MODE_DEFAULT_BD = 0,
+    XR_FACIAL_SIMULATION_MODE_COMBINED_AUDIO_BD = 1,
+    XR_FACIAL_SIMULATION_MODE_COMBINED_AUDIO_WITH_LIP_BD = 2,
+    XR_FACIAL_SIMULATION_MODE_ONLY_AUDIO_WITH_LIP_BD = 3,
+    XR_FACIAL_SIMULATION_MODE_BD_MAX_ENUM = 0x7fffffff,
+} XrFacialSimulationModeBD;
+
+typedef enum XrFacialTrackingTypeHTC
+{
+    XR_FACIAL_TRACKING_TYPE_EYE_DEFAULT_HTC = 1,
+    XR_FACIAL_TRACKING_TYPE_LIP_DEFAULT_HTC = 2,
+    XR_FACIAL_TRACKING_TYPE_HTC_MAX_ENUM = 0x7fffffff,
+} XrFacialTrackingTypeHTC;
+
+typedef enum XrForceFeedbackCurlLocationMNDX
+{
+    XR_FORCE_FEEDBACK_CURL_LOCATION_THUMB_CURL_MNDX = 0,
+    XR_FORCE_FEEDBACK_CURL_LOCATION_INDEX_CURL_MNDX = 1,
+    XR_FORCE_FEEDBACK_CURL_LOCATION_MIDDLE_CURL_MNDX = 2,
+    XR_FORCE_FEEDBACK_CURL_LOCATION_RING_CURL_MNDX = 3,
+    XR_FORCE_FEEDBACK_CURL_LOCATION_LITTLE_CURL_MNDX = 4,
+    XR_FORCE_FEEDBACK_CURL_LOCATION_MNDX_MAX_ENUM = 0x7fffffff,
+} XrForceFeedbackCurlLocationMNDX;
+
+typedef enum XrFormFactor
+{
+    XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY = 1,
+    XR_FORM_FACTOR_HANDHELD_DISPLAY = 2,
+    XR_FORM_FACTOR_MAX_ENUM = 0x7fffffff,
+} XrFormFactor;
+
+typedef enum XrFoveationDynamicFB
+{
+    XR_FOVEATION_DYNAMIC_DISABLED_FB = 0,
+    XR_FOVEATION_DYNAMIC_LEVEL_ENABLED_FB = 1,
+    XR_FOVEATION_DYNAMIC_FB_MAX_ENUM = 0x7fffffff,
+} XrFoveationDynamicFB;
+
+typedef enum XrFoveationEyeTrackedProfileCreateFlagBitsMETA
+{
+    XR_FOVEATION_EYE_TRACKED_PROFILE_CREATE_FLAG_BITS_META_MAX_ENUM = 0x7fffffff,
+} XrFoveationEyeTrackedProfileCreateFlagBitsMETA;
+
+typedef enum XrFoveationEyeTrackedStateFlagBitsMETA
+{
+    XR_FOVEATION_EYE_TRACKED_STATE_VALID_BIT_META = 0x00000001,
+    XR_FOVEATION_EYE_TRACKED_STATE_FLAG_BITS_META_MAX_ENUM = 0x7fffffff,
+} XrFoveationEyeTrackedStateFlagBitsMETA;
+
+typedef enum XrFoveationLevelFB
+{
+    XR_FOVEATION_LEVEL_NONE_FB = 0,
+    XR_FOVEATION_LEVEL_LOW_FB = 1,
+    XR_FOVEATION_LEVEL_MEDIUM_FB = 2,
+    XR_FOVEATION_LEVEL_HIGH_FB = 3,
+    XR_FOVEATION_LEVEL_FB_MAX_ENUM = 0x7fffffff,
+} XrFoveationLevelFB;
+
+typedef enum XrFrameEndInfoFlagBitsML
+{
+    XR_FRAME_END_INFO_PROTECTED_BIT_ML = 0x00000001,
+    XR_FRAME_END_INFO_VIGNETTE_BIT_ML = 0x00000002,
+    XR_FRAME_END_INFO_FLAG_BITS_ML_MAX_ENUM = 0x7fffffff,
+} XrFrameEndInfoFlagBitsML;
+
+typedef enum XrFrameSynthesisInfoFlagBitsEXT
+{
+    XR_FRAME_SYNTHESIS_INFO_USE_2D_MOTION_VECTOR_BIT_EXT = 0x00000001,
+    XR_FRAME_SYNTHESIS_INFO_REQUEST_RELAXED_FRAME_INTERVAL_BIT_EXT = 0x00000002,
+    XR_FRAME_SYNTHESIS_INFO_FLAG_BITS_EXT_MAX_ENUM = 0x7fffffff,
+} XrFrameSynthesisInfoFlagBitsEXT;
+
+typedef enum XrFullBodyJointMETA
+{
+    XR_FULL_BODY_JOINT_ROOT_META = 0,
+    XR_FULL_BODY_JOINT_HIPS_META = 1,
+    XR_FULL_BODY_JOINT_SPINE_LOWER_META = 2,
+    XR_FULL_BODY_JOINT_SPINE_MIDDLE_META = 3,
+    XR_FULL_BODY_JOINT_SPINE_UPPER_META = 4,
+    XR_FULL_BODY_JOINT_CHEST_META = 5,
+    XR_FULL_BODY_JOINT_NECK_META = 6,
+    XR_FULL_BODY_JOINT_HEAD_META = 7,
+    XR_FULL_BODY_JOINT_LEFT_SHOULDER_META = 8,
+    XR_FULL_BODY_JOINT_LEFT_SCAPULA_META = 9,
+    XR_FULL_BODY_JOINT_LEFT_ARM_UPPER_META = 10,
+    XR_FULL_BODY_JOINT_LEFT_ARM_LOWER_META = 11,
+    XR_FULL_BODY_JOINT_LEFT_HAND_WRIST_TWIST_META = 12,
+    XR_FULL_BODY_JOINT_RIGHT_SHOULDER_META = 13,
+    XR_FULL_BODY_JOINT_RIGHT_SCAPULA_META = 14,
+    XR_FULL_BODY_JOINT_RIGHT_ARM_UPPER_META = 15,
+    XR_FULL_BODY_JOINT_RIGHT_ARM_LOWER_META = 16,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_WRIST_TWIST_META = 17,
+    XR_FULL_BODY_JOINT_LEFT_HAND_PALM_META = 18,
+    XR_FULL_BODY_JOINT_LEFT_HAND_WRIST_META = 19,
+    XR_FULL_BODY_JOINT_LEFT_HAND_THUMB_METACARPAL_META = 20,
+    XR_FULL_BODY_JOINT_LEFT_HAND_THUMB_PROXIMAL_META = 21,
+    XR_FULL_BODY_JOINT_LEFT_HAND_THUMB_DISTAL_META = 22,
+    XR_FULL_BODY_JOINT_LEFT_HAND_THUMB_TIP_META = 23,
+    XR_FULL_BODY_JOINT_LEFT_HAND_INDEX_METACARPAL_META = 24,
+    XR_FULL_BODY_JOINT_LEFT_HAND_INDEX_PROXIMAL_META = 25,
+    XR_FULL_BODY_JOINT_LEFT_HAND_INDEX_INTERMEDIATE_META = 26,
+    XR_FULL_BODY_JOINT_LEFT_HAND_INDEX_DISTAL_META = 27,
+    XR_FULL_BODY_JOINT_LEFT_HAND_INDEX_TIP_META = 28,
+    XR_FULL_BODY_JOINT_LEFT_HAND_MIDDLE_METACARPAL_META = 29,
+    XR_FULL_BODY_JOINT_LEFT_HAND_MIDDLE_PROXIMAL_META = 30,
+    XR_FULL_BODY_JOINT_LEFT_HAND_MIDDLE_INTERMEDIATE_META = 31,
+    XR_FULL_BODY_JOINT_LEFT_HAND_MIDDLE_DISTAL_META = 32,
+    XR_FULL_BODY_JOINT_LEFT_HAND_MIDDLE_TIP_META = 33,
+    XR_FULL_BODY_JOINT_LEFT_HAND_RING_METACARPAL_META = 34,
+    XR_FULL_BODY_JOINT_LEFT_HAND_RING_PROXIMAL_META = 35,
+    XR_FULL_BODY_JOINT_LEFT_HAND_RING_INTERMEDIATE_META = 36,
+    XR_FULL_BODY_JOINT_LEFT_HAND_RING_DISTAL_META = 37,
+    XR_FULL_BODY_JOINT_LEFT_HAND_RING_TIP_META = 38,
+    XR_FULL_BODY_JOINT_LEFT_HAND_LITTLE_METACARPAL_META = 39,
+    XR_FULL_BODY_JOINT_LEFT_HAND_LITTLE_PROXIMAL_META = 40,
+    XR_FULL_BODY_JOINT_LEFT_HAND_LITTLE_INTERMEDIATE_META = 41,
+    XR_FULL_BODY_JOINT_LEFT_HAND_LITTLE_DISTAL_META = 42,
+    XR_FULL_BODY_JOINT_LEFT_HAND_LITTLE_TIP_META = 43,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_PALM_META = 44,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_WRIST_META = 45,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_THUMB_METACARPAL_META = 46,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_THUMB_PROXIMAL_META = 47,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_THUMB_DISTAL_META = 48,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_THUMB_TIP_META = 49,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_INDEX_METACARPAL_META = 50,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_INDEX_PROXIMAL_META = 51,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_INDEX_INTERMEDIATE_META = 52,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_INDEX_DISTAL_META = 53,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_INDEX_TIP_META = 54,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_MIDDLE_METACARPAL_META = 55,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_MIDDLE_PROXIMAL_META = 56,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_MIDDLE_INTERMEDIATE_META = 57,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_MIDDLE_DISTAL_META = 58,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_MIDDLE_TIP_META = 59,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_RING_METACARPAL_META = 60,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_RING_PROXIMAL_META = 61,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_RING_INTERMEDIATE_META = 62,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_RING_DISTAL_META = 63,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_RING_TIP_META = 64,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_LITTLE_METACARPAL_META = 65,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_LITTLE_PROXIMAL_META = 66,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_LITTLE_INTERMEDIATE_META = 67,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_LITTLE_DISTAL_META = 68,
+    XR_FULL_BODY_JOINT_RIGHT_HAND_LITTLE_TIP_META = 69,
+    XR_FULL_BODY_JOINT_LEFT_UPPER_LEG_META = 70,
+    XR_FULL_BODY_JOINT_LEFT_LOWER_LEG_META = 71,
+    XR_FULL_BODY_JOINT_LEFT_FOOT_ANKLE_TWIST_META = 72,
+    XR_FULL_BODY_JOINT_LEFT_FOOT_ANKLE_META = 73,
+    XR_FULL_BODY_JOINT_LEFT_FOOT_SUBTALAR_META = 74,
+    XR_FULL_BODY_JOINT_LEFT_FOOT_TRANSVERSE_META = 75,
+    XR_FULL_BODY_JOINT_LEFT_FOOT_BALL_META = 76,
+    XR_FULL_BODY_JOINT_RIGHT_UPPER_LEG_META = 77,
+    XR_FULL_BODY_JOINT_RIGHT_LOWER_LEG_META = 78,
+    XR_FULL_BODY_JOINT_RIGHT_FOOT_ANKLE_TWIST_META = 79,
+    XR_FULL_BODY_JOINT_RIGHT_FOOT_ANKLE_META = 80,
+    XR_FULL_BODY_JOINT_RIGHT_FOOT_SUBTALAR_META = 81,
+    XR_FULL_BODY_JOINT_RIGHT_FOOT_TRANSVERSE_META = 82,
+    XR_FULL_BODY_JOINT_RIGHT_FOOT_BALL_META = 83,
+    XR_FULL_BODY_JOINT_COUNT_META = 84,
+    XR_FULL_BODY_JOINT_NONE_META = 85,
+    XR_FULL_BODY_JOINT_META_MAX_ENUM = 0x7fffffff,
+} XrFullBodyJointMETA;
+
+typedef enum XrFutureStateEXT
+{
+    XR_FUTURE_STATE_PENDING_EXT = 1,
+    XR_FUTURE_STATE_READY_EXT = 2,
+    XR_FUTURE_STATE_EXT_MAX_ENUM = 0x7fffffff,
+} XrFutureStateEXT;
+
+typedef enum XrGeospatialPoseFlagBitsANDROID
+{
+    XR_GEOSPATIAL_POSE_ORIENTATION_VALID_BIT_ANDROID = 0x00000001,
+    XR_GEOSPATIAL_POSE_POSITION_VALID_BIT_ANDROID = 0x00000002,
+    XR_GEOSPATIAL_POSE_FLAG_BITS_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrGeospatialPoseFlagBitsANDROID;
+
+typedef enum XrGeospatialTrackerStateANDROID
+{
+    XR_GEOSPATIAL_TRACKER_STATE_STOPPED_ANDROID = 0,
+    XR_GEOSPATIAL_TRACKER_STATE_RUNNING_ANDROID = 1,
+    XR_GEOSPATIAL_TRACKER_STATE_INITIALIZATION_FAILED_ANDROID = 2,
+    XR_GEOSPATIAL_TRACKER_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrGeospatialTrackerStateANDROID;
+
+typedef enum XrGlobalDimmerFrameEndInfoFlagBitsML
+{
+    XR_GLOBAL_DIMMER_FRAME_END_INFO_ENABLED_BIT_ML = 0x00000001,
+    XR_GLOBAL_DIMMER_FRAME_END_INFO_FLAG_BITS_ML_MAX_ENUM = 0x7fffffff,
+} XrGlobalDimmerFrameEndInfoFlagBitsML;
+
+typedef enum XrGoogleCloudAuthErrorANDROID
+{
+    XR_GOOGLE_CLOUD_AUTH_ERROR_ANDROID = -3,
+    XR_GOOGLE_CLOUD_AUTH_ERROR_UNREACHABLE_ANDROID = -2,
+    XR_GOOGLE_CLOUD_AUTH_ERROR_QUOTA_EXCEEDED_ANDROID = -1,
+    XR_GOOGLE_CLOUD_AUTH_ERROR_NONE_ANDROID = 0,
+    XR_GOOGLE_CLOUD_AUTH_ERROR_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrGoogleCloudAuthErrorANDROID;
+
+typedef enum XrHandEXT
+{
+    XR_HAND_LEFT_EXT = 1,
+    XR_HAND_RIGHT_EXT = 2,
+    XR_HAND_EXT_MAX_ENUM = 0x7fffffff,
+} XrHandEXT;
+
+typedef enum XrHandForearmJointULTRALEAP
+{
+    XR_HAND_FOREARM_JOINT_PALM_ULTRALEAP = 0,
+    XR_HAND_FOREARM_JOINT_WRIST_ULTRALEAP = 1,
+    XR_HAND_FOREARM_JOINT_THUMB_METACARPAL_ULTRALEAP = 2,
+    XR_HAND_FOREARM_JOINT_THUMB_PROXIMAL_ULTRALEAP = 3,
+    XR_HAND_FOREARM_JOINT_THUMB_DISTAL_ULTRALEAP = 4,
+    XR_HAND_FOREARM_JOINT_THUMB_TIP_ULTRALEAP = 5,
+    XR_HAND_FOREARM_JOINT_INDEX_METACARPAL_ULTRALEAP = 6,
+    XR_HAND_FOREARM_JOINT_INDEX_PROXIMAL_ULTRALEAP = 7,
+    XR_HAND_FOREARM_JOINT_INDEX_INTERMEDIATE_ULTRALEAP = 8,
+    XR_HAND_FOREARM_JOINT_INDEX_DISTAL_ULTRALEAP = 9,
+    XR_HAND_FOREARM_JOINT_INDEX_TIP_ULTRALEAP = 10,
+    XR_HAND_FOREARM_JOINT_MIDDLE_METACARPAL_ULTRALEAP = 11,
+    XR_HAND_FOREARM_JOINT_MIDDLE_PROXIMAL_ULTRALEAP = 12,
+    XR_HAND_FOREARM_JOINT_MIDDLE_INTERMEDIATE_ULTRALEAP = 13,
+    XR_HAND_FOREARM_JOINT_MIDDLE_DISTAL_ULTRALEAP = 14,
+    XR_HAND_FOREARM_JOINT_MIDDLE_TIP_ULTRALEAP = 15,
+    XR_HAND_FOREARM_JOINT_RING_METACARPAL_ULTRALEAP = 16,
+    XR_HAND_FOREARM_JOINT_RING_PROXIMAL_ULTRALEAP = 17,
+    XR_HAND_FOREARM_JOINT_RING_INTERMEDIATE_ULTRALEAP = 18,
+    XR_HAND_FOREARM_JOINT_RING_DISTAL_ULTRALEAP = 19,
+    XR_HAND_FOREARM_JOINT_RING_TIP_ULTRALEAP = 20,
+    XR_HAND_FOREARM_JOINT_LITTLE_METACARPAL_ULTRALEAP = 21,
+    XR_HAND_FOREARM_JOINT_LITTLE_PROXIMAL_ULTRALEAP = 22,
+    XR_HAND_FOREARM_JOINT_LITTLE_INTERMEDIATE_ULTRALEAP = 23,
+    XR_HAND_FOREARM_JOINT_LITTLE_DISTAL_ULTRALEAP = 24,
+    XR_HAND_FOREARM_JOINT_LITTLE_TIP_ULTRALEAP = 25,
+    XR_HAND_FOREARM_JOINT_ELBOW_ULTRALEAP = 26,
+    XR_HAND_FOREARM_JOINT_ULTRALEAP_MAX_ENUM = 0x7fffffff,
+} XrHandForearmJointULTRALEAP;
+
+typedef enum XrHandGestureTypeQCOM
+{
+    XR_HAND_GESTURE_TYPE_UNKNOWN_QCOM = -1,
+    XR_HAND_GESTURE_TYPE_OPEN_HAND_QCOM = 0,
+    XR_HAND_GESTURE_TYPE_GRAB_QCOM = 2,
+    XR_HAND_GESTURE_TYPE_PINCH_QCOM = 7,
+    XR_HAND_GESTURE_TYPE_QCOM_MAX_ENUM = 0x7fffffff,
+} XrHandGestureTypeQCOM;
+
+typedef enum XrHandJointEXT
+{
+    XR_HAND_JOINT_PALM_EXT = 0,
+    XR_HAND_JOINT_WRIST_EXT = 1,
+    XR_HAND_JOINT_THUMB_METACARPAL_EXT = 2,
+    XR_HAND_JOINT_THUMB_PROXIMAL_EXT = 3,
+    XR_HAND_JOINT_THUMB_DISTAL_EXT = 4,
+    XR_HAND_JOINT_THUMB_TIP_EXT = 5,
+    XR_HAND_JOINT_INDEX_METACARPAL_EXT = 6,
+    XR_HAND_JOINT_INDEX_PROXIMAL_EXT = 7,
+    XR_HAND_JOINT_INDEX_INTERMEDIATE_EXT = 8,
+    XR_HAND_JOINT_INDEX_DISTAL_EXT = 9,
+    XR_HAND_JOINT_INDEX_TIP_EXT = 10,
+    XR_HAND_JOINT_MIDDLE_METACARPAL_EXT = 11,
+    XR_HAND_JOINT_MIDDLE_PROXIMAL_EXT = 12,
+    XR_HAND_JOINT_MIDDLE_INTERMEDIATE_EXT = 13,
+    XR_HAND_JOINT_MIDDLE_DISTAL_EXT = 14,
+    XR_HAND_JOINT_MIDDLE_TIP_EXT = 15,
+    XR_HAND_JOINT_RING_METACARPAL_EXT = 16,
+    XR_HAND_JOINT_RING_PROXIMAL_EXT = 17,
+    XR_HAND_JOINT_RING_INTERMEDIATE_EXT = 18,
+    XR_HAND_JOINT_RING_DISTAL_EXT = 19,
+    XR_HAND_JOINT_RING_TIP_EXT = 20,
+    XR_HAND_JOINT_LITTLE_METACARPAL_EXT = 21,
+    XR_HAND_JOINT_LITTLE_PROXIMAL_EXT = 22,
+    XR_HAND_JOINT_LITTLE_INTERMEDIATE_EXT = 23,
+    XR_HAND_JOINT_LITTLE_DISTAL_EXT = 24,
+    XR_HAND_JOINT_LITTLE_TIP_EXT = 25,
+    XR_HAND_JOINT_EXT_MAX_ENUM = 0x7fffffff,
+} XrHandJointEXT;
+
+typedef enum XrHandJointSetEXT
+{
+    XR_HAND_JOINT_SET_DEFAULT_EXT = 0,
+    XR_HAND_JOINT_SET_HAND_WITH_FOREARM_ULTRALEAP = 1000149000,
+    XR_HAND_JOINT_SET_EXT_MAX_ENUM = 0x7fffffff,
+} XrHandJointSetEXT;
+
+typedef enum XrHandJointsMotionRangeEXT
+{
+    XR_HAND_JOINTS_MOTION_RANGE_UNOBSTRUCTED_EXT = 1,
+    XR_HAND_JOINTS_MOTION_RANGE_CONFORMING_TO_CONTROLLER_EXT = 2,
+    XR_HAND_JOINTS_MOTION_RANGE_EXT_MAX_ENUM = 0x7fffffff,
+} XrHandJointsMotionRangeEXT;
+
+typedef enum XrHandPoseTypeMSFT
+{
+    XR_HAND_POSE_TYPE_TRACKED_MSFT = 0,
+    XR_HAND_POSE_TYPE_REFERENCE_OPEN_PALM_MSFT = 1,
+    XR_HAND_POSE_TYPE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrHandPoseTypeMSFT;
+
+typedef enum XrHandTrackingAimFlagBitsFB
+{
+    XR_HAND_TRACKING_AIM_COMPUTED_BIT_FB = 0x00000001,
+    XR_HAND_TRACKING_AIM_VALID_BIT_FB = 0x00000002,
+    XR_HAND_TRACKING_AIM_INDEX_PINCHING_BIT_FB = 0x00000004,
+    XR_HAND_TRACKING_AIM_MIDDLE_PINCHING_BIT_FB = 0x00000008,
+    XR_HAND_TRACKING_AIM_RING_PINCHING_BIT_FB = 0x00000010,
+    XR_HAND_TRACKING_AIM_LITTLE_PINCHING_BIT_FB = 0x00000020,
+    XR_HAND_TRACKING_AIM_SYSTEM_GESTURE_BIT_FB = 0x00000040,
+    XR_HAND_TRACKING_AIM_DOMINANT_HAND_BIT_FB = 0x00000080,
+    XR_HAND_TRACKING_AIM_MENU_PRESSED_BIT_FB = 0x00000100,
+    XR_HAND_TRACKING_AIM_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrHandTrackingAimFlagBitsFB;
+
+typedef enum XrHandTrackingDataSourceEXT
+{
+    XR_HAND_TRACKING_DATA_SOURCE_UNOBSTRUCTED_EXT = 1,
+    XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT = 2,
+    XR_HAND_TRACKING_DATA_SOURCE_UNOBSTRUCTED_WIDE_MOTION_META = 1000695000,
+    XR_HAND_TRACKING_DATA_SOURCE_EXT_MAX_ENUM = 0x7fffffff,
+} XrHandTrackingDataSourceEXT;
+
+typedef enum XrHandTrackingFrequencyHintMETA
+{
+    XR_HAND_TRACKING_FREQUENCY_HINT_DEFAULT_META = 1,
+    XR_HAND_TRACKING_FREQUENCY_HINT_HIGH_META = 2,
+    XR_HAND_TRACKING_FREQUENCY_HINT_META_MAX_ENUM = 0x7fffffff,
+} XrHandTrackingFrequencyHintMETA;
+
+typedef enum XrHapticParametricStreamFrameTypeEXT
+{
+    XR_HAPTIC_PARAMETRIC_STREAM_FRAME_TYPE_NONE_EXT = 0,
+    XR_HAPTIC_PARAMETRIC_STREAM_FRAME_TYPE_FIRST_FRAME_EXT = 1,
+    XR_HAPTIC_PARAMETRIC_STREAM_FRAME_TYPE_INTERMEDIATE_FRAME_EXT = 2,
+    XR_HAPTIC_PARAMETRIC_STREAM_FRAME_TYPE_LAST_FRAME_EXT = 3,
+    XR_HAPTIC_PARAMETRIC_STREAM_FRAME_TYPE_EXT_MAX_ENUM = 0x7fffffff,
+} XrHapticParametricStreamFrameTypeEXT;
+
+typedef enum XrHeadsetFitStatusML
+{
+    XR_HEADSET_FIT_STATUS_UNKNOWN_ML = 0,
+    XR_HEADSET_FIT_STATUS_NOT_WORN_ML = 1,
+    XR_HEADSET_FIT_STATUS_GOOD_FIT_ML = 2,
+    XR_HEADSET_FIT_STATUS_BAD_FIT_ML = 3,
+    XR_HEADSET_FIT_STATUS_ML_MAX_ENUM = 0x7fffffff,
+} XrHeadsetFitStatusML;
+
+typedef enum XrInputSourceLocalizedNameFlagBits
+{
+    XR_INPUT_SOURCE_LOCALIZED_NAME_USER_PATH_BIT = 0x00000001,
+    XR_INPUT_SOURCE_LOCALIZED_NAME_INTERACTION_PROFILE_BIT = 0x00000002,
+    XR_INPUT_SOURCE_LOCALIZED_NAME_COMPONENT_BIT = 0x00000004,
+    XR_INPUT_SOURCE_LOCALIZED_NAME_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrInputSourceLocalizedNameFlagBits;
+
+typedef enum XrInstanceCreateFlagBits
+{
+    XR_INSTANCE_CREATE_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrInstanceCreateFlagBits;
+
+typedef enum XrKeyboardTrackingFlagBitsFB
+{
+    XR_KEYBOARD_TRACKING_EXISTS_BIT_FB = 0x00000001,
+    XR_KEYBOARD_TRACKING_LOCAL_BIT_FB = 0x00000002,
+    XR_KEYBOARD_TRACKING_REMOTE_BIT_FB = 0x00000004,
+    XR_KEYBOARD_TRACKING_CONNECTED_BIT_FB = 0x00000008,
+    XR_KEYBOARD_TRACKING_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrKeyboardTrackingFlagBitsFB;
+
+typedef enum XrKeyboardTrackingQueryFlagBitsFB
+{
+    XR_KEYBOARD_TRACKING_QUERY_LOCAL_BIT_FB = 0x00000002,
+    XR_KEYBOARD_TRACKING_QUERY_REMOTE_BIT_FB = 0x00000004,
+    XR_KEYBOARD_TRACKING_QUERY_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrKeyboardTrackingQueryFlagBitsFB;
+
+typedef enum XrLightEstimateStateANDROID
+{
+    XR_LIGHT_ESTIMATE_STATE_VALID_ANDROID = 0,
+    XR_LIGHT_ESTIMATE_STATE_INVALID_ANDROID = 1,
+    XR_LIGHT_ESTIMATE_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrLightEstimateStateANDROID;
+
+typedef enum XrLightEstimationCreateFlagBitsBD
+{
+    XR_LIGHT_ESTIMATION_CREATE_SPHERICAL_HARMONICS_BIT_BD = 0x00000001,
+    XR_LIGHT_ESTIMATION_CREATE_ENVIRONMENT_TEXTURE_BIT_BD = 0x00000002,
+    XR_LIGHT_ESTIMATION_CREATE_FLAG_BITS_BD_MAX_ENUM = 0x7fffffff,
+} XrLightEstimationCreateFlagBitsBD;
+
+typedef enum XrLipExpressionBD
+{
+    XR_LIP_EXPRESSION_PP_BD = 0,
+    XR_LIP_EXPRESSION_CH_BD = 1,
+    XR_LIP_EXPRESSION_LO_BD = 2,
+    XR_LIP_EXPRESSION_O_BD = 3,
+    XR_LIP_EXPRESSION_I_BD = 4,
+    XR_LIP_EXPRESSION_LU_BD = 5,
+    XR_LIP_EXPRESSION_RR_BD = 6,
+    XR_LIP_EXPRESSION_XX_BD = 7,
+    XR_LIP_EXPRESSION_LAA_BD = 8,
+    XR_LIP_EXPRESSION_LI_BD = 9,
+    XR_LIP_EXPRESSION_FF_BD = 10,
+    XR_LIP_EXPRESSION_U_BD = 11,
+    XR_LIP_EXPRESSION_TH_BD = 12,
+    XR_LIP_EXPRESSION_LKK_BD = 13,
+    XR_LIP_EXPRESSION_SS_BD = 14,
+    XR_LIP_EXPRESSION_LE_BD = 15,
+    XR_LIP_EXPRESSION_DD_BD = 16,
+    XR_LIP_EXPRESSION_E_BD = 17,
+    XR_LIP_EXPRESSION_LNN_BD = 18,
+    XR_LIP_EXPRESSION_SIL_BD = 19,
+    XR_LIP_EXPRESSION_BD_MAX_ENUM = 0x7fffffff,
+} XrLipExpressionBD;
+
+typedef enum XrLipExpressionHTC
+{
+    XR_LIP_EXPRESSION_JAW_RIGHT_HTC = 0,
+    XR_LIP_EXPRESSION_JAW_LEFT_HTC = 1,
+    XR_LIP_EXPRESSION_JAW_FORWARD_HTC = 2,
+    XR_LIP_EXPRESSION_JAW_OPEN_HTC = 3,
+    XR_LIP_EXPRESSION_MOUTH_APE_SHAPE_HTC = 4,
+    XR_LIP_EXPRESSION_MOUTH_UPPER_RIGHT_HTC = 5,
+    XR_LIP_EXPRESSION_MOUTH_UPPER_LEFT_HTC = 6,
+    XR_LIP_EXPRESSION_MOUTH_LOWER_RIGHT_HTC = 7,
+    XR_LIP_EXPRESSION_MOUTH_LOWER_LEFT_HTC = 8,
+    XR_LIP_EXPRESSION_MOUTH_UPPER_OVERTURN_HTC = 9,
+    XR_LIP_EXPRESSION_MOUTH_LOWER_OVERTURN_HTC = 10,
+    XR_LIP_EXPRESSION_MOUTH_POUT_HTC = 11,
+    XR_LIP_EXPRESSION_MOUTH_RAISER_RIGHT_HTC = 12,
+    XR_LIP_EXPRESSION_MOUTH_RAISER_LEFT_HTC = 13,
+    XR_LIP_EXPRESSION_MOUTH_STRETCHER_RIGHT_HTC = 14,
+    XR_LIP_EXPRESSION_MOUTH_STRETCHER_LEFT_HTC = 15,
+    XR_LIP_EXPRESSION_CHEEK_PUFF_RIGHT_HTC = 16,
+    XR_LIP_EXPRESSION_CHEEK_PUFF_LEFT_HTC = 17,
+    XR_LIP_EXPRESSION_CHEEK_SUCK_HTC = 18,
+    XR_LIP_EXPRESSION_MOUTH_UPPER_UPRIGHT_HTC = 19,
+    XR_LIP_EXPRESSION_MOUTH_UPPER_UPLEFT_HTC = 20,
+    XR_LIP_EXPRESSION_MOUTH_LOWER_DOWNRIGHT_HTC = 21,
+    XR_LIP_EXPRESSION_MOUTH_LOWER_DOWNLEFT_HTC = 22,
+    XR_LIP_EXPRESSION_MOUTH_UPPER_INSIDE_HTC = 23,
+    XR_LIP_EXPRESSION_MOUTH_LOWER_INSIDE_HTC = 24,
+    XR_LIP_EXPRESSION_MOUTH_LOWER_OVERLAY_HTC = 25,
+    XR_LIP_EXPRESSION_TONGUE_LONGSTEP1_HTC = 26,
+    XR_LIP_EXPRESSION_TONGUE_LEFT_HTC = 27,
+    XR_LIP_EXPRESSION_TONGUE_RIGHT_HTC = 28,
+    XR_LIP_EXPRESSION_TONGUE_UP_HTC = 29,
+    XR_LIP_EXPRESSION_TONGUE_DOWN_HTC = 30,
+    XR_LIP_EXPRESSION_TONGUE_ROLL_HTC = 31,
+    XR_LIP_EXPRESSION_TONGUE_LONGSTEP2_HTC = 32,
+    XR_LIP_EXPRESSION_TONGUE_UPRIGHT_MORPH_HTC = 33,
+    XR_LIP_EXPRESSION_TONGUE_UPLEFT_MORPH_HTC = 34,
+    XR_LIP_EXPRESSION_TONGUE_DOWNRIGHT_MORPH_HTC = 35,
+    XR_LIP_EXPRESSION_TONGUE_DOWNLEFT_MORPH_HTC = 36,
+    XR_LIP_EXPRESSION_HTC_MAX_ENUM = 0x7fffffff,
+    XR_LIP_EXPRESSION_MOUTH_SMILE_RIGHT_HTC = XR_LIP_EXPRESSION_MOUTH_RAISER_RIGHT_HTC,
+    XR_LIP_EXPRESSION_MOUTH_SMILE_LEFT_HTC = XR_LIP_EXPRESSION_MOUTH_RAISER_LEFT_HTC,
+    XR_LIP_EXPRESSION_MOUTH_SAD_RIGHT_HTC = XR_LIP_EXPRESSION_MOUTH_STRETCHER_RIGHT_HTC,
+    XR_LIP_EXPRESSION_MOUTH_SAD_LEFT_HTC = XR_LIP_EXPRESSION_MOUTH_STRETCHER_LEFT_HTC,
+} XrLipExpressionHTC;
+
+typedef enum XrLoaderInterfaceStructs
+{
+    XR_LOADER_INTERFACE_STRUCT_UNINTIALIZED = 0,
+    XR_LOADER_INTERFACE_STRUCT_LOADER_INFO = 1,
+    XR_LOADER_INTERFACE_STRUCT_API_LAYER_REQUEST = 2,
+    XR_LOADER_INTERFACE_STRUCT_RUNTIME_REQUEST = 3,
+    XR_LOADER_INTERFACE_STRUCT_API_LAYER_CREATE_INFO = 4,
+    XR_LOADER_INTERFACE_STRUCT_API_LAYER_NEXT_INFO = 5,
+    XR_LOADER_INTERFACE_STRUCTS_MAX_ENUM = 0x7fffffff,
+} XrLoaderInterfaceStructs;
+
+typedef enum XrLocalDimmingModeMETA
+{
+    XR_LOCAL_DIMMING_MODE_OFF_META = 0,
+    XR_LOCAL_DIMMING_MODE_ON_META = 1,
+    XR_LOCAL_DIMMING_MODE_META_MAX_ENUM = 0x7fffffff,
+} XrLocalDimmingModeMETA;
+
+typedef enum XrLocalizationMapConfidenceML
+{
+    XR_LOCALIZATION_MAP_CONFIDENCE_POOR_ML = 0,
+    XR_LOCALIZATION_MAP_CONFIDENCE_FAIR_ML = 1,
+    XR_LOCALIZATION_MAP_CONFIDENCE_GOOD_ML = 2,
+    XR_LOCALIZATION_MAP_CONFIDENCE_EXCELLENT_ML = 3,
+    XR_LOCALIZATION_MAP_CONFIDENCE_ML_MAX_ENUM = 0x7fffffff,
+} XrLocalizationMapConfidenceML;
+
+typedef enum XrLocalizationMapErrorFlagBitsML
+{
+    XR_LOCALIZATION_MAP_ERROR_UNKNOWN_BIT_ML = 0x00000001,
+    XR_LOCALIZATION_MAP_ERROR_OUT_OF_MAPPED_AREA_BIT_ML = 0x00000002,
+    XR_LOCALIZATION_MAP_ERROR_LOW_FEATURE_COUNT_BIT_ML = 0x00000004,
+    XR_LOCALIZATION_MAP_ERROR_EXCESSIVE_MOTION_BIT_ML = 0x00000008,
+    XR_LOCALIZATION_MAP_ERROR_LOW_LIGHT_BIT_ML = 0x00000010,
+    XR_LOCALIZATION_MAP_ERROR_HEADPOSE_BIT_ML = 0x00000020,
+    XR_LOCALIZATION_MAP_ERROR_FLAG_BITS_ML_MAX_ENUM = 0x7fffffff,
+} XrLocalizationMapErrorFlagBitsML;
+
+typedef enum XrLocalizationMapStateML
+{
+    XR_LOCALIZATION_MAP_STATE_NOT_LOCALIZED_ML = 0,
+    XR_LOCALIZATION_MAP_STATE_LOCALIZED_ML = 1,
+    XR_LOCALIZATION_MAP_STATE_LOCALIZATION_PENDING_ML = 2,
+    XR_LOCALIZATION_MAP_STATE_LOCALIZATION_SLEEPING_BEFORE_RETRY_ML = 3,
+    XR_LOCALIZATION_MAP_STATE_ML_MAX_ENUM = 0x7fffffff,
+} XrLocalizationMapStateML;
+
+typedef enum XrLocalizationMapTypeML
+{
+    XR_LOCALIZATION_MAP_TYPE_ON_DEVICE_ML = 0,
+    XR_LOCALIZATION_MAP_TYPE_CLOUD_ML = 1,
+    XR_LOCALIZATION_MAP_TYPE_ML_MAX_ENUM = 0x7fffffff,
+} XrLocalizationMapTypeML;
+
+typedef enum XrMarkerAprilTagDictML
+{
+    XR_MARKER_APRIL_TAG_DICT_16H5_ML = 0,
+    XR_MARKER_APRIL_TAG_DICT_25H9_ML = 1,
+    XR_MARKER_APRIL_TAG_DICT_36H10_ML = 2,
+    XR_MARKER_APRIL_TAG_DICT_36H11_ML = 3,
+    XR_MARKER_APRIL_TAG_DICT_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerAprilTagDictML;
+
+typedef enum XrMarkerArucoDictML
+{
+    XR_MARKER_ARUCO_DICT_4X4_50_ML = 0,
+    XR_MARKER_ARUCO_DICT_4X4_100_ML = 1,
+    XR_MARKER_ARUCO_DICT_4X4_250_ML = 2,
+    XR_MARKER_ARUCO_DICT_4X4_1000_ML = 3,
+    XR_MARKER_ARUCO_DICT_5X5_50_ML = 4,
+    XR_MARKER_ARUCO_DICT_5X5_100_ML = 5,
+    XR_MARKER_ARUCO_DICT_5X5_250_ML = 6,
+    XR_MARKER_ARUCO_DICT_5X5_1000_ML = 7,
+    XR_MARKER_ARUCO_DICT_6X6_50_ML = 8,
+    XR_MARKER_ARUCO_DICT_6X6_100_ML = 9,
+    XR_MARKER_ARUCO_DICT_6X6_250_ML = 10,
+    XR_MARKER_ARUCO_DICT_6X6_1000_ML = 11,
+    XR_MARKER_ARUCO_DICT_7X7_50_ML = 12,
+    XR_MARKER_ARUCO_DICT_7X7_100_ML = 13,
+    XR_MARKER_ARUCO_DICT_7X7_250_ML = 14,
+    XR_MARKER_ARUCO_DICT_7X7_1000_ML = 15,
+    XR_MARKER_ARUCO_DICT_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerArucoDictML;
+
+typedef enum XrMarkerDetectorCameraML
+{
+    XR_MARKER_DETECTOR_CAMERA_RGB_CAMERA_ML = 0,
+    XR_MARKER_DETECTOR_CAMERA_WORLD_CAMERAS_ML = 1,
+    XR_MARKER_DETECTOR_CAMERA_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerDetectorCameraML;
+
+typedef enum XrMarkerDetectorCornerRefineMethodML
+{
+    XR_MARKER_DETECTOR_CORNER_REFINE_METHOD_NONE_ML = 0,
+    XR_MARKER_DETECTOR_CORNER_REFINE_METHOD_SUBPIX_ML = 1,
+    XR_MARKER_DETECTOR_CORNER_REFINE_METHOD_CONTOUR_ML = 2,
+    XR_MARKER_DETECTOR_CORNER_REFINE_METHOD_APRIL_TAG_ML = 3,
+    XR_MARKER_DETECTOR_CORNER_REFINE_METHOD_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerDetectorCornerRefineMethodML;
+
+typedef enum XrMarkerDetectorFpsML
+{
+    XR_MARKER_DETECTOR_FPS_LOW_ML = 0,
+    XR_MARKER_DETECTOR_FPS_MEDIUM_ML = 1,
+    XR_MARKER_DETECTOR_FPS_HIGH_ML = 2,
+    XR_MARKER_DETECTOR_FPS_MAX_ML = 3,
+    XR_MARKER_DETECTOR_FPS_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerDetectorFpsML;
+
+typedef enum XrMarkerDetectorFullAnalysisIntervalML
+{
+    XR_MARKER_DETECTOR_FULL_ANALYSIS_INTERVAL_MAX_ML = 0,
+    XR_MARKER_DETECTOR_FULL_ANALYSIS_INTERVAL_FAST_ML = 1,
+    XR_MARKER_DETECTOR_FULL_ANALYSIS_INTERVAL_MEDIUM_ML = 2,
+    XR_MARKER_DETECTOR_FULL_ANALYSIS_INTERVAL_SLOW_ML = 3,
+    XR_MARKER_DETECTOR_FULL_ANALYSIS_INTERVAL_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerDetectorFullAnalysisIntervalML;
+
+typedef enum XrMarkerDetectorProfileML
+{
+    XR_MARKER_DETECTOR_PROFILE_DEFAULT_ML = 0,
+    XR_MARKER_DETECTOR_PROFILE_SPEED_ML = 1,
+    XR_MARKER_DETECTOR_PROFILE_ACCURACY_ML = 2,
+    XR_MARKER_DETECTOR_PROFILE_SMALL_TARGETS_ML = 3,
+    XR_MARKER_DETECTOR_PROFILE_LARGE_FOV_ML = 4,
+    XR_MARKER_DETECTOR_PROFILE_CUSTOM_ML = 5,
+    XR_MARKER_DETECTOR_PROFILE_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerDetectorProfileML;
+
+typedef enum XrMarkerDetectorResolutionML
+{
+    XR_MARKER_DETECTOR_RESOLUTION_LOW_ML = 0,
+    XR_MARKER_DETECTOR_RESOLUTION_MEDIUM_ML = 1,
+    XR_MARKER_DETECTOR_RESOLUTION_HIGH_ML = 2,
+    XR_MARKER_DETECTOR_RESOLUTION_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerDetectorResolutionML;
+
+typedef enum XrMarkerDetectorStatusML
+{
+    XR_MARKER_DETECTOR_STATUS_PENDING_ML = 0,
+    XR_MARKER_DETECTOR_STATUS_READY_ML = 1,
+    XR_MARKER_DETECTOR_STATUS_ERROR_ML = 2,
+    XR_MARKER_DETECTOR_STATUS_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerDetectorStatusML;
+
+typedef enum XrMarkerTypeML
+{
+    XR_MARKER_TYPE_ARUCO_ML = 0,
+    XR_MARKER_TYPE_APRIL_TAG_ML = 1,
+    XR_MARKER_TYPE_QR_ML = 2,
+    XR_MARKER_TYPE_EAN_13_ML = 3,
+    XR_MARKER_TYPE_UPC_A_ML = 4,
+    XR_MARKER_TYPE_CODE_128_ML = 5,
+    XR_MARKER_TYPE_ML_MAX_ENUM = 0x7fffffff,
+} XrMarkerTypeML;
+
+typedef enum XrMeshComputeLodMSFT
+{
+    XR_MESH_COMPUTE_LOD_COARSE_MSFT = 1,
+    XR_MESH_COMPUTE_LOD_MEDIUM_MSFT = 2,
+    XR_MESH_COMPUTE_LOD_FINE_MSFT = 3,
+    XR_MESH_COMPUTE_LOD_UNLIMITED_MSFT = 4,
+    XR_MESH_COMPUTE_LOD_MSFT_MAX_ENUM = 0x7fffffff,
+} XrMeshComputeLodMSFT;
+
+typedef enum XrObjectLabelANDROID
+{
+    XR_OBJECT_LABEL_UNKNOWN_ANDROID = 0,
+    XR_OBJECT_LABEL_KEYBOARD_ANDROID = 1,
+    XR_OBJECT_LABEL_MOUSE_ANDROID = 2,
+    XR_OBJECT_LABEL_LAPTOP_ANDROID = 3,
+    XR_OBJECT_LABEL_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrObjectLabelANDROID;
+
+typedef enum XrObjectType
+{
+    XR_OBJECT_TYPE_UNKNOWN = 0,
+    XR_OBJECT_TYPE_INSTANCE = 1,
+    XR_OBJECT_TYPE_SESSION = 2,
+    XR_OBJECT_TYPE_SWAPCHAIN = 3,
+    XR_OBJECT_TYPE_SPACE = 4,
+    XR_OBJECT_TYPE_ACTION_SET = 5,
+    XR_OBJECT_TYPE_ACTION = 6,
+    XR_OBJECT_TYPE_SPATIAL_ANCHOR_MSFT = 1000039000,
+    XR_OBJECT_TYPE_SPATIAL_GRAPH_NODE_BINDING_MSFT = 1000049000,
+    XR_OBJECT_TYPE_HAND_TRACKER_EXT = 1000051000,
+    XR_OBJECT_TYPE_BODY_TRACKER_FB = 1000076000,
+    XR_OBJECT_TYPE_SCENE_OBSERVER_MSFT = 1000097000,
+    XR_OBJECT_TYPE_SCENE_MSFT = 1000097001,
+    XR_OBJECT_TYPE_FACIAL_TRACKER_HTC = 1000104000,
+    XR_OBJECT_TYPE_FOVEATION_PROFILE_FB = 1000114000,
+    XR_OBJECT_TYPE_PASSTHROUGH_FB = 1000118000,
+    XR_OBJECT_TYPE_PASSTHROUGH_LAYER_FB = 1000118002,
+    XR_OBJECT_TYPE_GEOMETRY_INSTANCE_FB = 1000118004,
+    XR_OBJECT_TYPE_MARKER_DETECTOR_ML = 1000138000,
+    XR_OBJECT_TYPE_EXPORTED_LOCALIZATION_MAP_ML = 1000139000,
+    XR_OBJECT_TYPE_SPATIAL_ANCHORS_STORAGE_ML = 1000141000,
+    XR_OBJECT_TYPE_SPATIAL_ANCHOR_STORE_CONNECTION_MSFT = 1000142000,
+    XR_OBJECT_TYPE_FACE_TRACKER_FB = 1000201000,
+    XR_OBJECT_TYPE_EYE_TRACKER_FB = 1000202000,
+    XR_OBJECT_TYPE_VIRTUAL_KEYBOARD_META = 1000219000,
+    XR_OBJECT_TYPE_SPACE_USER_FB = 1000241000,
+    XR_OBJECT_TYPE_PASSTHROUGH_COLOR_LUT_META = 1000266000,
+    XR_OBJECT_TYPE_FACE_TRACKER2_FB = 1000287012,
+    XR_OBJECT_TYPE_RENDER_MODEL_EXT = 1000300000,
+    XR_OBJECT_TYPE_RENDER_MODEL_ASSET_EXT = 1000300001,
+    XR_OBJECT_TYPE_PASSTHROUGH_HTC = 1000317000,
+    XR_OBJECT_TYPE_BODY_TRACKER_HTC = 1000320000,
+    XR_OBJECT_TYPE_BODY_TRACKER_BD = 1000385000,
+    XR_OBJECT_TYPE_FACE_TRACKER_BD = 1000386000,
+    XR_OBJECT_TYPE_SENSE_DATA_PROVIDER_BD = 1000389000,
+    XR_OBJECT_TYPE_SENSE_DATA_SNAPSHOT_BD = 1000389001,
+    XR_OBJECT_TYPE_ANCHOR_BD = 1000389002,
+    XR_OBJECT_TYPE_SPATIAL_AUDIO_RENDERER_BD = 1000409000,
+    XR_OBJECT_TYPE_SOUND_FIELD_BD = 1000409001,
+    XR_OBJECT_TYPE_SOUND_OBJECT_BD = 1000409002,
+    XR_OBJECT_TYPE_SOUND_OBSTACLE_BD = 1000409003,
+    XR_OBJECT_TYPE_SOUND_OBSTACLE_MATERIAL_BD = 1000409004,
+    XR_OBJECT_TYPE_PLANE_DETECTOR_EXT = 1000429000,
+    XR_OBJECT_TYPE_TRACKABLE_TRACKER_ANDROID = 1000455001,
+    XR_OBJECT_TYPE_EYE_TRACKER_ANDROID = 1000456000,
+    XR_OBJECT_TYPE_DEVICE_ANCHOR_PERSISTENCE_ANDROID = 1000457000,
+    XR_OBJECT_TYPE_FACE_TRACKER_ANDROID = 1000458000,
+    XR_OBJECT_TYPE_PASSTHROUGH_LAYER_ANDROID = 1000462000,
+    XR_OBJECT_TYPE_WORLD_MESH_DETECTOR_ML = 1000474000,
+    XR_OBJECT_TYPE_FACIAL_EXPRESSION_CLIENT_ML = 1000482000,
+    XR_OBJECT_TYPE_LIGHT_ESTIMATOR_ANDROID = 1000700000,
+    XR_OBJECT_TYPE_TRACKABLE_IMAGE_DATABASE_ANDROID = 1000709000,
+    XR_OBJECT_TYPE_SCENE_MESHING_TRACKER_ANDROID = 1000718000,
+    XR_OBJECT_TYPE_SCENE_MESH_SNAPSHOT_ANDROID = 1000718001,
+    XR_OBJECT_TYPE_SPATIAL_ENTITY_EXT = 1000740000,
+    XR_OBJECT_TYPE_SPATIAL_CONTEXT_EXT = 1000740001,
+    XR_OBJECT_TYPE_SPATIAL_SNAPSHOT_EXT = 1000740002,
+    XR_OBJECT_TYPE_SPATIAL_PERSISTENCE_CONTEXT_EXT = 1000763000,
+    XR_OBJECT_TYPE_SPATIAL_IMAGE_TRACKING_DATABASE_EXT = 1000782000,
+    XR_OBJECT_TYPE_GEOSPATIAL_TRACKER_ANDROID = 1000789000,
+    XR_OBJECT_TYPE_SPATIAL_CONTAINER_EXT = 1000810000,
+    XR_OBJECT_TYPE_MAX_ENUM = 0x7fffffff,
+} XrObjectType;
+
+typedef enum XrOverlayMainSessionFlagBitsEXTX
+{
+    XR_OVERLAY_MAIN_SESSION_ENABLED_COMPOSITION_LAYER_INFO_DEPTH_BIT_EXTX = 0x00000001,
+    XR_OVERLAY_MAIN_SESSION_FLAG_BITS_EXTX_MAX_ENUM = 0x7fffffff,
+} XrOverlayMainSessionFlagBitsEXTX;
+
+typedef enum XrOverlaySessionCreateFlagBitsEXTX
+{
+    XR_OVERLAY_SESSION_CREATE_FLAG_BITS_EXTX_MAX_ENUM = 0x7fffffff,
+} XrOverlaySessionCreateFlagBitsEXTX;
+
+typedef enum XrPassthroughCameraStateANDROID
+{
+    XR_PASSTHROUGH_CAMERA_STATE_DISABLED_ANDROID = 0,
+    XR_PASSTHROUGH_CAMERA_STATE_INITIALIZING_ANDROID = 1,
+    XR_PASSTHROUGH_CAMERA_STATE_READY_ANDROID = 2,
+    XR_PASSTHROUGH_CAMERA_STATE_ERROR_ANDROID = 3,
+    XR_PASSTHROUGH_CAMERA_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrPassthroughCameraStateANDROID;
+
+typedef enum XrPassthroughCapabilityFlagBitsFB
+{
+    XR_PASSTHROUGH_CAPABILITY_BIT_FB = 0x00000001,
+    XR_PASSTHROUGH_CAPABILITY_COLOR_BIT_FB = 0x00000002,
+    XR_PASSTHROUGH_CAPABILITY_LAYER_DEPTH_BIT_FB = 0x00000004,
+    XR_PASSTHROUGH_CAPABILITY_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrPassthroughCapabilityFlagBitsFB;
+
+typedef enum XrPassthroughColorLutChannelsMETA
+{
+    XR_PASSTHROUGH_COLOR_LUT_CHANNELS_RGB_META = 1,
+    XR_PASSTHROUGH_COLOR_LUT_CHANNELS_RGBA_META = 2,
+    XR_PASSTHROUGH_COLOR_LUT_CHANNELS_META_MAX_ENUM = 0x7fffffff,
+} XrPassthroughColorLutChannelsMETA;
+
+typedef enum XrPassthroughFlagBitsFB
+{
+    XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB = 0x00000001,
+    XR_PASSTHROUGH_LAYER_DEPTH_BIT_FB = 0x00000002,
+    XR_PASSTHROUGH_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrPassthroughFlagBitsFB;
+
+typedef enum XrPassthroughFormHTC
+{
+    XR_PASSTHROUGH_FORM_PLANAR_HTC = 0,
+    XR_PASSTHROUGH_FORM_PROJECTED_HTC = 1,
+    XR_PASSTHROUGH_FORM_HTC_MAX_ENUM = 0x7fffffff,
+} XrPassthroughFormHTC;
+
+typedef enum XrPassthroughLayerPurposeFB
+{
+    XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB = 0,
+    XR_PASSTHROUGH_LAYER_PURPOSE_PROJECTED_FB = 1,
+    XR_PASSTHROUGH_LAYER_PURPOSE_TRACKED_KEYBOARD_HANDS_FB = 1000203001,
+    XR_PASSTHROUGH_LAYER_PURPOSE_TRACKED_KEYBOARD_MASKED_HANDS_FB = 1000203002,
+    XR_PASSTHROUGH_LAYER_PURPOSE_FB_MAX_ENUM = 0x7fffffff,
+} XrPassthroughLayerPurposeFB;
+
+typedef enum XrPassthroughPreferenceFlagBitsMETA
+{
+    XR_PASSTHROUGH_PREFERENCE_DEFAULT_TO_ACTIVE_BIT_META = 0x00000001,
+    XR_PASSTHROUGH_PREFERENCE_FLAG_BITS_META_MAX_ENUM = 0x7fffffff,
+} XrPassthroughPreferenceFlagBitsMETA;
+
+typedef enum XrPassthroughStateChangedFlagBitsFB
+{
+    XR_PASSTHROUGH_STATE_CHANGED_REINIT_REQUIRED_BIT_FB = 0x00000001,
+    XR_PASSTHROUGH_STATE_CHANGED_NON_RECOVERABLE_ERROR_BIT_FB = 0x00000002,
+    XR_PASSTHROUGH_STATE_CHANGED_RECOVERABLE_ERROR_BIT_FB = 0x00000004,
+    XR_PASSTHROUGH_STATE_CHANGED_RESTORED_ERROR_BIT_FB = 0x00000008,
+    XR_PASSTHROUGH_STATE_CHANGED_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrPassthroughStateChangedFlagBitsFB;
+
+typedef enum XrPerfSettingsDomainEXT
+{
+    XR_PERF_SETTINGS_DOMAIN_CPU_EXT = 1,
+    XR_PERF_SETTINGS_DOMAIN_GPU_EXT = 2,
+    XR_PERF_SETTINGS_DOMAIN_EXT_MAX_ENUM = 0x7fffffff,
+} XrPerfSettingsDomainEXT;
+
+typedef enum XrPerfSettingsLevelEXT
+{
+    XR_PERF_SETTINGS_LEVEL_POWER_SAVINGS_EXT = 0,
+    XR_PERF_SETTINGS_LEVEL_SUSTAINED_LOW_EXT = 25,
+    XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT = 50,
+    XR_PERF_SETTINGS_LEVEL_BOOST_EXT = 75,
+    XR_PERF_SETTINGS_LEVEL_EXT_MAX_ENUM = 0x7fffffff,
+} XrPerfSettingsLevelEXT;
+
+typedef enum XrPerfSettingsNotificationLevelEXT
+{
+    XR_PERF_SETTINGS_NOTIF_LEVEL_NORMAL_EXT = 0,
+    XR_PERF_SETTINGS_NOTIF_LEVEL_WARNING_EXT = 25,
+    XR_PERF_SETTINGS_NOTIF_LEVEL_IMPAIRED_EXT = 75,
+    XR_PERF_SETTINGS_NOTIFICATION_LEVEL_EXT_MAX_ENUM = 0x7fffffff,
+} XrPerfSettingsNotificationLevelEXT;
+
+typedef enum XrPerfSettingsSubDomainEXT
+{
+    XR_PERF_SETTINGS_SUB_DOMAIN_COMPOSITING_EXT = 1,
+    XR_PERF_SETTINGS_SUB_DOMAIN_RENDERING_EXT = 2,
+    XR_PERF_SETTINGS_SUB_DOMAIN_THERMAL_EXT = 3,
+    XR_PERF_SETTINGS_SUB_DOMAIN_EXT_MAX_ENUM = 0x7fffffff,
+} XrPerfSettingsSubDomainEXT;
+
+typedef enum XrPerformanceMetricsCounterFlagBitsANDROID
+{
+    XR_PERFORMANCE_METRICS_COUNTER_ANY_VALUE_VALID_BIT_ANDROID = 0x00000001,
+    XR_PERFORMANCE_METRICS_COUNTER_UINT_VALUE_VALID_BIT_ANDROID = 0x00000002,
+    XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_ANDROID = 0x00000004,
+    XR_PERFORMANCE_METRICS_COUNTER_FLAG_BITS_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrPerformanceMetricsCounterFlagBitsANDROID;
+
+typedef enum XrPerformanceMetricsCounterFlagBitsMETA
+{
+    XR_PERFORMANCE_METRICS_COUNTER_ANY_VALUE_VALID_BIT_META = 0x00000001,
+    XR_PERFORMANCE_METRICS_COUNTER_UINT_VALUE_VALID_BIT_META = 0x00000002,
+    XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META = 0x00000004,
+    XR_PERFORMANCE_METRICS_COUNTER_FLAG_BITS_META_MAX_ENUM = 0x7fffffff,
+} XrPerformanceMetricsCounterFlagBitsMETA;
+
+typedef enum XrPerformanceMetricsCounterUnitANDROID
+{
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_GENERIC_ANDROID = 0,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_PERCENTAGE_ANDROID = 1,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_MILLISECONDS_ANDROID = 2,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_BYTES_ANDROID = 3,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_HERTZ_ANDROID = 4,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrPerformanceMetricsCounterUnitANDROID;
+
+typedef enum XrPerformanceMetricsCounterUnitMETA
+{
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_GENERIC_META = 0,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_PERCENTAGE_META = 1,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_MILLISECONDS_META = 2,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_BYTES_META = 3,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_HERTZ_META = 4,
+    XR_PERFORMANCE_METRICS_COUNTER_UNIT_META_MAX_ENUM = 0x7fffffff,
+} XrPerformanceMetricsCounterUnitMETA;
+
+typedef enum XrPersistenceLocationBD
+{
+    XR_PERSISTENCE_LOCATION_LOCAL_BD = 0,
+    XR_PERSISTENCE_LOCATION_BD_MAX_ENUM = 0x7fffffff,
+} XrPersistenceLocationBD;
+
+typedef enum XrPlaneDetectionCapabilityFlagBitsEXT
+{
+    XR_PLANE_DETECTION_CAPABILITY_PLANE_DETECTION_BIT_EXT = 0x00000001,
+    XR_PLANE_DETECTION_CAPABILITY_PLANE_HOLES_BIT_EXT = 0x00000002,
+    XR_PLANE_DETECTION_CAPABILITY_SEMANTIC_CEILING_BIT_EXT = 0x00000004,
+    XR_PLANE_DETECTION_CAPABILITY_SEMANTIC_FLOOR_BIT_EXT = 0x00000008,
+    XR_PLANE_DETECTION_CAPABILITY_SEMANTIC_WALL_BIT_EXT = 0x00000010,
+    XR_PLANE_DETECTION_CAPABILITY_SEMANTIC_PLATFORM_BIT_EXT = 0x00000020,
+    XR_PLANE_DETECTION_CAPABILITY_ORIENTATION_BIT_EXT = 0x00000040,
+    XR_PLANE_DETECTION_CAPABILITY_FLAG_BITS_EXT_MAX_ENUM = 0x7fffffff,
+} XrPlaneDetectionCapabilityFlagBitsEXT;
+
+typedef enum XrPlaneDetectionStateEXT
+{
+    XR_PLANE_DETECTION_STATE_NONE_EXT = 0,
+    XR_PLANE_DETECTION_STATE_PENDING_EXT = 1,
+    XR_PLANE_DETECTION_STATE_DONE_EXT = 2,
+    XR_PLANE_DETECTION_STATE_ERROR_EXT = 3,
+    XR_PLANE_DETECTION_STATE_FATAL_EXT = 4,
+    XR_PLANE_DETECTION_STATE_EXT_MAX_ENUM = 0x7fffffff,
+} XrPlaneDetectionStateEXT;
+
+typedef enum XrPlaneDetectorFlagBitsEXT
+{
+    XR_PLANE_DETECTOR_ENABLE_CONTOUR_BIT_EXT = 0x00000001,
+    XR_PLANE_DETECTOR_FLAG_BITS_EXT_MAX_ENUM = 0x7fffffff,
+} XrPlaneDetectorFlagBitsEXT;
+
+typedef enum XrPlaneDetectorOrientationEXT
+{
+    XR_PLANE_DETECTOR_ORIENTATION_HORIZONTAL_UPWARD_EXT = 0,
+    XR_PLANE_DETECTOR_ORIENTATION_HORIZONTAL_DOWNWARD_EXT = 1,
+    XR_PLANE_DETECTOR_ORIENTATION_VERTICAL_EXT = 2,
+    XR_PLANE_DETECTOR_ORIENTATION_ARBITRARY_EXT = 3,
+    XR_PLANE_DETECTOR_ORIENTATION_EXT_MAX_ENUM = 0x7fffffff,
+} XrPlaneDetectorOrientationEXT;
+
+typedef enum XrPlaneDetectorSemanticTypeEXT
+{
+    XR_PLANE_DETECTOR_SEMANTIC_TYPE_UNDEFINED_EXT = 0,
+    XR_PLANE_DETECTOR_SEMANTIC_TYPE_CEILING_EXT = 1,
+    XR_PLANE_DETECTOR_SEMANTIC_TYPE_FLOOR_EXT = 2,
+    XR_PLANE_DETECTOR_SEMANTIC_TYPE_WALL_EXT = 3,
+    XR_PLANE_DETECTOR_SEMANTIC_TYPE_PLATFORM_EXT = 4,
+    XR_PLANE_DETECTOR_SEMANTIC_TYPE_EXT_MAX_ENUM = 0x7fffffff,
+} XrPlaneDetectorSemanticTypeEXT;
+
+typedef enum XrPlaneLabelANDROID
+{
+    XR_PLANE_LABEL_UNKNOWN_ANDROID = 0,
+    XR_PLANE_LABEL_WALL_ANDROID = 1,
+    XR_PLANE_LABEL_FLOOR_ANDROID = 2,
+    XR_PLANE_LABEL_CEILING_ANDROID = 3,
+    XR_PLANE_LABEL_TABLE_ANDROID = 4,
+    XR_PLANE_LABEL_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrPlaneLabelANDROID;
+
+typedef enum XrPlaneOrientationBD
+{
+    XR_PLANE_ORIENTATION_HORIZONTAL_UPWARD_BD = 0,
+    XR_PLANE_ORIENTATION_HORIZONTAL_DOWNWARD_BD = 1,
+    XR_PLANE_ORIENTATION_VERTICAL_BD = 2,
+    XR_PLANE_ORIENTATION_ARBITRARY_BD = 3,
+    XR_PLANE_ORIENTATION_BD_MAX_ENUM = 0x7fffffff,
+} XrPlaneOrientationBD;
+
+typedef enum XrPlaneTypeANDROID
+{
+    XR_PLANE_TYPE_HORIZONTAL_DOWNWARD_FACING_ANDROID = 0,
+    XR_PLANE_TYPE_HORIZONTAL_UPWARD_FACING_ANDROID = 1,
+    XR_PLANE_TYPE_VERTICAL_ANDROID = 2,
+    XR_PLANE_TYPE_ARBITRARY_ANDROID = 3,
+    XR_PLANE_TYPE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrPlaneTypeANDROID;
+
+typedef enum XrQrCodeTrackingModeANDROID
+{
+    XR_QR_CODE_TRACKING_MODE_DYNAMIC_ANDROID = 0,
+    XR_QR_CODE_TRACKING_MODE_STATIC_ANDROID = 1,
+    XR_QR_CODE_TRACKING_MODE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrQrCodeTrackingModeANDROID;
+
+typedef enum XrReferenceSpaceType
+{
+    XR_REFERENCE_SPACE_TYPE_VIEW = 1,
+    XR_REFERENCE_SPACE_TYPE_LOCAL = 2,
+    XR_REFERENCE_SPACE_TYPE_STAGE = 3,
+    XR_REFERENCE_SPACE_TYPE_UNBOUNDED_MSFT = 1000038000,
+    XR_REFERENCE_SPACE_TYPE_COMBINED_EYE_VARJO = 1000121000,
+    XR_REFERENCE_SPACE_TYPE_LOCALIZATION_MAP_ML = 1000139000,
+    XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR = 1000426000,
+    XR_REFERENCE_SPACE_TYPE_UNBOUNDED_ANDROID = 1000467000,
+    XR_REFERENCE_SPACE_TYPE_STATIONARY_EXT = 1000742000,
+    XR_REFERENCE_SPACE_TYPE_MAX_ENUM = 0x7fffffff,
+    XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR_EXT = XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR,
+} XrReferenceSpaceType;
+
+typedef enum XrRenderModelFlagBitsFB
+{
+    XR_RENDER_MODEL_SUPPORTS_GLTF_2_0_SUBSET_1_BIT_FB = 0x00000001,
+    XR_RENDER_MODEL_SUPPORTS_GLTF_2_0_SUBSET_2_BIT_FB = 0x00000002,
+    XR_RENDER_MODEL_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrRenderModelFlagBitsFB;
+
+typedef enum XrReprojectionModeMSFT
+{
+    XR_REPROJECTION_MODE_DEPTH_MSFT = 1,
+    XR_REPROJECTION_MODE_PLANAR_FROM_DEPTH_MSFT = 2,
+    XR_REPROJECTION_MODE_PLANAR_MANUAL_MSFT = 3,
+    XR_REPROJECTION_MODE_ORIENTATION_ONLY_MSFT = 4,
+    XR_REPROJECTION_MODE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrReprojectionModeMSFT;
+
+typedef enum XrResult
+{
+    XR_ERROR_SPATIAL_CONTAINER_GRAPHICS_PRESENTATION_MISSING_EXT = -1000813005,
+    XR_ERROR_SPATIAL_CONTAINER_DUPLICATE_EXT = -1000813004,
+    XR_ERROR_SPATIAL_CONTAINER_MISSING_EXT = -1000813003,
+    XR_ERROR_SPATIAL_CONTAINER_NOT_RENDERING_EXT = -1000813002,
+    XR_ERROR_SPATIAL_CONTAINER_IS_RENDERING_EXT = -1000813001,
+    XR_ERROR_COMPATIBLE_SPATIAL_CONTAINER_MISSING_EXT = -1000810003,
+    XR_ERROR_SPATIAL_CONTAINERS_NOT_ENABLED_EXT = -1000810002,
+    XR_ERROR_SPATIAL_CONTAINERS_ENABLED_EXT = -1000810001,
+    XR_ERROR_SPATIAL_CONTAINER_CLOSED_EXT = -1000810000,
+    XR_ERROR_SURFACE_ANCHOR_LOCATION_UNSUPPORTED_ANDROID = -1000797000,
+    XR_ERROR_SPATIAL_ANCHOR_ENTITY_ID_INVALID_ANDROID = -1000795001,
+    XR_ERROR_SPATIAL_ANCHOR_ATTACHABLE_COMPONENT_NOT_FOUND_ANDROID = -1000790001,
+    XR_ERROR_GEOSPATIAL_CLOUD_AUTH_FAILED_ANDROID = -1000789002,
+    XR_ERROR_GEOSPATIAL_COORDINATES_INVALID_ANDROID = -1000789001,
+    XR_ERROR_GEOSPATIAL_TRACKER_NOT_RUNNING_ANDROID = -1000789000,
+    XR_ERROR_KEYLESS_AUTH_FAILED_ANDROID = -1000787001,
+    XR_ERROR_KEYLESS_AUTH_NOT_SETUP_ANDROID = -1000787000,
+    XR_ERROR_SPATIAL_IMAGE_SIZE_MISSING_EXT = -1000782003,
+    XR_ERROR_SPATIAL_IMAGE_INVALID_EXT = -1000782002,
+    XR_ERROR_SPATIAL_IMAGE_FORMAT_UNSUPPORTED_EXT = -1000782001,
+    XR_ERROR_SPATIAL_PERSISTENCE_SCOPE_INCOMPATIBLE_EXT = -1000781001,
+    XR_ERROR_SPATIAL_PERSISTENCE_SCOPE_UNSUPPORTED_EXT = -1000763001,
+    XR_ERROR_SPATIAL_COMPONENT_NOT_ENABLED_EXT = -1000740006,
+    XR_ERROR_SPATIAL_CAPABILITY_CONFIGURATION_INVALID_EXT = -1000740005,
+    XR_ERROR_SPATIAL_COMPONENT_UNSUPPORTED_FOR_CAPABILITY_EXT = -1000740004,
+    XR_ERROR_SPATIAL_BUFFER_ID_INVALID_EXT = -1000740003,
+    XR_ERROR_SPATIAL_ENTITY_ID_INVALID_EXT = -1000740002,
+    XR_ERROR_SPATIAL_CAPABILITY_UNSUPPORTED_EXT = -1000740001,
+    XR_ERROR_EXTENSION_DEPENDENCY_NOT_ENABLED = -1000710001,
+    XR_ERROR_PERMISSION_INSUFFICIENT = -1000710000,
+    XR_ERROR_IMAGE_FORMAT_UNSUPPORTED_ANDROID = -1000709000,
+    XR_ERROR_SPACE_GROUP_NOT_FOUND_META = -1000572002,
+    XR_ERROR_COLOCATION_DISCOVERY_NO_DISCOVERY_METHOD_META = -1000571002,
+    XR_ERROR_COLOCATION_DISCOVERY_NETWORK_FAILED_META = -1000571001,
+    XR_ERROR_WORLD_MESH_DETECTOR_SPACE_NOT_LOCATABLE_ML = -1000474001,
+    XR_ERROR_WORLD_MESH_DETECTOR_PERMISSION_DENIED_ML = -1000474000,
+    XR_ERROR_SYSTEM_NOTIFICATION_INCOMPATIBLE_SKU_ML = -1000473001,
+    XR_ERROR_SYSTEM_NOTIFICATION_PERMISSION_DENIED_ML = -1000473000,
+    XR_ERROR_FUTURE_INVALID_EXT = -1000469002,
+    XR_ERROR_FUTURE_PENDING_EXT = -1000469001,
+    XR_ERROR_MESH_DATA_LIMIT_EXCEEDED_ANDROID = -1000462000,
+    XR_ERROR_SERVICE_NOT_READY_ANDROID = -1000458000,
+    XR_ERROR_PERSISTED_DATA_NOT_READY_ANDROID = -1000457003,
+    XR_ERROR_ANCHOR_NOT_TRACKING_ANDROID = -1000457002,
+    XR_ERROR_ANCHOR_ALREADY_PERSISTED_ANDROID = -1000457001,
+    XR_ERROR_ANCHOR_ID_NOT_FOUND_ANDROID = -1000457000,
+    XR_ERROR_TRACKABLE_TYPE_NOT_SUPPORTED_ANDROID = -1000455001,
+    XR_ERROR_MISMATCHING_TRACKABLE_TYPE_ANDROID = -1000455000,
+    XR_ERROR_PLANE_DETECTION_PERMISSION_DENIED_EXT = -1000429001,
+    XR_ERROR_SPACE_NOT_LOCATABLE_EXT = -1000429000,
+    XR_ERROR_SCENE_CAPTURE_FAILURE_BD = -1000392000,
+    XR_ERROR_SPATIAL_ANCHOR_SHARING_MAP_INSUFFICIENT_BD = -1000391004,
+    XR_ERROR_SPATIAL_ANCHOR_SHARING_LOCALIZATION_FAIL_BD = -1000391003,
+    XR_ERROR_SPATIAL_ANCHOR_SHARING_NETWORK_FAILURE_BD = -1000391002,
+    XR_ERROR_SPATIAL_ANCHOR_SHARING_AUTHENTICATION_FAILURE_BD = -1000391001,
+    XR_ERROR_SPATIAL_ANCHOR_SHARING_NETWORK_TIMEOUT_BD = -1000391000,
+    XR_ERROR_SPATIAL_ANCHOR_NOT_FOUND_BD = -1000390000,
+    XR_ERROR_ANCHOR_NOT_SUPPORTED_FOR_ENTITY_BD = -1000389002,
+    XR_ERROR_SPATIAL_SENSING_SERVICE_UNAVAILABLE_BD = -1000389001,
+    XR_ERROR_SPATIAL_ENTITY_ID_INVALID_BD = -1000389000,
+    XR_ERROR_NOT_AN_ANCHOR_HTC = -1000319000,
+    XR_ERROR_HINT_ALREADY_SET_QCOM = -1000306000,
+    XR_ERROR_NOT_INTERACTION_RENDER_MODEL_EXT = -1000301000,
+    XR_ERROR_RENDER_MODEL_GLTF_EXTENSION_REQUIRED_EXT = -1000300002,
+    XR_ERROR_RENDER_MODEL_ASSET_UNAVAILABLE_EXT = -1000300001,
+    XR_ERROR_RENDER_MODEL_ID_INVALID_EXT = -1000300000,
+    XR_ERROR_PASSTHROUGH_COLOR_LUT_BUFFER_SIZE_MISMATCH_META = -1000266000,
+    XR_ERROR_SPACE_TOO_BRIGHT_META = -1000259006,
+    XR_ERROR_SPACE_TOO_DARK_META = -1000259005,
+    XR_ERROR_SPACE_RATE_LIMITED_META = -1000259004,
+    XR_ERROR_SPACE_PERMISSION_INSUFFICIENT_META = -1000259003,
+    XR_ERROR_SPACE_INSUFFICIENT_VIEW_META = -1000259002,
+    XR_ERROR_SPACE_STORAGE_AT_CAPACITY_META = -1000259001,
+    XR_ERROR_SPACE_INSUFFICIENT_RESOURCES_META = -1000259000,
+    XR_ERROR_SPACE_CLOUD_STORAGE_DISABLED_FB = -1000169004,
+    XR_ERROR_SPACE_NETWORK_REQUEST_FAILED_FB = -1000169003,
+    XR_ERROR_SPACE_NETWORK_TIMEOUT_FB = -1000169002,
+    XR_ERROR_SPACE_LOCALIZATION_FAILED_FB = -1000169001,
+    XR_ERROR_SPACE_MAPPING_INSUFFICIENT_FB = -1000169000,
+    XR_ERROR_SPATIAL_ANCHOR_NAME_INVALID_MSFT = -1000142002,
+    XR_ERROR_SPATIAL_ANCHOR_NAME_NOT_FOUND_MSFT = -1000142001,
+    XR_ERROR_SPATIAL_ANCHORS_ANCHOR_NOT_FOUND_ML = -1000141000,
+    XR_ERROR_SPATIAL_ANCHORS_SPACE_NOT_LOCATABLE_ML = -1000140003,
+    XR_ERROR_SPATIAL_ANCHORS_OUT_OF_MAP_BOUNDS_ML = -1000140002,
+    XR_ERROR_SPATIAL_ANCHORS_NOT_LOCALIZED_ML = -1000140001,
+    XR_ERROR_SPATIAL_ANCHORS_PERMISSION_DENIED_ML = -1000140000,
+    XR_ERROR_LOCALIZATION_MAP_CANNOT_EXPORT_CLOUD_MAP_ML = -1000139006,
+    XR_ERROR_LOCALIZATION_MAP_ALREADY_EXISTS_ML = -1000139005,
+    XR_ERROR_LOCALIZATION_MAP_PERMISSION_DENIED_ML = -1000139004,
+    XR_ERROR_LOCALIZATION_MAP_IMPORT_EXPORT_PERMISSION_DENIED_ML = -1000139003,
+    XR_ERROR_LOCALIZATION_MAP_FAIL_ML = -1000139002,
+    XR_ERROR_LOCALIZATION_MAP_UNAVAILABLE_ML = -1000139001,
+    XR_ERROR_LOCALIZATION_MAP_INCOMPATIBLE_ML = -1000139000,
+    XR_ERROR_MARKER_INVALID_ML = -1000138004,
+    XR_ERROR_MARKER_DETECTOR_INVALID_CREATE_INFO_ML = -1000138003,
+    XR_ERROR_MARKER_DETECTOR_INVALID_DATA_QUERY_ML = -1000138002,
+    XR_ERROR_MARKER_DETECTOR_LOCATE_FAILED_ML = -1000138001,
+    XR_ERROR_MARKER_DETECTOR_PERMISSION_DENIED_ML = -1000138000,
+    XR_ERROR_MARKER_ID_INVALID_VARJO = -1000124001,
+    XR_ERROR_MARKER_NOT_TRACKED_VARJO = -1000124000,
+    XR_ERROR_RENDER_MODEL_KEY_INVALID_FB = -1000119000,
+    XR_ERROR_UNKNOWN_PASSTHROUGH_FB = -1000118050,
+    XR_ERROR_INSUFFICIENT_RESOURCES_PASSTHROUGH_FB = -1000118004,
+    XR_ERROR_NOT_PERMITTED_PASSTHROUGH_FB = -1000118003,
+    XR_ERROR_FEATURE_REQUIRED_PASSTHROUGH_FB = -1000118002,
+    XR_ERROR_FEATURE_ALREADY_CREATED_PASSTHROUGH_FB = -1000118001,
+    XR_ERROR_UNEXPECTED_STATE_PASSTHROUGH_FB = -1000118000,
+    XR_ERROR_SPACE_COMPONENT_STATUS_ALREADY_SET_FB = -1000113003,
+    XR_ERROR_SPACE_COMPONENT_STATUS_PENDING_FB = -1000113002,
+    XR_ERROR_SPACE_COMPONENT_NOT_ENABLED_FB = -1000113001,
+    XR_ERROR_SPACE_COMPONENT_NOT_SUPPORTED_FB = -1000113000,
+    XR_ERROR_COLOR_SPACE_UNSUPPORTED_FB = -1000108000,
+    XR_ERROR_DISPLAY_REFRESH_RATE_UNSUPPORTED_FB = -1000101000,
+    XR_ERROR_SCENE_COMPUTE_CONSISTENCY_MISMATCH_MSFT = -1000097005,
+    XR_ERROR_SCENE_COMPUTE_FEATURE_INCOMPATIBLE_MSFT = -1000097004,
+    XR_ERROR_SCENE_MESH_BUFFER_ID_INVALID_MSFT = -1000097003,
+    XR_ERROR_SCENE_COMPONENT_TYPE_MISMATCH_MSFT = -1000097002,
+    XR_ERROR_SCENE_COMPONENT_ID_INVALID_MSFT = -1000097001,
+    XR_ERROR_COMPUTE_NEW_SCENE_NOT_COMPLETED_MSFT = -1000097000,
+    XR_ERROR_REPROJECTION_MODE_UNSUPPORTED_MSFT = -1000066000,
+    XR_ERROR_CONTROLLER_MODEL_KEY_INVALID_MSFT = -1000055000,
+    XR_ERROR_SECONDARY_VIEW_CONFIGURATION_TYPE_NOT_ENABLED_MSFT = -1000053000,
+    XR_ERROR_CREATE_SPATIAL_ANCHOR_FAILED_MSFT = -1000039001,
+    XR_ERROR_RUNTIME_UNAVAILABLE = -51,
+    XR_ERROR_GRAPHICS_REQUIREMENTS_CALL_MISSING = -50,
+    XR_ERROR_LOCALIZED_NAME_INVALID = -49,
+    XR_ERROR_LOCALIZED_NAME_DUPLICATED = -48,
+    XR_ERROR_ACTIONSETS_ALREADY_ATTACHED = -47,
+    XR_ERROR_ACTIONSET_NOT_ATTACHED = -46,
+    XR_ERROR_NAME_INVALID = -45,
+    XR_ERROR_NAME_DUPLICATED = -44,
+    XR_ERROR_ENVIRONMENT_BLEND_MODE_UNSUPPORTED = -42,
+    XR_ERROR_VIEW_CONFIGURATION_TYPE_UNSUPPORTED = -41,
+    XR_ERROR_INDEX_OUT_OF_RANGE = -40,
+    XR_ERROR_POSE_INVALID = -39,
+    XR_ERROR_GRAPHICS_DEVICE_INVALID = -38,
+    XR_ERROR_CALL_ORDER_INVALID = -37,
+    XR_ERROR_API_LAYER_NOT_PRESENT = -36,
+    XR_ERROR_FORM_FACTOR_UNAVAILABLE = -35,
+    XR_ERROR_FORM_FACTOR_UNSUPPORTED = -34,
+    XR_ERROR_FILE_CONTENTS_INVALID = -33,
+    XR_ERROR_FILE_ACCESS_ERROR = -32,
+    XR_ERROR_REFERENCE_SPACE_UNSUPPORTED = -31,
+    XR_ERROR_TIME_INVALID = -30,
+    XR_ERROR_SESSION_NOT_STOPPING = -29,
+    XR_ERROR_SESSION_NOT_READY = -28,
+    XR_ERROR_ACTION_TYPE_MISMATCH = -27,
+    XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED = -26,
+    XR_ERROR_SWAPCHAIN_RECT_INVALID = -25,
+    XR_ERROR_LAYER_LIMIT_EXCEEDED = -24,
+    XR_ERROR_LAYER_INVALID = -23,
+    XR_ERROR_PATH_UNSUPPORTED = -22,
+    XR_ERROR_PATH_FORMAT_INVALID = -21,
+    XR_ERROR_PATH_COUNT_EXCEEDED = -20,
+    XR_ERROR_PATH_INVALID = -19,
+    XR_ERROR_SYSTEM_INVALID = -18,
+    XR_ERROR_SESSION_LOST = -17,
+    XR_ERROR_SESSION_NOT_RUNNING = -16,
+    XR_ERROR_SESSION_RUNNING = -14,
+    XR_ERROR_INSTANCE_LOST = -13,
+    XR_ERROR_HANDLE_INVALID = -12,
+    XR_ERROR_SIZE_INSUFFICIENT = -11,
+    XR_ERROR_LIMIT_REACHED = -10,
+    XR_ERROR_EXTENSION_NOT_PRESENT = -9,
+    XR_ERROR_FEATURE_UNSUPPORTED = -8,
+    XR_ERROR_FUNCTION_UNSUPPORTED = -7,
+    XR_ERROR_INITIALIZATION_FAILED = -6,
+    XR_ERROR_API_VERSION_UNSUPPORTED = -4,
+    XR_ERROR_OUT_OF_MEMORY = -3,
+    XR_ERROR_RUNTIME_FAILURE = -2,
+    XR_ERROR_VALIDATION_FAILURE = -1,
+    XR_SUCCESS = 0,
+    XR_TIMEOUT_EXPIRED = 1,
+    XR_SESSION_LOSS_PENDING = 3,
+    XR_EVENT_UNAVAILABLE = 4,
+    XR_SPACE_BOUNDS_UNAVAILABLE = 7,
+    XR_SESSION_NOT_FOCUSED = 8,
+    XR_FRAME_DISCARDED = 9,
+    XR_RENDER_MODEL_UNAVAILABLE_FB = 1000119020,
+    XR_SCENE_MARKER_DATA_NOT_STRING_MSFT = 1000147000,
+    XR_ERROR_FACIAL_EXPRESSION_PERMISSION_DENIED_ML = 1000482000,
+    XR_BOUNDARY_VISIBILITY_SUPPRESSION_NOT_ALLOWED_META = 1000528000,
+    XR_COLOCATION_DISCOVERY_ALREADY_ADVERTISING_META = 1000571003,
+    XR_COLOCATION_DISCOVERY_ALREADY_DISCOVERING_META = 1000571004,
+    XR_RESULT_MAX_ENUM = 0x7fffffff,
+    XR_ERROR_EXTENSION_DEPENDENCY_NOT_ENABLED_KHR = XR_ERROR_EXTENSION_DEPENDENCY_NOT_ENABLED,
+    XR_ERROR_PERMISSION_INSUFFICIENT_KHR = XR_ERROR_PERMISSION_INSUFFICIENT,
+} XrResult;
+
+typedef enum XrSceneComponentTypeMSFT
+{
+    XR_SCENE_COMPONENT_TYPE_INVALID_MSFT = -1,
+    XR_SCENE_COMPONENT_TYPE_OBJECT_MSFT = 1,
+    XR_SCENE_COMPONENT_TYPE_PLANE_MSFT = 2,
+    XR_SCENE_COMPONENT_TYPE_VISUAL_MESH_MSFT = 3,
+    XR_SCENE_COMPONENT_TYPE_COLLIDER_MESH_MSFT = 4,
+    XR_SCENE_COMPONENT_TYPE_SERIALIZED_SCENE_FRAGMENT_MSFT = 1000098000,
+    XR_SCENE_COMPONENT_TYPE_MARKER_MSFT = 1000147000,
+    XR_SCENE_COMPONENT_TYPE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSceneComponentTypeMSFT;
+
+typedef enum XrSceneComputeConsistencyMSFT
+{
+    XR_SCENE_COMPUTE_CONSISTENCY_SNAPSHOT_COMPLETE_MSFT = 1,
+    XR_SCENE_COMPUTE_CONSISTENCY_SNAPSHOT_INCOMPLETE_FAST_MSFT = 2,
+    XR_SCENE_COMPUTE_CONSISTENCY_OCCLUSION_OPTIMIZED_MSFT = 3,
+    XR_SCENE_COMPUTE_CONSISTENCY_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSceneComputeConsistencyMSFT;
+
+typedef enum XrSceneComputeFeatureMSFT
+{
+    XR_SCENE_COMPUTE_FEATURE_PLANE_MSFT = 1,
+    XR_SCENE_COMPUTE_FEATURE_PLANE_MESH_MSFT = 2,
+    XR_SCENE_COMPUTE_FEATURE_VISUAL_MESH_MSFT = 3,
+    XR_SCENE_COMPUTE_FEATURE_COLLIDER_MESH_MSFT = 4,
+    XR_SCENE_COMPUTE_FEATURE_SERIALIZE_SCENE_MSFT = 1000098000,
+    XR_SCENE_COMPUTE_FEATURE_MARKER_MSFT = 1000147000,
+    XR_SCENE_COMPUTE_FEATURE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSceneComputeFeatureMSFT;
+
+typedef enum XrSceneComputeStateMSFT
+{
+    XR_SCENE_COMPUTE_STATE_NONE_MSFT = 0,
+    XR_SCENE_COMPUTE_STATE_UPDATING_MSFT = 1,
+    XR_SCENE_COMPUTE_STATE_COMPLETED_MSFT = 2,
+    XR_SCENE_COMPUTE_STATE_COMPLETED_WITH_ERROR_MSFT = 3,
+    XR_SCENE_COMPUTE_STATE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSceneComputeStateMSFT;
+
+typedef enum XrSceneMarkerQRCodeSymbolTypeMSFT
+{
+    XR_SCENE_MARKER_QR_CODE_SYMBOL_TYPE_QR_CODE_MSFT = 1,
+    XR_SCENE_MARKER_QR_CODE_SYMBOL_TYPE_MICRO_QR_CODE_MSFT = 2,
+    XR_SCENE_MARKER_QRCODE_SYMBOL_TYPE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSceneMarkerQRCodeSymbolTypeMSFT;
+
+typedef enum XrSceneMarkerTypeMSFT
+{
+    XR_SCENE_MARKER_TYPE_QR_CODE_MSFT = 1,
+    XR_SCENE_MARKER_TYPE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSceneMarkerTypeMSFT;
+
+typedef enum XrSceneMeshSemanticLabelANDROID
+{
+    XR_SCENE_MESH_SEMANTIC_LABEL_OTHER_ANDROID = 0,
+    XR_SCENE_MESH_SEMANTIC_LABEL_FLOOR_ANDROID = 1,
+    XR_SCENE_MESH_SEMANTIC_LABEL_CEILING_ANDROID = 2,
+    XR_SCENE_MESH_SEMANTIC_LABEL_WALL_ANDROID = 3,
+    XR_SCENE_MESH_SEMANTIC_LABEL_TABLE_ANDROID = 4,
+    XR_SCENE_MESH_SEMANTIC_LABEL_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrSceneMeshSemanticLabelANDROID;
+
+typedef enum XrSceneMeshSemanticLabelSetANDROID
+{
+    XR_SCENE_MESH_SEMANTIC_LABEL_SET_NONE_ANDROID = 0,
+    XR_SCENE_MESH_SEMANTIC_LABEL_SET_DEFAULT_ANDROID = 1,
+    XR_SCENE_MESH_SEMANTIC_LABEL_SET_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrSceneMeshSemanticLabelSetANDROID;
+
+typedef enum XrSceneMeshTrackingStateANDROID
+{
+    XR_SCENE_MESH_TRACKING_STATE_INITIALIZING_ANDROID = 0,
+    XR_SCENE_MESH_TRACKING_STATE_TRACKING_ANDROID = 1,
+    XR_SCENE_MESH_TRACKING_STATE_WAITING_ANDROID = 2,
+    XR_SCENE_MESH_TRACKING_STATE_ERROR_ANDROID = 3,
+    XR_SCENE_MESH_TRACKING_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrSceneMeshTrackingStateANDROID;
+
+typedef enum XrSceneObjectTypeMSFT
+{
+    XR_SCENE_OBJECT_TYPE_UNCATEGORIZED_MSFT = -1,
+    XR_SCENE_OBJECT_TYPE_BACKGROUND_MSFT = 1,
+    XR_SCENE_OBJECT_TYPE_WALL_MSFT = 2,
+    XR_SCENE_OBJECT_TYPE_FLOOR_MSFT = 3,
+    XR_SCENE_OBJECT_TYPE_CEILING_MSFT = 4,
+    XR_SCENE_OBJECT_TYPE_PLATFORM_MSFT = 5,
+    XR_SCENE_OBJECT_TYPE_INFERRED_MSFT = 6,
+    XR_SCENE_OBJECT_TYPE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSceneObjectTypeMSFT;
+
+typedef enum XrScenePlaneAlignmentTypeMSFT
+{
+    XR_SCENE_PLANE_ALIGNMENT_TYPE_NON_ORTHOGONAL_MSFT = 0,
+    XR_SCENE_PLANE_ALIGNMENT_TYPE_HORIZONTAL_MSFT = 1,
+    XR_SCENE_PLANE_ALIGNMENT_TYPE_VERTICAL_MSFT = 2,
+    XR_SCENE_PLANE_ALIGNMENT_TYPE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrScenePlaneAlignmentTypeMSFT;
+
+typedef enum XrSemanticLabelBD
+{
+    XR_SEMANTIC_LABEL_UNKNOWN_BD = 0,
+    XR_SEMANTIC_LABEL_FLOOR_BD = 1,
+    XR_SEMANTIC_LABEL_CEILING_BD = 2,
+    XR_SEMANTIC_LABEL_WALL_BD = 3,
+    XR_SEMANTIC_LABEL_DOOR_BD = 4,
+    XR_SEMANTIC_LABEL_WINDOW_BD = 5,
+    XR_SEMANTIC_LABEL_OPENING_BD = 6,
+    XR_SEMANTIC_LABEL_TABLE_BD = 7,
+    XR_SEMANTIC_LABEL_SOFA_BD = 8,
+    XR_SEMANTIC_LABEL_CHAIR_BD = 9,
+    XR_SEMANTIC_LABEL_HUMAN_BD = 10,
+    XR_SEMANTIC_LABEL_BEAM_BD = 11,
+    XR_SEMANTIC_LABEL_COLUMN_BD = 12,
+    XR_SEMANTIC_LABEL_CURTAIN_BD = 13,
+    XR_SEMANTIC_LABEL_CABINET_BD = 14,
+    XR_SEMANTIC_LABEL_BED_BD = 15,
+    XR_SEMANTIC_LABEL_PLANT_BD = 16,
+    XR_SEMANTIC_LABEL_SCREEN_BD = 17,
+    XR_SEMANTIC_LABEL_VIRTUAL_WALL_BD = 18,
+    XR_SEMANTIC_LABEL_REFRIGERATOR_BD = 19,
+    XR_SEMANTIC_LABEL_WASHING_MACHINE_BD = 20,
+    XR_SEMANTIC_LABEL_AIR_CONDITIONER_BD = 21,
+    XR_SEMANTIC_LABEL_LAMP_BD = 22,
+    XR_SEMANTIC_LABEL_WALL_ART_BD = 23,
+    XR_SEMANTIC_LABEL_STAIRWAY_BD = 24,
+    XR_SEMANTIC_LABEL_KEYBOARD_BD = 25,
+    XR_SEMANTIC_LABEL_MOUSE_BD = 26,
+    XR_SEMANTIC_LABEL_LAPTOP_BD = 27,
+    XR_SEMANTIC_LABEL_BD_MAX_ENUM = 0x7fffffff,
+} XrSemanticLabelBD;
+
+typedef enum XrSemanticLabelMETA
+{
+    XR_SEMANTIC_LABEL_UNKNOWN_META = 0,
+    XR_SEMANTIC_LABEL_FLOOR_META = 1,
+    XR_SEMANTIC_LABEL_CEILING_META = 2,
+    XR_SEMANTIC_LABEL_WALL_FACE_META = 3,
+    XR_SEMANTIC_LABEL_INNER_WALL_FACE_META = 4,
+    XR_SEMANTIC_LABEL_INVISIBLE_WALL_FACE_META = 5,
+    XR_SEMANTIC_LABEL_DOOR_FRAME_META = 6,
+    XR_SEMANTIC_LABEL_WINDOW_FRAME_META = 7,
+    XR_SEMANTIC_LABEL_META_MAX_ENUM = 0x7fffffff,
+} XrSemanticLabelMETA;
+
+typedef enum XrSemanticLabelsSupportFlagBitsFB
+{
+    XR_SEMANTIC_LABELS_SUPPORT_MULTIPLE_SEMANTIC_LABELS_BIT_FB = 0x00000001,
+    XR_SEMANTIC_LABELS_SUPPORT_ACCEPT_DESK_TO_TABLE_MIGRATION_BIT_FB = 0x00000002,
+    XR_SEMANTIC_LABELS_SUPPORT_ACCEPT_INVISIBLE_WALL_FACE_BIT_FB = 0x00000004,
+    XR_SEMANTIC_LABELS_SUPPORT_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrSemanticLabelsSupportFlagBitsFB;
+
+typedef enum XrSenseDataProviderStateBD
+{
+    XR_SENSE_DATA_PROVIDER_STATE_INITIALIZED_BD = 0,
+    XR_SENSE_DATA_PROVIDER_STATE_RUNNING_BD = 1,
+    XR_SENSE_DATA_PROVIDER_STATE_STOPPED_BD = 2,
+    XR_SENSE_DATA_PROVIDER_STATE_BD_MAX_ENUM = 0x7fffffff,
+} XrSenseDataProviderStateBD;
+
+typedef enum XrSenseDataProviderTypeBD
+{
+    XR_SENSE_DATA_PROVIDER_TYPE_ANCHOR_BD = 1000390000,
+    XR_SENSE_DATA_PROVIDER_TYPE_SCENE_BD = 1000392000,
+    XR_SENSE_DATA_PROVIDER_TYPE_MESH_BD = 1000393000,
+    XR_SENSE_DATA_PROVIDER_TYPE_PLANE_BD = 1000396000,
+    XR_SENSE_DATA_PROVIDER_TYPE_LIGHT_ESTIMATION_BD = 1000397000,
+    XR_SENSE_DATA_PROVIDER_TYPE_DYNAMIC_OBJECT_BD = 1000746000,
+    XR_SENSE_DATA_PROVIDER_TYPE_BD_MAX_ENUM = 0x7fffffff,
+} XrSenseDataProviderTypeBD;
+
+typedef enum XrSessionCreateFlagBits
+{
+    XR_SESSION_CREATE_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrSessionCreateFlagBits;
+
+typedef enum XrSessionState
+{
+    XR_SESSION_STATE_UNKNOWN = 0,
+    XR_SESSION_STATE_IDLE = 1,
+    XR_SESSION_STATE_READY = 2,
+    XR_SESSION_STATE_SYNCHRONIZED = 3,
+    XR_SESSION_STATE_VISIBLE = 4,
+    XR_SESSION_STATE_FOCUSED = 5,
+    XR_SESSION_STATE_STOPPING = 6,
+    XR_SESSION_STATE_LOSS_PENDING = 7,
+    XR_SESSION_STATE_EXITING = 8,
+    XR_SESSION_STATE_MAX_ENUM = 0x7fffffff,
+} XrSessionState;
+
+typedef enum XrSoundFieldChannelMaskAmbixBD
+{
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_1ST_ORDER_BD = 1,
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_2ND_ORDER_BD = 2,
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_3RD_ORDER_BD = 3,
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_4TH_ORDER_BD = 4,
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_5TH_ORDER_BD = 5,
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_6TH_ORDER_BD = 6,
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_7TH_ORDER_BD = 7,
+    XR_SOUND_FIELD_CHANNEL_MASK_AMBIX_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundFieldChannelMaskAmbixBD;
+
+typedef enum XrSoundFieldChannelMaskFumaBD
+{
+    XR_SOUND_FIELD_CHANNEL_MASK_FUMA_1ST_ORDER_BD = 1,
+    XR_SOUND_FIELD_CHANNEL_MASK_FUMA_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundFieldChannelMaskFumaBD;
+
+typedef enum XrSoundFieldChannelMaskSurroundBD
+{
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_FRONT_LEFT_BD = 1,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_FRONT_RIGHT_BD = 2,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_STEREO_BD = 3,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_FRONT_CENTER_BD = 4,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_3_0_BD = 7,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_LOW_FREQUENCY_BD = 8,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_2_1_BD = 11,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_3_1_BD = 15,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_BACK_LEFT_BD = 16,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_BACK_RIGHT_BD = 32,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_BACK_SURROUND_BD = 48,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_QUAD_BD = 51,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_5_0_BD = 55,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_5_1_BD = 63,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SIDE_LEFT_BD = 64,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SIDE_RIGHT_BD = 128,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_SIDE_SURROUND_BD = 192,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_5_0_SIDE_BD = 199,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_5_1_SIDE_BD = 207,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_7_0_BD = 247,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_7_1_BD = 255,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_TOP_FRONT_LEFT_BD = 256,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_TOP_FRONT_RIGHT_BD = 512,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_5_1_2_BD = 831,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_TOP_BACK_LEFT_BD = 1024,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_TOP_BACK_RIGHT_BD = 2048,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_5_1_4_BD = 3903,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_7_1_4_BD = 4095,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_BACK_CENTER_BD = 4096,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_4_0_BD = 4099,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_TOP_SIDE_LEFT_BD = 8192,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_TOP_SIDE_RIGHT_BD = 16384,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_SETUP_7_1_2_BD = 24831,
+    XR_SOUND_FIELD_CHANNEL_MASK_SURROUND_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundFieldChannelMaskSurroundBD;
+
+typedef enum XrSoundFieldFlagBitsBD
+{
+    XR_SOUND_FIELD_ENABLED_BIT_BD = 0x00000001,
+    XR_SOUND_FIELD_ORIENTATION_BIT_BD = 0x00000002,
+    XR_SOUND_FIELD_MAIN_VOLUME_BIT_BD = 0x00000004,
+    XR_SOUND_FIELD_LFE_GAIN_BIT_BD = 0x00000008,
+    XR_SOUND_FIELD_FLAG_BITS_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundFieldFlagBitsBD;
+
+typedef enum XrSoundObjectDistanceAttenuationTypeBD
+{
+    XR_SOUND_OBJECT_DISTANCE_ATTENUATION_TYPE_NONE_BD = 0,
+    XR_SOUND_OBJECT_DISTANCE_ATTENUATION_TYPE_INVERSE_SQUARE_BD = 1,
+    XR_SOUND_OBJECT_DISTANCE_ATTENUATION_TYPE_ROLLOFF_BD = 2,
+    XR_SOUND_OBJECT_DISTANCE_ATTENUATION_TYPE_CUSTOMIZED_BD = 100,
+    XR_SOUND_OBJECT_DISTANCE_ATTENUATION_TYPE_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundObjectDistanceAttenuationTypeBD;
+
+typedef enum XrSoundObjectFlagBitsBD
+{
+    XR_SOUND_OBJECT_ENABLED_BIT_BD = 0x00000001,
+    XR_SOUND_OBJECT_POSE_BIT_BD = 0x00000002,
+    XR_SOUND_OBJECT_DIRECTIVITY_BIT_BD = 0x00000004,
+    XR_SOUND_OBJECT_SHAPE_BIT_BD = 0x00000008,
+    XR_SOUND_OBJECT_MAIN_VOLUME_BIT_BD = 0x00000010,
+    XR_SOUND_OBJECT_REFLECTION_GAIN_BIT_BD = 0x00000020,
+    XR_SOUND_OBJECT_ENABLE_DOPPLER_BIT_BD = 0x00000040,
+    XR_SOUND_OBJECT_DIRECT_SOUND_ATTENUATION_BIT_BD = 0x00000080,
+    XR_SOUND_OBJECT_INDIRECT_SOUND_ATTENUATION_BIT_BD = 0x00000100,
+    XR_SOUND_OBJECT_FLAG_BITS_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundObjectFlagBitsBD;
+
+typedef enum XrSoundObstacleFlagBitsBD
+{
+    XR_SOUND_OBSTACLE_ENABLED_BIT_BD = 0x00000001,
+    XR_SOUND_OBSTACLE_POSE_BIT_BD = 0x00000002,
+    XR_SOUND_OBSTACLE_MESH_BIT_BD = 0x00000004,
+    XR_SOUND_OBSTACLE_MATERIALS_BIT_BD = 0x00000008,
+    XR_SOUND_OBSTACLE_FLAG_BITS_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundObstacleFlagBitsBD;
+
+typedef enum XrSoundObstacleMaterialTypeBD
+{
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_ACOUSTIC_TILE_BD = 0,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_BRICK_BD = 1,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_BRICK_PAINTED_BD = 2,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CARPET_BD = 3,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CARPET_HEAVY_BD = 4,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CARPET_HEAVY_PADDED_BD = 5,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CERAMIC_TILE_BD = 6,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CONCRETE_BD = 7,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CONCRETE_ROUGH_BD = 8,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CONCRETE_BLOCK_BD = 9,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CONCRETE_BLOCK_PAINTED_BD = 10,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CURTAIN_BD = 11,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_FOLIAGE_BD = 12,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_GLASS_BD = 13,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_GLASS_HEAVY_BD = 14,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_GRASS_BD = 15,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_GRAVEL_BD = 16,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_GYPSUM_BOARD_BD = 17,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_PLASTER_ON_BRICK_BD = 18,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_PLASTER_ON_CONCRETE_BLOCK_BD = 19,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_SOIL_BD = 20,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_SOUND_PROOF_BD = 21,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_SNOW_BD = 22,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_STEEL_BD = 23,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_WATER_BD = 24,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_WOOD_THIN_BD = 25,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_WOOD_THICK_BD = 26,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_WOOD_FLOOR_BD = 27,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_WOOD_ON_CONCRETE_BD = 28,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_CUSTOM_BD = 29,
+    XR_SOUND_OBSTACLE_MATERIAL_TYPE_BD_MAX_ENUM = 0x7fffffff,
+} XrSoundObstacleMaterialTypeBD;
+
+typedef enum XrSpaceAccelerationFlagBitsBD
+{
+    XR_SPACE_ACCELERATION_LINEAR_VALID_BIT_BD = 0x00000001,
+    XR_SPACE_ACCELERATION_ANGULAR_VALID_BIT_BD = 0x00000002,
+    XR_SPACE_ACCELERATION_FLAG_BITS_BD_MAX_ENUM = 0x7fffffff,
+} XrSpaceAccelerationFlagBitsBD;
+
+typedef enum XrSpaceComponentTypeFB
+{
+    XR_SPACE_COMPONENT_TYPE_LOCATABLE_FB = 0,
+    XR_SPACE_COMPONENT_TYPE_STORABLE_FB = 1,
+    XR_SPACE_COMPONENT_TYPE_SHARABLE_FB = 2,
+    XR_SPACE_COMPONENT_TYPE_BOUNDED_2D_FB = 3,
+    XR_SPACE_COMPONENT_TYPE_BOUNDED_3D_FB = 4,
+    XR_SPACE_COMPONENT_TYPE_SEMANTIC_LABELS_FB = 5,
+    XR_SPACE_COMPONENT_TYPE_ROOM_LAYOUT_FB = 6,
+    XR_SPACE_COMPONENT_TYPE_SPACE_CONTAINER_FB = 7,
+    XR_SPACE_COMPONENT_TYPE_TRIANGLE_MESH_META = 1000269000,
+    XR_SPACE_COMPONENT_TYPE_ROOM_MESH_META = 1000553000,
+    XR_SPACE_COMPONENT_TYPE_FB_MAX_ENUM = 0x7fffffff,
+} XrSpaceComponentTypeFB;
+
+typedef enum XrSpaceLocationFlagBits
+{
+    XR_SPACE_LOCATION_ORIENTATION_VALID_BIT = 0x00000001,
+    XR_SPACE_LOCATION_POSITION_VALID_BIT = 0x00000002,
+    XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT = 0x00000004,
+    XR_SPACE_LOCATION_POSITION_TRACKED_BIT = 0x00000008,
+    XR_SPACE_LOCATION_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrSpaceLocationFlagBits;
+
+typedef enum XrSpacePersistenceModeFB
+{
+    XR_SPACE_PERSISTENCE_MODE_INVALID_FB = 0,
+    XR_SPACE_PERSISTENCE_MODE_INDEFINITE_FB = 1,
+    XR_SPACE_PERSISTENCE_MODE_FB_MAX_ENUM = 0x7fffffff,
+} XrSpacePersistenceModeFB;
+
+typedef enum XrSpaceQueryActionFB
+{
+    XR_SPACE_QUERY_ACTION_LOAD_FB = 0,
+    XR_SPACE_QUERY_ACTION_FB_MAX_ENUM = 0x7fffffff,
+} XrSpaceQueryActionFB;
+
+typedef enum XrSpaceStorageLocationFB
+{
+    XR_SPACE_STORAGE_LOCATION_INVALID_FB = 0,
+    XR_SPACE_STORAGE_LOCATION_LOCAL_FB = 1,
+    XR_SPACE_STORAGE_LOCATION_CLOUD_FB = 2,
+    XR_SPACE_STORAGE_LOCATION_FB_MAX_ENUM = 0x7fffffff,
+} XrSpaceStorageLocationFB;
+
+typedef enum XrSpaceVelocityFlagBits
+{
+    XR_SPACE_VELOCITY_LINEAR_VALID_BIT = 0x00000001,
+    XR_SPACE_VELOCITY_ANGULAR_VALID_BIT = 0x00000002,
+    XR_SPACE_VELOCITY_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrSpaceVelocityFlagBits;
+
+typedef enum XrSpatialAnchorConfidenceML
+{
+    XR_SPATIAL_ANCHOR_CONFIDENCE_LOW_ML = 0,
+    XR_SPATIAL_ANCHOR_CONFIDENCE_MEDIUM_ML = 1,
+    XR_SPATIAL_ANCHOR_CONFIDENCE_HIGH_ML = 2,
+    XR_SPATIAL_ANCHOR_CONFIDENCE_ML_MAX_ENUM = 0x7fffffff,
+} XrSpatialAnchorConfidenceML;
+
+typedef enum XrSpatialBufferTypeEXT
+{
+    XR_SPATIAL_BUFFER_TYPE_UNKNOWN_EXT = 0,
+    XR_SPATIAL_BUFFER_TYPE_STRING_EXT = 1,
+    XR_SPATIAL_BUFFER_TYPE_UINT8_EXT = 2,
+    XR_SPATIAL_BUFFER_TYPE_UINT16_EXT = 3,
+    XR_SPATIAL_BUFFER_TYPE_UINT32_EXT = 4,
+    XR_SPATIAL_BUFFER_TYPE_FLOAT_EXT = 5,
+    XR_SPATIAL_BUFFER_TYPE_VECTOR2F_EXT = 6,
+    XR_SPATIAL_BUFFER_TYPE_VECTOR3F_EXT = 7,
+    XR_SPATIAL_BUFFER_TYPE_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialBufferTypeEXT;
+
+typedef enum XrSpatialCapabilityEXT
+{
+    XR_SPATIAL_CAPABILITY_PLANE_TRACKING_EXT = 1000741000,
+    XR_SPATIAL_CAPABILITY_MARKER_TRACKING_QR_CODE_EXT = 1000743000,
+    XR_SPATIAL_CAPABILITY_MARKER_TRACKING_MICRO_QR_CODE_EXT = 1000743001,
+    XR_SPATIAL_CAPABILITY_MARKER_TRACKING_ARUCO_MARKER_EXT = 1000743002,
+    XR_SPATIAL_CAPABILITY_MARKER_TRACKING_APRIL_TAG_EXT = 1000743003,
+    XR_SPATIAL_CAPABILITY_ANCHOR_EXT = 1000762000,
+    XR_SPATIAL_CAPABILITY_IMAGE_TRACKING_EXT = 1000782000,
+    XR_SPATIAL_CAPABILITY_OBJECT_TRACKING_ANDROID = 1000785000,
+    XR_SPATIAL_CAPABILITY_DEPTH_RAYCAST_ANDROID = 1000786000,
+    XR_SPATIAL_CAPABILITY_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialCapabilityEXT;
+
+typedef enum XrSpatialCapabilityFeatureEXT
+{
+    XR_SPATIAL_CAPABILITY_FEATURE_MARKER_TRACKING_FIXED_SIZE_MARKERS_EXT = 1000743000,
+    XR_SPATIAL_CAPABILITY_FEATURE_MARKER_TRACKING_STATIC_MARKERS_EXT = 1000743001,
+    XR_SPATIAL_CAPABILITY_FEATURE_SPHERE_BOUNDS_FILTER_ANDROID = 1000761000,
+    XR_SPATIAL_CAPABILITY_FEATURE_BOX_BOUNDS_FILTER_ANDROID = 1000761001,
+    XR_SPATIAL_CAPABILITY_FEATURE_FRUSTUM_BOUNDS_FILTER_ANDROID = 1000761002,
+    XR_SPATIAL_CAPABILITY_FEATURE_IMAGE_TRACKING_AUTOMATIC_SIZE_IMAGES_EXT = 1000782000,
+    XR_SPATIAL_CAPABILITY_FEATURE_IMAGE_TRACKING_STATIC_IMAGES_EXT = 1000782001,
+    XR_SPATIAL_CAPABILITY_FEATURE_IMAGE_TRACKING_FIXED_SIZE_IMAGES_EXT = 1000782002,
+    XR_SPATIAL_CAPABILITY_FEATURE_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialCapabilityFeatureEXT;
+
+typedef enum XrSpatialComponentTypeEXT
+{
+    XR_SPATIAL_COMPONENT_TYPE_BOUNDED_2D_EXT = 1,
+    XR_SPATIAL_COMPONENT_TYPE_BOUNDED_3D_EXT = 2,
+    XR_SPATIAL_COMPONENT_TYPE_PARENT_EXT = 3,
+    XR_SPATIAL_COMPONENT_TYPE_MESH_3D_EXT = 4,
+    XR_SPATIAL_COMPONENT_TYPE_PLANE_ALIGNMENT_EXT = 1000741000,
+    XR_SPATIAL_COMPONENT_TYPE_MESH_2D_EXT = 1000741001,
+    XR_SPATIAL_COMPONENT_TYPE_POLYGON_2D_EXT = 1000741002,
+    XR_SPATIAL_COMPONENT_TYPE_PLANE_SEMANTIC_LABEL_EXT = 1000741003,
+    XR_SPATIAL_COMPONENT_TYPE_MARKER_EXT = 1000743000,
+    XR_SPATIAL_COMPONENT_TYPE_ANCHOR_EXT = 1000762000,
+    XR_SPATIAL_COMPONENT_TYPE_PERSISTENCE_EXT = 1000763000,
+    XR_SPATIAL_COMPONENT_TYPE_IMAGE_2D_EXT = 1000782000,
+    XR_SPATIAL_COMPONENT_TYPE_OBJECT_SEMANTIC_LABEL_ANDROID = 1000785000,
+    XR_SPATIAL_COMPONENT_TYPE_RAYCAST_RESULT_ANDROID = 1000786000,
+    XR_SPATIAL_COMPONENT_TYPE_SUBSUMED_BY_ANDROID = 1000791000,
+    XR_SPATIAL_COMPONENT_TYPE_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialComponentTypeEXT;
+
+typedef enum XrSpatialContainerBoundsModeEXT
+{
+    XR_SPATIAL_CONTAINER_BOUNDS_MODE_BOUNDED_EXT = 1,
+    XR_SPATIAL_CONTAINER_BOUNDS_MODE_IMMERSIVE_EXT = 2,
+    XR_SPATIAL_CONTAINER_BOUNDS_MODE_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialContainerBoundsModeEXT;
+
+typedef enum XrSpatialContainerGraphicsPresentationEXT
+{
+    XR_SPATIAL_CONTAINER_GRAPHICS_PRESENTATION_SELF_RENDERING_EXT = 1000813000,
+    XR_SPATIAL_CONTAINER_GRAPHICS_PRESENTATION_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialContainerGraphicsPresentationEXT;
+
+typedef enum XrSpatialContainerVolumeClippingEXT
+{
+    XR_SPATIAL_CONTAINER_VOLUME_CLIPPING_NONE_EXT = 0,
+    XR_SPATIAL_CONTAINER_VOLUME_CLIPPING_STRICT_EXT = 1,
+    XR_SPATIAL_CONTAINER_VOLUME_CLIPPING_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialContainerVolumeClippingEXT;
+
+typedef enum XrSpatialEntityComponentTypeBD
+{
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_LOCATION_BD = 0,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_SEMANTIC_BD = 1,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_BOUNDING_BOX_2D_BD = 2,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_POLYGON_BD = 3,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_BOUNDING_BOX_3D_BD = 4,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_TRIANGLE_MESH_BD = 5,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_SPHERE_BD = 6,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_PLANE_ORIENTATION_BD = 1000396000,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_LIGHT_ESTIMATION_BD = 1000397000,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_DYNAMIC_OBJECT_BD = 1000746000,
+    XR_SPATIAL_ENTITY_COMPONENT_TYPE_BD_MAX_ENUM = 0x7fffffff,
+} XrSpatialEntityComponentTypeBD;
+
+typedef enum XrSpatialEntityTrackingStateEXT
+{
+    XR_SPATIAL_ENTITY_TRACKING_STATE_STOPPED_EXT = 1,
+    XR_SPATIAL_ENTITY_TRACKING_STATE_PAUSED_EXT = 2,
+    XR_SPATIAL_ENTITY_TRACKING_STATE_TRACKING_EXT = 3,
+    XR_SPATIAL_ENTITY_TRACKING_STATE_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialEntityTrackingStateEXT;
+
+typedef enum XrSpatialGraphNodeTypeMSFT
+{
+    XR_SPATIAL_GRAPH_NODE_TYPE_STATIC_MSFT = 1,
+    XR_SPATIAL_GRAPH_NODE_TYPE_DYNAMIC_MSFT = 2,
+    XR_SPATIAL_GRAPH_NODE_TYPE_MSFT_MAX_ENUM = 0x7fffffff,
+} XrSpatialGraphNodeTypeMSFT;
+
+typedef enum XrSpatialMarkerAprilTagDictEXT
+{
+    XR_SPATIAL_MARKER_APRIL_TAG_DICT_16H5_EXT = 1,
+    XR_SPATIAL_MARKER_APRIL_TAG_DICT_25H9_EXT = 2,
+    XR_SPATIAL_MARKER_APRIL_TAG_DICT_36H10_EXT = 3,
+    XR_SPATIAL_MARKER_APRIL_TAG_DICT_36H11_EXT = 4,
+    XR_SPATIAL_MARKER_APRIL_TAG_DICT_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialMarkerAprilTagDictEXT;
+
+typedef enum XrSpatialMarkerArucoDictEXT
+{
+    XR_SPATIAL_MARKER_ARUCO_DICT_4X4_50_EXT = 1,
+    XR_SPATIAL_MARKER_ARUCO_DICT_4X4_100_EXT = 2,
+    XR_SPATIAL_MARKER_ARUCO_DICT_4X4_250_EXT = 3,
+    XR_SPATIAL_MARKER_ARUCO_DICT_4X4_1000_EXT = 4,
+    XR_SPATIAL_MARKER_ARUCO_DICT_5X5_50_EXT = 5,
+    XR_SPATIAL_MARKER_ARUCO_DICT_5X5_100_EXT = 6,
+    XR_SPATIAL_MARKER_ARUCO_DICT_5X5_250_EXT = 7,
+    XR_SPATIAL_MARKER_ARUCO_DICT_5X5_1000_EXT = 8,
+    XR_SPATIAL_MARKER_ARUCO_DICT_6X6_50_EXT = 9,
+    XR_SPATIAL_MARKER_ARUCO_DICT_6X6_100_EXT = 10,
+    XR_SPATIAL_MARKER_ARUCO_DICT_6X6_250_EXT = 11,
+    XR_SPATIAL_MARKER_ARUCO_DICT_6X6_1000_EXT = 12,
+    XR_SPATIAL_MARKER_ARUCO_DICT_7X7_50_EXT = 13,
+    XR_SPATIAL_MARKER_ARUCO_DICT_7X7_100_EXT = 14,
+    XR_SPATIAL_MARKER_ARUCO_DICT_7X7_250_EXT = 15,
+    XR_SPATIAL_MARKER_ARUCO_DICT_7X7_1000_EXT = 16,
+    XR_SPATIAL_MARKER_ARUCO_DICT_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialMarkerArucoDictEXT;
+
+typedef enum XrSpatialMeshConfigFlagBitsBD
+{
+    XR_SPATIAL_MESH_CONFIG_SEMANTIC_BIT_BD = 0x00000001,
+    XR_SPATIAL_MESH_CONFIG_ALIGN_SEMANTIC_WITH_VERTEX_BIT_BD = 0x00000002,
+    XR_SPATIAL_MESH_CONFIG_FLAG_BITS_BD_MAX_ENUM = 0x7fffffff,
+} XrSpatialMeshConfigFlagBitsBD;
+
+typedef enum XrSpatialMeshLodBD
+{
+    XR_SPATIAL_MESH_LOD_COARSE_BD = 0,
+    XR_SPATIAL_MESH_LOD_MEDIUM_BD = 1,
+    XR_SPATIAL_MESH_LOD_FINE_BD = 2,
+    XR_SPATIAL_MESH_LOD_BD_MAX_ENUM = 0x7fffffff,
+} XrSpatialMeshLodBD;
+
+typedef enum XrSpatialObjectSemanticLabelANDROID
+{
+    XR_SPATIAL_OBJECT_SEMANTIC_LABEL_UNCATEGORIZED_ANDROID = 0,
+    XR_SPATIAL_OBJECT_SEMANTIC_LABEL_KEYBOARD_ANDROID = 1,
+    XR_SPATIAL_OBJECT_SEMANTIC_LABEL_MOUSE_ANDROID = 2,
+    XR_SPATIAL_OBJECT_SEMANTIC_LABEL_LAPTOP_BASE_ANDROID = 3,
+    XR_SPATIAL_OBJECT_SEMANTIC_LABEL_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrSpatialObjectSemanticLabelANDROID;
+
+typedef enum XrSpatialPersistenceContextResultEXT
+{
+    XR_SPATIAL_PERSISTENCE_CONTEXT_RESULT_PERSIST_UUID_NOT_FOUND_EXT = -1000781002,
+    XR_SPATIAL_PERSISTENCE_CONTEXT_RESULT_ENTITY_NOT_TRACKING_EXT = -1000781001,
+    XR_SPATIAL_PERSISTENCE_CONTEXT_RESULT_SUCCESS_EXT = 0,
+    XR_SPATIAL_PERSISTENCE_CONTEXT_RESULT_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialPersistenceContextResultEXT;
+
+typedef enum XrSpatialPersistenceScopeEXT
+{
+    XR_SPATIAL_PERSISTENCE_SCOPE_SYSTEM_MANAGED_EXT = 1,
+    XR_SPATIAL_PERSISTENCE_SCOPE_LOCAL_ANCHORS_EXT = 1000781000,
+    XR_SPATIAL_PERSISTENCE_SCOPE_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialPersistenceScopeEXT;
+
+typedef enum XrSpatialPersistenceStateEXT
+{
+    XR_SPATIAL_PERSISTENCE_STATE_LOADED_EXT = 1,
+    XR_SPATIAL_PERSISTENCE_STATE_NOT_FOUND_EXT = 2,
+    XR_SPATIAL_PERSISTENCE_STATE_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialPersistenceStateEXT;
+
+typedef enum XrSpatialPlaneAlignmentEXT
+{
+    XR_SPATIAL_PLANE_ALIGNMENT_HORIZONTAL_UPWARD_EXT = 0,
+    XR_SPATIAL_PLANE_ALIGNMENT_HORIZONTAL_DOWNWARD_EXT = 1,
+    XR_SPATIAL_PLANE_ALIGNMENT_VERTICAL_EXT = 2,
+    XR_SPATIAL_PLANE_ALIGNMENT_ARBITRARY_EXT = 3,
+    XR_SPATIAL_PLANE_ALIGNMENT_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialPlaneAlignmentEXT;
+
+typedef enum XrSpatialPlaneSemanticLabelEXT
+{
+    XR_SPATIAL_PLANE_SEMANTIC_LABEL_UNCATEGORIZED_EXT = 1,
+    XR_SPATIAL_PLANE_SEMANTIC_LABEL_FLOOR_EXT = 2,
+    XR_SPATIAL_PLANE_SEMANTIC_LABEL_WALL_EXT = 3,
+    XR_SPATIAL_PLANE_SEMANTIC_LABEL_CEILING_EXT = 4,
+    XR_SPATIAL_PLANE_SEMANTIC_LABEL_TABLE_EXT = 5,
+    XR_SPATIAL_PLANE_SEMANTIC_LABEL_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialPlaneSemanticLabelEXT;
+
+typedef enum XrSpatialReferenceImageFormatEXT
+{
+    XR_SPATIAL_REFERENCE_IMAGE_FORMAT_RGBA_8888_EXT = 1,
+    XR_SPATIAL_REFERENCE_IMAGE_FORMAT_RGB_888_EXT = 2,
+    XR_SPATIAL_REFERENCE_IMAGE_FORMAT_YUV_420_888_EXT = 3,
+    XR_SPATIAL_REFERENCE_IMAGE_FORMAT_EXT_MAX_ENUM = 0x7fffffff,
+} XrSpatialReferenceImageFormatEXT;
+
+typedef enum XrSphericalHarmonicsKindANDROID
+{
+    XR_SPHERICAL_HARMONICS_KIND_TOTAL_ANDROID = 0,
+    XR_SPHERICAL_HARMONICS_KIND_AMBIENT_ANDROID = 1,
+    XR_SPHERICAL_HARMONICS_KIND_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrSphericalHarmonicsKindANDROID;
+
+typedef enum XrSphericalHarmonicsKindBD
+{
+    XR_SPHERICAL_HARMONICS_KIND_TOTAL_BD = 0,
+    XR_SPHERICAL_HARMONICS_KIND_BD_MAX_ENUM = 0x7fffffff,
+} XrSphericalHarmonicsKindBD;
+
+typedef enum XrStructureType
+{
+    XR_TYPE_UNKNOWN = 0,
+    XR_TYPE_API_LAYER_PROPERTIES = 1,
+    XR_TYPE_EXTENSION_PROPERTIES = 2,
+    XR_TYPE_INSTANCE_CREATE_INFO = 3,
+    XR_TYPE_SYSTEM_GET_INFO = 4,
+    XR_TYPE_SYSTEM_PROPERTIES = 5,
+    XR_TYPE_VIEW_LOCATE_INFO = 6,
+    XR_TYPE_VIEW = 7,
+    XR_TYPE_SESSION_CREATE_INFO = 8,
+    XR_TYPE_SWAPCHAIN_CREATE_INFO = 9,
+    XR_TYPE_SESSION_BEGIN_INFO = 10,
+    XR_TYPE_VIEW_STATE = 11,
+    XR_TYPE_FRAME_END_INFO = 12,
+    XR_TYPE_HAPTIC_VIBRATION = 13,
+    XR_TYPE_EVENT_DATA_BUFFER = 16,
+    XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING = 17,
+    XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED = 18,
+    XR_TYPE_ACTION_STATE_BOOLEAN = 23,
+    XR_TYPE_ACTION_STATE_FLOAT = 24,
+    XR_TYPE_ACTION_STATE_VECTOR2F = 25,
+    XR_TYPE_ACTION_STATE_POSE = 27,
+    XR_TYPE_ACTION_SET_CREATE_INFO = 28,
+    XR_TYPE_ACTION_CREATE_INFO = 29,
+    XR_TYPE_INSTANCE_PROPERTIES = 32,
+    XR_TYPE_FRAME_WAIT_INFO = 33,
+    XR_TYPE_COMPOSITION_LAYER_PROJECTION = 35,
+    XR_TYPE_COMPOSITION_LAYER_QUAD = 36,
+    XR_TYPE_REFERENCE_SPACE_CREATE_INFO = 37,
+    XR_TYPE_ACTION_SPACE_CREATE_INFO = 38,
+    XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING = 40,
+    XR_TYPE_VIEW_CONFIGURATION_VIEW = 41,
+    XR_TYPE_SPACE_LOCATION = 42,
+    XR_TYPE_SPACE_VELOCITY = 43,
+    XR_TYPE_FRAME_STATE = 44,
+    XR_TYPE_VIEW_CONFIGURATION_PROPERTIES = 45,
+    XR_TYPE_FRAME_BEGIN_INFO = 46,
+    XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW = 48,
+    XR_TYPE_EVENT_DATA_EVENTS_LOST = 49,
+    XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING = 51,
+    XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED = 52,
+    XR_TYPE_INTERACTION_PROFILE_STATE = 53,
+    XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO = 55,
+    XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO = 56,
+    XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO = 57,
+    XR_TYPE_ACTION_STATE_GET_INFO = 58,
+    XR_TYPE_HAPTIC_ACTION_INFO = 59,
+    XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO = 60,
+    XR_TYPE_ACTIONS_SYNC_INFO = 61,
+    XR_TYPE_BOUND_SOURCES_FOR_ACTION_ENUMERATE_INFO = 62,
+    XR_TYPE_INPUT_SOURCE_LOCALIZED_NAME_GET_INFO = 63,
+    XR_TYPE_COMPOSITION_LAYER_CUBE_KHR = 1000006000,
+    XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR = 1000010000,
+    XR_TYPE_VULKAN_SWAPCHAIN_FORMAT_LIST_CREATE_INFO_KHR = 1000014000,
+    XR_TYPE_EVENT_DATA_PERF_SETTINGS_EXT = 1000015000,
+    XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR = 1000017000,
+    XR_TYPE_COMPOSITION_LAYER_EQUIRECT_KHR = 1000018000,
+    XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR = 1000023000,
+    XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR = 1000023001,
+    XR_TYPE_GRAPHICS_BINDING_OPENGL_XCB_KHR = 1000023002,
+    XR_TYPE_GRAPHICS_BINDING_OPENGL_WAYLAND_KHR = 1000023003,
+    XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR = 1000023004,
+    XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_KHR = 1000023005,
+    XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR = 1000025000,
+    XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR = 1000025001,
+    XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR = 1000025002,
+    XR_TYPE_GRAPHICS_BINDING_D3D11_KHR = 1000027000,
+    XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR = 1000027001,
+    XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR = 1000027002,
+    XR_TYPE_GRAPHICS_BINDING_D3D12_KHR = 1000028000,
+    XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR = 1000028001,
+    XR_TYPE_GRAPHICS_REQUIREMENTS_D3D12_KHR = 1000028002,
+    XR_TYPE_SYSTEM_EYE_GAZE_INTERACTION_PROPERTIES_EXT = 1000030000,
+    XR_TYPE_EYE_GAZE_SAMPLE_TIME_EXT = 1000030001,
+    XR_TYPE_VISIBILITY_MASK_KHR = 1000031000,
+    XR_TYPE_EVENT_DATA_VISIBILITY_MASK_CHANGED_KHR = 1000031001,
+    XR_TYPE_SESSION_CREATE_INFO_OVERLAY_EXTX = 1000033000,
+    XR_TYPE_EVENT_DATA_MAIN_SESSION_VISIBILITY_CHANGED_EXTX = 1000033003,
+    XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR = 1000034000,
+    XR_TYPE_SPATIAL_ANCHOR_CREATE_INFO_MSFT = 1000039000,
+    XR_TYPE_SPATIAL_ANCHOR_SPACE_CREATE_INFO_MSFT = 1000039001,
+    XR_TYPE_COMPOSITION_LAYER_IMAGE_LAYOUT_FB = 1000040000,
+    XR_TYPE_COMPOSITION_LAYER_ALPHA_BLEND_FB = 1000041001,
+    XR_TYPE_VIEW_CONFIGURATION_DEPTH_RANGE_EXT = 1000046000,
+    XR_TYPE_SPATIAL_GRAPH_NODE_SPACE_CREATE_INFO_MSFT = 1000049000,
+    XR_TYPE_SPATIAL_GRAPH_STATIC_NODE_BINDING_CREATE_INFO_MSFT = 1000049001,
+    XR_TYPE_SPATIAL_GRAPH_NODE_BINDING_PROPERTIES_GET_INFO_MSFT = 1000049002,
+    XR_TYPE_SPATIAL_GRAPH_NODE_BINDING_PROPERTIES_MSFT = 1000049003,
+    XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT = 1000051000,
+    XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT = 1000051001,
+    XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT = 1000051002,
+    XR_TYPE_HAND_JOINT_LOCATIONS_EXT = 1000051003,
+    XR_TYPE_HAND_JOINT_VELOCITIES_EXT = 1000051004,
+    XR_TYPE_SYSTEM_HAND_TRACKING_MESH_PROPERTIES_MSFT = 1000052000,
+    XR_TYPE_HAND_MESH_SPACE_CREATE_INFO_MSFT = 1000052001,
+    XR_TYPE_HAND_MESH_UPDATE_INFO_MSFT = 1000052002,
+    XR_TYPE_HAND_MESH_MSFT = 1000052003,
+    XR_TYPE_HAND_POSE_TYPE_INFO_MSFT = 1000052004,
+    XR_TYPE_SECONDARY_VIEW_CONFIGURATION_SESSION_BEGIN_INFO_MSFT = 1000053000,
+    XR_TYPE_SECONDARY_VIEW_CONFIGURATION_STATE_MSFT = 1000053001,
+    XR_TYPE_SECONDARY_VIEW_CONFIGURATION_FRAME_STATE_MSFT = 1000053002,
+    XR_TYPE_SECONDARY_VIEW_CONFIGURATION_FRAME_END_INFO_MSFT = 1000053003,
+    XR_TYPE_SECONDARY_VIEW_CONFIGURATION_LAYER_INFO_MSFT = 1000053004,
+    XR_TYPE_SECONDARY_VIEW_CONFIGURATION_SWAPCHAIN_CREATE_INFO_MSFT = 1000053005,
+    XR_TYPE_CONTROLLER_MODEL_KEY_STATE_MSFT = 1000055000,
+    XR_TYPE_CONTROLLER_MODEL_NODE_PROPERTIES_MSFT = 1000055001,
+    XR_TYPE_CONTROLLER_MODEL_PROPERTIES_MSFT = 1000055002,
+    XR_TYPE_CONTROLLER_MODEL_NODE_STATE_MSFT = 1000055003,
+    XR_TYPE_CONTROLLER_MODEL_STATE_MSFT = 1000055004,
+    XR_TYPE_VIEW_CONFIGURATION_VIEW_FOV_EPIC = 1000059000,
+    XR_TYPE_HOLOGRAPHIC_WINDOW_ATTACHMENT_MSFT = 1000063000,
+    XR_TYPE_COMPOSITION_LAYER_REPROJECTION_INFO_MSFT = 1000066000,
+    XR_TYPE_COMPOSITION_LAYER_REPROJECTION_PLANE_OVERRIDE_MSFT = 1000066001,
+    XR_TYPE_COMPOSITION_LAYER_SECURE_CONTENT_FB = 1000072000,
+    XR_TYPE_BODY_TRACKER_CREATE_INFO_FB = 1000076001,
+    XR_TYPE_BODY_JOINTS_LOCATE_INFO_FB = 1000076002,
+    XR_TYPE_SYSTEM_BODY_TRACKING_PROPERTIES_FB = 1000076004,
+    XR_TYPE_BODY_JOINT_LOCATIONS_FB = 1000076005,
+    XR_TYPE_BODY_SKELETON_FB = 1000076006,
+    XR_TYPE_INTERACTION_PROFILE_DPAD_BINDING_EXT = 1000078000,
+    XR_TYPE_INTERACTION_PROFILE_ANALOG_THRESHOLD_VALVE = 1000079000,
+    XR_TYPE_HAND_JOINTS_MOTION_RANGE_INFO_EXT = 1000080000,
+    XR_TYPE_VULKAN_INSTANCE_CREATE_INFO_KHR = 1000090000,
+    XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR = 1000090001,
+    XR_TYPE_VULKAN_GRAPHICS_DEVICE_GET_INFO_KHR = 1000090003,
+    XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR = 1000091000,
+    XR_TYPE_SCENE_OBSERVER_CREATE_INFO_MSFT = 1000097000,
+    XR_TYPE_SCENE_CREATE_INFO_MSFT = 1000097001,
+    XR_TYPE_NEW_SCENE_COMPUTE_INFO_MSFT = 1000097002,
+    XR_TYPE_VISUAL_MESH_COMPUTE_LOD_INFO_MSFT = 1000097003,
+    XR_TYPE_SCENE_COMPONENTS_MSFT = 1000097004,
+    XR_TYPE_SCENE_COMPONENTS_GET_INFO_MSFT = 1000097005,
+    XR_TYPE_SCENE_COMPONENT_LOCATIONS_MSFT = 1000097006,
+    XR_TYPE_SCENE_COMPONENTS_LOCATE_INFO_MSFT = 1000097007,
+    XR_TYPE_SCENE_OBJECTS_MSFT = 1000097008,
+    XR_TYPE_SCENE_COMPONENT_PARENT_FILTER_INFO_MSFT = 1000097009,
+    XR_TYPE_SCENE_OBJECT_TYPES_FILTER_INFO_MSFT = 1000097010,
+    XR_TYPE_SCENE_PLANES_MSFT = 1000097011,
+    XR_TYPE_SCENE_PLANE_ALIGNMENT_FILTER_INFO_MSFT = 1000097012,
+    XR_TYPE_SCENE_MESHES_MSFT = 1000097013,
+    XR_TYPE_SCENE_MESH_BUFFERS_GET_INFO_MSFT = 1000097014,
+    XR_TYPE_SCENE_MESH_BUFFERS_MSFT = 1000097015,
+    XR_TYPE_SCENE_MESH_VERTEX_BUFFER_MSFT = 1000097016,
+    XR_TYPE_SCENE_MESH_INDICES_UINT32_MSFT = 1000097017,
+    XR_TYPE_SCENE_MESH_INDICES_UINT16_MSFT = 1000097018,
+    XR_TYPE_SERIALIZED_SCENE_FRAGMENT_DATA_GET_INFO_MSFT = 1000098000,
+    XR_TYPE_SCENE_DESERIALIZE_INFO_MSFT = 1000098001,
+    XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB = 1000101000,
+    XR_TYPE_VIVE_TRACKER_PATHS_HTCX = 1000103000,
+    XR_TYPE_EVENT_DATA_VIVE_TRACKER_CONNECTED_HTCX = 1000103001,
+    XR_TYPE_SYSTEM_FACIAL_TRACKING_PROPERTIES_HTC = 1000104000,
+    XR_TYPE_FACIAL_TRACKER_CREATE_INFO_HTC = 1000104001,
+    XR_TYPE_FACIAL_EXPRESSIONS_HTC = 1000104002,
+    XR_TYPE_SYSTEM_COLOR_SPACE_PROPERTIES_FB = 1000108000,
+    XR_TYPE_HAND_TRACKING_MESH_FB = 1000110001,
+    XR_TYPE_HAND_TRACKING_SCALE_FB = 1000110003,
+    XR_TYPE_HAND_TRACKING_AIM_STATE_FB = 1000111001,
+    XR_TYPE_HAND_TRACKING_CAPSULES_STATE_FB = 1000112000,
+    XR_TYPE_SPACE_COMPONENT_STATUS_FB = 1000113001,
+    XR_TYPE_SPATIAL_ANCHOR_CREATE_INFO_FB = 1000113003,
+    XR_TYPE_SYSTEM_SPATIAL_ENTITY_PROPERTIES_FB = 1000113004,
+    XR_TYPE_EVENT_DATA_SPATIAL_ANCHOR_CREATE_COMPLETE_FB = 1000113005,
+    XR_TYPE_EVENT_DATA_SPACE_SET_STATUS_COMPLETE_FB = 1000113006,
+    XR_TYPE_SPACE_COMPONENT_STATUS_SET_INFO_FB = 1000113007,
+    XR_TYPE_FOVEATION_PROFILE_CREATE_INFO_FB = 1000114000,
+    XR_TYPE_SWAPCHAIN_CREATE_INFO_FOVEATION_FB = 1000114001,
+    XR_TYPE_SWAPCHAIN_STATE_FOVEATION_FB = 1000114002,
+    XR_TYPE_FOVEATION_LEVEL_PROFILE_CREATE_INFO_FB = 1000115000,
+    XR_TYPE_SYSTEM_KEYBOARD_TRACKING_PROPERTIES_FB = 1000116002,
+    XR_TYPE_KEYBOARD_TRACKING_QUERY_FB = 1000116004,
+    XR_TYPE_KEYBOARD_SPACE_CREATE_INFO_FB = 1000116009,
+    XR_TYPE_SYSTEM_PASSTHROUGH_PROPERTIES_FB = 1000118000,
+    XR_TYPE_PASSTHROUGH_CREATE_INFO_FB = 1000118001,
+    XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB = 1000118002,
+    XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB = 1000118003,
+    XR_TYPE_GEOMETRY_INSTANCE_CREATE_INFO_FB = 1000118004,
+    XR_TYPE_GEOMETRY_INSTANCE_TRANSFORM_FB = 1000118005,
+    XR_TYPE_SYSTEM_PASSTHROUGH_PROPERTIES2_FB = 1000118006,
+    XR_TYPE_PASSTHROUGH_STYLE_FB = 1000118020,
+    XR_TYPE_PASSTHROUGH_COLOR_MAP_MONO_TO_RGBA_FB = 1000118021,
+    XR_TYPE_PASSTHROUGH_COLOR_MAP_MONO_TO_MONO_FB = 1000118022,
+    XR_TYPE_PASSTHROUGH_BRIGHTNESS_CONTRAST_SATURATION_FB = 1000118023,
+    XR_TYPE_EVENT_DATA_PASSTHROUGH_STATE_CHANGED_FB = 1000118030,
+    XR_TYPE_RENDER_MODEL_PATH_INFO_FB = 1000119000,
+    XR_TYPE_RENDER_MODEL_PROPERTIES_FB = 1000119001,
+    XR_TYPE_RENDER_MODEL_BUFFER_FB = 1000119002,
+    XR_TYPE_RENDER_MODEL_LOAD_INFO_FB = 1000119003,
+    XR_TYPE_SYSTEM_RENDER_MODEL_PROPERTIES_FB = 1000119004,
+    XR_TYPE_RENDER_MODEL_CAPABILITIES_REQUEST_FB = 1000119005,
+    XR_TYPE_BINDING_MODIFICATIONS_KHR = 1000120000,
+    XR_TYPE_VIEW_LOCATE_FOVEATED_RENDERING_VARJO = 1000121000,
+    XR_TYPE_FOVEATED_VIEW_CONFIGURATION_VIEW_VARJO = 1000121001,
+    XR_TYPE_SYSTEM_FOVEATED_RENDERING_PROPERTIES_VARJO = 1000121002,
+    XR_TYPE_COMPOSITION_LAYER_DEPTH_TEST_VARJO = 1000122000,
+    XR_TYPE_SYSTEM_MARKER_TRACKING_PROPERTIES_VARJO = 1000124000,
+    XR_TYPE_EVENT_DATA_MARKER_TRACKING_UPDATE_VARJO = 1000124001,
+    XR_TYPE_MARKER_SPACE_CREATE_INFO_VARJO = 1000124002,
+    XR_TYPE_FRAME_END_INFO_ML = 1000135000,
+    XR_TYPE_GLOBAL_DIMMER_FRAME_END_INFO_ML = 1000136000,
+    XR_TYPE_SYSTEM_MARKER_UNDERSTANDING_PROPERTIES_ML = 1000138000,
+    XR_TYPE_MARKER_DETECTOR_CREATE_INFO_ML = 1000138001,
+    XR_TYPE_MARKER_DETECTOR_ARUCO_INFO_ML = 1000138002,
+    XR_TYPE_MARKER_DETECTOR_SIZE_INFO_ML = 1000138003,
+    XR_TYPE_MARKER_DETECTOR_APRIL_TAG_INFO_ML = 1000138004,
+    XR_TYPE_MARKER_DETECTOR_CUSTOM_PROFILE_INFO_ML = 1000138005,
+    XR_TYPE_MARKER_DETECTOR_SNAPSHOT_INFO_ML = 1000138006,
+    XR_TYPE_MARKER_DETECTOR_STATE_ML = 1000138007,
+    XR_TYPE_MARKER_SPACE_CREATE_INFO_ML = 1000138008,
+    XR_TYPE_LOCALIZATION_MAP_ML = 1000139000,
+    XR_TYPE_EVENT_DATA_LOCALIZATION_CHANGED_ML = 1000139001,
+    XR_TYPE_MAP_LOCALIZATION_REQUEST_INFO_ML = 1000139002,
+    XR_TYPE_LOCALIZATION_MAP_IMPORT_INFO_ML = 1000139003,
+    XR_TYPE_LOCALIZATION_ENABLE_EVENTS_INFO_ML = 1000139004,
+    XR_TYPE_SPATIAL_ANCHORS_CREATE_INFO_FROM_POSE_ML = 1000140000,
+    XR_TYPE_CREATE_SPATIAL_ANCHORS_COMPLETION_ML = 1000140001,
+    XR_TYPE_SPATIAL_ANCHOR_STATE_ML = 1000140002,
+    XR_TYPE_SPATIAL_ANCHORS_CREATE_STORAGE_INFO_ML = 1000141000,
+    XR_TYPE_SPATIAL_ANCHORS_QUERY_INFO_RADIUS_ML = 1000141001,
+    XR_TYPE_SPATIAL_ANCHORS_QUERY_COMPLETION_ML = 1000141002,
+    XR_TYPE_SPATIAL_ANCHORS_CREATE_INFO_FROM_UUIDS_ML = 1000141003,
+    XR_TYPE_SPATIAL_ANCHORS_PUBLISH_INFO_ML = 1000141004,
+    XR_TYPE_SPATIAL_ANCHORS_PUBLISH_COMPLETION_ML = 1000141005,
+    XR_TYPE_SPATIAL_ANCHORS_DELETE_INFO_ML = 1000141006,
+    XR_TYPE_SPATIAL_ANCHORS_DELETE_COMPLETION_ML = 1000141007,
+    XR_TYPE_SPATIAL_ANCHORS_UPDATE_EXPIRATION_INFO_ML = 1000141008,
+    XR_TYPE_SPATIAL_ANCHORS_UPDATE_EXPIRATION_COMPLETION_ML = 1000141009,
+    XR_TYPE_SPATIAL_ANCHORS_PUBLISH_COMPLETION_DETAILS_ML = 1000141010,
+    XR_TYPE_SPATIAL_ANCHORS_DELETE_COMPLETION_DETAILS_ML = 1000141011,
+    XR_TYPE_SPATIAL_ANCHORS_UPDATE_EXPIRATION_COMPLETION_DETAILS_ML = 1000141012,
+    XR_TYPE_SPATIAL_ANCHOR_PERSISTENCE_INFO_MSFT = 1000142000,
+    XR_TYPE_SPATIAL_ANCHOR_FROM_PERSISTED_ANCHOR_CREATE_INFO_MSFT = 1000142001,
+    XR_TYPE_SCENE_MARKERS_MSFT = 1000147000,
+    XR_TYPE_SCENE_MARKER_TYPE_FILTER_MSFT = 1000147001,
+    XR_TYPE_SCENE_MARKER_QR_CODES_MSFT = 1000147002,
+    XR_TYPE_SPACE_QUERY_INFO_FB = 1000156001,
+    XR_TYPE_SPACE_QUERY_RESULTS_FB = 1000156002,
+    XR_TYPE_SPACE_STORAGE_LOCATION_FILTER_INFO_FB = 1000156003,
+    XR_TYPE_SPACE_COMPONENT_FILTER_INFO_FB = 1000156052,
+    XR_TYPE_SPACE_UUID_FILTER_INFO_FB = 1000156054,
+    XR_TYPE_EVENT_DATA_SPACE_QUERY_RESULTS_AVAILABLE_FB = 1000156103,
+    XR_TYPE_EVENT_DATA_SPACE_QUERY_COMPLETE_FB = 1000156104,
+    XR_TYPE_SPACE_SAVE_INFO_FB = 1000158000,
+    XR_TYPE_SPACE_ERASE_INFO_FB = 1000158001,
+    XR_TYPE_EVENT_DATA_SPACE_SAVE_COMPLETE_FB = 1000158106,
+    XR_TYPE_EVENT_DATA_SPACE_ERASE_COMPLETE_FB = 1000158107,
+    XR_TYPE_SWAPCHAIN_IMAGE_FOVEATION_VULKAN_FB = 1000160000,
+    XR_TYPE_SWAPCHAIN_STATE_SAMPLER_VULKAN_FB = 1000163000,
+    XR_TYPE_SPACE_SHARE_INFO_FB = 1000169001,
+    XR_TYPE_EVENT_DATA_SPACE_SHARE_COMPLETE_FB = 1000169002,
+    XR_TYPE_COMPOSITION_LAYER_SPACE_WARP_INFO_FB = 1000171000,
+    XR_TYPE_SYSTEM_SPACE_WARP_PROPERTIES_FB = 1000171001,
+    XR_TYPE_HAPTIC_AMPLITUDE_ENVELOPE_VIBRATION_FB = 1000173001,
+    XR_TYPE_SEMANTIC_LABELS_FB = 1000175000,
+    XR_TYPE_ROOM_LAYOUT_FB = 1000175001,
+    XR_TYPE_BOUNDARY_2D_FB = 1000175002,
+    XR_TYPE_SEMANTIC_LABELS_SUPPORT_INFO_FB = 1000175010,
+    XR_TYPE_DIGITAL_LENS_CONTROL_ALMALENCE = 1000196000,
+    XR_TYPE_EVENT_DATA_SCENE_CAPTURE_COMPLETE_FB = 1000198001,
+    XR_TYPE_SCENE_CAPTURE_REQUEST_INFO_FB = 1000198050,
+    XR_TYPE_SPACE_CONTAINER_FB = 1000199000,
+    XR_TYPE_FOVEATION_EYE_TRACKED_PROFILE_CREATE_INFO_META = 1000200000,
+    XR_TYPE_FOVEATION_EYE_TRACKED_STATE_META = 1000200001,
+    XR_TYPE_SYSTEM_FOVEATION_EYE_TRACKED_PROPERTIES_META = 1000200002,
+    XR_TYPE_FACE_EXPRESSION_INFO_FB = 1000201002,
+    XR_TYPE_SYSTEM_FACE_TRACKING_PROPERTIES_FB = 1000201004,
+    XR_TYPE_FACE_TRACKER_CREATE_INFO_FB = 1000201005,
+    XR_TYPE_FACE_EXPRESSION_WEIGHTS_FB = 1000201006,
+    XR_TYPE_EYE_TRACKER_CREATE_INFO_FB = 1000202001,
+    XR_TYPE_EYE_GAZES_INFO_FB = 1000202002,
+    XR_TYPE_EYE_GAZES_FB = 1000202003,
+    XR_TYPE_SYSTEM_EYE_TRACKING_PROPERTIES_FB = 1000202004,
+    XR_TYPE_PASSTHROUGH_KEYBOARD_HANDS_INTENSITY_FB = 1000203002,
+    XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB = 1000204000,
+    XR_TYPE_HAPTIC_PCM_VIBRATION_FB = 1000209001,
+    XR_TYPE_DEVICE_PCM_SAMPLE_RATE_STATE_FB = 1000209002,
+    XR_TYPE_FRAME_SYNTHESIS_INFO_EXT = 1000211000,
+    XR_TYPE_FRAME_SYNTHESIS_CONFIG_VIEW_EXT = 1000211001,
+    XR_TYPE_COMPOSITION_LAYER_DEPTH_TEST_FB = 1000212000,
+    XR_TYPE_LOCAL_DIMMING_FRAME_END_INFO_META = 1000216000,
+    XR_TYPE_PASSTHROUGH_PREFERENCES_META = 1000217000,
+    XR_TYPE_SYSTEM_VIRTUAL_KEYBOARD_PROPERTIES_META = 1000219001,
+    XR_TYPE_VIRTUAL_KEYBOARD_CREATE_INFO_META = 1000219002,
+    XR_TYPE_VIRTUAL_KEYBOARD_SPACE_CREATE_INFO_META = 1000219003,
+    XR_TYPE_VIRTUAL_KEYBOARD_LOCATION_INFO_META = 1000219004,
+    XR_TYPE_VIRTUAL_KEYBOARD_MODEL_VISIBILITY_SET_INFO_META = 1000219005,
+    XR_TYPE_VIRTUAL_KEYBOARD_ANIMATION_STATE_META = 1000219006,
+    XR_TYPE_VIRTUAL_KEYBOARD_MODEL_ANIMATION_STATES_META = 1000219007,
+    XR_TYPE_VIRTUAL_KEYBOARD_TEXTURE_DATA_META = 1000219009,
+    XR_TYPE_VIRTUAL_KEYBOARD_INPUT_INFO_META = 1000219010,
+    XR_TYPE_VIRTUAL_KEYBOARD_TEXT_CONTEXT_CHANGE_INFO_META = 1000219011,
+    XR_TYPE_EVENT_DATA_VIRTUAL_KEYBOARD_COMMIT_TEXT_META = 1000219014,
+    XR_TYPE_EVENT_DATA_VIRTUAL_KEYBOARD_BACKSPACE_META = 1000219015,
+    XR_TYPE_EVENT_DATA_VIRTUAL_KEYBOARD_ENTER_META = 1000219016,
+    XR_TYPE_EVENT_DATA_VIRTUAL_KEYBOARD_SHOWN_META = 1000219017,
+    XR_TYPE_EVENT_DATA_VIRTUAL_KEYBOARD_HIDDEN_META = 1000219018,
+    XR_TYPE_EXTERNAL_CAMERA_OCULUS = 1000226000,
+    XR_TYPE_VULKAN_SWAPCHAIN_CREATE_INFO_META = 1000227000,
+    XR_TYPE_PERFORMANCE_METRICS_STATE_META = 1000232001,
+    XR_TYPE_PERFORMANCE_METRICS_COUNTER_META = 1000232002,
+    XR_TYPE_SPACE_LIST_SAVE_INFO_FB = 1000238000,
+    XR_TYPE_EVENT_DATA_SPACE_LIST_SAVE_COMPLETE_FB = 1000238001,
+    XR_TYPE_SPACE_USER_CREATE_INFO_FB = 1000241001,
+    XR_TYPE_SYSTEM_HEADSET_ID_PROPERTIES_META = 1000245000,
+    XR_TYPE_RECOMMENDED_LAYER_RESOLUTION_META = 1000254000,
+    XR_TYPE_RECOMMENDED_LAYER_RESOLUTION_GET_INFO_META = 1000254001,
+    XR_TYPE_SYSTEM_SPACE_PERSISTENCE_PROPERTIES_META = 1000259000,
+    XR_TYPE_SPACES_SAVE_INFO_META = 1000259001,
+    XR_TYPE_EVENT_DATA_SPACES_SAVE_RESULT_META = 1000259002,
+    XR_TYPE_SPACES_ERASE_INFO_META = 1000259003,
+    XR_TYPE_EVENT_DATA_SPACES_ERASE_RESULT_META = 1000259004,
+    XR_TYPE_SYSTEM_PASSTHROUGH_COLOR_LUT_PROPERTIES_META = 1000266000,
+    XR_TYPE_PASSTHROUGH_COLOR_LUT_CREATE_INFO_META = 1000266001,
+    XR_TYPE_PASSTHROUGH_COLOR_LUT_UPDATE_INFO_META = 1000266002,
+    XR_TYPE_PASSTHROUGH_COLOR_MAP_LUT_META = 1000266100,
+    XR_TYPE_PASSTHROUGH_COLOR_MAP_INTERPOLATED_LUT_META = 1000266101,
+    XR_TYPE_SPACE_TRIANGLE_MESH_GET_INFO_META = 1000269001,
+    XR_TYPE_SPACE_TRIANGLE_MESH_META = 1000269002,
+    XR_TYPE_SYSTEM_PROPERTIES_BODY_TRACKING_FULL_BODY_META = 1000274000,
+    XR_TYPE_EVENT_DATA_PASSTHROUGH_LAYER_RESUMED_META = 1000282000,
+    XR_TYPE_BODY_TRACKING_CALIBRATION_INFO_META = 1000283002,
+    XR_TYPE_BODY_TRACKING_CALIBRATION_STATUS_META = 1000283003,
+    XR_TYPE_SYSTEM_PROPERTIES_BODY_TRACKING_CALIBRATION_META = 1000283004,
+    XR_TYPE_BODY_TRACKING_FIDELITY_STATUS_META = 1000284000,
+    XR_TYPE_SYSTEM_PROPERTIES_BODY_TRACKING_FIDELITY_META = 1000284001,
+    XR_TYPE_SYSTEM_FACE_TRACKING_PROPERTIES2_FB = 1000287013,
+    XR_TYPE_FACE_TRACKER_CREATE_INFO2_FB = 1000287014,
+    XR_TYPE_FACE_EXPRESSION_INFO2_FB = 1000287015,
+    XR_TYPE_FACE_EXPRESSION_WEIGHTS2_FB = 1000287016,
+    XR_TYPE_SYSTEM_SPATIAL_ENTITY_SHARING_PROPERTIES_META = 1000290000,
+    XR_TYPE_SHARE_SPACES_INFO_META = 1000290001,
+    XR_TYPE_EVENT_DATA_SHARE_SPACES_COMPLETE_META = 1000290002,
+    XR_TYPE_RENDER_MODEL_CREATE_INFO_EXT = 1000300000,
+    XR_TYPE_RENDER_MODEL_PROPERTIES_GET_INFO_EXT = 1000300001,
+    XR_TYPE_RENDER_MODEL_PROPERTIES_EXT = 1000300002,
+    XR_TYPE_RENDER_MODEL_SPACE_CREATE_INFO_EXT = 1000300003,
+    XR_TYPE_RENDER_MODEL_STATE_GET_INFO_EXT = 1000300004,
+    XR_TYPE_RENDER_MODEL_STATE_EXT = 1000300005,
+    XR_TYPE_RENDER_MODEL_ASSET_CREATE_INFO_EXT = 1000300006,
+    XR_TYPE_RENDER_MODEL_ASSET_DATA_GET_INFO_EXT = 1000300007,
+    XR_TYPE_RENDER_MODEL_ASSET_DATA_EXT = 1000300008,
+    XR_TYPE_RENDER_MODEL_ASSET_PROPERTIES_GET_INFO_EXT = 1000300009,
+    XR_TYPE_RENDER_MODEL_ASSET_PROPERTIES_EXT = 1000300010,
+    XR_TYPE_INTERACTION_RENDER_MODEL_IDS_ENUMERATE_INFO_EXT = 1000301000,
+    XR_TYPE_INTERACTION_RENDER_MODEL_SUBACTION_PATH_INFO_EXT = 1000301001,
+    XR_TYPE_EVENT_DATA_INTERACTION_RENDER_MODELS_CHANGED_EXT = 1000301002,
+    XR_TYPE_INTERACTION_RENDER_MODEL_TOP_LEVEL_USER_PATH_GET_INFO_EXT = 1000301003,
+    XR_TYPE_PASSTHROUGH_CREATE_INFO_HTC = 1000317001,
+    XR_TYPE_PASSTHROUGH_COLOR_HTC = 1000317002,
+    XR_TYPE_PASSTHROUGH_MESH_TRANSFORM_INFO_HTC = 1000317003,
+    XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_HTC = 1000317004,
+    XR_TYPE_SYSTEM_ANCHOR_PROPERTIES_HTC = 1000319000,
+    XR_TYPE_SPATIAL_ANCHOR_CREATE_INFO_HTC = 1000319001,
+    XR_TYPE_SYSTEM_BODY_TRACKING_PROPERTIES_HTC = 1000320000,
+    XR_TYPE_BODY_TRACKER_CREATE_INFO_HTC = 1000320001,
+    XR_TYPE_BODY_JOINTS_LOCATE_INFO_HTC = 1000320002,
+    XR_TYPE_BODY_JOINT_LOCATIONS_HTC = 1000320003,
+    XR_TYPE_BODY_SKELETON_HTC = 1000320004,
+    XR_TYPE_ACTIVE_ACTION_SET_PRIORITIES_EXT = 1000373000,
+    XR_TYPE_SYSTEM_FORCE_FEEDBACK_CURL_PROPERTIES_MNDX = 1000375000,
+    XR_TYPE_FORCE_FEEDBACK_CURL_APPLY_LOCATIONS_MNDX = 1000375001,
+    XR_TYPE_BODY_TRACKER_CREATE_INFO_BD = 1000385001,
+    XR_TYPE_BODY_JOINTS_LOCATE_INFO_BD = 1000385002,
+    XR_TYPE_BODY_JOINT_LOCATIONS_BD = 1000385003,
+    XR_TYPE_SYSTEM_BODY_TRACKING_PROPERTIES_BD = 1000385004,
+    XR_TYPE_SYSTEM_FACIAL_SIMULATION_PROPERTIES_BD = 1000386001,
+    XR_TYPE_FACE_TRACKER_CREATE_INFO_BD = 1000386002,
+    XR_TYPE_FACIAL_SIMULATION_DATA_GET_INFO_BD = 1000386003,
+    XR_TYPE_FACIAL_SIMULATION_DATA_BD = 1000386004,
+    XR_TYPE_LIP_EXPRESSION_DATA_BD = 1000386005,
+    XR_TYPE_SYSTEM_SPATIAL_SENSING_PROPERTIES_BD = 1000389000,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_GET_INFO_BD = 1000389001,
+    XR_TYPE_SPATIAL_ENTITY_LOCATION_GET_INFO_BD = 1000389002,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_LOCATION_BD = 1000389003,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_SEMANTIC_BD = 1000389004,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_BOUNDING_BOX_2D_BD = 1000389005,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_POLYGON_BD = 1000389006,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_BOUNDING_BOX_3D_BD = 1000389007,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_TRIANGLE_MESH_BD = 1000389008,
+    XR_TYPE_SENSE_DATA_PROVIDER_CREATE_INFO_BD = 1000389009,
+    XR_TYPE_SENSE_DATA_PROVIDER_START_INFO_BD = 1000389010,
+    XR_TYPE_EVENT_DATA_SENSE_DATA_PROVIDER_STATE_CHANGED_BD = 1000389011,
+    XR_TYPE_EVENT_DATA_SENSE_DATA_UPDATED_BD = 1000389012,
+    XR_TYPE_SENSE_DATA_QUERY_INFO_BD = 1000389013,
+    XR_TYPE_SENSE_DATA_QUERY_COMPLETION_BD = 1000389014,
+    XR_TYPE_SENSE_DATA_FILTER_UUID_BD = 1000389015,
+    XR_TYPE_SENSE_DATA_FILTER_SEMANTIC_BD = 1000389016,
+    XR_TYPE_QUERIED_SENSE_DATA_GET_INFO_BD = 1000389017,
+    XR_TYPE_QUERIED_SENSE_DATA_BD = 1000389018,
+    XR_TYPE_SPATIAL_ENTITY_STATE_BD = 1000389019,
+    XR_TYPE_SPATIAL_ENTITY_ANCHOR_CREATE_INFO_BD = 1000389020,
+    XR_TYPE_ANCHOR_SPACE_CREATE_INFO_BD = 1000389021,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_SPHERE_BD = 1000389022,
+    XR_TYPE_SYSTEM_SPATIAL_ANCHOR_PROPERTIES_BD = 1000390000,
+    XR_TYPE_SPATIAL_ANCHOR_CREATE_INFO_BD = 1000390001,
+    XR_TYPE_SPATIAL_ANCHOR_CREATE_COMPLETION_BD = 1000390002,
+    XR_TYPE_SPATIAL_ANCHOR_PERSIST_INFO_BD = 1000390003,
+    XR_TYPE_SPATIAL_ANCHOR_UNPERSIST_INFO_BD = 1000390004,
+    XR_TYPE_SYSTEM_SPATIAL_ANCHOR_SHARING_PROPERTIES_BD = 1000391000,
+    XR_TYPE_SPATIAL_ANCHOR_SHARE_INFO_BD = 1000391001,
+    XR_TYPE_SHARED_SPATIAL_ANCHOR_DOWNLOAD_INFO_BD = 1000391002,
+    XR_TYPE_SYSTEM_SPATIAL_SCENE_PROPERTIES_BD = 1000392000,
+    XR_TYPE_SCENE_CAPTURE_INFO_BD = 1000392001,
+    XR_TYPE_SYSTEM_SPATIAL_MESH_PROPERTIES_BD = 1000393000,
+    XR_TYPE_SENSE_DATA_PROVIDER_CREATE_INFO_SPATIAL_MESH_BD = 1000393001,
+    XR_TYPE_FUTURE_POLL_RESULT_PROGRESS_BD = 1000394001,
+    XR_TYPE_BODY_TRACKING_POSTURE_DATA_BD = 1000395001,
+    XR_TYPE_BODY_JOINT_VELOCITIES_BD = 1000395002,
+    XR_TYPE_BODY_JOINT_ACCELERATIONS_BD = 1000395003,
+    XR_TYPE_BODY_TRACKING_STATE_BD = 1000395004,
+    XR_TYPE_SYSTEM_SPATIAL_PLANE_PROPERTIES_BD = 1000396000,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_PLANE_ORIENTATION_BD = 1000396001,
+    XR_TYPE_SENSE_DATA_FILTER_PLANE_ORIENTATION_BD = 1000396002,
+    XR_TYPE_SYSTEM_LIGHT_ESTIMATION_PROPERTIES_BD = 1000397000,
+    XR_TYPE_SENSE_DATA_PROVIDER_CREATE_INFO_LIGHT_ESTIMATION_BD = 1000397001,
+    XR_TYPE_ENVIRONMENT_TEXTURE_CREATE_CONFIG_INFO_BD = 1000397002,
+    XR_TYPE_LIGHT_ESTIMATION_DATA_ENVIRONMENT_TEXTURE_RAW_BD = 1000397003,
+    XR_TYPE_LIGHT_ESTIMATION_DATA_SPHERICAL_HARMONICS_BD = 1000397005,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_LIGHT_ESTIMATION_BD = 1000397006,
+    XR_TYPE_SPATIAL_AUDIO_RENDERER_CREATE_INFO_BD = 1000409000,
+    XR_TYPE_AUDIO_BUFFER_BD = 1000409001,
+    XR_TYPE_SOUND_OBJECT_DIRECTIVITY_CARDIOID_BD = 1000409003,
+    XR_TYPE_SOUND_OBJECT_SHAPE_SPHERE_BD = 1000409004,
+    XR_TYPE_SOUND_OBJECT_DISTANCE_ATTENUATION_BD = 1000409005,
+    XR_TYPE_SOUND_OBJECT_DISTANCE_ATTENUATION_CURVE_BD = 1000409006,
+    XR_TYPE_SOUND_OBJECT_CONFIG_BD = 1000409007,
+    XR_TYPE_SOUND_FIELD_CONFIG_BD = 1000409008,
+    XR_TYPE_SOUND_FIELD_CHANNEL_DEFINITION_SURROUND_BD = 1000409009,
+    XR_TYPE_SOUND_FIELD_CHANNEL_DEFINITION_AMBIX_BD = 1000409010,
+    XR_TYPE_SOUND_FIELD_CHANNEL_DEFINITION_FUMA_BD = 1000409011,
+    XR_TYPE_SOUND_TRIANGLE_MESH_BD = 1000409012,
+    XR_TYPE_SOUND_OBSTACLE_CONFIG_BD = 1000409013,
+    XR_TYPE_SOUND_OBSTACLE_MATERIAL_CONFIG_BD = 1000409014,
+    XR_TYPE_HAND_TRACKING_DATA_SOURCE_INFO_EXT = 1000428000,
+    XR_TYPE_HAND_TRACKING_DATA_SOURCE_STATE_EXT = 1000428001,
+    XR_TYPE_PLANE_DETECTOR_CREATE_INFO_EXT = 1000429001,
+    XR_TYPE_PLANE_DETECTOR_BEGIN_INFO_EXT = 1000429002,
+    XR_TYPE_PLANE_DETECTOR_GET_INFO_EXT = 1000429003,
+    XR_TYPE_PLANE_DETECTOR_LOCATIONS_EXT = 1000429004,
+    XR_TYPE_PLANE_DETECTOR_LOCATION_EXT = 1000429005,
+    XR_TYPE_PLANE_DETECTOR_POLYGON_BUFFER_EXT = 1000429006,
+    XR_TYPE_SYSTEM_PLANE_DETECTION_PROPERTIES_EXT = 1000429007,
+    XR_TYPE_TRACKABLE_GET_INFO_ANDROID = 1000455000,
+    XR_TYPE_ANCHOR_SPACE_CREATE_INFO_ANDROID = 1000455001,
+    XR_TYPE_TRACKABLE_PLANE_ANDROID = 1000455003,
+    XR_TYPE_TRACKABLE_TRACKER_CREATE_INFO_ANDROID = 1000455004,
+    XR_TYPE_SYSTEM_TRACKABLES_PROPERTIES_ANDROID = 1000455005,
+    XR_TYPE_EYES_ANDROID = 1000456000,
+    XR_TYPE_EYE_TRACKER_CREATE_INFO_ANDROID = 1000456001,
+    XR_TYPE_EYES_GET_INFO_ANDROID = 1000456002,
+    XR_TYPE_SYSTEM_EYE_TRACKING_PROPERTIES_ANDROID = 1000456004,
+    XR_TYPE_PERSISTED_ANCHOR_SPACE_CREATE_INFO_ANDROID = 1000457001,
+    XR_TYPE_PERSISTED_ANCHOR_SPACE_INFO_ANDROID = 1000457002,
+    XR_TYPE_DEVICE_ANCHOR_PERSISTENCE_CREATE_INFO_ANDROID = 1000457003,
+    XR_TYPE_SYSTEM_DEVICE_ANCHOR_PERSISTENCE_PROPERTIES_ANDROID = 1000457004,
+    XR_TYPE_FACE_TRACKER_CREATE_INFO_ANDROID = 1000458000,
+    XR_TYPE_FACE_STATE_GET_INFO_ANDROID = 1000458001,
+    XR_TYPE_FACE_STATE_ANDROID = 1000458002,
+    XR_TYPE_SYSTEM_FACE_TRACKING_PROPERTIES_ANDROID = 1000458003,
+    XR_TYPE_PASSTHROUGH_CAMERA_STATE_GET_INFO_ANDROID = 1000460000,
+    XR_TYPE_SYSTEM_PASSTHROUGH_CAMERA_STATE_PROPERTIES_ANDROID = 1000460001,
+    XR_TYPE_EVENT_DATA_RECOMMENDED_RESOLUTION_CHANGED_ANDROID = 1000461000,
+    XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_ANDROID = 1000462000,
+    XR_TYPE_PASSTHROUGH_LAYER_MESH_ANDROID = 1000462001,
+    XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_ANDROID = 1000462002,
+    XR_TYPE_SYSTEM_PASSTHROUGH_LAYER_PROPERTIES_ANDROID = 1000462003,
+    XR_TYPE_RAYCAST_INFO_ANDROID = 1000463000,
+    XR_TYPE_RAYCAST_HIT_RESULTS_ANDROID = 1000463001,
+    XR_TYPE_PERFORMANCE_METRICS_STATE_ANDROID = 1000465000,
+    XR_TYPE_PERFORMANCE_METRICS_COUNTER_ANDROID = 1000465001,
+    XR_TYPE_TRACKABLE_OBJECT_ANDROID = 1000466000,
+    XR_TYPE_TRACKABLE_OBJECT_CONFIGURATION_ANDROID = 1000466001,
+    XR_TYPE_FUTURE_CANCEL_INFO_EXT = 1000469000,
+    XR_TYPE_FUTURE_POLL_INFO_EXT = 1000469001,
+    XR_TYPE_FUTURE_COMPLETION_EXT = 1000469002,
+    XR_TYPE_FUTURE_POLL_RESULT_EXT = 1000469003,
+    XR_TYPE_EVENT_DATA_USER_PRESENCE_CHANGED_EXT = 1000470000,
+    XR_TYPE_SYSTEM_USER_PRESENCE_PROPERTIES_EXT = 1000470001,
+    XR_TYPE_SPACES_LOCATE_INFO = 1000471000,
+    XR_TYPE_SPACE_LOCATIONS = 1000471001,
+    XR_TYPE_SPACE_VELOCITIES = 1000471002,
+    XR_TYPE_EVENT_DATA_HEADSET_FIT_CHANGED_ML = 1000472000,
+    XR_TYPE_EVENT_DATA_EYE_CALIBRATION_CHANGED_ML = 1000472001,
+    XR_TYPE_USER_CALIBRATION_ENABLE_EVENTS_INFO_ML = 1000472002,
+    XR_TYPE_SYSTEM_NOTIFICATIONS_SET_INFO_ML = 1000473000,
+    XR_TYPE_WORLD_MESH_DETECTOR_CREATE_INFO_ML = 1000474001,
+    XR_TYPE_WORLD_MESH_STATE_REQUEST_INFO_ML = 1000474002,
+    XR_TYPE_WORLD_MESH_BLOCK_STATE_ML = 1000474003,
+    XR_TYPE_WORLD_MESH_STATE_REQUEST_COMPLETION_ML = 1000474004,
+    XR_TYPE_WORLD_MESH_BUFFER_RECOMMENDED_SIZE_INFO_ML = 1000474005,
+    XR_TYPE_WORLD_MESH_BUFFER_SIZE_ML = 1000474006,
+    XR_TYPE_WORLD_MESH_BUFFER_ML = 1000474007,
+    XR_TYPE_WORLD_MESH_BLOCK_REQUEST_ML = 1000474008,
+    XR_TYPE_WORLD_MESH_GET_INFO_ML = 1000474009,
+    XR_TYPE_WORLD_MESH_BLOCK_ML = 1000474010,
+    XR_TYPE_WORLD_MESH_REQUEST_COMPLETION_ML = 1000474011,
+    XR_TYPE_WORLD_MESH_REQUEST_COMPLETION_INFO_ML = 1000474012,
+    XR_TYPE_SYSTEM_FACIAL_EXPRESSION_PROPERTIES_ML = 1000482004,
+    XR_TYPE_FACIAL_EXPRESSION_CLIENT_CREATE_INFO_ML = 1000482005,
+    XR_TYPE_FACIAL_EXPRESSION_BLEND_SHAPE_GET_INFO_ML = 1000482006,
+    XR_TYPE_FACIAL_EXPRESSION_BLEND_SHAPE_PROPERTIES_ML = 1000482007,
+    XR_TYPE_SYSTEM_BOUNDARY_VISIBILITY_PROPERTIES_META = 1000528000,
+    XR_TYPE_EVENT_DATA_BOUNDARY_VISIBILITY_CHANGED_META = 1000528001,
+    XR_TYPE_SYSTEM_SIMULTANEOUS_HANDS_AND_CONTROLLERS_PROPERTIES_META = 1000532001,
+    XR_TYPE_SIMULTANEOUS_HANDS_AND_CONTROLLERS_TRACKING_RESUME_INFO_META = 1000532002,
+    XR_TYPE_SIMULTANEOUS_HANDS_AND_CONTROLLERS_TRACKING_PAUSE_INFO_META = 1000532003,
+    XR_TYPE_FACE_TRACKING_VISEMES_META = 1000541000,
+    XR_TYPE_SYSTEM_FACE_TRACKING_VISEMES_PROPERTIES_META = 1000541001,
+    XR_TYPE_ROOM_MESH_FACE_INDICES_META = 1000553000,
+    XR_TYPE_SPACE_ROOM_MESH_GET_INFO_META = 1000553001,
+    XR_TYPE_ROOM_MESH_META = 1000553002,
+    XR_TYPE_COLOCATION_DISCOVERY_START_INFO_META = 1000571010,
+    XR_TYPE_COLOCATION_DISCOVERY_STOP_INFO_META = 1000571011,
+    XR_TYPE_COLOCATION_ADVERTISEMENT_START_INFO_META = 1000571012,
+    XR_TYPE_COLOCATION_ADVERTISEMENT_STOP_INFO_META = 1000571013,
+    XR_TYPE_EVENT_DATA_START_COLOCATION_ADVERTISEMENT_COMPLETE_META = 1000571020,
+    XR_TYPE_EVENT_DATA_STOP_COLOCATION_ADVERTISEMENT_COMPLETE_META = 1000571021,
+    XR_TYPE_EVENT_DATA_COLOCATION_ADVERTISEMENT_COMPLETE_META = 1000571022,
+    XR_TYPE_EVENT_DATA_START_COLOCATION_DISCOVERY_COMPLETE_META = 1000571023,
+    XR_TYPE_EVENT_DATA_COLOCATION_DISCOVERY_RESULT_META = 1000571024,
+    XR_TYPE_EVENT_DATA_COLOCATION_DISCOVERY_COMPLETE_META = 1000571025,
+    XR_TYPE_EVENT_DATA_STOP_COLOCATION_DISCOVERY_COMPLETE_META = 1000571026,
+    XR_TYPE_SYSTEM_COLOCATION_DISCOVERY_PROPERTIES_META = 1000571030,
+    XR_TYPE_SHARE_SPACES_RECIPIENT_GROUPS_META = 1000572000,
+    XR_TYPE_SPACE_GROUP_UUID_FILTER_INFO_META = 1000572001,
+    XR_TYPE_SYSTEM_SPATIAL_ENTITY_GROUP_SHARING_PROPERTIES_META = 1000572100,
+    XR_TYPE_TILE_PROPERTIES_META = 1000609000,
+    XR_TYPE_TILE_PROPERTIES_HINT_META = 1000609001,
+    XR_TYPE_HAND_TRACKING_UNEXTRAPOLATED_POSES_REQUEST_META = 1000693000,
+    XR_TYPE_HAND_TRACKING_UNEXTRAPOLATED_POSES_META = 1000693001,
+    XR_TYPE_LIGHT_ESTIMATOR_CREATE_INFO_ANDROID = 1000700000,
+    XR_TYPE_LIGHT_ESTIMATE_GET_INFO_ANDROID = 1000700001,
+    XR_TYPE_LIGHT_ESTIMATE_ANDROID = 1000700002,
+    XR_TYPE_DIRECTIONAL_LIGHT_ANDROID = 1000700003,
+    XR_TYPE_SPHERICAL_HARMONICS_ANDROID = 1000700004,
+    XR_TYPE_AMBIENT_LIGHT_ANDROID = 1000700005,
+    XR_TYPE_SYSTEM_LIGHT_ESTIMATION_PROPERTIES_ANDROID = 1000700006,
+    XR_TYPE_SYSTEM_MARKER_TRACKING_PROPERTIES_ANDROID = 1000707000,
+    XR_TYPE_TRACKABLE_MARKER_CONFIGURATION_ANDROID = 1000707001,
+    XR_TYPE_TRACKABLE_MARKER_ANDROID = 1000707002,
+    XR_TYPE_SYSTEM_QR_CODE_TRACKING_PROPERTIES_ANDROID = 1000708000,
+    XR_TYPE_TRACKABLE_QR_CODE_CONFIGURATION_ANDROID = 1000708001,
+    XR_TYPE_TRACKABLE_QR_CODE_ANDROID = 1000708002,
+    XR_TYPE_SYSTEM_IMAGE_TRACKING_PROPERTIES_ANDROID = 1000709000,
+    XR_TYPE_TRACKABLE_IMAGE_DATABASE_ENTRY_ANDROID = 1000709001,
+    XR_TYPE_TRACKABLE_IMAGE_DATABASE_CREATE_INFO_ANDROID = 1000709002,
+    XR_TYPE_CREATE_TRACKABLE_IMAGE_DATABASE_COMPLETION_ANDROID = 1000709003,
+    XR_TYPE_TRACKABLE_IMAGE_CONFIGURATION_ANDROID = 1000709004,
+    XR_TYPE_TRACKABLE_IMAGE_ANDROID = 1000709005,
+    XR_TYPE_EVENT_DATA_IMAGE_TRACKING_LOST_ANDROID = 1000709006,
+    XR_TYPE_SYSTEM_SCENE_MESHING_PROPERTIES_ANDROID = 1000718000,
+    XR_TYPE_SCENE_MESHING_TRACKER_CREATE_INFO_ANDROID = 1000718001,
+    XR_TYPE_SCENE_MESH_SNAPSHOT_CREATE_INFO_ANDROID = 1000718002,
+    XR_TYPE_SCENE_MESH_SNAPSHOT_CREATION_RESULT_ANDROID = 1000718003,
+    XR_TYPE_SCENE_SUBMESH_STATE_ANDROID = 1000718004,
+    XR_TYPE_SCENE_SUBMESH_DATA_ANDROID = 1000718005,
+    XR_TYPE_SPATIAL_CAPABILITY_COMPONENT_TYPES_EXT = 1000740000,
+    XR_TYPE_SPATIAL_CONTEXT_CREATE_INFO_EXT = 1000740001,
+    XR_TYPE_CREATE_SPATIAL_CONTEXT_COMPLETION_EXT = 1000740002,
+    XR_TYPE_SPATIAL_DISCOVERY_SNAPSHOT_CREATE_INFO_EXT = 1000740003,
+    XR_TYPE_CREATE_SPATIAL_DISCOVERY_SNAPSHOT_COMPLETION_INFO_EXT = 1000740004,
+    XR_TYPE_CREATE_SPATIAL_DISCOVERY_SNAPSHOT_COMPLETION_EXT = 1000740005,
+    XR_TYPE_SPATIAL_COMPONENT_DATA_QUERY_CONDITION_EXT = 1000740006,
+    XR_TYPE_SPATIAL_COMPONENT_DATA_QUERY_RESULT_EXT = 1000740007,
+    XR_TYPE_SPATIAL_BUFFER_GET_INFO_EXT = 1000740008,
+    XR_TYPE_SPATIAL_COMPONENT_BOUNDED_2D_LIST_EXT = 1000740009,
+    XR_TYPE_SPATIAL_COMPONENT_BOUNDED_3D_LIST_EXT = 1000740010,
+    XR_TYPE_SPATIAL_COMPONENT_PARENT_LIST_EXT = 1000740011,
+    XR_TYPE_SPATIAL_COMPONENT_MESH_3D_LIST_EXT = 1000740012,
+    XR_TYPE_SPATIAL_ENTITY_FROM_ID_CREATE_INFO_EXT = 1000740013,
+    XR_TYPE_SPATIAL_UPDATE_SNAPSHOT_CREATE_INFO_EXT = 1000740014,
+    XR_TYPE_EVENT_DATA_SPATIAL_DISCOVERY_RECOMMENDED_EXT = 1000740015,
+    XR_TYPE_SPATIAL_FILTER_TRACKING_STATE_EXT = 1000740016,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_PLANE_TRACKING_EXT = 1000741000,
+    XR_TYPE_SPATIAL_COMPONENT_PLANE_ALIGNMENT_LIST_EXT = 1000741001,
+    XR_TYPE_SPATIAL_COMPONENT_MESH_2D_LIST_EXT = 1000741002,
+    XR_TYPE_SPATIAL_COMPONENT_POLYGON_2D_LIST_EXT = 1000741003,
+    XR_TYPE_SPATIAL_COMPONENT_PLANE_SEMANTIC_LABEL_LIST_EXT = 1000741004,
+    XR_TYPE_STATIONARY_REFERENCE_SPACE_GENERATION_ID_GET_INFO_EXT = 1000742001,
+    XR_TYPE_STATIONARY_REFERENCE_SPACE_GENERATION_ID_RESULT_EXT = 1000742002,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_QR_CODE_EXT = 1000743000,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_MICRO_QR_CODE_EXT = 1000743001,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_ARUCO_MARKER_EXT = 1000743002,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_APRIL_TAG_EXT = 1000743003,
+    XR_TYPE_SPATIAL_MARKER_SIZE_EXT = 1000743004,
+    XR_TYPE_SPATIAL_MARKER_STATIC_OPTIMIZATION_EXT = 1000743005,
+    XR_TYPE_SPATIAL_COMPONENT_MARKER_LIST_EXT = 1000743006,
+    XR_TYPE_SYSTEM_DYNAMIC_OBJECT_TRACKING_PROPERTIES_BD = 1000746000,
+    XR_TYPE_SENSE_DATA_PROVIDER_CREATE_INFO_DYNAMIC_OBJECT_BD = 1000746001,
+    XR_TYPE_SPATIAL_ENTITY_COMPONENT_DATA_DYNAMIC_OBJECT_BD = 1000746002,
+    XR_TYPE_DYNAMIC_OBJECT_DATA_BD = 1000746003,
+    XR_TYPE_SENSE_DATA_FILTER_DYNAMIC_OBJECT_TYPE_BD = 1000746004,
+    XR_TYPE_SYSTEM_DYNAMIC_OBJECT_KEYBOARD_PROPERTIES_BD = 1000747000,
+    XR_TYPE_SYSTEM_DYNAMIC_OBJECT_MOUSE_PROPERTIES_BD = 1000748000,
+    XR_TYPE_SPATIAL_BOUNDS_SPHEREF_ANDROID = 1000761000,
+    XR_TYPE_SPATIAL_BOUNDS_BOXF_ANDROID = 1000761001,
+    XR_TYPE_SPATIAL_BOUNDS_FRUSTUMF_ANDROID = 1000761002,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_ANCHOR_EXT = 1000762000,
+    XR_TYPE_SPATIAL_COMPONENT_ANCHOR_LIST_EXT = 1000762001,
+    XR_TYPE_SPATIAL_ANCHOR_CREATE_INFO_EXT = 1000762002,
+    XR_TYPE_SPATIAL_PERSISTENCE_CONTEXT_CREATE_INFO_EXT = 1000763000,
+    XR_TYPE_CREATE_SPATIAL_PERSISTENCE_CONTEXT_COMPLETION_EXT = 1000763001,
+    XR_TYPE_SPATIAL_CONTEXT_PERSISTENCE_CONFIG_EXT = 1000763002,
+    XR_TYPE_SPATIAL_DISCOVERY_PERSISTENCE_UUID_FILTER_EXT = 1000763003,
+    XR_TYPE_SPATIAL_COMPONENT_PERSISTENCE_LIST_EXT = 1000763004,
+    XR_TYPE_HAPTIC_PARAMETRIC_VIBRATION_EXT = 1000775000,
+    XR_TYPE_HAPTIC_PARAMETRIC_PROPERTIES_EXT = 1000775001,
+    XR_TYPE_SYSTEM_HAPTIC_PARAMETRIC_PROPERTIES_EXT = 1000775002,
+    XR_TYPE_COLOR_SPACES_ENUMERATE_INFO_SONY = 1000776000,
+    XR_TYPE_SWAPCHAIN_CREATE_INFO_COLOR_SPACE_SONY = 1000776001,
+    XR_TYPE_HDR_METADATA_SONY = 1000777000,
+    XR_TYPE_SPATIAL_ENTITY_PERSIST_INFO_EXT = 1000781000,
+    XR_TYPE_PERSIST_SPATIAL_ENTITY_COMPLETION_EXT = 1000781001,
+    XR_TYPE_SPATIAL_ENTITY_UNPERSIST_INFO_EXT = 1000781002,
+    XR_TYPE_UNPERSIST_SPATIAL_ENTITY_COMPLETION_EXT = 1000781003,
+    XR_TYPE_SPATIAL_REFERENCE_IMAGE_EXT = 1000782000,
+    XR_TYPE_SPATIAL_IMAGE_STATIC_OPTIMIZATION_EXT = 1000782001,
+    XR_TYPE_SPATIAL_IMAGE_SIZE_EXT = 1000782002,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_IMAGE_TRACKING_EXT = 1000782003,
+    XR_TYPE_SPATIAL_IMAGE_TRACKING_DATABASE_CREATE_INFO_EXT = 1000782004,
+    XR_TYPE_SPATIAL_COMPONENT_IMAGE_2D_LIST_EXT = 1000782005,
+    XR_TYPE_CREATE_SPATIAL_IMAGE_TRACKING_DATABASE_COMPLETION_EXT = 1000782006,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_OBJECT_TRACKING_ANDROID = 1000785000,
+    XR_TYPE_SPATIAL_COMPONENT_OBJECT_SEMANTIC_LABEL_LIST_ANDROID = 1000785001,
+    XR_TYPE_SPATIAL_CAPABILITY_CONFIGURATION_DEPTH_RAYCAST_ANDROID = 1000786000,
+    XR_TYPE_SPATIAL_RAYCAST_INFO_ANDROID = 1000786001,
+    XR_TYPE_SPATIAL_COMPONENT_RAYCAST_RESULT_LIST_ANDROID = 1000786002,
+    XR_TYPE_SPATIAL_RAYCAST_SNAPSHOT_CREATE_INFO_ANDROID = 1000786003,
+    XR_TYPE_GOOGLE_CLOUD_AUTH_INFO_API_KEY_ANDROID = 1000787000,
+    XR_TYPE_GOOGLE_CLOUD_AUTH_INFO_TOKEN_ANDROID = 1000787001,
+    XR_TYPE_GOOGLE_CLOUD_AUTH_INFO_KEYLESS_ANDROID = 1000787002,
+    XR_TYPE_GOOGLE_CLOUD_AUTH_ERROR_RESULT_ANDROID = 1000787003,
+    XR_TYPE_SYSTEM_GEOSPATIAL_PROPERTIES_ANDROID = 1000789000,
+    XR_TYPE_GEOSPATIAL_TRACKER_CREATE_INFO_ANDROID = 1000789001,
+    XR_TYPE_EVENT_DATA_GEOSPATIAL_TRACKER_STATE_CHANGED_ANDROID = 1000789002,
+    XR_TYPE_GEOSPATIAL_POSE_FROM_POSE_LOCATE_INFO_ANDROID = 1000789003,
+    XR_TYPE_GEOSPATIAL_POSE_RESULT_ANDROID = 1000789004,
+    XR_TYPE_GEOSPATIAL_POSE_LOCATE_INFO_ANDROID = 1000789005,
+    XR_TYPE_VPS_AVAILABILITY_CHECK_COMPLETION_ANDROID = 1000789006,
+    XR_TYPE_SPATIAL_ANCHOR_PARENT_ANDROID = 1000790000,
+    XR_TYPE_SPATIAL_DISCOVERY_UNIQUE_ENTITIES_FILTER_ANDROID = 1000791001,
+    XR_TYPE_SPATIAL_COMPONENT_SUBSUMED_BY_LIST_ANDROID = 1000791002,
+    XR_TYPE_SPATIAL_ANCHOR_SPACE_FROM_ID_CREATE_INFO_ANDROID = 1000795000,
+    XR_TYPE_GEOSPATIAL_ANCHOR_CREATE_INFO_ANDROID = 1000797000,
+    XR_TYPE_SURFACE_ANCHOR_CREATE_INFO_ANDROID = 1000797001,
+    XR_TYPE_SURFACE_ANCHOR_CREATE_COMPLETION_ANDROID = 1000797002,
+    XR_TYPE_SYSTEM_GEOSPATIAL_ANCHOR_PROPERTIES_ANDROID = 1000797003,
+    XR_TYPE_GEOSPATIAL_TRACKER_ANCHOR_TRACKING_INFO_ANDROID = 1000797004,
+    XR_TYPE_SPATIAL_CONTAINER_CREATE_INFO_EXT = 1000810000,
+    XR_TYPE_SPATIAL_CONTAINER_SPACE_CREATE_INFO_EXT = 1000810001,
+    XR_TYPE_EVENT_DATA_SPATIAL_CONTAINER_CLOSED_EXT = 1000810003,
+    XR_TYPE_SYSTEM_SPATIAL_CONTAINER_PROPERTIES_EXT = 1000810004,
+    XR_TYPE_SPATIAL_CONTAINER_BOUNDS_EXT = 1000810005,
+    XR_TYPE_EVENT_DATA_SPATIAL_CONTAINER_BOUNDS_CHANGED_EXT = 1000810006,
+    XR_TYPE_SPATIAL_CONTAINER_BOUNDS_GET_INFO_EXT = 1000810007,
+    XR_TYPE_SPATIAL_CONTAINER_STATE_GET_INFO_EXT = 1000810008,
+    XR_TYPE_SPATIAL_CONTAINER_VISIBLE_REQUEST_INFO_EXT = 1000810009,
+    XR_TYPE_EVENT_DATA_SPATIAL_CONTAINER_VISIBLE_CHANGED_EXT = 1000810010,
+    XR_TYPE_EVENT_DATA_SPATIAL_CONTAINER_VISIBLE_REQUEST_DENIED_EXT = 1000810011,
+    XR_TYPE_EVENT_DATA_SPATIAL_CONTAINER_INTERACTABLE_CHANGED_EXT = 1000810012,
+    XR_TYPE_SPATIAL_CONTAINER_BOUNDS_MODE_REQUEST_INFO_EXT = 1000810013,
+    XR_TYPE_EVENT_DATA_SPATIAL_CONTAINER_BOUNDS_MODE_REQUEST_DENIED_EXT = 1000810014,
+    XR_TYPE_SPATIAL_CONTAINER_STATE_EXT = 1000810015,
+    XR_TYPE_SESSION_CREATE_INFO_SPATIAL_CONTAINERS_EXT = 1000810016,
+    XR_TYPE_SPATIAL_CONTAINER_VIEW_LOCATE_INFO_EXT = 1000813000,
+    XR_TYPE_SPATIAL_CONTAINER_VIEWS_LOCATE_INFO_EXT = 1000813001,
+    XR_TYPE_SPATIAL_CONTAINER_VIEW_STATE_EXT = 1000813002,
+    XR_TYPE_SPATIAL_CONTAINER_LAYER_EXT = 1000813003,
+    XR_TYPE_SPATIAL_CONTAINER_LAYER_FRAME_END_INFO_EXT = 1000813004,
+    XR_TYPE_SPATIAL_CONTAINER_BEGIN_INFO_EXT = 1000813005,
+    XR_TYPE_SPATIAL_CONTAINER_COMPOSITION_LAYER_VIEW_CONFIGURATION_EXT = 1000813006,
+    XR_TYPE_SPATIAL_CONTAINER_END_INFO_EXT = 1000813007,
+    XR_TYPE_SPATIAL_CONTAINER_LAYER_VOLUME_CLIPPING_EXT = 1000813008,
+    XR_TYPE_BATTERY_STATE_DISPLAY_EXT = 1000836000,
+    XR_TYPE_LOADER_INIT_INFO_PROPERTIES_EXT = 1000838000,
+    XR_TYPE_EVENT_DATA_VIEW_CONFIGURATION_VIEWS_CHANGED_EXT = 1000839000,
+    XR_STRUCTURE_TYPE_MAX_ENUM = 0x7fffffff,
+    XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR = XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR,
+    XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR = XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR,
+    XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN2_KHR = XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR,
+    XR_TYPE_DEVICE_PCM_SAMPLE_RATE_GET_INFO_FB = XR_TYPE_DEVICE_PCM_SAMPLE_RATE_STATE_FB,
+    XR_TYPE_SPACES_LOCATE_INFO_KHR = XR_TYPE_SPACES_LOCATE_INFO,
+    XR_TYPE_SPACE_LOCATIONS_KHR = XR_TYPE_SPACE_LOCATIONS,
+    XR_TYPE_SPACE_VELOCITIES_KHR = XR_TYPE_SPACE_VELOCITIES,
+} XrStructureType;
+
+typedef enum XrSurfaceAnchorTypeANDROID
+{
+    XR_SURFACE_ANCHOR_TYPE_TERRAIN_ANDROID = 1,
+    XR_SURFACE_ANCHOR_TYPE_ROOFTOP_ANDROID = 2,
+    XR_SURFACE_ANCHOR_TYPE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrSurfaceAnchorTypeANDROID;
+
+typedef enum XrSwapchainCreateFlagBits
+{
+    XR_SWAPCHAIN_CREATE_PROTECTED_CONTENT_BIT = 0x00000001,
+    XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT = 0x00000002,
+    XR_SWAPCHAIN_CREATE_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrSwapchainCreateFlagBits;
+
+typedef enum XrSwapchainCreateFoveationFlagBitsFB
+{
+    XR_SWAPCHAIN_CREATE_FOVEATION_SCALED_BIN_BIT_FB = 0x00000001,
+    XR_SWAPCHAIN_CREATE_FOVEATION_FRAGMENT_DENSITY_MAP_BIT_FB = 0x00000002,
+    XR_SWAPCHAIN_CREATE_FOVEATION_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrSwapchainCreateFoveationFlagBitsFB;
+
+typedef enum XrSwapchainStateFoveationFlagBitsFB
+{
+    XR_SWAPCHAIN_STATE_FOVEATION_FLAG_BITS_FB_MAX_ENUM = 0x7fffffff,
+} XrSwapchainStateFoveationFlagBitsFB;
+
+typedef enum XrSwapchainUsageFlagBits
+{
+    XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT = 0x00000001,
+    XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT = 0x00000002,
+    XR_SWAPCHAIN_USAGE_UNORDERED_ACCESS_BIT = 0x00000004,
+    XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT = 0x00000008,
+    XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT = 0x00000010,
+    XR_SWAPCHAIN_USAGE_SAMPLED_BIT = 0x00000020,
+    XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT = 0x00000040,
+    XR_SWAPCHAIN_USAGE_INPUT_ATTACHMENT_BIT_MND = 0x00000080,
+    XR_SWAPCHAIN_USAGE_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+    XR_SWAPCHAIN_USAGE_INPUT_ATTACHMENT_BIT_KHR = XR_SWAPCHAIN_USAGE_INPUT_ATTACHMENT_BIT_MND,
+} XrSwapchainUsageFlagBits;
+
+typedef enum XrTrackableImageFormatANDROID
+{
+    XR_TRACKABLE_IMAGE_FORMAT_R8G8B8A8_ANDROID = 1,
+    XR_TRACKABLE_IMAGE_FORMAT_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrTrackableImageFormatANDROID;
+
+typedef enum XrTrackableImageTrackingModeANDROID
+{
+    XR_TRACKABLE_IMAGE_TRACKING_MODE_DYNAMIC_ANDROID = 1,
+    XR_TRACKABLE_IMAGE_TRACKING_MODE_STATIC_ANDROID = 2,
+    XR_TRACKABLE_IMAGE_TRACKING_MODE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrTrackableImageTrackingModeANDROID;
+
+typedef enum XrTrackableMarkerDictionaryANDROID
+{
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_4X4_50_ANDROID = 0,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_4X4_100_ANDROID = 1,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_4X4_250_ANDROID = 2,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_4X4_1000_ANDROID = 3,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_5X5_50_ANDROID = 4,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_5X5_100_ANDROID = 5,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_5X5_250_ANDROID = 6,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_5X5_1000_ANDROID = 7,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_6X6_50_ANDROID = 8,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_6X6_100_ANDROID = 9,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_6X6_250_ANDROID = 10,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_6X6_1000_ANDROID = 11,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_7X7_50_ANDROID = 12,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_7X7_100_ANDROID = 13,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_7X7_250_ANDROID = 14,
+    XR_TRACKABLE_MARKER_DICTIONARY_ARUCO_7X7_1000_ANDROID = 15,
+    XR_TRACKABLE_MARKER_DICTIONARY_APRILTAG_16H5_ANDROID = 16,
+    XR_TRACKABLE_MARKER_DICTIONARY_APRILTAG_25H9_ANDROID = 17,
+    XR_TRACKABLE_MARKER_DICTIONARY_APRILTAG_36H10_ANDROID = 18,
+    XR_TRACKABLE_MARKER_DICTIONARY_APRILTAG_36H11_ANDROID = 19,
+    XR_TRACKABLE_MARKER_DICTIONARY_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrTrackableMarkerDictionaryANDROID;
+
+typedef enum XrTrackableMarkerTrackingModeANDROID
+{
+    XR_TRACKABLE_MARKER_TRACKING_MODE_DYNAMIC_ANDROID = 0,
+    XR_TRACKABLE_MARKER_TRACKING_MODE_STATIC_ANDROID = 1,
+    XR_TRACKABLE_MARKER_TRACKING_MODE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrTrackableMarkerTrackingModeANDROID;
+
+typedef enum XrTrackableTypeANDROID
+{
+    XR_TRACKABLE_TYPE_NOT_VALID_ANDROID = 0,
+    XR_TRACKABLE_TYPE_PLANE_ANDROID = 1,
+    XR_TRACKABLE_TYPE_DEPTH_ANDROID = 1000463000,
+    XR_TRACKABLE_TYPE_OBJECT_ANDROID = 1000466000,
+    XR_TRACKABLE_TYPE_MARKER_ANDROID = 1000707000,
+    XR_TRACKABLE_TYPE_QR_CODE_ANDROID = 1000708000,
+    XR_TRACKABLE_TYPE_IMAGE_ANDROID = 1000709000,
+    XR_TRACKABLE_TYPE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrTrackableTypeANDROID;
+
+typedef enum XrTrackingOptimizationSettingsDomainQCOM
+{
+    XR_TRACKING_OPTIMIZATION_SETTINGS_DOMAIN_ALL_QCOM = 1,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_DOMAIN_QCOM_MAX_ENUM = 0x7fffffff,
+} XrTrackingOptimizationSettingsDomainQCOM;
+
+typedef enum XrTrackingOptimizationSettingsHintQCOM
+{
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_NONE_QCOM = 0,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_LONG_RANGE_PRIORITIZATION_QCOM = 1,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_CLOSE_RANGE_PRIORITIZATION_QCOM = 2,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_LOW_POWER_PRIORITIZATION_QCOM = 3,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_HIGH_POWER_PRIORITIZATION_QCOM = 4,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_QCOM_MAX_ENUM = 0x7fffffff,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_LONG_RANGE_PRIORIZATION_QCOM = XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_LONG_RANGE_PRIORITIZATION_QCOM,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_CLOSE_RANGE_PRIORIZATION_QCOM = XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_CLOSE_RANGE_PRIORITIZATION_QCOM,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_LOW_POWER_PRIORIZATION_QCOM = XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_LOW_POWER_PRIORITIZATION_QCOM,
+    XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_HIGH_POWER_PRIORIZATION_QCOM = XR_TRACKING_OPTIMIZATION_SETTINGS_HINT_HIGH_POWER_PRIORITIZATION_QCOM,
+} XrTrackingOptimizationSettingsHintQCOM;
+
+typedef enum XrTrackingStateANDROID
+{
+    XR_TRACKING_STATE_PAUSED_ANDROID = 0,
+    XR_TRACKING_STATE_STOPPED_ANDROID = 1,
+    XR_TRACKING_STATE_TRACKING_ANDROID = 2,
+    XR_TRACKING_STATE_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrTrackingStateANDROID;
+
+typedef enum XrVPSAvailabilityANDROID
+{
+    XR_VPS_AVAILABILITY_UNAVAILABLE_ANDROID = 1,
+    XR_VPS_AVAILABILITY_AVAILABLE_ANDROID = 2,
+    XR_VPSAVAILABILITY_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrVPSAvailabilityANDROID;
+
+typedef enum XrViewConfigurationType
+{
+    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_MONO = 1,
+    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO = 2,
+    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO_WITH_FOVEATED_INSET = 1000037000,
+    XR_VIEW_CONFIGURATION_TYPE_SECONDARY_MONO_FIRST_PERSON_OBSERVER_MSFT = 1000054000,
+    XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM = 0x7fffffff,
+    XR_VIEW_CONFIGURATION_TYPE_PRIMARY_QUAD_VARJO = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO_WITH_FOVEATED_INSET,
+} XrViewConfigurationType;
+
+typedef enum XrViewStateFlagBits
+{
+    XR_VIEW_STATE_ORIENTATION_VALID_BIT = 0x00000001,
+    XR_VIEW_STATE_POSITION_VALID_BIT = 0x00000002,
+    XR_VIEW_STATE_ORIENTATION_TRACKED_BIT = 0x00000004,
+    XR_VIEW_STATE_POSITION_TRACKED_BIT = 0x00000008,
+    XR_VIEW_STATE_FLAG_BITS_MAX_ENUM = 0x7fffffff,
+} XrViewStateFlagBits;
+
+typedef enum XrVirtualKeyboardInputSourceMETA
+{
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_CONTROLLER_RAY_LEFT_META = 1,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_CONTROLLER_RAY_RIGHT_META = 2,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_HAND_RAY_LEFT_META = 3,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_HAND_RAY_RIGHT_META = 4,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_CONTROLLER_DIRECT_LEFT_META = 5,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_CONTROLLER_DIRECT_RIGHT_META = 6,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_HAND_DIRECT_INDEX_TIP_LEFT_META = 7,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_HAND_DIRECT_INDEX_TIP_RIGHT_META = 8,
+    XR_VIRTUAL_KEYBOARD_INPUT_SOURCE_META_MAX_ENUM = 0x7fffffff,
+} XrVirtualKeyboardInputSourceMETA;
+
+typedef enum XrVirtualKeyboardInputStateFlagBitsMETA
+{
+    XR_VIRTUAL_KEYBOARD_INPUT_STATE_PRESSED_BIT_META = 0x00000001,
+    XR_VIRTUAL_KEYBOARD_INPUT_STATE_FLAG_BITS_META_MAX_ENUM = 0x7fffffff,
+} XrVirtualKeyboardInputStateFlagBitsMETA;
+
+typedef enum XrVirtualKeyboardLocationTypeMETA
+{
+    XR_VIRTUAL_KEYBOARD_LOCATION_TYPE_CUSTOM_META = 0,
+    XR_VIRTUAL_KEYBOARD_LOCATION_TYPE_FAR_META = 1,
+    XR_VIRTUAL_KEYBOARD_LOCATION_TYPE_DIRECT_META = 2,
+    XR_VIRTUAL_KEYBOARD_LOCATION_TYPE_META_MAX_ENUM = 0x7fffffff,
+} XrVirtualKeyboardLocationTypeMETA;
+
+typedef enum XrVisibilityMaskTypeKHR
+{
+    XR_VISIBILITY_MASK_TYPE_HIDDEN_TRIANGLE_MESH_KHR = 1,
+    XR_VISIBILITY_MASK_TYPE_VISIBLE_TRIANGLE_MESH_KHR = 2,
+    XR_VISIBILITY_MASK_TYPE_LINE_LOOP_KHR = 3,
+    XR_VISIBILITY_MASK_TYPE_KHR_MAX_ENUM = 0x7fffffff,
+} XrVisibilityMaskTypeKHR;
+
+typedef enum XrVulkanDeviceCreateFlagBitsKHR
+{
+    XR_VULKAN_DEVICE_CREATE_FLAG_BITS_KHR_MAX_ENUM = 0x7fffffff,
+} XrVulkanDeviceCreateFlagBitsKHR;
+
+typedef enum XrVulkanInstanceCreateFlagBitsKHR
+{
+    XR_VULKAN_INSTANCE_CREATE_FLAG_BITS_KHR_MAX_ENUM = 0x7fffffff,
+} XrVulkanInstanceCreateFlagBitsKHR;
+
+typedef enum XrWindingOrderANDROID
+{
+    XR_WINDING_ORDER_UNKNOWN_ANDROID = 0,
+    XR_WINDING_ORDER_CW_ANDROID = 1,
+    XR_WINDING_ORDER_CCW_ANDROID = 2,
+    XR_WINDING_ORDER_ANDROID_MAX_ENUM = 0x7fffffff,
+} XrWindingOrderANDROID;
+
+typedef enum XrWorldMeshBlockResultML
+{
+    XR_WORLD_MESH_BLOCK_RESULT_SUCCESS_ML = 0,
+    XR_WORLD_MESH_BLOCK_RESULT_FAILED_ML = 1,
+    XR_WORLD_MESH_BLOCK_RESULT_PENDING_ML = 2,
+    XR_WORLD_MESH_BLOCK_RESULT_PARTIAL_UPDATE_ML = 3,
+    XR_WORLD_MESH_BLOCK_RESULT_ML_MAX_ENUM = 0x7fffffff,
+} XrWorldMeshBlockResultML;
+
+typedef enum XrWorldMeshBlockStatusML
+{
+    XR_WORLD_MESH_BLOCK_STATUS_NEW_ML = 0,
+    XR_WORLD_MESH_BLOCK_STATUS_UPDATED_ML = 1,
+    XR_WORLD_MESH_BLOCK_STATUS_DELETED_ML = 2,
+    XR_WORLD_MESH_BLOCK_STATUS_UNCHANGED_ML = 3,
+    XR_WORLD_MESH_BLOCK_STATUS_ML_MAX_ENUM = 0x7fffffff,
+} XrWorldMeshBlockStatusML;
+
+typedef enum XrWorldMeshDetectorFlagBitsML
+{
+    XR_WORLD_MESH_DETECTOR_POINT_CLOUD_BIT_ML = 0x00000001,
+    XR_WORLD_MESH_DETECTOR_COMPUTE_NORMALS_BIT_ML = 0x00000002,
+    XR_WORLD_MESH_DETECTOR_COMPUTE_CONFIDENCE_BIT_ML = 0x00000004,
+    XR_WORLD_MESH_DETECTOR_PLANARIZE_BIT_ML = 0x00000008,
+    XR_WORLD_MESH_DETECTOR_REMOVE_MESH_SKIRT_BIT_ML = 0x00000010,
+    XR_WORLD_MESH_DETECTOR_INDEX_ORDER_CW_BIT_ML = 0x00000020,
+    XR_WORLD_MESH_DETECTOR_FLAG_BITS_ML_MAX_ENUM = 0x7fffffff,
+} XrWorldMeshDetectorFlagBitsML;
+
+typedef enum XrWorldMeshDetectorLodML
+{
+    XR_WORLD_MESH_DETECTOR_LOD_MINIMUM_ML = 0,
+    XR_WORLD_MESH_DETECTOR_LOD_MEDIUM_ML = 1,
+    XR_WORLD_MESH_DETECTOR_LOD_MAXIMUM_ML = 2,
+    XR_WORLD_MESH_DETECTOR_LOD_ML_MAX_ENUM = 0x7fffffff,
+} XrWorldMeshDetectorLodML;
+
+typedef struct XrApplicationInfo
+{
+    char applicationName[XR_MAX_APPLICATION_NAME_SIZE];
+    uint32_t applicationVersion;
+    char engineName[XR_MAX_ENGINE_NAME_SIZE];
+    uint32_t engineVersion;
+    XrVersion WINE_XR_ALIGN(8) apiVersion;
+} XrApplicationInfo;
+
+typedef struct XrExtent2Di
+{
+    int32_t width;
+    int32_t height;
+} XrExtent2Di;
+
+typedef struct XrOffset2Di
+{
+    int32_t x;
+    int32_t y;
+} XrOffset2Di;
+
+typedef struct XrQuaternionf
+{
+    float x;
+    float y;
+    float z;
+    float w;
+} XrQuaternionf;
+
+typedef struct XrVector3f
+{
+    float x;
+    float y;
+    float z;
+} XrVector3f;
+
+typedef void (XRAPI_PTR * PFN_xrVoidFunction)(void);
+
+typedef struct XrAttenuationCurvePointBD
+{
+    float distance;
+    float gain;
+} XrAttenuationCurvePointBD;
+
+typedef struct XrFovf
+{
+    float angleLeft;
+    float angleRight;
+    float angleUp;
+    float angleDown;
+} XrFovf;
+
+typedef struct XrInstanceCreateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrInstanceCreateFlags WINE_XR_ALIGN(8) createFlags;
+    XrApplicationInfo WINE_XR_ALIGN(8) applicationInfo;
+    uint32_t enabledApiLayerCount;
+    const char * const*enabledApiLayerNames;
+    uint32_t enabledExtensionCount;
+    const char * const*enabledExtensionNames;
+} XrInstanceCreateInfo;
+
+typedef struct XrPosef
+{
+    XrQuaternionf orientation;
+    XrVector3f position;
+} XrPosef;
+
+typedef struct XrRect2Di
+{
+    XrOffset2Di offset;
+    XrExtent2Di extent;
+} XrRect2Di;
+
+
+typedef struct XrApiLayerCreateInfo XrApiLayerCreateInfo;
+typedef XrResult (XRAPI_PTR * PFN_xrCreateApiLayerInstance)(
+            const XrInstanceCreateInfo* info,
+            const XrApiLayerCreateInfo* apiLayerInfo,
+            XrInstance* instance);
+
+typedef XrResult (XRAPI_PTR * PFN_xrGetInstanceProcAddr)(XrInstance instance, const char* name, PFN_xrVoidFunction* function);
+
+typedef struct XrCompositionLayerBaseHeader
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+} XrCompositionLayerBaseHeader;
+
+typedef struct XrExtent2Df
+{
+    float width;
+    float height;
+} XrExtent2Df;
+
+typedef struct XrExtent3Df
+{
+    float width;
+    float height;
+    float depth;
+} XrExtent3Df;
+typedef XrExtent3Df XrExtent3DfEXT, XrExtent3DfFB, XrExtent3DfKHR;
+
+typedef struct XrExtent3DiMETA
+{
+    int32_t width;
+    int32_t height;
+    int32_t depth;
+} XrExtent3DiMETA;
+
+typedef struct XrHandMeshVertexMSFT
+{
+    XrVector3f position;
+    XrVector3f normal;
+} XrHandMeshVertexMSFT;
+
+typedef struct XrOffset2Df
+{
+    float x;
+    float y;
+} XrOffset2Df;
+
+typedef struct XrSceneFrustumBoundMSFT
+{
+    XrPosef pose;
+    XrFovf fov;
+    float farDistance;
+} XrSceneFrustumBoundMSFT;
+
+typedef struct XrSceneOrientedBoxBoundMSFT
+{
+    XrPosef pose;
+    XrVector3f extents;
+} XrSceneOrientedBoxBoundMSFT;
+
+typedef struct XrSceneSphereBoundMSFT
+{
+    XrVector3f center;
+    float radius;
+} XrSceneSphereBoundMSFT;
+
+typedef struct XrSoundObjectDistanceAttenuationCurveBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t curvePointCount;
+    XrAttenuationCurvePointBD *curvePoints;
+} XrSoundObjectDistanceAttenuationCurveBD;
+
+typedef struct XrSpatialBufferEXT
+{
+    XrSpatialBufferIdEXT WINE_XR_ALIGN(8) bufferId;
+    XrSpatialBufferTypeEXT bufferType;
+} XrSpatialBufferEXT;
+
+typedef struct XrSpatialReferenceImagePlaneEXT
+{
+    uint32_t bufferSize;
+    const uint8_t *buffer;
+    uint32_t rowStride;
+    uint32_t pixelStride;
+} XrSpatialReferenceImagePlaneEXT;
+
+typedef struct XrSwapchainSubImage
+{
+    XrSwapchain WINE_XR_ALIGN(8) swapchain;
+    XrRect2Di imageRect;
+    uint32_t imageArrayIndex;
+} XrSwapchainSubImage;
+
+typedef struct XrTrackableMarkerDatabaseEntryANDROID
+{
+    int32_t id;
+    float edgeSize;
+} XrTrackableMarkerDatabaseEntryANDROID;
+
+typedef struct XrUuid
+{
+    uint8_t data[XR_UUID_SIZE];
+} XrUuid;
+typedef XrUuid XrUuidEXT;
+
+typedef struct XrUuidMSFT
+{
+    uint8_t bytes[16];
+} XrUuidMSFT;
+
+typedef struct XrVector2f
+{
+    float x;
+    float y;
+} XrVector2f;
+
+typedef struct XrActionSuggestedBinding
+{
+    XrAction WINE_XR_ALIGN(8) action;
+    XrPath WINE_XR_ALIGN(8) binding;
+} XrActionSuggestedBinding;
+
+typedef struct XrActiveActionSet
+{
+    XrActionSet WINE_XR_ALIGN(8) actionSet;
+    XrPath WINE_XR_ALIGN(8) subactionPath;
+} XrActiveActionSet;
+
+typedef struct XrActiveActionSetPriorityEXT
+{
+    XrActionSet WINE_XR_ALIGN(8) actionSet;
+    uint32_t priorityOverride;
+} XrActiveActionSetPriorityEXT;
+
+typedef struct XrApiLayerNextInfo
+{
+    XrLoaderInterfaceStructs structType;
+    uint32_t structVersion;
+    size_t structSize;
+    char layerName[XR_MAX_API_LAYER_NAME_SIZE];
+    PFN_xrGetInstanceProcAddr nextGetInstanceProcAddr;
+    PFN_xrCreateApiLayerInstance nextCreateApiLayerInstance;
+    struct XrApiLayerNextInfo *next;
+} XrApiLayerNextInfo;
+
+typedef struct XrBindingModificationBaseHeaderKHR
+{
+    XrStructureType type;
+    const void *next;
+} XrBindingModificationBaseHeaderKHR;
+
+typedef struct XrBodyJointAccelerationBD
+{
+    XrSpaceAccelerationFlagsBD WINE_XR_ALIGN(8) accelerationFlags;
+    XrVector3f linearAcceleration;
+    XrVector3f angularAcceleration;
+} XrBodyJointAccelerationBD;
+
+typedef struct XrBodyJointLocationBD
+{
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) locationFlags;
+    XrPosef pose;
+} XrBodyJointLocationBD;
+
+typedef struct XrBodyJointLocationFB
+{
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) locationFlags;
+    XrPosef pose;
+} XrBodyJointLocationFB;
+
+typedef struct XrBodyJointLocationHTC
+{
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) locationFlags;
+    XrPosef pose;
+} XrBodyJointLocationHTC;
+
+typedef struct XrBodyJointVelocityBD
+{
+    XrSpaceVelocityFlags WINE_XR_ALIGN(8) velocityFlags;
+    XrVector3f linearVelocity;
+    XrVector3f angularVelocity;
+} XrBodyJointVelocityBD;
+
+typedef struct XrBodySkeletonJointFB
+{
+    int32_t joint;
+    int32_t parentJoint;
+    XrPosef pose;
+} XrBodySkeletonJointFB;
+
+typedef struct XrBodySkeletonJointHTC
+{
+    XrPosef pose;
+} XrBodySkeletonJointHTC;
+
+typedef struct XrBoxf
+{
+    XrPosef center;
+    XrExtent3Df extents;
+} XrBoxf;
+typedef XrBoxf XrBoxfKHR;
+
+typedef struct XrColor4f
+{
+    float r;
+    float g;
+    float b;
+    float a;
+} XrColor4f;
+
+typedef struct XrCompositionLayerProjectionView
+{
+    XrStructureType type;
+    const void *next;
+    XrPosef pose;
+    XrFovf fov;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) subImage;
+} XrCompositionLayerProjectionView;
+
+typedef struct XrControllerModelNodePropertiesMSFT
+{
+    XrStructureType type;
+    void *next;
+    char parentNodeName[XR_MAX_CONTROLLER_MODEL_NODE_NAME_SIZE_MSFT];
+    char nodeName[XR_MAX_CONTROLLER_MODEL_NODE_NAME_SIZE_MSFT];
+} XrControllerModelNodePropertiesMSFT;
+
+typedef struct XrControllerModelNodeStateMSFT
+{
+    XrStructureType type;
+    void *next;
+    XrPosef nodePose;
+} XrControllerModelNodeStateMSFT;
+
+typedef struct XrDeserializeSceneFragmentMSFT
+{
+    uint32_t bufferSize;
+    const uint8_t *buffer;
+} XrDeserializeSceneFragmentMSFT;
+
+typedef struct XrDynamicObjectDataBD
+{
+    XrStructureType type;
+    void *next;
+    XrDynamicObjectTypeBD objectType;
+} XrDynamicObjectDataBD;
+
+typedef struct XrExternalCameraExtrinsicsOCULUS
+{
+    XrTime WINE_XR_ALIGN(8) lastChangeTime;
+    XrExternalCameraStatusFlagsOCULUS WINE_XR_ALIGN(8) cameraStatusFlags;
+    XrExternalCameraAttachedToDeviceOCULUS attachedToDevice;
+    XrPosef relativePose;
+} XrExternalCameraExtrinsicsOCULUS;
+
+typedef struct XrExternalCameraIntrinsicsOCULUS
+{
+    XrTime WINE_XR_ALIGN(8) lastChangeTime;
+    XrFovf fov;
+    float virtualNearPlaneDistance;
+    float virtualFarPlaneDistance;
+    XrExtent2Di imageSensorPixelResolution;
+} XrExternalCameraIntrinsicsOCULUS;
+
+typedef struct XrEyeANDROID
+{
+    XrEyeStateANDROID eyeState;
+    XrPosef eyePose;
+} XrEyeANDROID;
+
+typedef struct XrEyeGazeFB
+{
+    XrBool32 isValid;
+    XrPosef gazePose;
+    float gazeConfidence;
+} XrEyeGazeFB;
+
+typedef struct XrFaceExpressionStatusFB
+{
+    XrBool32 isValid;
+    XrBool32 isEyeFollowingBlendshapesValid;
+} XrFaceExpressionStatusFB;
+
+typedef struct XrForceFeedbackCurlApplyLocationMNDX
+{
+    XrForceFeedbackCurlLocationMNDX location;
+    float value;
+} XrForceFeedbackCurlApplyLocationMNDX;
+
+typedef struct XrFrustumf
+{
+    XrPosef pose;
+    XrFovf fov;
+    float nearZ;
+    float farZ;
+} XrFrustumf;
+typedef XrFrustumf XrFrustumfKHR;
+
+typedef struct XrGeospatialPoseANDROID
+{
+    XrQuaternionf eastUpSouthOrientation;
+    double WINE_XR_ALIGN(8) latitude;
+    double WINE_XR_ALIGN(8) longitude;
+    double WINE_XR_ALIGN(8) altitude;
+} XrGeospatialPoseANDROID;
+
+typedef struct XrHandCapsuleFB
+{
+    XrVector3f points[XR_HAND_TRACKING_CAPSULE_POINT_COUNT_FB];
+    float radius;
+    XrHandJointEXT joint;
+} XrHandCapsuleFB;
+
+typedef struct XrHandJointLocationEXT
+{
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) locationFlags;
+    XrPosef pose;
+    float radius;
+} XrHandJointLocationEXT;
+
+typedef struct XrHandJointVelocityEXT
+{
+    XrSpaceVelocityFlags WINE_XR_ALIGN(8) velocityFlags;
+    XrVector3f linearVelocity;
+    XrVector3f angularVelocity;
+} XrHandJointVelocityEXT;
+
+typedef struct XrHandMeshIndexBufferMSFT
+{
+    uint32_t indexBufferKey;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint32_t *indices;
+} XrHandMeshIndexBufferMSFT;
+
+typedef struct XrHandMeshVertexBufferMSFT
+{
+    XrTime WINE_XR_ALIGN(8) vertexUpdateTime;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrHandMeshVertexMSFT *vertices;
+} XrHandMeshVertexBufferMSFT;
+
+typedef struct XrHapticBaseHeader
+{
+    XrStructureType type;
+    const void *next;
+} XrHapticBaseHeader;
+
+typedef struct XrHapticParametricPointEXT
+{
+    XrDuration WINE_XR_ALIGN(8) time;
+    float value;
+} XrHapticParametricPointEXT;
+
+typedef struct XrHapticParametricTransientEXT
+{
+    XrDuration WINE_XR_ALIGN(8) time;
+    float amplitude;
+    float frequency;
+} XrHapticParametricTransientEXT;
+
+typedef struct XrLoaderInitPropertyValueEXT
+{
+    const char *name;
+    const char *value;
+} XrLoaderInitPropertyValueEXT;
+
+typedef struct XrLocalizationMapML
+{
+    XrStructureType type;
+    void *next;
+    char name[XR_MAX_LOCALIZATION_MAP_NAME_LENGTH_ML];
+    XrUuidEXT mapUuid;
+    XrLocalizationMapTypeML mapType;
+} XrLocalizationMapML;
+
+typedef struct XrOffset3DfFB
+{
+    float x;
+    float y;
+    float z;
+} XrOffset3DfFB;
+
+typedef struct XrPassthroughColorHTC
+{
+    XrStructureType type;
+    const void *next;
+    float alpha;
+} XrPassthroughColorHTC;
+
+typedef struct XrPassthroughColorLutDataMETA
+{
+    uint32_t bufferSize;
+    const uint8_t *buffer;
+} XrPassthroughColorLutDataMETA;
+
+typedef struct XrPlaneDetectorLocationEXT
+{
+    XrStructureType type;
+    void *next;
+    uint64_t WINE_XR_ALIGN(8) planeId;
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) locationFlags;
+    XrPosef pose;
+    XrExtent2Df extents;
+    XrPlaneDetectorOrientationEXT orientation;
+    XrPlaneDetectorSemanticTypeEXT semanticType;
+    uint32_t polygonBufferCount;
+} XrPlaneDetectorLocationEXT;
+
+typedef struct XrRaycastHitResultANDROID
+{
+    XrTrackableTypeANDROID type;
+    XrTrackableANDROID WINE_XR_ALIGN(8) trackable;
+    XrPosef pose;
+} XrRaycastHitResultANDROID;
+
+typedef struct XrRect2Df
+{
+    XrOffset2Df offset;
+    XrExtent2Df extent;
+} XrRect2Df;
+
+typedef struct XrRenderModelAssetNodePropertiesEXT
+{
+    char uniqueName[XR_MAX_RENDER_MODEL_ASSET_NODE_NAME_SIZE_EXT];
+} XrRenderModelAssetNodePropertiesEXT;
+
+typedef struct XrRenderModelNodeStateEXT
+{
+    XrPosef nodePose;
+    XrBool32 isVisible;
+} XrRenderModelNodeStateEXT;
+
+typedef struct XrRoomMeshFaceMETA
+{
+    XrUuid uuid;
+    XrUuid parentUuid;
+    XrSemanticLabelMETA semanticLabel;
+} XrRoomMeshFaceMETA;
+
+typedef struct XrSceneBoundsMSFT
+{
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    uint32_t sphereCount;
+    const XrSceneSphereBoundMSFT *spheres;
+    uint32_t boxCount;
+    const XrSceneOrientedBoxBoundMSFT *boxes;
+    uint32_t frustumCount;
+    const XrSceneFrustumBoundMSFT *frustums;
+} XrSceneBoundsMSFT;
+
+typedef struct XrSceneComponentLocationMSFT
+{
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) flags;
+    XrPosef pose;
+} XrSceneComponentLocationMSFT;
+
+typedef struct XrSceneComponentMSFT
+{
+    XrSceneComponentTypeMSFT componentType;
+    XrUuidMSFT id;
+    XrUuidMSFT parentId;
+    XrTime WINE_XR_ALIGN(8) updateTime;
+} XrSceneComponentMSFT;
+
+typedef struct XrSceneMarkerMSFT
+{
+    XrSceneMarkerTypeMSFT markerType;
+    XrTime WINE_XR_ALIGN(8) lastSeenTime;
+    XrOffset2Df center;
+    XrExtent2Df size;
+} XrSceneMarkerMSFT;
+
+typedef struct XrSceneMarkerQRCodeMSFT
+{
+    XrSceneMarkerQRCodeSymbolTypeMSFT symbolType;
+    uint8_t version;
+} XrSceneMarkerQRCodeMSFT;
+
+typedef struct XrSceneMeshMSFT
+{
+    uint64_t WINE_XR_ALIGN(8) meshBufferId;
+    XrBool32 supportsIndicesUint16;
+} XrSceneMeshMSFT;
+
+typedef struct XrSceneObjectMSFT
+{
+    XrSceneObjectTypeMSFT objectType;
+} XrSceneObjectMSFT;
+
+typedef struct XrScenePlaneMSFT
+{
+    XrScenePlaneAlignmentTypeMSFT alignment;
+    XrExtent2Df size;
+    uint64_t WINE_XR_ALIGN(8) meshBufferId;
+    XrBool32 supportsIndicesUint16;
+} XrScenePlaneMSFT;
+
+typedef struct XrSecondaryViewConfigurationLayerInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrViewConfigurationType viewConfigurationType;
+    XrEnvironmentBlendMode environmentBlendMode;
+    uint32_t layerCount;
+    const XrCompositionLayerBaseHeader * const*layers;
+} XrSecondaryViewConfigurationLayerInfoMSFT;
+
+typedef struct XrSecondaryViewConfigurationStateMSFT
+{
+    XrStructureType type;
+    void *next;
+    XrViewConfigurationType viewConfigurationType;
+    XrBool32 active;
+} XrSecondaryViewConfigurationStateMSFT;
+
+typedef struct XrShareSpacesRecipientBaseHeaderMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrShareSpacesRecipientBaseHeaderMETA;
+
+typedef struct XrSoundObjectDistanceAttenuationBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSoundObjectDistanceAttenuationTypeBD distanceAttenuationType;
+    float minAttenuationRange;
+    float maxAttenuationRange;
+    float referenceDistance;
+    float rolloffFactor;
+    XrSoundObjectDistanceAttenuationCurveBD *customDistanceAttenuationCurve;
+} XrSoundObjectDistanceAttenuationBD;
+
+typedef struct XrSpaceFilterInfoBaseHeaderFB
+{
+    XrStructureType type;
+    const void *next;
+} XrSpaceFilterInfoBaseHeaderFB;
+
+typedef struct XrSpaceLocation
+{
+    XrStructureType type;
+    void *next;
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) locationFlags;
+    XrPosef pose;
+} XrSpaceLocation;
+
+typedef struct XrSpaceLocationData
+{
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) locationFlags;
+    XrPosef pose;
+} XrSpaceLocationData;
+typedef XrSpaceLocationData XrSpaceLocationDataKHR;
+
+typedef struct XrSpaceQueryResultFB
+{
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrUuidEXT uuid;
+} XrSpaceQueryResultFB;
+
+typedef struct XrSpaceVelocityData
+{
+    XrSpaceVelocityFlags WINE_XR_ALIGN(8) velocityFlags;
+    XrVector3f linearVelocity;
+    XrVector3f angularVelocity;
+} XrSpaceVelocityData;
+typedef XrSpaceVelocityData XrSpaceVelocityDataKHR;
+
+typedef struct XrSpatialAnchorCompletionResultML
+{
+    XrUuidEXT uuid;
+    XrResult result;
+} XrSpatialAnchorCompletionResultML;
+
+typedef struct XrSpatialAnchorNameHTC
+{
+    char name[XR_MAX_SPATIAL_ANCHOR_NAME_SIZE_HTC];
+} XrSpatialAnchorNameHTC;
+
+typedef struct XrSpatialAnchorPersistenceNameMSFT
+{
+    char name[XR_MAX_SPATIAL_ANCHOR_NAME_SIZE_MSFT];
+} XrSpatialAnchorPersistenceNameMSFT;
+
+typedef struct XrSpatialBounded2DDataEXT
+{
+    XrPosef center;
+    XrExtent2Df extents;
+} XrSpatialBounded2DDataEXT;
+
+typedef struct XrSpatialCapabilityConfigurationBaseHeaderEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+} XrSpatialCapabilityConfigurationBaseHeaderEXT;
+
+typedef struct XrSpatialContainerLayerEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+    XrBool32 retainPreviousSubmission;
+    uint32_t layerCount;
+    const XrCompositionLayerBaseHeader * const*layers;
+} XrSpatialContainerLayerEXT;
+
+typedef struct XrSpatialContainerViewLocateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrViewConfigurationType viewConfigurationType;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+} XrSpatialContainerViewLocateInfoEXT;
+
+typedef struct XrSpatialEntityStateBD
+{
+    XrStructureType type;
+    void *next;
+    XrSpatialEntityIdBD WINE_XR_ALIGN(8) entityId;
+    XrTime WINE_XR_ALIGN(8) lastUpdateTime;
+    XrUuidEXT uuid;
+} XrSpatialEntityStateBD;
+
+typedef struct XrSpatialImage2DDataEXT
+{
+    XrSpatialImageTrackingDatabaseEXT WINE_XR_ALIGN(8) imageTrackingDatabase;
+    uint32_t referenceImageIndex;
+} XrSpatialImage2DDataEXT;
+
+typedef struct XrSpatialMarkerDataEXT
+{
+    XrSpatialCapabilityEXT capability;
+    uint32_t markerId;
+    XrSpatialBufferEXT WINE_XR_ALIGN(8) data;
+} XrSpatialMarkerDataEXT;
+
+typedef struct XrSpatialMeshDataEXT
+{
+    XrPosef origin;
+    XrSpatialBufferEXT WINE_XR_ALIGN(8) vertexBuffer;
+    XrSpatialBufferEXT WINE_XR_ALIGN(8) indexBuffer;
+} XrSpatialMeshDataEXT;
+
+typedef struct XrSpatialPersistenceDataEXT
+{
+    XrUuid persistUuid;
+    XrSpatialPersistenceStateEXT persistState;
+} XrSpatialPersistenceDataEXT;
+
+typedef struct XrSpatialPolygon2DDataEXT
+{
+    XrPosef origin;
+    XrSpatialBufferEXT WINE_XR_ALIGN(8) vertexBuffer;
+} XrSpatialPolygon2DDataEXT;
+
+typedef struct XrSpatialRaycastInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrVector3f origin;
+    XrVector3f direction;
+    float maxDistance;
+} XrSpatialRaycastInfoANDROID;
+
+typedef struct XrSpatialRaycastResultDataANDROID
+{
+    XrPosef hitPose;
+    float distanceSquared;
+} XrSpatialRaycastResultDataANDROID;
+
+typedef struct XrSpatialReferenceImageEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t width;
+    uint32_t height;
+    XrSpatialReferenceImageFormatEXT format;
+    uint32_t planeCount;
+    const XrSpatialReferenceImagePlaneEXT *planes;
+} XrSpatialReferenceImageEXT;
+
+typedef struct XrSpheref
+{
+    XrPosef center;
+    float radius;
+} XrSpheref;
+typedef XrSpheref XrSpherefKHR;
+
+typedef struct XrSystemGraphicsProperties
+{
+    uint32_t maxSwapchainImageHeight;
+    uint32_t maxSwapchainImageWidth;
+    uint32_t maxLayerCount;
+} XrSystemGraphicsProperties;
+
+typedef struct XrSystemTrackingProperties
+{
+    XrBool32 orientationTracking;
+    XrBool32 positionTracking;
+} XrSystemTrackingProperties;
+
+typedef struct XrTilePropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrExtent3DiMETA tileDimensions;
+    XrExtent2Di apronDimensions;
+    XrOffset2Di origin;
+} XrTilePropertiesMETA;
+
+typedef struct XrTrackableImageDatabaseEntryANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrTrackableImageTrackingModeANDROID trackingMode;
+    float physicalWidth;
+    uint32_t imageWidth;
+    uint32_t imageHeight;
+    XrTrackableImageFormatANDROID format;
+    uint32_t bufferSize;
+    const uint8_t *buffer;
+} XrTrackableImageDatabaseEntryANDROID;
+
+typedef struct XrTrackableMarkerDatabaseANDROID
+{
+    XrTrackableMarkerDictionaryANDROID dictionary;
+    uint32_t entryCount;
+    const XrTrackableMarkerDatabaseEntryANDROID *entries;
+} XrTrackableMarkerDatabaseANDROID;
+
+typedef struct XrVector4f
+{
+    float x;
+    float y;
+    float z;
+    float w;
+} XrVector4f;
+
+typedef struct XrVector4sFB
+{
+    int16_t x;
+    int16_t y;
+    int16_t z;
+    int16_t w;
+} XrVector4sFB;
+
+typedef struct XrVirtualKeyboardAnimationStateMETA
+{
+    XrStructureType type;
+    void *next;
+    int32_t animationIndex;
+    float fraction;
+} XrVirtualKeyboardAnimationStateMETA;
+
+typedef struct XrViveTrackerPathsHTCX
+{
+    XrStructureType type;
+    void *next;
+    XrPath WINE_XR_ALIGN(8) persistentPath;
+    XrPath WINE_XR_ALIGN(8) rolePath;
+} XrViveTrackerPathsHTCX;
+
+typedef struct XrWorldMeshBlockML
+{
+    XrStructureType type;
+    void *next;
+    XrUuidEXT uuid;
+    XrWorldMeshBlockResultML blockResult;
+    XrWorldMeshDetectorLodML lod;
+    XrWorldMeshDetectorFlagsML WINE_XR_ALIGN(8) flags;
+    uint32_t indexCount;
+    uint16_t *indexBuffer;
+    uint32_t vertexCount;
+    XrVector3f *vertexBuffer;
+    uint32_t normalCount;
+    XrVector3f *normalBuffer;
+    uint32_t confidenceCount;
+    float *confidenceBuffer;
+} XrWorldMeshBlockML;
+
+typedef struct XrWorldMeshBlockRequestML
+{
+    XrStructureType type;
+    void *next;
+    XrUuidEXT uuid;
+    XrWorldMeshDetectorLodML lod;
+} XrWorldMeshBlockRequestML;
+
+typedef struct XrWorldMeshBlockStateML
+{
+    XrStructureType type;
+    void *next;
+    XrUuidEXT uuid;
+    XrPosef meshBoundingBoxCenter;
+    XrExtent3DfEXT meshBoundingBoxExtents;
+    XrTime WINE_XR_ALIGN(8) lastUpdateTime;
+    XrWorldMeshBlockStatusML status;
+} XrWorldMeshBlockStateML;
+
+typedef struct XrXYColorSONY
+{
+    float x;
+    float y;
+} XrXYColorSONY;
+
+typedef struct XrActionCreateInfo
+{
+    XrStructureType type;
+    const void *next;
+    char actionName[XR_MAX_ACTION_NAME_SIZE];
+    XrActionType actionType;
+    uint32_t countSubactionPaths;
+    const XrPath *subactionPaths;
+    char localizedActionName[XR_MAX_LOCALIZED_ACTION_NAME_SIZE];
+} XrActionCreateInfo;
+
+typedef struct XrActionSetCreateInfo
+{
+    XrStructureType type;
+    const void *next;
+    char actionSetName[XR_MAX_ACTION_SET_NAME_SIZE];
+    char localizedActionSetName[XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE];
+    uint32_t priority;
+} XrActionSetCreateInfo;
+
+typedef struct XrActionSpaceCreateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrAction WINE_XR_ALIGN(8) action;
+    XrPath WINE_XR_ALIGN(8) subactionPath;
+    XrPosef poseInActionSpace;
+} XrActionSpaceCreateInfo;
+
+typedef struct XrActionStateBoolean
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 currentState;
+    XrBool32 changedSinceLastSync;
+    XrTime WINE_XR_ALIGN(8) lastChangeTime;
+    XrBool32 isActive;
+} XrActionStateBoolean;
+
+typedef struct XrActionStateFloat
+{
+    XrStructureType type;
+    void *next;
+    float currentState;
+    XrBool32 changedSinceLastSync;
+    XrTime WINE_XR_ALIGN(8) lastChangeTime;
+    XrBool32 isActive;
+} XrActionStateFloat;
+
+typedef struct XrActionStateGetInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrAction WINE_XR_ALIGN(8) action;
+    XrPath WINE_XR_ALIGN(8) subactionPath;
+} XrActionStateGetInfo;
+
+typedef struct XrActionStatePose
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 isActive;
+} XrActionStatePose;
+
+typedef struct XrActionStateVector2f
+{
+    XrStructureType type;
+    void *next;
+    XrVector2f currentState;
+    XrBool32 changedSinceLastSync;
+    XrTime WINE_XR_ALIGN(8) lastChangeTime;
+    XrBool32 isActive;
+} XrActionStateVector2f;
+
+typedef struct XrActionsSyncInfo
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t countActiveActionSets;
+    const XrActiveActionSet *activeActionSets;
+} XrActionsSyncInfo;
+
+typedef struct XrActiveActionSetPrioritiesEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t actionSetPriorityCount;
+    const XrActiveActionSetPriorityEXT *actionSetPriorities;
+} XrActiveActionSetPrioritiesEXT;
+
+typedef struct XrAmbientLightANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrLightEstimateStateANDROID state;
+    XrVector3f intensity;
+    XrVector3f colorCorrection;
+} XrAmbientLightANDROID;
+
+typedef struct XrAnchorSpaceCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrPosef pose;
+    XrTrackableANDROID WINE_XR_ALIGN(8) trackable;
+} XrAnchorSpaceCreateInfoANDROID;
+
+typedef struct XrAnchorSpaceCreateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrAnchorBD WINE_XR_ALIGN(8) anchor;
+    XrPosef poseInAnchorSpace;
+} XrAnchorSpaceCreateInfoBD;
+
+typedef struct XrApiLayerCreateInfo
+{
+    XrLoaderInterfaceStructs structType;
+    uint32_t structVersion;
+    size_t structSize;
+    void *loaderInstance;
+    char settings_file_location[XR_API_LAYER_MAX_SETTINGS_PATH_SIZE];
+    XrApiLayerNextInfo *nextInfo;
+} XrApiLayerCreateInfo;
+
+typedef struct XrApiLayerProperties
+{
+    XrStructureType type;
+    void *next;
+    char layerName[XR_MAX_API_LAYER_NAME_SIZE];
+    XrVersion WINE_XR_ALIGN(8) specVersion;
+    uint32_t layerVersion;
+    char description[XR_MAX_API_LAYER_DESCRIPTION_SIZE];
+} XrApiLayerProperties;
+
+typedef struct XrAudioBufferBD
+{
+    XrStructureType type;
+    const void *next;
+    XrAudioBufferChannelLayoutBD channelLayout;
+    uint32_t bufferChannels;
+    uint32_t bufferLength;
+    float *buffer;
+} XrAudioBufferBD;
+
+typedef struct XrBaseInStructure
+{
+    XrStructureType type;
+    const struct XrBaseInStructure *next;
+} XrBaseInStructure;
+
+typedef struct XrBaseOutStructure
+{
+    XrStructureType type;
+    struct XrBaseOutStructure *next;
+} XrBaseOutStructure;
+
+typedef struct XrBatteryStateDisplayEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBatteryStateDisplayStateFlagsEXT WINE_XR_ALIGN(8) stateFlags;
+    float batteryLevel;
+} XrBatteryStateDisplayEXT;
+
+typedef struct XrBindingModificationsKHR
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t bindingModificationCount;
+    const XrBindingModificationBaseHeaderKHR * const*bindingModifications;
+} XrBindingModificationsKHR;
+
+typedef struct XrBodyJointAccelerationsBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t accelerationCount;
+    XrBodyJointAccelerationBD *accelerations;
+} XrBodyJointAccelerationsBD;
+
+typedef struct XrBodyJointLocationsBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 allJointPosesTracked;
+    uint32_t jointLocationCount;
+    XrBodyJointLocationBD *jointLocations;
+} XrBodyJointLocationsBD;
+
+typedef struct XrBodyJointLocationsFB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 isActive;
+    float confidence;
+    uint32_t jointCount;
+    XrBodyJointLocationFB *jointLocations;
+    uint32_t skeletonChangedCount;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrBodyJointLocationsFB;
+
+typedef struct XrBodyJointLocationsHTC
+{
+    XrStructureType type;
+    void *next;
+    XrSpaceLocationFlags WINE_XR_ALIGN(8) combinedLocationFlags;
+    XrBodyJointConfidenceHTC confidenceLevel;
+    uint32_t jointLocationCount;
+    XrBodyJointLocationHTC *jointLocations;
+    uint32_t skeletonGenerationId;
+} XrBodyJointLocationsHTC;
+
+typedef struct XrBodyJointVelocitiesBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t velocityCount;
+    XrBodyJointVelocityBD *velocities;
+} XrBodyJointVelocitiesBD;
+
+typedef struct XrBodyJointsLocateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrBodyJointsLocateInfoBD;
+
+typedef struct XrBodyJointsLocateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrBodyJointsLocateInfoFB;
+
+typedef struct XrBodyJointsLocateInfoHTC
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrBodyJointsLocateInfoHTC;
+
+typedef struct XrBodySkeletonFB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t jointCount;
+    XrBodySkeletonJointFB *joints;
+} XrBodySkeletonFB;
+
+typedef struct XrBodySkeletonHTC
+{
+    XrStructureType type;
+    void *next;
+    uint32_t jointCount;
+    XrBodySkeletonJointHTC *joints;
+} XrBodySkeletonHTC;
+
+typedef struct XrBodyTrackerCreateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrBodyJointSetBD jointSet;
+} XrBodyTrackerCreateInfoBD;
+
+typedef struct XrBodyTrackerCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrBodyJointSetFB bodyJointSet;
+} XrBodyTrackerCreateInfoFB;
+
+typedef struct XrBodyTrackerCreateInfoHTC
+{
+    XrStructureType type;
+    const void *next;
+    XrBodyJointSetHTC bodyJointSet;
+} XrBodyTrackerCreateInfoHTC;
+
+typedef struct XrBodyTrackingCalibrationInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    float bodyHeight;
+} XrBodyTrackingCalibrationInfoMETA;
+
+typedef struct XrBodyTrackingCalibrationStatusMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBodyTrackingCalibrationStateMETA status;
+} XrBodyTrackingCalibrationStatusMETA;
+
+typedef struct XrBodyTrackingFidelityStatusMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBodyTrackingFidelityMETA fidelity;
+} XrBodyTrackingFidelityStatusMETA;
+
+typedef struct XrBodyTrackingPostureDataBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t postureCount;
+    XrBodyTrackingPostureBD *postureData;
+} XrBodyTrackingPostureDataBD;
+
+typedef struct XrBodyTrackingStateBD
+{
+    XrStructureType type;
+    void *next;
+    XrBodyTrackingStatusBD status;
+    XrBodyTrackingMessageBD message;
+} XrBodyTrackingStateBD;
+
+typedef struct XrBoundSourcesForActionEnumerateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrAction WINE_XR_ALIGN(8) action;
+} XrBoundSourcesForActionEnumerateInfo;
+
+typedef struct XrBoundary2DFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector2f *vertices;
+} XrBoundary2DFB;
+
+typedef struct XrColocationAdvertisementStartInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t bufferSize;
+    uint8_t *buffer;
+} XrColocationAdvertisementStartInfoMETA;
+
+typedef struct XrColocationAdvertisementStopInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrColocationAdvertisementStopInfoMETA;
+
+typedef struct XrColocationDiscoveryStartInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrColocationDiscoveryStartInfoMETA;
+
+typedef struct XrColocationDiscoveryStopInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrColocationDiscoveryStopInfoMETA;
+
+typedef struct XrColor3f
+{
+    float r;
+    float g;
+    float b;
+} XrColor3f;
+typedef XrColor3f XrColor3fKHR;
+
+typedef struct XrColorSpacesEnumerateInfoSONY
+{
+    XrStructureType type;
+    const void *next;
+    int64_t WINE_XR_ALIGN(8) format;
+} XrColorSpacesEnumerateInfoSONY;
+
+typedef struct XrCompositionLayerAlphaBlendFB
+{
+    XrStructureType type;
+    void *next;
+    XrBlendFactorFB srcFactorColor;
+    XrBlendFactorFB dstFactorColor;
+    XrBlendFactorFB srcFactorAlpha;
+    XrBlendFactorFB dstFactorAlpha;
+} XrCompositionLayerAlphaBlendFB;
+
+typedef struct XrCompositionLayerColorScaleBiasKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrColor4f colorScale;
+    XrColor4f colorBias;
+} XrCompositionLayerColorScaleBiasKHR;
+
+typedef struct XrCompositionLayerCubeKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrEyeVisibility eyeVisibility;
+    XrSwapchain WINE_XR_ALIGN(8) swapchain;
+    uint32_t imageArrayIndex;
+    XrQuaternionf orientation;
+} XrCompositionLayerCubeKHR;
+
+typedef struct XrCompositionLayerCylinderKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrEyeVisibility eyeVisibility;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) subImage;
+    XrPosef pose;
+    float radius;
+    float centralAngle;
+    float aspectRatio;
+} XrCompositionLayerCylinderKHR;
+
+typedef struct XrCompositionLayerDepthInfoKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) subImage;
+    float minDepth;
+    float maxDepth;
+    float nearZ;
+    float farZ;
+} XrCompositionLayerDepthInfoKHR;
+
+typedef struct XrCompositionLayerDepthTestFB
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 depthMask;
+    XrCompareOpFB compareOp;
+} XrCompositionLayerDepthTestFB;
+
+typedef struct XrCompositionLayerDepthTestVARJO
+{
+    XrStructureType type;
+    const void *next;
+    float depthTestRangeNearZ;
+    float depthTestRangeFarZ;
+} XrCompositionLayerDepthTestVARJO;
+
+typedef struct XrCompositionLayerEquirect2KHR
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrEyeVisibility eyeVisibility;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) subImage;
+    XrPosef pose;
+    float radius;
+    float centralHorizontalAngle;
+    float upperVerticalAngle;
+    float lowerVerticalAngle;
+} XrCompositionLayerEquirect2KHR;
+
+typedef struct XrCompositionLayerEquirectKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrEyeVisibility eyeVisibility;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) subImage;
+    XrPosef pose;
+    float radius;
+    XrVector2f scale;
+    XrVector2f bias;
+} XrCompositionLayerEquirectKHR;
+
+typedef struct XrCompositionLayerImageLayoutFB
+{
+    XrStructureType type;
+    void *next;
+    XrCompositionLayerImageLayoutFlagsFB WINE_XR_ALIGN(8) flags;
+} XrCompositionLayerImageLayoutFB;
+
+typedef struct XrCompositionLayerPassthroughANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef pose;
+    XrVector3f scale;
+    float opacity;
+    XrPassthroughLayerANDROID WINE_XR_ALIGN(8) layer;
+} XrCompositionLayerPassthroughANDROID;
+
+typedef struct XrCompositionLayerPassthroughFB
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) flags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPassthroughLayerFB WINE_XR_ALIGN(8) layerHandle;
+} XrCompositionLayerPassthroughFB;
+
+typedef struct XrCompositionLayerPassthroughHTC
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPassthroughHTC WINE_XR_ALIGN(8) passthrough;
+    XrPassthroughColorHTC color;
+} XrCompositionLayerPassthroughHTC;
+
+typedef struct XrCompositionLayerProjection
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    uint32_t viewCount;
+    const XrCompositionLayerProjectionView *views;
+} XrCompositionLayerProjection;
+
+typedef struct XrCompositionLayerQuad
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerFlags WINE_XR_ALIGN(8) layerFlags;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrEyeVisibility eyeVisibility;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) subImage;
+    XrPosef pose;
+    XrExtent2Df size;
+} XrCompositionLayerQuad;
+
+typedef struct XrCompositionLayerReprojectionInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrReprojectionModeMSFT reprojectionMode;
+} XrCompositionLayerReprojectionInfoMSFT;
+
+typedef struct XrCompositionLayerReprojectionPlaneOverrideMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrVector3f position;
+    XrVector3f normal;
+    XrVector3f velocity;
+} XrCompositionLayerReprojectionPlaneOverrideMSFT;
+
+typedef struct XrCompositionLayerSecureContentFB
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerSecureContentFlagsFB WINE_XR_ALIGN(8) flags;
+} XrCompositionLayerSecureContentFB;
+
+typedef struct XrCompositionLayerSettingsFB
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerSettingsFlagsFB WINE_XR_ALIGN(8) layerFlags;
+} XrCompositionLayerSettingsFB;
+
+typedef struct XrCompositionLayerSpaceWarpInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrCompositionLayerSpaceWarpInfoFlagsFB WINE_XR_ALIGN(8) layerFlags;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) motionVectorSubImage;
+    XrPosef appSpaceDeltaPose;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) depthSubImage;
+    float minDepth;
+    float maxDepth;
+    float nearZ;
+    float farZ;
+} XrCompositionLayerSpaceWarpInfoFB;
+
+typedef struct XrControllerModelKeyStateMSFT
+{
+    XrStructureType type;
+    void *next;
+    XrControllerModelKeyMSFT WINE_XR_ALIGN(8) modelKey;
+} XrControllerModelKeyStateMSFT;
+
+typedef struct XrControllerModelPropertiesMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t nodeCapacityInput;
+    uint32_t nodeCountOutput;
+    XrControllerModelNodePropertiesMSFT *nodeProperties;
+} XrControllerModelPropertiesMSFT;
+
+typedef struct XrControllerModelStateMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t nodeCapacityInput;
+    uint32_t nodeCountOutput;
+    XrControllerModelNodeStateMSFT *nodeStates;
+} XrControllerModelStateMSFT;
+
+typedef struct XrCreateSpatialAnchorsCompletionML
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    uint32_t spaceCount;
+    XrSpace *spaces;
+} XrCreateSpatialAnchorsCompletionML;
+
+typedef struct XrCreateSpatialContextCompletionEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSpatialContextEXT WINE_XR_ALIGN(8) spatialContext;
+} XrCreateSpatialContextCompletionEXT;
+
+typedef struct XrCreateSpatialDiscoverySnapshotCompletionEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSpatialSnapshotEXT WINE_XR_ALIGN(8) snapshot;
+} XrCreateSpatialDiscoverySnapshotCompletionEXT;
+
+typedef struct XrCreateSpatialDiscoverySnapshotCompletionInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrFutureEXT WINE_XR_ALIGN(8) future;
+} XrCreateSpatialDiscoverySnapshotCompletionInfoEXT;
+
+typedef struct XrCreateSpatialImageTrackingDatabaseCompletionEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSpatialImageTrackingDatabaseEXT WINE_XR_ALIGN(8) database;
+} XrCreateSpatialImageTrackingDatabaseCompletionEXT;
+
+typedef struct XrCreateSpatialPersistenceContextCompletionEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSpatialPersistenceContextResultEXT createResult;
+    XrSpatialPersistenceContextEXT WINE_XR_ALIGN(8) persistenceContext;
+} XrCreateSpatialPersistenceContextCompletionEXT;
+
+typedef struct XrCreateTrackableImageDatabaseCompletionANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrTrackableImageDatabaseANDROID WINE_XR_ALIGN(8) database;
+} XrCreateTrackableImageDatabaseCompletionANDROID;
+
+typedef struct XrDeviceAnchorPersistenceCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrDeviceAnchorPersistenceCreateInfoANDROID;
+
+typedef struct XrDevicePcmSampleRateStateFB
+{
+    XrStructureType type;
+    void *next;
+    float sampleRate;
+} XrDevicePcmSampleRateStateFB;
+typedef XrDevicePcmSampleRateStateFB XrDevicePcmSampleRateGetInfoFB;
+
+typedef struct XrDigitalLensControlALMALENCE
+{
+    XrStructureType type;
+    const void *next;
+    XrDigitalLensControlFlagsALMALENCE WINE_XR_ALIGN(8) flags;
+} XrDigitalLensControlALMALENCE;
+
+typedef struct XrDirectionalLightANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrLightEstimateStateANDROID state;
+    XrVector3f intensity;
+    XrVector3f direction;
+} XrDirectionalLightANDROID;
+
+typedef struct XrEnvironmentTextureCreateConfigInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrEnvironmentTexturePixelFormatBD pixelFormat;
+    XrEnvironmentTextureResolutionBD resolution;
+    XrEnvironmentTextureTransferTypeBD transferType;
+} XrEnvironmentTextureCreateConfigInfoBD;
+
+typedef struct XrEventDataBaseHeader
+{
+    XrStructureType type;
+    const void *next;
+} XrEventDataBaseHeader;
+
+typedef struct XrEventDataBoundaryVisibilityChangedMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrBoundaryVisibilityMETA boundaryVisibility;
+} XrEventDataBoundaryVisibilityChangedMETA;
+
+typedef struct XrEventDataBuffer
+{
+    XrStructureType type;
+    const void *next;
+    uint8_t varying[4000];
+} XrEventDataBuffer;
+
+typedef struct XrEventDataColocationAdvertisementCompleteMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) advertisementRequestId;
+    XrResult result;
+} XrEventDataColocationAdvertisementCompleteMETA;
+
+typedef struct XrEventDataColocationDiscoveryCompleteMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) discoveryRequestId;
+    XrResult result;
+} XrEventDataColocationDiscoveryCompleteMETA;
+
+typedef struct XrEventDataColocationDiscoveryResultMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) discoveryRequestId;
+    XrUuid advertisementUuid;
+    uint32_t bufferSize;
+    uint8_t buffer[XR_MAX_COLOCATION_DISCOVERY_BUFFER_SIZE_META];
+} XrEventDataColocationDiscoveryResultMETA;
+
+typedef struct XrEventDataDisplayRefreshRateChangedFB
+{
+    XrStructureType type;
+    const void *next;
+    float fromDisplayRefreshRate;
+    float toDisplayRefreshRate;
+} XrEventDataDisplayRefreshRateChangedFB;
+
+typedef struct XrEventDataEventsLost
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t lostEventCount;
+} XrEventDataEventsLost;
+
+typedef struct XrEventDataEyeCalibrationChangedML
+{
+    XrStructureType type;
+    const void *next;
+    XrEyeCalibrationStatusML status;
+} XrEventDataEyeCalibrationChangedML;
+
+typedef struct XrEventDataGeospatialTrackerStateChangedANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrGeospatialTrackerANDROID WINE_XR_ALIGN(8) geospatialTracker;
+    XrGeospatialTrackerStateANDROID state;
+    XrResult initializationResult;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEventDataGeospatialTrackerStateChangedANDROID;
+
+typedef struct XrEventDataHeadsetFitChangedML
+{
+    XrStructureType type;
+    const void *next;
+    XrHeadsetFitStatusML status;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEventDataHeadsetFitChangedML;
+
+typedef struct XrEventDataImageTrackingLostANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEventDataImageTrackingLostANDROID;
+
+typedef struct XrEventDataInstanceLossPending
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) lossTime;
+} XrEventDataInstanceLossPending;
+
+typedef struct XrEventDataInteractionProfileChanged
+{
+    XrStructureType type;
+    const void *next;
+    XrSession WINE_XR_ALIGN(8) session;
+} XrEventDataInteractionProfileChanged;
+
+typedef struct XrEventDataInteractionRenderModelsChangedEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrEventDataInteractionRenderModelsChangedEXT;
+
+typedef struct XrEventDataLocalizationChangedML
+{
+    XrStructureType type;
+    const void *next;
+    XrSession WINE_XR_ALIGN(8) session;
+    XrLocalizationMapStateML state;
+    XrLocalizationMapML map;
+    XrLocalizationMapConfidenceML confidence;
+    XrLocalizationMapErrorFlagsML WINE_XR_ALIGN(8) errorFlags;
+} XrEventDataLocalizationChangedML;
+
+typedef struct XrEventDataMainSessionVisibilityChangedEXTX
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 visible;
+    XrOverlayMainSessionFlagsEXTX WINE_XR_ALIGN(8) flags;
+} XrEventDataMainSessionVisibilityChangedEXTX;
+
+typedef struct XrEventDataMarkerTrackingUpdateVARJO
+{
+    XrStructureType type;
+    const void *next;
+    uint64_t WINE_XR_ALIGN(8) markerId;
+    XrBool32 isActive;
+    XrBool32 isPredicted;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEventDataMarkerTrackingUpdateVARJO;
+
+typedef struct XrEventDataPassthroughLayerResumedMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughLayerFB WINE_XR_ALIGN(8) layer;
+} XrEventDataPassthroughLayerResumedMETA;
+
+typedef struct XrEventDataPassthroughStateChangedFB
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughStateChangedFlagsFB WINE_XR_ALIGN(8) flags;
+} XrEventDataPassthroughStateChangedFB;
+
+typedef struct XrEventDataPerfSettingsEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrPerfSettingsDomainEXT domain;
+    XrPerfSettingsSubDomainEXT subDomain;
+    XrPerfSettingsNotificationLevelEXT fromLevel;
+    XrPerfSettingsNotificationLevelEXT toLevel;
+} XrEventDataPerfSettingsEXT;
+
+typedef struct XrEventDataRecommendedResolutionChangedANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrEventDataRecommendedResolutionChangedANDROID;
+
+typedef struct XrEventDataReferenceSpaceChangePending
+{
+    XrStructureType type;
+    const void *next;
+    XrSession WINE_XR_ALIGN(8) session;
+    XrReferenceSpaceType referenceSpaceType;
+    XrTime WINE_XR_ALIGN(8) changeTime;
+    XrBool32 poseValid;
+    XrPosef poseInPreviousSpace;
+} XrEventDataReferenceSpaceChangePending;
+
+typedef struct XrEventDataSceneCaptureCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataSceneCaptureCompleteFB;
+
+typedef struct XrEventDataSenseDataProviderStateChangedBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSenseDataProviderBD WINE_XR_ALIGN(8) provider;
+    XrSenseDataProviderStateBD newState;
+} XrEventDataSenseDataProviderStateChangedBD;
+
+typedef struct XrEventDataSenseDataUpdatedBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSenseDataProviderBD WINE_XR_ALIGN(8) provider;
+} XrEventDataSenseDataUpdatedBD;
+
+typedef struct XrEventDataSessionStateChanged
+{
+    XrStructureType type;
+    const void *next;
+    XrSession WINE_XR_ALIGN(8) session;
+    XrSessionState state;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEventDataSessionStateChanged;
+
+typedef struct XrEventDataShareSpacesCompleteMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataShareSpacesCompleteMETA;
+
+typedef struct XrEventDataSpaceEraseCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrUuidEXT uuid;
+    XrSpaceStorageLocationFB location;
+} XrEventDataSpaceEraseCompleteFB;
+
+typedef struct XrEventDataSpaceListSaveCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataSpaceListSaveCompleteFB;
+
+typedef struct XrEventDataSpaceQueryCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataSpaceQueryCompleteFB;
+
+typedef struct XrEventDataSpaceQueryResultsAvailableFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+} XrEventDataSpaceQueryResultsAvailableFB;
+
+typedef struct XrEventDataSpaceSaveCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrUuidEXT uuid;
+    XrSpaceStorageLocationFB location;
+} XrEventDataSpaceSaveCompleteFB;
+
+typedef struct XrEventDataSpaceSetStatusCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrUuidEXT uuid;
+    XrSpaceComponentTypeFB componentType;
+    XrBool32 enabled;
+} XrEventDataSpaceSetStatusCompleteFB;
+
+typedef struct XrEventDataSpaceShareCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataSpaceShareCompleteFB;
+
+typedef struct XrEventDataSpacesEraseResultMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataSpacesEraseResultMETA;
+
+typedef struct XrEventDataSpacesSaveResultMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataSpacesSaveResultMETA;
+
+typedef struct XrEventDataSpatialAnchorCreateCompleteFB
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrUuidEXT uuid;
+} XrEventDataSpatialAnchorCreateCompleteFB;
+
+typedef struct XrEventDataSpatialContainerBoundsChangedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+    XrExtent3Df bounds;
+    XrBool32 infiniteBounds;
+    XrSpatialContainerBoundsModeEXT boundsMode;
+} XrEventDataSpatialContainerBoundsChangedEXT;
+
+typedef struct XrEventDataSpatialContainerBoundsModeRequestDeniedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+} XrEventDataSpatialContainerBoundsModeRequestDeniedEXT;
+
+typedef struct XrEventDataSpatialContainerClosedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+} XrEventDataSpatialContainerClosedEXT;
+
+typedef struct XrEventDataSpatialContainerInteractableChangedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+    XrBool32 interactable;
+} XrEventDataSpatialContainerInteractableChangedEXT;
+
+typedef struct XrEventDataSpatialContainerVisibleChangedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+    XrBool32 visible;
+} XrEventDataSpatialContainerVisibleChangedEXT;
+
+typedef struct XrEventDataSpatialContainerVisibleRequestDeniedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+} XrEventDataSpatialContainerVisibleRequestDeniedEXT;
+
+typedef struct XrEventDataSpatialDiscoveryRecommendedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContextEXT WINE_XR_ALIGN(8) spatialContext;
+} XrEventDataSpatialDiscoveryRecommendedEXT;
+
+typedef struct XrEventDataStartColocationAdvertisementCompleteMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) advertisementRequestId;
+    XrResult result;
+    XrUuid advertisementUuid;
+} XrEventDataStartColocationAdvertisementCompleteMETA;
+
+typedef struct XrEventDataStartColocationDiscoveryCompleteMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) discoveryRequestId;
+    XrResult result;
+} XrEventDataStartColocationDiscoveryCompleteMETA;
+
+typedef struct XrEventDataStopColocationAdvertisementCompleteMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataStopColocationAdvertisementCompleteMETA;
+
+typedef struct XrEventDataStopColocationDiscoveryCompleteMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrAsyncRequestIdFB WINE_XR_ALIGN(8) requestId;
+    XrResult result;
+} XrEventDataStopColocationDiscoveryCompleteMETA;
+
+typedef struct XrEventDataUserPresenceChangedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSession WINE_XR_ALIGN(8) session;
+    XrBool32 isUserPresent;
+} XrEventDataUserPresenceChangedEXT;
+
+typedef struct XrEventDataViewConfigurationViewsChangedEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSystemId WINE_XR_ALIGN(8) systemId;
+    XrViewConfigurationType viewConfigurationType;
+} XrEventDataViewConfigurationViewsChangedEXT;
+
+typedef struct XrEventDataVirtualKeyboardBackspaceMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardMETA WINE_XR_ALIGN(8) keyboard;
+} XrEventDataVirtualKeyboardBackspaceMETA;
+
+typedef struct XrEventDataVirtualKeyboardCommitTextMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardMETA WINE_XR_ALIGN(8) keyboard;
+    char text[XR_MAX_VIRTUAL_KEYBOARD_COMMIT_TEXT_SIZE_META];
+} XrEventDataVirtualKeyboardCommitTextMETA;
+
+typedef struct XrEventDataVirtualKeyboardEnterMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardMETA WINE_XR_ALIGN(8) keyboard;
+} XrEventDataVirtualKeyboardEnterMETA;
+
+typedef struct XrEventDataVirtualKeyboardHiddenMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardMETA WINE_XR_ALIGN(8) keyboard;
+} XrEventDataVirtualKeyboardHiddenMETA;
+
+typedef struct XrEventDataVirtualKeyboardShownMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardMETA WINE_XR_ALIGN(8) keyboard;
+} XrEventDataVirtualKeyboardShownMETA;
+
+typedef struct XrEventDataVisibilityMaskChangedKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrSession WINE_XR_ALIGN(8) session;
+    XrViewConfigurationType viewConfigurationType;
+    uint32_t viewIndex;
+} XrEventDataVisibilityMaskChangedKHR;
+
+typedef struct XrEventDataViveTrackerConnectedHTCX
+{
+    XrStructureType type;
+    const void *next;
+    XrViveTrackerPathsHTCX *paths;
+} XrEventDataViveTrackerConnectedHTCX;
+
+typedef struct XrExtensionProperties
+{
+    XrStructureType type;
+    void *next;
+    char extensionName[XR_MAX_EXTENSION_NAME_SIZE];
+    uint32_t extensionVersion;
+} XrExtensionProperties;
+
+typedef struct XrExternalCameraOCULUS
+{
+    XrStructureType type;
+    const void *next;
+    char name[XR_MAX_EXTERNAL_CAMERA_NAME_SIZE_OCULUS];
+    XrExternalCameraIntrinsicsOCULUS WINE_XR_ALIGN(8) intrinsics;
+    XrExternalCameraExtrinsicsOCULUS WINE_XR_ALIGN(8) extrinsics;
+} XrExternalCameraOCULUS;
+
+typedef struct XrEyeGazeSampleTimeEXT
+{
+    XrStructureType type;
+    void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEyeGazeSampleTimeEXT;
+
+typedef struct XrEyeGazesFB
+{
+    XrStructureType type;
+    void *next;
+    XrEyeGazeFB gaze[XR_EYE_POSITION_COUNT_FB];
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEyeGazesFB;
+
+typedef struct XrEyeGazesInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrEyeGazesInfoFB;
+
+typedef struct XrEyeTrackerCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrEyeTrackerCreateInfoANDROID;
+
+typedef struct XrEyeTrackerCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+} XrEyeTrackerCreateInfoFB;
+
+typedef struct XrEyesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrEyeANDROID eyes[XR_EYE_MAX_ANDROID];
+    XrEyeTrackingModeANDROID mode;
+} XrEyesANDROID;
+
+typedef struct XrEyesGetInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+} XrEyesGetInfoANDROID;
+
+typedef struct XrFaceExpressionInfo2FB
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFaceExpressionInfo2FB;
+
+typedef struct XrFaceExpressionInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFaceExpressionInfoFB;
+
+typedef struct XrFaceExpressionWeights2FB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t weightCount;
+    float *weights;
+    uint32_t confidenceCount;
+    float *confidences;
+    XrBool32 isValid;
+    XrBool32 isEyeFollowingBlendshapesValid;
+    XrFaceTrackingDataSource2FB dataSource;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFaceExpressionWeights2FB;
+
+typedef struct XrFaceExpressionWeightsFB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t weightCount;
+    float *weights;
+    uint32_t confidenceCount;
+    float *confidences;
+    XrFaceExpressionStatusFB status;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFaceExpressionWeightsFB;
+
+typedef struct XrFaceStateANDROID
+{
+    XrStructureType type;
+    void *next;
+    uint32_t parametersCapacityInput;
+    uint32_t parametersCountOutput;
+    float *parameters;
+    XrFaceTrackingStateANDROID faceTrackingState;
+    XrTime WINE_XR_ALIGN(8) sampleTime;
+    XrBool32 isValid;
+    uint32_t regionConfidencesCapacityInput;
+    uint32_t regionConfidencesCountOutput;
+    float *regionConfidences;
+} XrFaceStateANDROID;
+
+typedef struct XrFaceStateGetInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFaceStateGetInfoANDROID;
+
+typedef struct XrFaceTrackerCreateInfo2FB
+{
+    XrStructureType type;
+    const void *next;
+    XrFaceExpressionSet2FB faceExpressionSet;
+    uint32_t requestedDataSourceCount;
+    XrFaceTrackingDataSource2FB *requestedDataSources;
+} XrFaceTrackerCreateInfo2FB;
+
+typedef struct XrFaceTrackerCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrFaceTrackerCreateInfoANDROID;
+
+typedef struct XrFaceTrackerCreateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrFacialSimulationModeBD mode;
+} XrFaceTrackerCreateInfoBD;
+
+typedef struct XrFaceTrackerCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrFaceExpressionSetFB faceExpressionSet;
+} XrFaceTrackerCreateInfoFB;
+
+typedef struct XrFaceTrackingVisemesMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 isValid;
+    float visemes[XR_FACE_TRACKING_VISEME_COUNT_META];
+} XrFaceTrackingVisemesMETA;
+
+typedef struct XrFacialExpressionBlendShapeGetInfoML
+{
+    XrStructureType type;
+    const void *next;
+} XrFacialExpressionBlendShapeGetInfoML;
+
+typedef struct XrFacialExpressionBlendShapePropertiesML
+{
+    XrStructureType type;
+    void *next;
+    XrFacialBlendShapeML requestedFacialBlendShape;
+    float weight;
+    XrFacialExpressionBlendShapePropertiesFlagsML WINE_XR_ALIGN(8) flags;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFacialExpressionBlendShapePropertiesML;
+
+typedef struct XrFacialExpressionClientCreateInfoML
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t requestedCount;
+    const XrFacialBlendShapeML *requestedFacialBlendShapes;
+} XrFacialExpressionClientCreateInfoML;
+
+typedef struct XrFacialExpressionsHTC
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 isActive;
+    XrTime WINE_XR_ALIGN(8) sampleTime;
+    uint32_t expressionCount;
+    float *expressionWeightings;
+} XrFacialExpressionsHTC;
+
+typedef struct XrFacialSimulationDataBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t faceExpressionWeightCount;
+    float *faceExpressionWeights;
+    XrBool32 isUpperFaceDataValid;
+    XrBool32 isLowerFaceDataValid;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFacialSimulationDataBD;
+
+typedef struct XrFacialSimulationDataGetInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrFacialSimulationDataGetInfoBD;
+
+typedef struct XrFacialTrackerCreateInfoHTC
+{
+    XrStructureType type;
+    const void *next;
+    XrFacialTrackingTypeHTC facialTrackingType;
+} XrFacialTrackerCreateInfoHTC;
+
+typedef struct XrForceFeedbackCurlApplyLocationsMNDX
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t locationCount;
+    XrForceFeedbackCurlApplyLocationMNDX *locations;
+} XrForceFeedbackCurlApplyLocationsMNDX;
+
+typedef struct XrFoveatedViewConfigurationViewVARJO
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 foveatedRenderingActive;
+} XrFoveatedViewConfigurationViewVARJO;
+
+typedef struct XrFoveationEyeTrackedProfileCreateInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrFoveationEyeTrackedProfileCreateFlagsMETA WINE_XR_ALIGN(8) flags;
+} XrFoveationEyeTrackedProfileCreateInfoMETA;
+
+typedef struct XrFoveationEyeTrackedStateMETA
+{
+    XrStructureType type;
+    void *next;
+    XrVector2f foveationCenter[XR_FOVEATION_CENTER_SIZE_META];
+    XrFoveationEyeTrackedStateFlagsMETA WINE_XR_ALIGN(8) flags;
+} XrFoveationEyeTrackedStateMETA;
+
+typedef struct XrFoveationLevelProfileCreateInfoFB
+{
+    XrStructureType type;
+    void *next;
+    XrFoveationLevelFB level;
+    float verticalOffset;
+    XrFoveationDynamicFB dynamic;
+} XrFoveationLevelProfileCreateInfoFB;
+
+typedef struct XrFoveationProfileCreateInfoFB
+{
+    XrStructureType type;
+    void *next;
+} XrFoveationProfileCreateInfoFB;
+
+typedef struct XrFrameBeginInfo
+{
+    XrStructureType type;
+    const void *next;
+} XrFrameBeginInfo;
+
+typedef struct XrFrameEndInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) displayTime;
+    XrEnvironmentBlendMode environmentBlendMode;
+    uint32_t layerCount;
+    const XrCompositionLayerBaseHeader * const*layers;
+} XrFrameEndInfo;
+
+typedef struct XrFrameEndInfoML
+{
+    XrStructureType type;
+    const void *next;
+    float focusDistance;
+    XrFrameEndInfoFlagsML WINE_XR_ALIGN(8) flags;
+} XrFrameEndInfoML;
+
+typedef struct XrFrameState
+{
+    XrStructureType type;
+    void *next;
+    XrTime WINE_XR_ALIGN(8) predictedDisplayTime;
+    XrDuration WINE_XR_ALIGN(8) predictedDisplayPeriod;
+    XrBool32 shouldRender;
+} XrFrameState;
+
+typedef struct XrFrameSynthesisConfigViewEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t recommendedMotionVectorImageRectWidth;
+    uint32_t recommendedMotionVectorImageRectHeight;
+} XrFrameSynthesisConfigViewEXT;
+
+typedef struct XrFrameSynthesisInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrFrameSynthesisInfoFlagsEXT WINE_XR_ALIGN(8) layerFlags;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) motionVectorSubImage;
+    XrVector4f motionVectorScale;
+    XrVector4f motionVectorOffset;
+    XrPosef appSpaceDeltaPose;
+    XrSwapchainSubImage WINE_XR_ALIGN(8) depthSubImage;
+    float minDepth;
+    float maxDepth;
+    float nearZ;
+    float farZ;
+} XrFrameSynthesisInfoEXT;
+
+typedef struct XrFrameWaitInfo
+{
+    XrStructureType type;
+    const void *next;
+} XrFrameWaitInfo;
+
+typedef struct XrFutureCancelInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrFutureEXT WINE_XR_ALIGN(8) future;
+} XrFutureCancelInfoEXT;
+
+typedef struct XrFutureCompletionBaseHeaderEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+} XrFutureCompletionBaseHeaderEXT;
+
+typedef struct XrFutureCompletionEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+} XrFutureCompletionEXT;
+
+typedef struct XrFuturePollInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrFutureEXT WINE_XR_ALIGN(8) future;
+} XrFuturePollInfoEXT;
+
+typedef struct XrFuturePollResultEXT
+{
+    XrStructureType type;
+    void *next;
+    XrFutureStateEXT state;
+} XrFuturePollResultEXT;
+
+typedef struct XrFuturePollResultProgressBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 isSupported;
+    uint32_t progressPercentage;
+} XrFuturePollResultProgressBD;
+
+typedef struct XrGeometryInstanceCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughLayerFB WINE_XR_ALIGN(8) layer;
+    XrTriangleMeshFB WINE_XR_ALIGN(8) mesh;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrPosef pose;
+    XrVector3f scale;
+} XrGeometryInstanceCreateInfoFB;
+
+typedef struct XrGeometryInstanceTransformFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrPosef pose;
+    XrVector3f scale;
+} XrGeometryInstanceTransformFB;
+
+typedef struct XrGeospatialAnchorCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrGeospatialTrackerANDROID WINE_XR_ALIGN(8) geospatialTracker;
+    XrGeospatialPoseANDROID WINE_XR_ALIGN(8) geospatialPose;
+} XrGeospatialAnchorCreateInfoANDROID;
+
+typedef struct XrGeospatialPoseFromPoseLocateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrPosef pose;
+} XrGeospatialPoseFromPoseLocateInfoANDROID;
+
+typedef struct XrGeospatialPoseLocateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrGeospatialPoseANDROID WINE_XR_ALIGN(8) geospatialPose;
+} XrGeospatialPoseLocateInfoANDROID;
+
+typedef struct XrGeospatialPoseResultANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrGeospatialPoseFlagsANDROID WINE_XR_ALIGN(8) poseFlags;
+    XrGeospatialPoseANDROID WINE_XR_ALIGN(8) geospatialPose;
+    double WINE_XR_ALIGN(8) horizontalAccuracy;
+    double WINE_XR_ALIGN(8) verticalAccuracy;
+    double WINE_XR_ALIGN(8) orientationYawAccuracy;
+} XrGeospatialPoseResultANDROID;
+
+typedef struct XrGeospatialTrackerAnchorTrackingInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 shouldTrackPlanes;
+} XrGeospatialTrackerAnchorTrackingInfoANDROID;
+
+typedef struct XrGeospatialTrackerCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrGeospatialTrackerCreateInfoANDROID;
+
+typedef struct XrGlobalDimmerFrameEndInfoML
+{
+    XrStructureType type;
+    const void *next;
+    float dimmerValue;
+    XrGlobalDimmerFrameEndInfoFlagsML WINE_XR_ALIGN(8) flags;
+} XrGlobalDimmerFrameEndInfoML;
+
+typedef struct XrGoogleCloudAuthErrorResultANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrGoogleCloudAuthErrorANDROID error;
+} XrGoogleCloudAuthErrorResultANDROID;
+
+typedef struct XrGoogleCloudAuthInfoApiKeyANDROID
+{
+    XrStructureType type;
+    const void *next;
+    const char *apiKey;
+} XrGoogleCloudAuthInfoApiKeyANDROID;
+
+typedef struct XrGoogleCloudAuthInfoBaseHeaderANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrGoogleCloudAuthInfoBaseHeaderANDROID;
+
+typedef struct XrGoogleCloudAuthInfoKeylessANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrGoogleCloudAuthInfoKeylessANDROID;
+
+typedef struct XrGoogleCloudAuthInfoTokenANDROID
+{
+    XrStructureType type;
+    const void *next;
+    const char *authToken;
+} XrGoogleCloudAuthInfoTokenANDROID;
+
+typedef struct XrGraphicsBindingD3D11KHR
+{
+    XrStructureType type;
+    const void *next;
+    ID3D11Device *device;
+} XrGraphicsBindingD3D11KHR;
+
+typedef struct XrGraphicsBindingD3D12KHR
+{
+    XrStructureType type;
+    const void *next;
+    ID3D12Device *device;
+    ID3D12CommandQueue *queue;
+} XrGraphicsBindingD3D12KHR;
+
+typedef struct XrGraphicsBindingOpenGLWin32KHR
+{
+    XrStructureType type;
+    const void *next;
+    HDC hDC;
+    HGLRC hGLRC;
+} XrGraphicsBindingOpenGLWin32KHR;
+
+typedef struct XrGraphicsBindingVulkanKHR
+{
+    XrStructureType type;
+    const void *next;
+    VkInstance instance;
+    VkPhysicalDevice physicalDevice;
+    VkDevice device;
+    uint32_t queueFamilyIndex;
+    uint32_t queueIndex;
+} XrGraphicsBindingVulkanKHR;
+typedef XrGraphicsBindingVulkanKHR XrGraphicsBindingVulkan2KHR;
+
+typedef struct XrGraphicsRequirementsD3D11KHR
+{
+    XrStructureType type;
+    void *next;
+    LUID adapterLuid;
+    D3D_FEATURE_LEVEL minFeatureLevel;
+} XrGraphicsRequirementsD3D11KHR;
+
+typedef struct XrGraphicsRequirementsD3D12KHR
+{
+    XrStructureType type;
+    void *next;
+    LUID adapterLuid;
+    D3D_FEATURE_LEVEL minFeatureLevel;
+} XrGraphicsRequirementsD3D12KHR;
+
+typedef struct XrGraphicsRequirementsOpenGLKHR
+{
+    XrStructureType type;
+    void *next;
+    XrVersion WINE_XR_ALIGN(8) minApiVersionSupported;
+    XrVersion WINE_XR_ALIGN(8) maxApiVersionSupported;
+} XrGraphicsRequirementsOpenGLKHR;
+
+typedef struct XrGraphicsRequirementsVulkanKHR
+{
+    XrStructureType type;
+    void *next;
+    XrVersion WINE_XR_ALIGN(8) minApiVersionSupported;
+    XrVersion WINE_XR_ALIGN(8) maxApiVersionSupported;
+} XrGraphicsRequirementsVulkanKHR;
+typedef XrGraphicsRequirementsVulkanKHR XrGraphicsRequirementsVulkan2KHR;
+
+typedef struct XrHandGestureQCOM
+{
+    XrHandGestureTypeQCOM gesture;
+    float gestureRatio;
+    float flipRatio;
+} XrHandGestureQCOM;
+
+typedef struct XrHandJointLocationsEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 isActive;
+    uint32_t jointCount;
+    XrHandJointLocationEXT *jointLocations;
+} XrHandJointLocationsEXT;
+
+typedef struct XrHandJointVelocitiesEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t jointCount;
+    XrHandJointVelocityEXT *jointVelocities;
+} XrHandJointVelocitiesEXT;
+
+typedef struct XrHandJointsLocateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrHandJointsLocateInfoEXT;
+
+typedef struct XrHandJointsMotionRangeInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrHandJointsMotionRangeEXT handJointsMotionRange;
+} XrHandJointsMotionRangeInfoEXT;
+
+typedef struct XrHandMeshMSFT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 isActive;
+    XrBool32 indexBufferChanged;
+    XrBool32 vertexBufferChanged;
+    XrHandMeshIndexBufferMSFT indexBuffer;
+    XrHandMeshVertexBufferMSFT WINE_XR_ALIGN(8) vertexBuffer;
+} XrHandMeshMSFT;
+
+typedef struct XrHandMeshSpaceCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrHandPoseTypeMSFT handPoseType;
+    XrPosef poseInHandMeshSpace;
+} XrHandMeshSpaceCreateInfoMSFT;
+
+typedef struct XrHandMeshUpdateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrHandPoseTypeMSFT handPoseType;
+} XrHandMeshUpdateInfoMSFT;
+
+typedef struct XrHandPoseTypeInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrHandPoseTypeMSFT handPoseType;
+} XrHandPoseTypeInfoMSFT;
+
+typedef struct XrHandTrackerCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrHandEXT hand;
+    XrHandJointSetEXT handJointSet;
+} XrHandTrackerCreateInfoEXT;
+
+typedef struct XrHandTrackingAimStateFB
+{
+    XrStructureType type;
+    void *next;
+    XrHandTrackingAimFlagsFB WINE_XR_ALIGN(8) status;
+    XrPosef aimPose;
+    float pinchStrengthIndex;
+    float pinchStrengthMiddle;
+    float pinchStrengthRing;
+    float pinchStrengthLittle;
+} XrHandTrackingAimStateFB;
+
+typedef struct XrHandTrackingCapsulesStateFB
+{
+    XrStructureType type;
+    void *next;
+    XrHandCapsuleFB capsules[XR_HAND_TRACKING_CAPSULE_COUNT_FB];
+} XrHandTrackingCapsulesStateFB;
+
+typedef struct XrHandTrackingDataSourceInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t requestedDataSourceCount;
+    XrHandTrackingDataSourceEXT *requestedDataSources;
+} XrHandTrackingDataSourceInfoEXT;
+
+typedef struct XrHandTrackingDataSourceStateEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 isActive;
+    XrHandTrackingDataSourceEXT dataSource;
+} XrHandTrackingDataSourceStateEXT;
+
+typedef struct XrHandTrackingMeshFB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t jointCapacityInput;
+    uint32_t jointCountOutput;
+    XrPosef *jointBindPoses;
+    float *jointRadii;
+    XrHandJointEXT *jointParents;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector3f *vertexPositions;
+    XrVector3f *vertexNormals;
+    XrVector2f *vertexUVs;
+    XrVector4sFB *vertexBlendIndices;
+    XrVector4f *vertexBlendWeights;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    int16_t *indices;
+} XrHandTrackingMeshFB;
+
+typedef struct XrHandTrackingScaleFB
+{
+    XrStructureType type;
+    void *next;
+    float sensorOutput;
+    float currentOutput;
+    XrBool32 overrideHandScale;
+    float overrideValueInput;
+} XrHandTrackingScaleFB;
+
+typedef struct XrHandTrackingUnextrapolatedPosesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrTime WINE_XR_ALIGN(8) captureTime;
+} XrHandTrackingUnextrapolatedPosesMETA;
+
+typedef struct XrHandTrackingUnextrapolatedPosesRequestMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrHandTrackingUnextrapolatedPosesRequestMETA;
+
+typedef struct XrHapticActionInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrAction WINE_XR_ALIGN(8) action;
+    XrPath WINE_XR_ALIGN(8) subactionPath;
+} XrHapticActionInfo;
+
+typedef struct XrHapticAmplitudeEnvelopeVibrationFB
+{
+    XrStructureType type;
+    const void *next;
+    XrDuration WINE_XR_ALIGN(8) duration;
+    uint32_t amplitudeCount;
+    const float *amplitudes;
+} XrHapticAmplitudeEnvelopeVibrationFB;
+
+typedef struct XrHapticParametricPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    XrDuration WINE_XR_ALIGN(8) idealFrameSubmissionRate;
+    XrDuration WINE_XR_ALIGN(8) minimumFirstFrameDuration;
+    float minFrequencyHz;
+    float maxFrequencyHz;
+} XrHapticParametricPropertiesEXT;
+
+typedef struct XrHapticParametricVibrationEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t amplitudePointCount;
+    const XrHapticParametricPointEXT *amplitudePoints;
+    uint32_t frequencyPointCount;
+    const XrHapticParametricPointEXT *frequencyPoints;
+    uint32_t transientCount;
+    const XrHapticParametricTransientEXT *transients;
+    float minFrequencyHz;
+    float maxFrequencyHz;
+    XrHapticParametricStreamFrameTypeEXT streamFrameType;
+} XrHapticParametricVibrationEXT;
+
+typedef struct XrHapticPcmVibrationFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t bufferSize;
+    const float *buffer;
+    float sampleRate;
+    XrBool32 append;
+    uint32_t *samplesConsumed;
+} XrHapticPcmVibrationFB;
+
+typedef struct XrHapticVibration
+{
+    XrStructureType type;
+    const void *next;
+    XrDuration WINE_XR_ALIGN(8) duration;
+    float frequency;
+    float amplitude;
+} XrHapticVibration;
+
+typedef struct XrHdrMetadataSONY
+{
+    XrStructureType type;
+    const void *next;
+    XrXYColorSONY displayPrimaryRed;
+    XrXYColorSONY displayPrimaryGreen;
+    XrXYColorSONY displayPrimaryBlue;
+    XrXYColorSONY whitePoint;
+    float maxLuminance;
+    float minLuminance;
+    float maxContentLightLevel;
+    float maxFrameAverageLightLevel;
+} XrHdrMetadataSONY;
+
+typedef struct XrHolographicWindowAttachmentMSFT
+{
+    XrStructureType type;
+    const void *next;
+    IUnknown *holographicSpace;
+    IUnknown *coreWindow;
+} XrHolographicWindowAttachmentMSFT;
+
+typedef struct XrInputSourceLocalizedNameGetInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrPath WINE_XR_ALIGN(8) sourcePath;
+    XrInputSourceLocalizedNameFlags WINE_XR_ALIGN(8) whichComponents;
+} XrInputSourceLocalizedNameGetInfo;
+
+typedef struct XrInstanceProperties
+{
+    XrStructureType type;
+    void *next;
+    XrVersion WINE_XR_ALIGN(8) runtimeVersion;
+    char runtimeName[XR_MAX_RUNTIME_NAME_SIZE];
+} XrInstanceProperties;
+
+typedef struct XrInteractionProfileAnalogThresholdVALVE
+{
+    XrStructureType type;
+    const void *next;
+    XrAction WINE_XR_ALIGN(8) action;
+    XrPath WINE_XR_ALIGN(8) binding;
+    float onThreshold;
+    float offThreshold;
+    const XrHapticBaseHeader *onHaptic;
+    const XrHapticBaseHeader *offHaptic;
+} XrInteractionProfileAnalogThresholdVALVE;
+
+typedef struct XrInteractionProfileDpadBindingEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrPath WINE_XR_ALIGN(8) binding;
+    XrActionSet WINE_XR_ALIGN(8) actionSet;
+    float forceThreshold;
+    float forceThresholdReleased;
+    float centerRegion;
+    float wedgeAngle;
+    XrBool32 isSticky;
+    const XrHapticBaseHeader *onHaptic;
+    const XrHapticBaseHeader *offHaptic;
+} XrInteractionProfileDpadBindingEXT;
+
+typedef struct XrInteractionProfileState
+{
+    XrStructureType type;
+    void *next;
+    XrPath WINE_XR_ALIGN(8) interactionProfile;
+} XrInteractionProfileState;
+
+typedef struct XrInteractionProfileSuggestedBinding
+{
+    XrStructureType type;
+    const void *next;
+    XrPath WINE_XR_ALIGN(8) interactionProfile;
+    uint32_t countSuggestedBindings;
+    const XrActionSuggestedBinding *suggestedBindings;
+} XrInteractionProfileSuggestedBinding;
+
+typedef struct XrInteractionRenderModelIdsEnumerateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrInteractionRenderModelIdsEnumerateInfoEXT;
+
+typedef struct XrInteractionRenderModelSubactionPathInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrInteractionRenderModelSubactionPathInfoEXT;
+
+typedef struct XrInteractionRenderModelTopLevelUserPathGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t topLevelUserPathCount;
+    const XrPath *topLevelUserPaths;
+} XrInteractionRenderModelTopLevelUserPathGetInfoEXT;
+
+typedef struct XrKeyboardSpaceCreateInfoFB
+{
+    XrStructureType type;
+    void *next;
+    uint64_t WINE_XR_ALIGN(8) trackedKeyboardId;
+} XrKeyboardSpaceCreateInfoFB;
+
+typedef struct XrKeyboardTrackingDescriptionFB
+{
+    uint64_t WINE_XR_ALIGN(8) trackedKeyboardId;
+    XrVector3f size;
+    XrKeyboardTrackingFlagsFB WINE_XR_ALIGN(8) flags;
+    char name[XR_MAX_KEYBOARD_TRACKING_NAME_SIZE_FB];
+} XrKeyboardTrackingDescriptionFB;
+
+typedef struct XrKeyboardTrackingQueryFB
+{
+    XrStructureType type;
+    void *next;
+    XrKeyboardTrackingQueryFlagsFB WINE_XR_ALIGN(8) flags;
+} XrKeyboardTrackingQueryFB;
+
+typedef struct XrLightEstimateANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrLightEstimateStateANDROID state;
+    XrTime WINE_XR_ALIGN(8) lastUpdatedTime;
+} XrLightEstimateANDROID;
+
+typedef struct XrLightEstimateGetInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrLightEstimateGetInfoANDROID;
+
+typedef struct XrLightEstimationDataEnvironmentTextureRawBD
+{
+    XrStructureType type;
+    const void *next;
+    XrEnvironmentTexturePixelFormatBD pixelFormat;
+    uint32_t cubemapFaceBufferSize;
+    uint8_t *rightCubemapFaceBuffer;
+    uint8_t *leftCubemapFaceBuffer;
+    uint8_t *topCubemapFaceBuffer;
+    uint8_t *bottomCubemapFaceBuffer;
+    uint8_t *frontCubemapFaceBuffer;
+    uint8_t *backCubemapFaceBuffer;
+} XrLightEstimationDataEnvironmentTextureRawBD;
+
+typedef struct XrLightEstimationDataSphericalHarmonicsBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSphericalHarmonicsKindBD kind;
+    uint32_t coefficientCapacityInput;
+    uint32_t coefficientCountOutput;
+    float *coefficients;
+} XrLightEstimationDataSphericalHarmonicsBD;
+
+typedef struct XrLightEstimatorCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrLightEstimatorCreateInfoANDROID;
+
+typedef struct XrLipExpressionDataBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t lipsyncExpressionWeightCount;
+    float *lipsyncExpressionWeights;
+} XrLipExpressionDataBD;
+
+typedef struct XrLoaderInitInfoPropertiesEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t propertyValueCount;
+    const XrLoaderInitPropertyValueEXT *propertyValues;
+} XrLoaderInitInfoPropertiesEXT;
+
+typedef struct XrLocalDimmingFrameEndInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrLocalDimmingModeMETA localDimmingMode;
+} XrLocalDimmingFrameEndInfoMETA;
+
+typedef struct XrLocalizationEnableEventsInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 enabled;
+} XrLocalizationEnableEventsInfoML;
+
+typedef struct XrLocalizationMapImportInfoML
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t size;
+    char *data;
+} XrLocalizationMapImportInfoML;
+
+typedef struct XrLocalizationMapQueryInfoBaseHeaderML
+{
+    XrStructureType type;
+    const void *next;
+} XrLocalizationMapQueryInfoBaseHeaderML;
+
+typedef struct XrMapLocalizationRequestInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrUuidEXT mapUuid;
+} XrMapLocalizationRequestInfoML;
+
+typedef struct XrMarkerDetectorAprilTagInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrMarkerAprilTagDictML aprilTagDict;
+} XrMarkerDetectorAprilTagInfoML;
+
+typedef struct XrMarkerDetectorArucoInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrMarkerArucoDictML arucoDict;
+} XrMarkerDetectorArucoInfoML;
+
+typedef struct XrMarkerDetectorCreateInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrMarkerDetectorProfileML profile;
+    XrMarkerTypeML markerType;
+} XrMarkerDetectorCreateInfoML;
+
+typedef struct XrMarkerDetectorCustomProfileInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrMarkerDetectorFpsML fpsHint;
+    XrMarkerDetectorResolutionML resolutionHint;
+    XrMarkerDetectorCameraML cameraHint;
+    XrMarkerDetectorCornerRefineMethodML cornerRefineMethod;
+    XrBool32 useEdgeRefinement;
+    XrMarkerDetectorFullAnalysisIntervalML fullAnalysisIntervalHint;
+} XrMarkerDetectorCustomProfileInfoML;
+
+typedef struct XrMarkerDetectorSizeInfoML
+{
+    XrStructureType type;
+    const void *next;
+    float markerLength;
+} XrMarkerDetectorSizeInfoML;
+
+typedef struct XrMarkerDetectorSnapshotInfoML
+{
+    XrStructureType type;
+    const void *next;
+} XrMarkerDetectorSnapshotInfoML;
+
+typedef struct XrMarkerDetectorStateML
+{
+    XrStructureType type;
+    void *next;
+    XrMarkerDetectorStatusML state;
+} XrMarkerDetectorStateML;
+
+typedef struct XrMarkerSpaceCreateInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrMarkerDetectorML WINE_XR_ALIGN(8) markerDetector;
+    XrMarkerML WINE_XR_ALIGN(8) marker;
+    XrPosef poseInMarkerSpace;
+} XrMarkerSpaceCreateInfoML;
+
+typedef struct XrMarkerSpaceCreateInfoVARJO
+{
+    XrStructureType type;
+    const void *next;
+    uint64_t WINE_XR_ALIGN(8) markerId;
+    XrPosef poseInMarkerSpace;
+} XrMarkerSpaceCreateInfoVARJO;
+
+typedef struct XrNegotiateApiLayerRequest
+{
+    XrLoaderInterfaceStructs structType;
+    uint32_t structVersion;
+    size_t structSize;
+    uint32_t layerInterfaceVersion;
+    XrVersion WINE_XR_ALIGN(8) layerApiVersion;
+    PFN_xrGetInstanceProcAddr getInstanceProcAddr;
+    PFN_xrCreateApiLayerInstance createApiLayerInstance;
+} XrNegotiateApiLayerRequest;
+
+typedef struct XrNegotiateLoaderInfo
+{
+    XrLoaderInterfaceStructs structType;
+    uint32_t structVersion;
+    size_t structSize;
+    uint32_t minInterfaceVersion;
+    uint32_t maxInterfaceVersion;
+    XrVersion WINE_XR_ALIGN(8) minApiVersion;
+    XrVersion WINE_XR_ALIGN(8) maxApiVersion;
+} XrNegotiateLoaderInfo;
+
+typedef struct XrNegotiateRuntimeRequest
+{
+    XrLoaderInterfaceStructs structType;
+    uint32_t structVersion;
+    size_t structSize;
+    uint32_t runtimeInterfaceVersion;
+    XrVersion WINE_XR_ALIGN(8) runtimeApiVersion;
+    PFN_xrGetInstanceProcAddr getInstanceProcAddr;
+} XrNegotiateRuntimeRequest;
+
+typedef struct XrNewSceneComputeInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t requestedFeatureCount;
+    const XrSceneComputeFeatureMSFT *requestedFeatures;
+    XrSceneComputeConsistencyMSFT consistency;
+    XrSceneBoundsMSFT WINE_XR_ALIGN(8) bounds;
+} XrNewSceneComputeInfoMSFT;
+
+typedef struct XrPassthroughBrightnessContrastSaturationFB
+{
+    XrStructureType type;
+    const void *next;
+    float brightness;
+    float contrast;
+    float saturation;
+} XrPassthroughBrightnessContrastSaturationFB;
+
+typedef struct XrPassthroughCameraStateGetInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrPassthroughCameraStateGetInfoANDROID;
+
+typedef struct XrPassthroughColorLutCreateInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughColorLutChannelsMETA channels;
+    uint32_t resolution;
+    XrPassthroughColorLutDataMETA data;
+} XrPassthroughColorLutCreateInfoMETA;
+
+typedef struct XrPassthroughColorLutUpdateInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughColorLutDataMETA data;
+} XrPassthroughColorLutUpdateInfoMETA;
+
+typedef struct XrPassthroughColorMapInterpolatedLutMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughColorLutMETA WINE_XR_ALIGN(8) sourceColorLut;
+    XrPassthroughColorLutMETA WINE_XR_ALIGN(8) targetColorLut;
+    float weight;
+} XrPassthroughColorMapInterpolatedLutMETA;
+
+typedef struct XrPassthroughColorMapLutMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughColorLutMETA WINE_XR_ALIGN(8) colorLut;
+    float weight;
+} XrPassthroughColorMapLutMETA;
+
+typedef struct XrPassthroughColorMapMonoToMonoFB
+{
+    XrStructureType type;
+    const void *next;
+    uint8_t textureColorMap[XR_PASSTHROUGH_COLOR_MAP_MONO_SIZE_FB];
+} XrPassthroughColorMapMonoToMonoFB;
+
+typedef struct XrPassthroughColorMapMonoToRgbaFB
+{
+    XrStructureType type;
+    const void *next;
+    XrColor4f textureColorMap[XR_PASSTHROUGH_COLOR_MAP_MONO_SIZE_FB];
+} XrPassthroughColorMapMonoToRgbaFB;
+
+typedef struct XrPassthroughCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughFlagsFB WINE_XR_ALIGN(8) flags;
+} XrPassthroughCreateInfoFB;
+
+typedef struct XrPassthroughCreateInfoHTC
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughFormHTC form;
+} XrPassthroughCreateInfoHTC;
+
+typedef struct XrPassthroughKeyboardHandsIntensityFB
+{
+    XrStructureType type;
+    const void *next;
+    float leftHandIntensity;
+    float rightHandIntensity;
+} XrPassthroughKeyboardHandsIntensityFB;
+
+typedef struct XrPassthroughLayerCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t vertexCapacity;
+    uint32_t indexCapacity;
+} XrPassthroughLayerCreateInfoANDROID;
+
+typedef struct XrPassthroughLayerCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughFB WINE_XR_ALIGN(8) passthrough;
+    XrPassthroughFlagsFB WINE_XR_ALIGN(8) flags;
+    XrPassthroughLayerPurposeFB purpose;
+} XrPassthroughLayerCreateInfoFB;
+
+typedef struct XrPassthroughLayerMeshANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrWindingOrderANDROID windingOrder;
+    uint32_t vertexCount;
+    const XrVector3f *vertices;
+    uint32_t indexCount;
+    const uint16_t *indices;
+} XrPassthroughLayerMeshANDROID;
+
+typedef struct XrPassthroughMeshTransformInfoHTC
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t vertexCount;
+    const XrVector3f *vertices;
+    uint32_t indexCount;
+    const uint32_t *indices;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrPosef pose;
+    XrVector3f scale;
+} XrPassthroughMeshTransformInfoHTC;
+
+typedef struct XrPassthroughPreferencesMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughPreferenceFlagsMETA WINE_XR_ALIGN(8) flags;
+} XrPassthroughPreferencesMETA;
+
+typedef struct XrPassthroughStyleFB
+{
+    XrStructureType type;
+    const void *next;
+    float textureOpacityFactor;
+    XrColor4f edgeColor;
+} XrPassthroughStyleFB;
+
+typedef struct XrPerformanceMetricsCounterANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrPerformanceMetricsCounterFlagsANDROID WINE_XR_ALIGN(8) counterFlags;
+    XrPerformanceMetricsCounterUnitANDROID counterUnit;
+    uint32_t uintValue;
+    float floatValue;
+} XrPerformanceMetricsCounterANDROID;
+
+typedef struct XrPerformanceMetricsCounterMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrPerformanceMetricsCounterFlagsMETA WINE_XR_ALIGN(8) counterFlags;
+    XrPerformanceMetricsCounterUnitMETA counterUnit;
+    uint32_t uintValue;
+    float floatValue;
+} XrPerformanceMetricsCounterMETA;
+
+typedef struct XrPerformanceMetricsStateANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 enabled;
+} XrPerformanceMetricsStateANDROID;
+
+typedef struct XrPerformanceMetricsStateMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 enabled;
+} XrPerformanceMetricsStateMETA;
+
+typedef struct XrPersistSpatialEntityCompletionEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSpatialPersistenceContextResultEXT persistResult;
+    XrUuid persistUuid;
+} XrPersistSpatialEntityCompletionEXT;
+
+typedef struct XrPersistedAnchorSpaceCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrUuidEXT anchorId;
+} XrPersistedAnchorSpaceCreateInfoANDROID;
+
+typedef struct XrPersistedAnchorSpaceInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) anchor;
+} XrPersistedAnchorSpaceInfoANDROID;
+
+typedef struct XrPlaneDetectorBeginInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    uint32_t orientationCount;
+    const XrPlaneDetectorOrientationEXT *orientations;
+    uint32_t semanticTypeCount;
+    const XrPlaneDetectorSemanticTypeEXT *semanticTypes;
+    uint32_t maxPlanes;
+    float minArea;
+    XrPosef boundingBoxPose;
+    XrExtent3DfEXT boundingBoxExtent;
+} XrPlaneDetectorBeginInfoEXT;
+
+typedef struct XrPlaneDetectorCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrPlaneDetectorFlagsEXT WINE_XR_ALIGN(8) flags;
+} XrPlaneDetectorCreateInfoEXT;
+
+typedef struct XrPlaneDetectorGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrPlaneDetectorGetInfoEXT;
+
+typedef struct XrPlaneDetectorLocationsEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t planeLocationCapacityInput;
+    uint32_t planeLocationCountOutput;
+    XrPlaneDetectorLocationEXT *planeLocations;
+} XrPlaneDetectorLocationsEXT;
+
+typedef struct XrPlaneDetectorPolygonBufferEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector2f *vertices;
+} XrPlaneDetectorPolygonBufferEXT;
+
+typedef struct XrQueriedSenseDataBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t stateCapacityInput;
+    uint32_t stateCountOutput;
+    XrSpatialEntityStateBD *states;
+} XrQueriedSenseDataBD;
+
+typedef struct XrQueriedSenseDataGetInfoBD
+{
+    XrStructureType type;
+    const void *next;
+} XrQueriedSenseDataGetInfoBD;
+
+typedef struct XrRaycastHitResultsANDROID
+{
+    XrStructureType type;
+    void *next;
+    uint32_t resultsCapacityInput;
+    uint32_t resultsCountOutput;
+    XrRaycastHitResultANDROID *results;
+} XrRaycastHitResultsANDROID;
+
+typedef struct XrRaycastInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t maxResults;
+    uint32_t trackerCount;
+    const XrTrackableTrackerANDROID *trackers;
+    XrVector3f origin;
+    XrVector3f trajectory;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrRaycastInfoANDROID;
+
+typedef struct XrRecommendedLayerResolutionGetInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    const XrCompositionLayerBaseHeader *layer;
+    XrTime WINE_XR_ALIGN(8) predictedDisplayTime;
+} XrRecommendedLayerResolutionGetInfoMETA;
+
+typedef struct XrRecommendedLayerResolutionMETA
+{
+    XrStructureType type;
+    void *next;
+    XrExtent2Di recommendedImageDimensions;
+    XrBool32 isValid;
+} XrRecommendedLayerResolutionMETA;
+
+typedef struct XrRect3DfFB
+{
+    XrOffset3DfFB offset;
+    XrExtent3DfFB extent;
+} XrRect3DfFB;
+
+typedef struct XrReferenceSpaceCreateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrReferenceSpaceType referenceSpaceType;
+    XrPosef poseInReferenceSpace;
+} XrReferenceSpaceCreateInfo;
+
+typedef struct XrRenderModelAssetCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrUuidEXT cacheId;
+} XrRenderModelAssetCreateInfoEXT;
+
+typedef struct XrRenderModelAssetDataEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t bufferCapacityInput;
+    uint32_t bufferCountOutput;
+    uint8_t *buffer;
+} XrRenderModelAssetDataEXT;
+
+typedef struct XrRenderModelAssetDataGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrRenderModelAssetDataGetInfoEXT;
+
+typedef struct XrRenderModelAssetPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t nodePropertyCount;
+    XrRenderModelAssetNodePropertiesEXT *nodeProperties;
+} XrRenderModelAssetPropertiesEXT;
+
+typedef struct XrRenderModelAssetPropertiesGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrRenderModelAssetPropertiesGetInfoEXT;
+
+typedef struct XrRenderModelBufferFB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t bufferCapacityInput;
+    uint32_t bufferCountOutput;
+    uint8_t *buffer;
+} XrRenderModelBufferFB;
+
+typedef struct XrRenderModelCapabilitiesRequestFB
+{
+    XrStructureType type;
+    void *next;
+    XrRenderModelFlagsFB WINE_XR_ALIGN(8) flags;
+} XrRenderModelCapabilitiesRequestFB;
+
+typedef struct XrRenderModelCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrRenderModelIdEXT WINE_XR_ALIGN(8) renderModelId;
+    uint32_t gltfExtensionCount;
+    const char * const*gltfExtensions;
+} XrRenderModelCreateInfoEXT;
+
+typedef struct XrRenderModelLoadInfoFB
+{
+    XrStructureType type;
+    void *next;
+    XrRenderModelKeyFB WINE_XR_ALIGN(8) modelKey;
+} XrRenderModelLoadInfoFB;
+
+typedef struct XrRenderModelPathInfoFB
+{
+    XrStructureType type;
+    void *next;
+    XrPath WINE_XR_ALIGN(8) path;
+} XrRenderModelPathInfoFB;
+
+typedef struct XrRenderModelPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    XrUuidEXT cacheId;
+    uint32_t animatableNodeCount;
+} XrRenderModelPropertiesEXT;
+
+typedef struct XrRenderModelPropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vendorId;
+    char modelName[XR_MAX_RENDER_MODEL_NAME_SIZE_FB];
+    XrRenderModelKeyFB WINE_XR_ALIGN(8) modelKey;
+    uint32_t modelVersion;
+    XrRenderModelFlagsFB WINE_XR_ALIGN(8) flags;
+} XrRenderModelPropertiesFB;
+
+typedef struct XrRenderModelPropertiesGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrRenderModelPropertiesGetInfoEXT;
+
+typedef struct XrRenderModelSpaceCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrRenderModelEXT WINE_XR_ALIGN(8) renderModel;
+} XrRenderModelSpaceCreateInfoEXT;
+
+typedef struct XrRenderModelStateEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t nodeStateCount;
+    XrRenderModelNodeStateEXT *nodeStates;
+} XrRenderModelStateEXT;
+
+typedef struct XrRenderModelStateGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) displayTime;
+} XrRenderModelStateGetInfoEXT;
+
+typedef struct XrRoomLayoutFB
+{
+    XrStructureType type;
+    const void *next;
+    XrUuidEXT floorUuid;
+    XrUuidEXT ceilingUuid;
+    uint32_t wallUuidCapacityInput;
+    uint32_t wallUuidCountOutput;
+    XrUuidEXT *wallUuids;
+} XrRoomLayoutFB;
+
+typedef struct XrRoomMeshFaceIndicesMETA
+{
+    XrStructureType type;
+    void *next;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint32_t *indices;
+} XrRoomMeshFaceIndicesMETA;
+
+typedef struct XrRoomMeshMETA
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector3f *vertices;
+    uint32_t faceCapacityInput;
+    uint32_t faceCountOutput;
+    XrRoomMeshFaceMETA *faces;
+} XrRoomMeshMETA;
+
+typedef struct XrSceneCaptureInfoBD
+{
+    XrStructureType type;
+    const void *next;
+} XrSceneCaptureInfoBD;
+
+typedef struct XrSceneCaptureRequestInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t requestByteCount;
+    const char *request;
+} XrSceneCaptureRequestInfoFB;
+
+typedef struct XrSceneComponentLocationsMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t locationCount;
+    XrSceneComponentLocationMSFT *locations;
+} XrSceneComponentLocationsMSFT;
+
+typedef struct XrSceneComponentParentFilterInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrUuidMSFT parentId;
+} XrSceneComponentParentFilterInfoMSFT;
+
+typedef struct XrSceneComponentsGetInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSceneComponentTypeMSFT componentType;
+} XrSceneComponentsGetInfoMSFT;
+
+typedef struct XrSceneComponentsLocateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    uint32_t componentIdCount;
+    const XrUuidMSFT *componentIds;
+} XrSceneComponentsLocateInfoMSFT;
+
+typedef struct XrSceneComponentsMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t componentCapacityInput;
+    uint32_t componentCountOutput;
+    XrSceneComponentMSFT *components;
+} XrSceneComponentsMSFT;
+
+typedef struct XrSceneCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+} XrSceneCreateInfoMSFT;
+
+typedef struct XrSceneDeserializeInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t fragmentCount;
+    const XrDeserializeSceneFragmentMSFT *fragments;
+} XrSceneDeserializeInfoMSFT;
+
+typedef struct XrSceneMarkerQRCodesMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t qrCodeCapacityInput;
+    XrSceneMarkerQRCodeMSFT *qrCodes;
+} XrSceneMarkerQRCodesMSFT;
+
+typedef struct XrSceneMarkerTypeFilterMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t markerTypeCount;
+    XrSceneMarkerTypeMSFT *markerTypes;
+} XrSceneMarkerTypeFilterMSFT;
+
+typedef struct XrSceneMarkersMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t sceneMarkerCapacityInput;
+    XrSceneMarkerMSFT *sceneMarkers;
+} XrSceneMarkersMSFT;
+
+typedef struct XrSceneMeshBuffersGetInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint64_t WINE_XR_ALIGN(8) meshBufferId;
+} XrSceneMeshBuffersGetInfoMSFT;
+
+typedef struct XrSceneMeshBuffersMSFT
+{
+    XrStructureType type;
+    void *next;
+} XrSceneMeshBuffersMSFT;
+
+typedef struct XrSceneMeshIndicesUint16MSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint16_t *indices;
+} XrSceneMeshIndicesUint16MSFT;
+
+typedef struct XrSceneMeshIndicesUint32MSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint32_t *indices;
+} XrSceneMeshIndicesUint32MSFT;
+
+typedef struct XrSceneMeshSnapshotCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrBoxf boundingBox;
+} XrSceneMeshSnapshotCreateInfoANDROID;
+
+typedef struct XrSceneMeshSnapshotCreationResultANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSceneMeshSnapshotANDROID WINE_XR_ALIGN(8) snapshot;
+    XrSceneMeshTrackingStateANDROID trackingState;
+} XrSceneMeshSnapshotCreationResultANDROID;
+
+typedef struct XrSceneMeshVertexBufferMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector3f *vertices;
+} XrSceneMeshVertexBufferMSFT;
+
+typedef struct XrSceneMeshesMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t sceneMeshCount;
+    XrSceneMeshMSFT *sceneMeshes;
+} XrSceneMeshesMSFT;
+
+typedef struct XrSceneMeshingTrackerCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSceneMeshSemanticLabelSetANDROID semanticLabelSet;
+    XrBool32 enableNormals;
+} XrSceneMeshingTrackerCreateInfoANDROID;
+
+typedef struct XrSceneObjectTypesFilterInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t objectTypeCount;
+    const XrSceneObjectTypeMSFT *objectTypes;
+} XrSceneObjectTypesFilterInfoMSFT;
+
+typedef struct XrSceneObjectsMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t sceneObjectCount;
+    XrSceneObjectMSFT *sceneObjects;
+} XrSceneObjectsMSFT;
+
+typedef struct XrSceneObserverCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+} XrSceneObserverCreateInfoMSFT;
+
+typedef struct XrScenePlaneAlignmentFilterInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t alignmentCount;
+    const XrScenePlaneAlignmentTypeMSFT *alignments;
+} XrScenePlaneAlignmentFilterInfoMSFT;
+
+typedef struct XrScenePlanesMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t scenePlaneCount;
+    XrScenePlaneMSFT *scenePlanes;
+} XrScenePlanesMSFT;
+
+typedef struct XrSceneSubmeshDataANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrUuid submeshId;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector3f *vertexPositions;
+    XrVector3f *vertexNormals;
+    uint8_t *vertexSemantics;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint32_t *indices;
+} XrSceneSubmeshDataANDROID;
+
+typedef struct XrSceneSubmeshStateANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrUuid submeshId;
+    XrTime WINE_XR_ALIGN(8) lastUpdatedTime;
+    XrPosef submeshPoseInBaseSpace;
+    XrExtent3Df bounds;
+} XrSceneSubmeshStateANDROID;
+
+typedef struct XrSecondaryViewConfigurationFrameEndInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t viewConfigurationCount;
+    const XrSecondaryViewConfigurationLayerInfoMSFT *viewConfigurationLayersInfo;
+} XrSecondaryViewConfigurationFrameEndInfoMSFT;
+
+typedef struct XrSecondaryViewConfigurationFrameStateMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t viewConfigurationCount;
+    XrSecondaryViewConfigurationStateMSFT *viewConfigurationStates;
+} XrSecondaryViewConfigurationFrameStateMSFT;
+
+typedef struct XrSecondaryViewConfigurationSessionBeginInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t viewConfigurationCount;
+    const XrViewConfigurationType *enabledViewConfigurationTypes;
+} XrSecondaryViewConfigurationSessionBeginInfoMSFT;
+
+typedef struct XrSecondaryViewConfigurationSwapchainCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrViewConfigurationType viewConfigurationType;
+} XrSecondaryViewConfigurationSwapchainCreateInfoMSFT;
+
+typedef struct XrSemanticLabelsFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t bufferCapacityInput;
+    uint32_t bufferCountOutput;
+    char *buffer;
+} XrSemanticLabelsFB;
+
+typedef struct XrSemanticLabelsSupportInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSemanticLabelsSupportFlagsFB WINE_XR_ALIGN(8) flags;
+    const char *recognizedLabels;
+} XrSemanticLabelsSupportInfoFB;
+
+typedef struct XrSenseDataFilterDynamicObjectTypeBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t typeCount;
+    const XrDynamicObjectTypeBD *types;
+} XrSenseDataFilterDynamicObjectTypeBD;
+
+typedef struct XrSenseDataFilterPlaneOrientationBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t orientationCount;
+    XrPlaneOrientationBD *orientations;
+} XrSenseDataFilterPlaneOrientationBD;
+
+typedef struct XrSenseDataFilterSemanticBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t labelCount;
+    const XrSemanticLabelBD *labels;
+} XrSenseDataFilterSemanticBD;
+
+typedef struct XrSenseDataFilterUuidBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t uuidCount;
+    const XrUuidEXT *uuids;
+} XrSenseDataFilterUuidBD;
+
+typedef struct XrSenseDataProviderCreateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSenseDataProviderTypeBD providerType;
+} XrSenseDataProviderCreateInfoBD;
+
+typedef struct XrSenseDataProviderCreateInfoDynamicObjectBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t trackingTypeCount;
+    const XrDynamicObjectTypeBD *trackingTypes;
+} XrSenseDataProviderCreateInfoDynamicObjectBD;
+
+typedef struct XrSenseDataProviderCreateInfoLightEstimationBD
+{
+    XrStructureType type;
+    const void *next;
+    XrLightEstimationCreateFlagsBD WINE_XR_ALIGN(8) createFlags;
+} XrSenseDataProviderCreateInfoLightEstimationBD;
+
+typedef struct XrSenseDataProviderCreateInfoSpatialMeshBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialMeshConfigFlagsBD WINE_XR_ALIGN(8) configFlags;
+    XrSpatialMeshLodBD lod;
+} XrSenseDataProviderCreateInfoSpatialMeshBD;
+
+typedef struct XrSenseDataProviderStartInfoBD
+{
+    XrStructureType type;
+    const void *next;
+} XrSenseDataProviderStartInfoBD;
+
+typedef struct XrSenseDataQueryCompletionBD
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSenseDataSnapshotBD WINE_XR_ALIGN(8) snapshot;
+} XrSenseDataQueryCompletionBD;
+
+typedef struct XrSenseDataQueryInfoBD
+{
+    XrStructureType type;
+    const void *next;
+} XrSenseDataQueryInfoBD;
+
+typedef struct XrSerializedSceneFragmentDataGetInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrUuidMSFT sceneFragmentId;
+} XrSerializedSceneFragmentDataGetInfoMSFT;
+
+typedef struct XrSessionActionSetsAttachInfo
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t countActionSets;
+    const XrActionSet *actionSets;
+} XrSessionActionSetsAttachInfo;
+
+typedef struct XrSessionBeginInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrViewConfigurationType primaryViewConfigurationType;
+} XrSessionBeginInfo;
+
+typedef struct XrSessionCreateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrSessionCreateFlags WINE_XR_ALIGN(8) createFlags;
+    XrSystemId WINE_XR_ALIGN(8) systemId;
+} XrSessionCreateInfo;
+
+typedef struct XrSessionCreateInfoOverlayEXTX
+{
+    XrStructureType type;
+    const void *next;
+    XrOverlaySessionCreateFlagsEXTX WINE_XR_ALIGN(8) createFlags;
+    uint32_t sessionLayersPlacement;
+} XrSessionCreateInfoOverlayEXTX;
+
+typedef struct XrSessionCreateInfoSpatialContainersEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrSessionCreateInfoSpatialContainersEXT;
+
+typedef struct XrShareSpacesInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t spaceCount;
+    XrSpace *spaces;
+    const XrShareSpacesRecipientBaseHeaderMETA *recipientInfo;
+} XrShareSpacesInfoMETA;
+
+typedef struct XrShareSpacesRecipientGroupsMETA
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t groupCount;
+    XrUuid *groups;
+} XrShareSpacesRecipientGroupsMETA;
+
+typedef struct XrSharedSpatialAnchorDownloadInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrUuidEXT uuid;
+} XrSharedSpatialAnchorDownloadInfoBD;
+
+typedef struct XrSimultaneousHandsAndControllersTrackingPauseInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrSimultaneousHandsAndControllersTrackingPauseInfoMETA;
+
+typedef struct XrSimultaneousHandsAndControllersTrackingResumeInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrSimultaneousHandsAndControllersTrackingResumeInfoMETA;
+
+typedef struct XrSoundFieldChannelDefinitionAmbixBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSoundFieldChannelMaskAmbixBD channelMask;
+} XrSoundFieldChannelDefinitionAmbixBD;
+
+typedef struct XrSoundFieldChannelDefinitionFumaBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSoundFieldChannelMaskFumaBD channelMask;
+} XrSoundFieldChannelDefinitionFumaBD;
+
+typedef struct XrSoundFieldChannelDefinitionSurroundBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSoundFieldChannelMaskSurroundBD channelMask;
+} XrSoundFieldChannelDefinitionSurroundBD;
+
+typedef struct XrSoundFieldConfigBD
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 enabled;
+    XrQuaternionf orientation;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    float mainVolume;
+    float lfeGain;
+} XrSoundFieldConfigBD;
+
+typedef struct XrSoundObjectConfigBD
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 enabled;
+    XrPosef pose;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    float mainVolume;
+    float reflectionGain;
+    XrBool32 enableDoppler;
+    const XrSoundObjectDistanceAttenuationBD *directSoundAttenuation;
+    const XrSoundObjectDistanceAttenuationBD *indirectSoundAttenuation;
+} XrSoundObjectConfigBD;
+
+typedef struct XrSoundObjectDirectivityCardioidBD
+{
+    XrStructureType type;
+    const void *next;
+    float alpha;
+    float order;
+} XrSoundObjectDirectivityCardioidBD;
+
+typedef struct XrSoundObjectShapeSphereBD
+{
+    XrStructureType type;
+    const void *next;
+    float radius;
+} XrSoundObjectShapeSphereBD;
+
+typedef struct XrSoundObstacleConfigBD
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 enabled;
+    XrPosef pose;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    uint32_t materialCount;
+    XrSoundObstacleMaterialBD *materials;
+} XrSoundObstacleConfigBD;
+
+typedef struct XrSoundObstacleMaterialConfigBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSoundObstacleMaterialTypeBD materialType;
+    uint32_t bandCount;
+    float *bandFrequencies;
+    float *bandAbsorptions;
+    float *bandScatterings;
+    float *bandTransmissions;
+} XrSoundObstacleMaterialConfigBD;
+
+typedef struct XrSoundTriangleMeshBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t vertexCount;
+    XrVector3f *vertices;
+    uint32_t indexCount;
+    uint32_t *indices;
+} XrSoundTriangleMeshBD;
+
+typedef struct XrSpaceComponentFilterInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpaceComponentTypeFB componentType;
+} XrSpaceComponentFilterInfoFB;
+
+typedef struct XrSpaceComponentStatusFB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 enabled;
+    XrBool32 changePending;
+} XrSpaceComponentStatusFB;
+
+typedef struct XrSpaceComponentStatusSetInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpaceComponentTypeFB componentType;
+    XrBool32 enabled;
+    XrDuration WINE_XR_ALIGN(8) timeout;
+} XrSpaceComponentStatusSetInfoFB;
+
+typedef struct XrSpaceContainerFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t uuidCapacityInput;
+    uint32_t uuidCountOutput;
+    XrUuidEXT *uuids;
+} XrSpaceContainerFB;
+
+typedef struct XrSpaceEraseInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrSpaceStorageLocationFB location;
+} XrSpaceEraseInfoFB;
+
+typedef struct XrSpaceGroupUuidFilterInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrUuid groupUuid;
+} XrSpaceGroupUuidFilterInfoMETA;
+
+typedef struct XrSpaceListSaveInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t spaceCount;
+    XrSpace *spaces;
+    XrSpaceStorageLocationFB location;
+} XrSpaceListSaveInfoFB;
+
+typedef struct XrSpaceLocations
+{
+    XrStructureType type;
+    void *next;
+    uint32_t locationCount;
+    XrSpaceLocationData *locations;
+} XrSpaceLocations;
+typedef XrSpaceLocations XrSpaceLocationsKHR;
+
+typedef struct XrSpaceQueryInfoBaseHeaderFB
+{
+    XrStructureType type;
+    const void *next;
+} XrSpaceQueryInfoBaseHeaderFB;
+
+typedef struct XrSpaceQueryInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpaceQueryActionFB queryAction;
+    uint32_t maxResultCount;
+    XrDuration WINE_XR_ALIGN(8) timeout;
+    const XrSpaceFilterInfoBaseHeaderFB *filter;
+    const XrSpaceFilterInfoBaseHeaderFB *excludeFilter;
+} XrSpaceQueryInfoFB;
+
+typedef struct XrSpaceQueryResultsFB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t resultCapacityInput;
+    uint32_t resultCountOutput;
+    XrSpaceQueryResultFB *results;
+} XrSpaceQueryResultsFB;
+
+typedef struct XrSpaceRoomMeshGetInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t recognizedSemanticLabelCount;
+    const XrSemanticLabelMETA *recognizedSemanticLabels;
+} XrSpaceRoomMeshGetInfoMETA;
+
+typedef struct XrSpaceSaveInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrSpaceStorageLocationFB location;
+    XrSpacePersistenceModeFB persistenceMode;
+} XrSpaceSaveInfoFB;
+
+typedef struct XrSpaceShareInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t spaceCount;
+    XrSpace *spaces;
+    uint32_t userCount;
+    XrSpaceUserFB *users;
+} XrSpaceShareInfoFB;
+
+typedef struct XrSpaceStorageLocationFilterInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpaceStorageLocationFB location;
+} XrSpaceStorageLocationFilterInfoFB;
+
+typedef struct XrSpaceTriangleMeshGetInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrSpaceTriangleMeshGetInfoMETA;
+
+typedef struct XrSpaceTriangleMeshMETA
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector3f *vertices;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint32_t *indices;
+} XrSpaceTriangleMeshMETA;
+
+typedef struct XrSpaceUserCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpaceUserIdFB WINE_XR_ALIGN(8) userId;
+} XrSpaceUserCreateInfoFB;
+
+typedef struct XrSpaceUuidFilterInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t uuidCount;
+    XrUuidEXT *uuids;
+} XrSpaceUuidFilterInfoFB;
+
+typedef struct XrSpaceVelocities
+{
+    XrStructureType type;
+    void *next;
+    uint32_t velocityCount;
+    XrSpaceVelocityData *velocities;
+} XrSpaceVelocities;
+typedef XrSpaceVelocities XrSpaceVelocitiesKHR;
+
+typedef struct XrSpaceVelocity
+{
+    XrStructureType type;
+    void *next;
+    XrSpaceVelocityFlags WINE_XR_ALIGN(8) velocityFlags;
+    XrVector3f linearVelocity;
+    XrVector3f angularVelocity;
+} XrSpaceVelocity;
+
+typedef struct XrSpacesEraseInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t spaceCount;
+    XrSpace *spaces;
+    uint32_t uuidCount;
+    XrUuidEXT *uuids;
+} XrSpacesEraseInfoMETA;
+
+typedef struct XrSpacesLocateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    uint32_t spaceCount;
+    const XrSpace *spaces;
+} XrSpacesLocateInfo;
+typedef XrSpacesLocateInfo XrSpacesLocateInfoKHR;
+
+typedef struct XrSpacesSaveInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t spaceCount;
+    XrSpace *spaces;
+} XrSpacesSaveInfoMETA;
+
+typedef struct XrSpatialAnchorCreateCompletionBD
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrUuidEXT uuid;
+    XrAnchorBD WINE_XR_ALIGN(8) anchor;
+} XrSpatialAnchorCreateCompletionBD;
+
+typedef struct XrSpatialAnchorCreateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef pose;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrSpatialAnchorCreateInfoBD;
+
+typedef struct XrSpatialAnchorCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrPosef pose;
+} XrSpatialAnchorCreateInfoEXT;
+
+typedef struct XrSpatialAnchorCreateInfoFB
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef poseInSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrSpatialAnchorCreateInfoFB;
+
+typedef struct XrSpatialAnchorCreateInfoHTC
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef poseInSpace;
+    XrSpatialAnchorNameHTC name;
+} XrSpatialAnchorCreateInfoHTC;
+
+typedef struct XrSpatialAnchorCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef pose;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrSpatialAnchorCreateInfoMSFT;
+
+typedef struct XrSpatialAnchorFromPersistedAnchorCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialAnchorStoreConnectionMSFT WINE_XR_ALIGN(8) spatialAnchorStore;
+    XrSpatialAnchorPersistenceNameMSFT spatialAnchorPersistenceName;
+} XrSpatialAnchorFromPersistedAnchorCreateInfoMSFT;
+
+typedef struct XrSpatialAnchorParentANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialEntityIdEXT WINE_XR_ALIGN(8) parentId;
+} XrSpatialAnchorParentANDROID;
+
+typedef struct XrSpatialAnchorPersistInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrPersistenceLocationBD location;
+    XrAnchorBD WINE_XR_ALIGN(8) anchor;
+} XrSpatialAnchorPersistInfoBD;
+
+typedef struct XrSpatialAnchorPersistenceInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialAnchorPersistenceNameMSFT spatialAnchorPersistenceName;
+    XrSpatialAnchorMSFT WINE_XR_ALIGN(8) spatialAnchor;
+} XrSpatialAnchorPersistenceInfoMSFT;
+
+typedef struct XrSpatialAnchorShareInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrAnchorBD WINE_XR_ALIGN(8) anchor;
+} XrSpatialAnchorShareInfoBD;
+
+typedef struct XrSpatialAnchorSpaceCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialAnchorMSFT WINE_XR_ALIGN(8) anchor;
+    XrPosef poseInAnchorSpace;
+} XrSpatialAnchorSpaceCreateInfoMSFT;
+
+typedef struct XrSpatialAnchorSpaceFromIdCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialEntityIdEXT WINE_XR_ALIGN(8) anchorEntityId;
+} XrSpatialAnchorSpaceFromIdCreateInfoANDROID;
+
+typedef struct XrSpatialAnchorStateML
+{
+    XrStructureType type;
+    void *next;
+    XrSpatialAnchorConfidenceML confidence;
+} XrSpatialAnchorStateML;
+
+typedef struct XrSpatialAnchorUnpersistInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrPersistenceLocationBD location;
+    XrAnchorBD WINE_XR_ALIGN(8) anchor;
+} XrSpatialAnchorUnpersistInfoBD;
+
+typedef struct XrSpatialAnchorsCreateInfoBaseHeaderML
+{
+    XrStructureType type;
+    const void *next;
+} XrSpatialAnchorsCreateInfoBaseHeaderML;
+
+typedef struct XrSpatialAnchorsCreateInfoFromPoseML
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrPosef poseInBaseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrSpatialAnchorsCreateInfoFromPoseML;
+
+typedef struct XrSpatialAnchorsCreateInfoFromUuidsML
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialAnchorsStorageML WINE_XR_ALIGN(8) storage;
+    uint32_t uuidCount;
+    const XrUuidEXT *uuids;
+} XrSpatialAnchorsCreateInfoFromUuidsML;
+
+typedef struct XrSpatialAnchorsCreateStorageInfoML
+{
+    XrStructureType type;
+    const void *next;
+} XrSpatialAnchorsCreateStorageInfoML;
+
+typedef struct XrSpatialAnchorsDeleteCompletionDetailsML
+{
+    XrStructureType type;
+    void *next;
+    uint32_t resultCount;
+    XrSpatialAnchorCompletionResultML *results;
+} XrSpatialAnchorsDeleteCompletionDetailsML;
+
+typedef struct XrSpatialAnchorsDeleteCompletionML
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+} XrSpatialAnchorsDeleteCompletionML;
+
+typedef struct XrSpatialAnchorsDeleteInfoML
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t uuidCount;
+    const XrUuidEXT *uuids;
+} XrSpatialAnchorsDeleteInfoML;
+
+typedef struct XrSpatialAnchorsPublishCompletionDetailsML
+{
+    XrStructureType type;
+    void *next;
+    uint32_t resultCount;
+    XrSpatialAnchorCompletionResultML *results;
+} XrSpatialAnchorsPublishCompletionDetailsML;
+
+typedef struct XrSpatialAnchorsPublishCompletionML
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    uint32_t uuidCount;
+    XrUuidEXT *uuids;
+} XrSpatialAnchorsPublishCompletionML;
+
+typedef struct XrSpatialAnchorsPublishInfoML
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t anchorCount;
+    const XrSpace *anchors;
+    uint64_t WINE_XR_ALIGN(8) expiration;
+} XrSpatialAnchorsPublishInfoML;
+
+typedef struct XrSpatialAnchorsQueryCompletionML
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    uint32_t uuidCapacityInput;
+    uint32_t uuidCountOutput;
+    XrUuidEXT *uuids;
+} XrSpatialAnchorsQueryCompletionML;
+
+typedef struct XrSpatialAnchorsQueryInfoBaseHeaderML
+{
+    XrStructureType type;
+    const void *next;
+} XrSpatialAnchorsQueryInfoBaseHeaderML;
+
+typedef struct XrSpatialAnchorsQueryInfoRadiusML
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrVector3f center;
+    XrTime WINE_XR_ALIGN(8) time;
+    float radius;
+} XrSpatialAnchorsQueryInfoRadiusML;
+
+typedef struct XrSpatialAnchorsUpdateExpirationCompletionDetailsML
+{
+    XrStructureType type;
+    void *next;
+    uint32_t resultCount;
+    XrSpatialAnchorCompletionResultML *results;
+} XrSpatialAnchorsUpdateExpirationCompletionDetailsML;
+
+typedef struct XrSpatialAnchorsUpdateExpirationCompletionML
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+} XrSpatialAnchorsUpdateExpirationCompletionML;
+
+typedef struct XrSpatialAnchorsUpdateExpirationInfoML
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t uuidCount;
+    const XrUuidEXT *uuids;
+    uint64_t WINE_XR_ALIGN(8) expiration;
+} XrSpatialAnchorsUpdateExpirationInfoML;
+
+typedef struct XrSpatialAudioRendererCreateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t framesPerBuffer;
+    XrAudioSampleRateBD sampleRate;
+} XrSpatialAudioRendererCreateInfoBD;
+
+typedef struct XrSpatialBoundsBoxfANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrBoxf box;
+} XrSpatialBoundsBoxfANDROID;
+
+typedef struct XrSpatialBoundsFrustumfANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrFrustumf frustum;
+} XrSpatialBoundsFrustumfANDROID;
+
+typedef struct XrSpatialBoundsSpherefANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrSpheref sphere;
+} XrSpatialBoundsSpherefANDROID;
+
+typedef struct XrSpatialBufferGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialBufferIdEXT WINE_XR_ALIGN(8) bufferId;
+} XrSpatialBufferGetInfoEXT;
+
+typedef struct XrSpatialCapabilityComponentTypesEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t componentTypeCapacityInput;
+    uint32_t componentTypeCountOutput;
+    XrSpatialComponentTypeEXT *componentTypes;
+} XrSpatialCapabilityComponentTypesEXT;
+
+typedef struct XrSpatialCapabilityConfigurationAnchorEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+} XrSpatialCapabilityConfigurationAnchorEXT;
+
+typedef struct XrSpatialCapabilityConfigurationAprilTagEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+    XrSpatialMarkerAprilTagDictEXT aprilDict;
+} XrSpatialCapabilityConfigurationAprilTagEXT;
+
+typedef struct XrSpatialCapabilityConfigurationArucoMarkerEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+    XrSpatialMarkerArucoDictEXT arUcoDict;
+} XrSpatialCapabilityConfigurationArucoMarkerEXT;
+
+typedef struct XrSpatialCapabilityConfigurationDepthRaycastANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+} XrSpatialCapabilityConfigurationDepthRaycastANDROID;
+
+typedef struct XrSpatialCapabilityConfigurationImageTrackingEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+    uint32_t imageTrackingDatabaseCount;
+    const XrSpatialImageTrackingDatabaseEXT *imageTrackingDatabases;
+} XrSpatialCapabilityConfigurationImageTrackingEXT;
+
+typedef struct XrSpatialCapabilityConfigurationMicroQrCodeEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+} XrSpatialCapabilityConfigurationMicroQrCodeEXT;
+
+typedef struct XrSpatialCapabilityConfigurationObjectTrackingANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+    uint32_t activeSemanticLabelCount;
+    const XrSpatialObjectSemanticLabelANDROID *activeSemanticLabels;
+} XrSpatialCapabilityConfigurationObjectTrackingANDROID;
+
+typedef struct XrSpatialCapabilityConfigurationPlaneTrackingEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+} XrSpatialCapabilityConfigurationPlaneTrackingEXT;
+
+typedef struct XrSpatialCapabilityConfigurationQrCodeEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialCapabilityEXT capability;
+    uint32_t enabledComponentCount;
+    const XrSpatialComponentTypeEXT *enabledComponents;
+} XrSpatialCapabilityConfigurationQrCodeEXT;
+
+typedef struct XrSpatialComponentAnchorListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t locationCount;
+    XrPosef *locations;
+} XrSpatialComponentAnchorListEXT;
+
+typedef struct XrSpatialComponentBounded2DListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t boundCount;
+    XrSpatialBounded2DDataEXT *bounds;
+} XrSpatialComponentBounded2DListEXT;
+
+typedef struct XrSpatialComponentBounded3DListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t boundCount;
+    XrBoxf *bounds;
+} XrSpatialComponentBounded3DListEXT;
+
+typedef struct XrSpatialComponentDataQueryConditionEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t componentTypeCount;
+    const XrSpatialComponentTypeEXT *componentTypes;
+} XrSpatialComponentDataQueryConditionEXT;
+
+typedef struct XrSpatialComponentDataQueryResultEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t entityIdCapacityInput;
+    uint32_t entityIdCountOutput;
+    XrSpatialEntityIdEXT *entityIds;
+    uint32_t entityStateCapacityInput;
+    uint32_t entityStateCountOutput;
+    XrSpatialEntityTrackingStateEXT *entityStates;
+} XrSpatialComponentDataQueryResultEXT;
+
+typedef struct XrSpatialComponentImage2DListEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t imageCount;
+    XrSpatialImage2DDataEXT *images;
+} XrSpatialComponentImage2DListEXT;
+
+typedef struct XrSpatialComponentMarkerListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t markerCount;
+    XrSpatialMarkerDataEXT *markers;
+} XrSpatialComponentMarkerListEXT;
+
+typedef struct XrSpatialComponentMesh2DListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t meshCount;
+    XrSpatialMeshDataEXT *meshes;
+} XrSpatialComponentMesh2DListEXT;
+
+typedef struct XrSpatialComponentMesh3DListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t meshCount;
+    XrSpatialMeshDataEXT *meshes;
+} XrSpatialComponentMesh3DListEXT;
+
+typedef struct XrSpatialComponentObjectSemanticLabelListANDROID
+{
+    XrStructureType type;
+    void *next;
+    uint32_t semanticLabelCount;
+    XrSpatialObjectSemanticLabelANDROID *semanticLabels;
+} XrSpatialComponentObjectSemanticLabelListANDROID;
+
+typedef struct XrSpatialComponentParentListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t parentCount;
+    XrSpatialEntityIdEXT *parents;
+} XrSpatialComponentParentListEXT;
+
+typedef struct XrSpatialComponentPersistenceListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t persistDataCount;
+    XrSpatialPersistenceDataEXT *persistData;
+} XrSpatialComponentPersistenceListEXT;
+
+typedef struct XrSpatialComponentPlaneAlignmentListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t planeAlignmentCount;
+    XrSpatialPlaneAlignmentEXT *planeAlignments;
+} XrSpatialComponentPlaneAlignmentListEXT;
+
+typedef struct XrSpatialComponentPlaneSemanticLabelListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t semanticLabelCount;
+    XrSpatialPlaneSemanticLabelEXT *semanticLabels;
+} XrSpatialComponentPlaneSemanticLabelListEXT;
+
+typedef struct XrSpatialComponentPolygon2DListEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t polygonCount;
+    XrSpatialPolygon2DDataEXT *polygons;
+} XrSpatialComponentPolygon2DListEXT;
+
+typedef struct XrSpatialComponentRaycastResultListANDROID
+{
+    XrStructureType type;
+    void *next;
+    uint32_t raycastResultCount;
+    XrSpatialRaycastResultDataANDROID *raycastResults;
+} XrSpatialComponentRaycastResultListANDROID;
+
+typedef struct XrSpatialComponentSubsumedByListANDROID
+{
+    XrStructureType type;
+    void *next;
+    uint32_t subsumedUniqueIdCount;
+    XrSpatialEntityIdEXT *subsumedUniqueIds;
+} XrSpatialComponentSubsumedByListANDROID;
+
+typedef struct XrSpatialContainerBeginInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+    XrViewConfigurationType primaryViewConfigurationType;
+} XrSpatialContainerBeginInfoEXT;
+
+typedef struct XrSpatialContainerBoundsEXT
+{
+    XrStructureType type;
+    void *next;
+    XrExtent3Df bounds;
+    XrBool32 infiniteBounds;
+} XrSpatialContainerBoundsEXT;
+
+typedef struct XrSpatialContainerBoundsGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrSpatialContainerBoundsGetInfoEXT;
+
+typedef struct XrSpatialContainerBoundsModeRequestInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerBoundsModeEXT boundsMode;
+} XrSpatialContainerBoundsModeRequestInfoEXT;
+
+typedef struct XrSpatialContainerCompositionLayerViewConfigurationEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrViewConfigurationType viewConfigurationType;
+} XrSpatialContainerCompositionLayerViewConfigurationEXT;
+
+typedef struct XrSpatialContainerCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerGraphicsPresentationEXT graphicsPresentation;
+    XrExtent3Df suggestedBounds;
+} XrSpatialContainerCreateInfoEXT;
+
+typedef struct XrSpatialContainerEndInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+} XrSpatialContainerEndInfoEXT;
+
+typedef struct XrSpatialContainerLayerFrameEndInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t containerLayerCount;
+    const XrSpatialContainerLayerEXT *containerLayers;
+} XrSpatialContainerLayerFrameEndInfoEXT;
+
+typedef struct XrSpatialContainerLayerVolumeClippingEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerVolumeClippingEXT volumeClipping;
+} XrSpatialContainerLayerVolumeClippingEXT;
+
+typedef struct XrSpatialContainerSpaceCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContainerEXT WINE_XR_ALIGN(8) spatialContainer;
+} XrSpatialContainerSpaceCreateInfoEXT;
+
+typedef struct XrSpatialContainerStateEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 visible;
+    XrBool32 interactable;
+    XrSpatialContainerBoundsModeEXT boundsMode;
+} XrSpatialContainerStateEXT;
+
+typedef struct XrSpatialContainerStateGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrSpatialContainerStateGetInfoEXT;
+
+typedef struct XrSpatialContainerViewStateEXT
+{
+    XrStructureType type;
+    void *next;
+    XrViewStateFlags WINE_XR_ALIGN(8) viewStateFlags;
+    XrViewConfigurationType viewConfigurationType;
+    XrBool32 shouldSubmitLayers;
+    XrExtent2Di recommendedImageExtent;
+} XrSpatialContainerViewStateEXT;
+
+typedef struct XrSpatialContainerViewsLocateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrTime WINE_XR_ALIGN(8) displayTime;
+    uint32_t viewLocateInfoCount;
+    const XrSpatialContainerViewLocateInfoEXT *viewLocateInfos;
+} XrSpatialContainerViewsLocateInfoEXT;
+
+typedef struct XrSpatialContainerVisibleRequestInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 visible;
+} XrSpatialContainerVisibleRequestInfoEXT;
+
+typedef struct XrSpatialContextCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t capabilityConfigCount;
+    const XrSpatialCapabilityConfigurationBaseHeaderEXT * const*capabilityConfigs;
+} XrSpatialContextCreateInfoEXT;
+
+typedef struct XrSpatialContextPersistenceConfigEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t persistenceContextCount;
+    const XrSpatialPersistenceContextEXT *persistenceContexts;
+} XrSpatialContextPersistenceConfigEXT;
+
+typedef struct XrSpatialDiscoveryPersistenceUuidFilterEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t persistedUuidCount;
+    const XrUuid *persistedUuids;
+} XrSpatialDiscoveryPersistenceUuidFilterEXT;
+
+typedef struct XrSpatialDiscoverySnapshotCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t componentTypeCount;
+    const XrSpatialComponentTypeEXT *componentTypes;
+} XrSpatialDiscoverySnapshotCreateInfoEXT;
+
+typedef struct XrSpatialDiscoveryUniqueEntitiesFilterANDROID
+{
+    XrStructureType type;
+    const void *next;
+} XrSpatialDiscoveryUniqueEntitiesFilterANDROID;
+
+typedef struct XrSpatialEntityAnchorCreateInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSenseDataSnapshotBD WINE_XR_ALIGN(8) snapshot;
+    XrSpatialEntityIdBD WINE_XR_ALIGN(8) entityId;
+} XrSpatialEntityAnchorCreateInfoBD;
+
+typedef struct XrSpatialEntityComponentDataBaseHeaderBD
+{
+    XrStructureType type;
+    void *next;
+} XrSpatialEntityComponentDataBaseHeaderBD;
+
+typedef struct XrSpatialEntityComponentDataBoundingBox2DBD
+{
+    XrStructureType type;
+    void *next;
+    XrRect2Df boundingBox2D;
+} XrSpatialEntityComponentDataBoundingBox2DBD;
+
+typedef struct XrSpatialEntityComponentDataBoundingBox3DBD
+{
+    XrStructureType type;
+    void *next;
+    XrBoxf boundingBox3D;
+} XrSpatialEntityComponentDataBoundingBox3DBD;
+
+typedef struct XrSpatialEntityComponentDataDynamicObjectBD
+{
+    XrStructureType type;
+    void *next;
+    XrDynamicObjectDataBD data;
+} XrSpatialEntityComponentDataDynamicObjectBD;
+
+typedef struct XrSpatialEntityComponentDataLightEstimationBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 isValid;
+} XrSpatialEntityComponentDataLightEstimationBD;
+
+typedef struct XrSpatialEntityComponentDataLocationBD
+{
+    XrStructureType type;
+    void *next;
+    XrSpaceLocation WINE_XR_ALIGN(8) location;
+} XrSpatialEntityComponentDataLocationBD;
+
+typedef struct XrSpatialEntityComponentDataPlaneOrientationBD
+{
+    XrStructureType type;
+    void *next;
+    XrPlaneOrientationBD orientation;
+} XrSpatialEntityComponentDataPlaneOrientationBD;
+
+typedef struct XrSpatialEntityComponentDataPolygonBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector2f *vertices;
+} XrSpatialEntityComponentDataPolygonBD;
+
+typedef struct XrSpatialEntityComponentDataSemanticBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t labelCapacityInput;
+    uint32_t labelCountOutput;
+    XrSemanticLabelBD *labels;
+} XrSpatialEntityComponentDataSemanticBD;
+
+typedef struct XrSpatialEntityComponentDataSphereBD
+{
+    XrStructureType type;
+    void *next;
+    XrSpheref sphere;
+} XrSpatialEntityComponentDataSphereBD;
+
+typedef struct XrSpatialEntityComponentDataTriangleMeshBD
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector3f *vertices;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint16_t *indices;
+} XrSpatialEntityComponentDataTriangleMeshBD;
+
+typedef struct XrSpatialEntityComponentGetInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialEntityIdBD WINE_XR_ALIGN(8) entityId;
+    XrSpatialEntityComponentTypeBD componentType;
+} XrSpatialEntityComponentGetInfoBD;
+
+typedef struct XrSpatialEntityFromIdCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialEntityIdEXT WINE_XR_ALIGN(8) entityId;
+} XrSpatialEntityFromIdCreateInfoEXT;
+
+typedef struct XrSpatialEntityLocationGetInfoBD
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+} XrSpatialEntityLocationGetInfoBD;
+
+typedef struct XrSpatialEntityPersistInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialContextEXT WINE_XR_ALIGN(8) spatialContext;
+    XrSpatialEntityIdEXT WINE_XR_ALIGN(8) spatialEntityId;
+} XrSpatialEntityPersistInfoEXT;
+
+typedef struct XrSpatialEntityUnpersistInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrUuid persistUuid;
+} XrSpatialEntityUnpersistInfoEXT;
+
+typedef struct XrSpatialFilterTrackingStateEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialEntityTrackingStateEXT trackingState;
+} XrSpatialFilterTrackingStateEXT;
+
+typedef struct XrSpatialGraphNodeBindingPropertiesGetInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+} XrSpatialGraphNodeBindingPropertiesGetInfoMSFT;
+
+typedef struct XrSpatialGraphNodeBindingPropertiesMSFT
+{
+    XrStructureType type;
+    void *next;
+    uint8_t nodeId[XR_GUID_SIZE_MSFT];
+    XrPosef poseInNodeSpace;
+} XrSpatialGraphNodeBindingPropertiesMSFT;
+
+typedef struct XrSpatialGraphNodeSpaceCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialGraphNodeTypeMSFT nodeType;
+    uint8_t nodeId[XR_GUID_SIZE_MSFT];
+    XrPosef pose;
+} XrSpatialGraphNodeSpaceCreateInfoMSFT;
+
+typedef struct XrSpatialGraphStaticNodeBindingCreateInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef poseInSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrSpatialGraphStaticNodeBindingCreateInfoMSFT;
+
+typedef struct XrSpatialImageSizeEXT
+{
+    XrStructureType type;
+    const void *next;
+    float physicalWidth;
+} XrSpatialImageSizeEXT;
+
+typedef struct XrSpatialImageStaticOptimizationEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 optimizeForStaticImage;
+} XrSpatialImageStaticOptimizationEXT;
+
+typedef struct XrSpatialImageTrackingDatabaseCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t spatialReferenceImageCount;
+    const XrSpatialReferenceImageEXT *spatialReferenceImages;
+} XrSpatialImageTrackingDatabaseCreateInfoEXT;
+
+typedef struct XrSpatialMarkerSizeEXT
+{
+    XrStructureType type;
+    const void *next;
+    float markerSideLength;
+} XrSpatialMarkerSizeEXT;
+
+typedef struct XrSpatialMarkerStaticOptimizationEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 optimizeForStaticMarker;
+} XrSpatialMarkerStaticOptimizationEXT;
+
+typedef struct XrSpatialPersistenceContextCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    XrSpatialPersistenceScopeEXT scope;
+} XrSpatialPersistenceContextCreateInfoEXT;
+
+typedef struct XrSpatialRaycastSnapshotCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t componentTypeCount;
+    const XrSpatialComponentTypeEXT *componentTypes;
+    const XrSpatialRaycastInfoANDROID *raycastInfo;
+} XrSpatialRaycastSnapshotCreateInfoANDROID;
+
+typedef struct XrSpatialUpdateSnapshotCreateInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t entityCount;
+    const XrSpatialEntityEXT *entities;
+    uint32_t componentTypeCount;
+    const XrSpatialComponentTypeEXT *componentTypes;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrSpatialUpdateSnapshotCreateInfoEXT;
+
+typedef struct XrSphericalHarmonicsANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrLightEstimateStateANDROID state;
+    XrSphericalHarmonicsKindANDROID kind;
+    float coefficients[9][3];
+} XrSphericalHarmonicsANDROID;
+
+typedef struct XrStationaryReferenceSpaceGenerationIdGetInfoEXT
+{
+    XrStructureType type;
+    const void *next;
+} XrStationaryReferenceSpaceGenerationIdGetInfoEXT;
+
+typedef struct XrStationaryReferenceSpaceGenerationIdResultEXT
+{
+    XrStructureType type;
+    void *next;
+    XrUuid generationId;
+} XrStationaryReferenceSpaceGenerationIdResultEXT;
+
+typedef struct XrSurfaceAnchorCreateCompletionANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSpatialEntityIdEXT WINE_XR_ALIGN(8) anchorEntityId;
+} XrSurfaceAnchorCreateCompletionANDROID;
+
+typedef struct XrSurfaceAnchorCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrGeospatialTrackerANDROID WINE_XR_ALIGN(8) geospatialTracker;
+    XrSurfaceAnchorTypeANDROID surfaceAnchorType;
+    XrQuaternionf eastUpSouthOrientation;
+    double WINE_XR_ALIGN(8) latitude;
+    double WINE_XR_ALIGN(8) longitude;
+    double WINE_XR_ALIGN(8) altitudeRelativeToSurface;
+} XrSurfaceAnchorCreateInfoANDROID;
+
+typedef struct XrSwapchainCreateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrSwapchainCreateFlags WINE_XR_ALIGN(8) createFlags;
+    XrSwapchainUsageFlags WINE_XR_ALIGN(8) usageFlags;
+    int64_t WINE_XR_ALIGN(8) format;
+    uint32_t sampleCount;
+    uint32_t width;
+    uint32_t height;
+    uint32_t faceCount;
+    uint32_t arraySize;
+    uint32_t mipCount;
+} XrSwapchainCreateInfo;
+
+typedef struct XrSwapchainCreateInfoColorSpaceSONY
+{
+    XrStructureType type;
+    const void *next;
+    XrColorSpaceSONY colorSpace;
+} XrSwapchainCreateInfoColorSpaceSONY;
+
+typedef struct XrSwapchainCreateInfoFoveationFB
+{
+    XrStructureType type;
+    void *next;
+    XrSwapchainCreateFoveationFlagsFB WINE_XR_ALIGN(8) flags;
+} XrSwapchainCreateInfoFoveationFB;
+
+typedef struct XrSwapchainImageAcquireInfo
+{
+    XrStructureType type;
+    const void *next;
+} XrSwapchainImageAcquireInfo;
+
+typedef struct XrSwapchainImageBaseHeader
+{
+    XrStructureType type;
+    void *next;
+} XrSwapchainImageBaseHeader;
+
+typedef struct XrSwapchainImageD3D11KHR
+{
+    XrStructureType type;
+    void *next;
+    ID3D11Texture2D *texture;
+} XrSwapchainImageD3D11KHR;
+
+typedef struct XrSwapchainImageD3D12KHR
+{
+    XrStructureType type;
+    void *next;
+    ID3D12Resource *texture;
+} XrSwapchainImageD3D12KHR;
+
+typedef struct XrSwapchainImageFoveationVulkanFB
+{
+    XrStructureType type;
+    void *next;
+    VkImage image;
+    uint32_t width;
+    uint32_t height;
+} XrSwapchainImageFoveationVulkanFB;
+
+typedef struct XrSwapchainImageOpenGLKHR
+{
+    XrStructureType type;
+    void *next;
+    uint32_t image;
+} XrSwapchainImageOpenGLKHR;
+
+typedef struct XrSwapchainImageReleaseInfo
+{
+    XrStructureType type;
+    const void *next;
+} XrSwapchainImageReleaseInfo;
+
+typedef struct XrSwapchainImageVulkanKHR
+{
+    XrStructureType type;
+    void *next;
+    VkImage image;
+} XrSwapchainImageVulkanKHR;
+typedef XrSwapchainImageVulkanKHR XrSwapchainImageVulkan2KHR;
+
+typedef struct XrSwapchainImageWaitInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrDuration WINE_XR_ALIGN(8) timeout;
+} XrSwapchainImageWaitInfo;
+
+typedef struct XrSwapchainStateBaseHeaderFB
+{
+    XrStructureType type;
+    void *next;
+} XrSwapchainStateBaseHeaderFB;
+
+typedef struct XrSwapchainStateFoveationFB
+{
+    XrStructureType type;
+    void *next;
+    XrSwapchainStateFoveationFlagsFB WINE_XR_ALIGN(8) flags;
+    XrFoveationProfileFB WINE_XR_ALIGN(8) profile;
+} XrSwapchainStateFoveationFB;
+
+typedef struct XrSwapchainStateSamplerVulkanFB
+{
+    XrStructureType type;
+    void *next;
+    VkFilter minFilter;
+    VkFilter magFilter;
+    VkSamplerMipmapMode mipmapMode;
+    VkSamplerAddressMode wrapModeS;
+    VkSamplerAddressMode wrapModeT;
+    VkComponentSwizzle swizzleRed;
+    VkComponentSwizzle swizzleGreen;
+    VkComponentSwizzle swizzleBlue;
+    VkComponentSwizzle swizzleAlpha;
+    float maxAnisotropy;
+    XrColor4f borderColor;
+} XrSwapchainStateSamplerVulkanFB;
+
+typedef struct XrSystemAnchorPropertiesHTC
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsAnchor;
+} XrSystemAnchorPropertiesHTC;
+
+typedef struct XrSystemBodyTrackingPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsBodyTracking;
+} XrSystemBodyTrackingPropertiesBD;
+
+typedef struct XrSystemBodyTrackingPropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsBodyTracking;
+} XrSystemBodyTrackingPropertiesFB;
+
+typedef struct XrSystemBodyTrackingPropertiesHTC
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsBodyTracking;
+} XrSystemBodyTrackingPropertiesHTC;
+
+typedef struct XrSystemBoundaryVisibilityPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsBoundaryVisibility;
+} XrSystemBoundaryVisibilityPropertiesMETA;
+
+typedef struct XrSystemColocationDiscoveryPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsColocationDiscovery;
+} XrSystemColocationDiscoveryPropertiesMETA;
+
+typedef struct XrSystemColorSpacePropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    XrColorSpaceFB colorSpace;
+} XrSystemColorSpacePropertiesFB;
+
+typedef struct XrSystemDeviceAnchorPersistencePropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsAnchorPersistence;
+} XrSystemDeviceAnchorPersistencePropertiesANDROID;
+
+typedef struct XrSystemDynamicObjectKeyboardPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsDynamicObjectKeyboard;
+} XrSystemDynamicObjectKeyboardPropertiesBD;
+
+typedef struct XrSystemDynamicObjectMousePropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsDynamicObjectMouse;
+} XrSystemDynamicObjectMousePropertiesBD;
+
+typedef struct XrSystemDynamicObjectTrackingPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsDynamicObjectTracking;
+} XrSystemDynamicObjectTrackingPropertiesBD;
+
+typedef struct XrSystemEyeGazeInteractionPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsEyeGazeInteraction;
+} XrSystemEyeGazeInteractionPropertiesEXT;
+
+typedef struct XrSystemEyeTrackingPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsEyeTracking;
+} XrSystemEyeTrackingPropertiesANDROID;
+
+typedef struct XrSystemEyeTrackingPropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsEyeTracking;
+} XrSystemEyeTrackingPropertiesFB;
+
+typedef struct XrSystemFaceTrackingProperties2FB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsVisualFaceTracking;
+    XrBool32 supportsAudioFaceTracking;
+} XrSystemFaceTrackingProperties2FB;
+
+typedef struct XrSystemFaceTrackingPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsFaceTracking;
+} XrSystemFaceTrackingPropertiesANDROID;
+
+typedef struct XrSystemFaceTrackingPropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsFaceTracking;
+} XrSystemFaceTrackingPropertiesFB;
+
+typedef struct XrSystemFaceTrackingVisemesPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsVisemes;
+} XrSystemFaceTrackingVisemesPropertiesMETA;
+
+typedef struct XrSystemFacialExpressionPropertiesML
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsFacialExpression;
+} XrSystemFacialExpressionPropertiesML;
+
+typedef struct XrSystemFacialSimulationPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsFaceTracking;
+} XrSystemFacialSimulationPropertiesBD;
+
+typedef struct XrSystemFacialTrackingPropertiesHTC
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportEyeFacialTracking;
+    XrBool32 supportLipFacialTracking;
+} XrSystemFacialTrackingPropertiesHTC;
+
+typedef struct XrSystemForceFeedbackCurlPropertiesMNDX
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsForceFeedbackCurl;
+} XrSystemForceFeedbackCurlPropertiesMNDX;
+
+typedef struct XrSystemFoveatedRenderingPropertiesVARJO
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsFoveatedRendering;
+} XrSystemFoveatedRenderingPropertiesVARJO;
+
+typedef struct XrSystemFoveationEyeTrackedPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsFoveationEyeTracked;
+} XrSystemFoveationEyeTrackedPropertiesMETA;
+
+typedef struct XrSystemGeospatialAnchorPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    uint32_t maxSurfaceAnchorCount;
+} XrSystemGeospatialAnchorPropertiesANDROID;
+
+typedef struct XrSystemGeospatialPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsGeospatial;
+} XrSystemGeospatialPropertiesANDROID;
+
+typedef struct XrSystemGetInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrFormFactor formFactor;
+} XrSystemGetInfo;
+
+typedef struct XrSystemHandTrackingMeshPropertiesMSFT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsHandTrackingMesh;
+    uint32_t maxHandMeshIndexCount;
+    uint32_t maxHandMeshVertexCount;
+} XrSystemHandTrackingMeshPropertiesMSFT;
+
+typedef struct XrSystemHandTrackingPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsHandTracking;
+} XrSystemHandTrackingPropertiesEXT;
+
+typedef struct XrSystemHapticParametricPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsParametricHaptics;
+} XrSystemHapticParametricPropertiesEXT;
+
+typedef struct XrSystemHeadsetIdPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrUuidEXT id;
+} XrSystemHeadsetIdPropertiesMETA;
+
+typedef struct XrSystemImageTrackingPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsImageTracking;
+    XrBool32 supportsPhysicalSizeEstimation;
+    uint32_t maxTrackedImageCount;
+    uint32_t maxLoadedImageCount;
+} XrSystemImageTrackingPropertiesANDROID;
+
+typedef struct XrSystemKeyboardTrackingPropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsKeyboardTracking;
+} XrSystemKeyboardTrackingPropertiesFB;
+
+typedef struct XrSystemLightEstimationPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsLightEstimation;
+} XrSystemLightEstimationPropertiesANDROID;
+
+typedef struct XrSystemLightEstimationPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsLightEstimation;
+    XrBool32 supportsEnvironmentTexture;
+    XrBool32 supportsSphericalHarmonics;
+} XrSystemLightEstimationPropertiesBD;
+
+typedef struct XrSystemMarkerTrackingPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsMarkerTracking;
+    XrBool32 supportsMarkerSizeEstimation;
+    uint16_t maxMarkerCount;
+} XrSystemMarkerTrackingPropertiesANDROID;
+
+typedef struct XrSystemMarkerTrackingPropertiesVARJO
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsMarkerTracking;
+} XrSystemMarkerTrackingPropertiesVARJO;
+
+typedef struct XrSystemMarkerUnderstandingPropertiesML
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsMarkerUnderstanding;
+} XrSystemMarkerUnderstandingPropertiesML;
+
+typedef struct XrSystemNotificationsSetInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 suppressNotifications;
+} XrSystemNotificationsSetInfoML;
+
+typedef struct XrSystemPassthroughCameraStatePropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsPassthroughCameraState;
+} XrSystemPassthroughCameraStatePropertiesANDROID;
+
+typedef struct XrSystemPassthroughColorLutPropertiesMETA
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t maxColorLutResolution;
+} XrSystemPassthroughColorLutPropertiesMETA;
+
+typedef struct XrSystemPassthroughLayerPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsPassthroughLayer;
+    uint32_t maxMeshIndexCount;
+    uint32_t maxMeshVertexCount;
+} XrSystemPassthroughLayerPropertiesANDROID;
+
+typedef struct XrSystemPassthroughProperties2FB
+{
+    XrStructureType type;
+    const void *next;
+    XrPassthroughCapabilityFlagsFB WINE_XR_ALIGN(8) capabilities;
+} XrSystemPassthroughProperties2FB;
+
+typedef struct XrSystemPassthroughPropertiesFB
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 supportsPassthrough;
+} XrSystemPassthroughPropertiesFB;
+
+typedef struct XrSystemPlaneDetectionPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    XrPlaneDetectionCapabilityFlagsEXT WINE_XR_ALIGN(8) supportedFeatures;
+} XrSystemPlaneDetectionPropertiesEXT;
+
+typedef struct XrSystemProperties
+{
+    XrStructureType type;
+    void *next;
+    XrSystemId WINE_XR_ALIGN(8) systemId;
+    uint32_t vendorId;
+    char systemName[XR_MAX_SYSTEM_NAME_SIZE];
+    XrSystemGraphicsProperties graphicsProperties;
+    XrSystemTrackingProperties trackingProperties;
+} XrSystemProperties;
+
+typedef struct XrSystemPropertiesBodyTrackingCalibrationMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsHeightOverride;
+} XrSystemPropertiesBodyTrackingCalibrationMETA;
+
+typedef struct XrSystemPropertiesBodyTrackingFidelityMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsBodyTrackingFidelity;
+} XrSystemPropertiesBodyTrackingFidelityMETA;
+
+typedef struct XrSystemPropertiesBodyTrackingFullBodyMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsFullBodyTracking;
+} XrSystemPropertiesBodyTrackingFullBodyMETA;
+
+typedef struct XrSystemQrCodeTrackingPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsQrCodeTracking;
+    XrBool32 supportsQrCodeSizeEstimation;
+    uint16_t maxQrCodeCount;
+} XrSystemQrCodeTrackingPropertiesANDROID;
+
+typedef struct XrSystemRenderModelPropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsRenderModelLoading;
+} XrSystemRenderModelPropertiesFB;
+
+typedef struct XrSystemSceneMeshingPropertiesANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSceneMeshing;
+} XrSystemSceneMeshingPropertiesANDROID;
+
+typedef struct XrSystemSimultaneousHandsAndControllersPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSimultaneousHandsAndControllers;
+} XrSystemSimultaneousHandsAndControllersPropertiesMETA;
+
+typedef struct XrSystemSpacePersistencePropertiesMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 supportsSpacePersistence;
+} XrSystemSpacePersistencePropertiesMETA;
+
+typedef struct XrSystemSpaceWarpPropertiesFB
+{
+    XrStructureType type;
+    void *next;
+    uint32_t recommendedMotionVectorImageRectWidth;
+    uint32_t recommendedMotionVectorImageRectHeight;
+} XrSystemSpaceWarpPropertiesFB;
+
+typedef struct XrSystemSpatialAnchorPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialAnchor;
+} XrSystemSpatialAnchorPropertiesBD;
+
+typedef struct XrSystemSpatialAnchorSharingPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialAnchorSharing;
+} XrSystemSpatialAnchorSharingPropertiesBD;
+
+typedef struct XrSystemSpatialContainerPropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    uint32_t maxSpatialContainerCount;
+    XrBool32 supportsBounded;
+    XrBool32 supportsImmersive;
+} XrSystemSpatialContainerPropertiesEXT;
+
+typedef struct XrSystemSpatialEntityGroupSharingPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialEntityGroupSharing;
+} XrSystemSpatialEntityGroupSharingPropertiesMETA;
+
+typedef struct XrSystemSpatialEntityPropertiesFB
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 supportsSpatialEntity;
+} XrSystemSpatialEntityPropertiesFB;
+
+typedef struct XrSystemSpatialEntitySharingPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialEntitySharing;
+} XrSystemSpatialEntitySharingPropertiesMETA;
+
+typedef struct XrSystemSpatialMeshPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialMesh;
+} XrSystemSpatialMeshPropertiesBD;
+
+typedef struct XrSystemSpatialPlanePropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialPlane;
+} XrSystemSpatialPlanePropertiesBD;
+
+typedef struct XrSystemSpatialScenePropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialScene;
+} XrSystemSpatialScenePropertiesBD;
+
+typedef struct XrSystemSpatialSensingPropertiesBD
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsSpatialSensing;
+} XrSystemSpatialSensingPropertiesBD;
+
+typedef struct XrSystemTrackablesPropertiesANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 supportsAnchor;
+    uint32_t maxAnchors;
+} XrSystemTrackablesPropertiesANDROID;
+
+typedef struct XrSystemUserPresencePropertiesEXT
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsUserPresence;
+} XrSystemUserPresencePropertiesEXT;
+
+typedef struct XrSystemVirtualKeyboardPropertiesMETA
+{
+    XrStructureType type;
+    void *next;
+    XrBool32 supportsVirtualKeyboard;
+} XrSystemVirtualKeyboardPropertiesMETA;
+
+typedef struct XrTilePropertiesHintMETA
+{
+    XrStructureType type;
+    void *next;
+    uint32_t propertiesCount;
+    const XrTilePropertiesMETA *properties;
+} XrTilePropertiesHintMETA;
+
+typedef struct XrTrackableGetInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrTrackableANDROID WINE_XR_ALIGN(8) trackable;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+} XrTrackableGetInfoANDROID;
+
+typedef struct XrTrackableImageANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrTrackingStateANDROID trackingState;
+    XrTime WINE_XR_ALIGN(8) lastUpdatedTime;
+    XrTrackableImageDatabaseANDROID WINE_XR_ALIGN(8) database;
+    uint32_t databaseEntryIndex;
+    XrPosef centerPose;
+    XrExtent2Df extents;
+} XrTrackableImageANDROID;
+
+typedef struct XrTrackableImageConfigurationANDROID
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t databaseCount;
+    const XrTrackableImageDatabaseANDROID *databases;
+} XrTrackableImageConfigurationANDROID;
+
+typedef struct XrTrackableImageDatabaseCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t entryCount;
+    const XrTrackableImageDatabaseEntryANDROID *entries;
+} XrTrackableImageDatabaseCreateInfoANDROID;
+
+typedef struct XrTrackableMarkerANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrTrackingStateANDROID trackingState;
+    XrTime WINE_XR_ALIGN(8) lastUpdatedTime;
+    XrTrackableMarkerDictionaryANDROID dictionary;
+    int32_t markerId;
+    XrPosef centerPose;
+    XrExtent2Df extents;
+} XrTrackableMarkerANDROID;
+
+typedef struct XrTrackableMarkerConfigurationANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrTrackableMarkerTrackingModeANDROID trackingMode;
+    uint32_t databaseCount;
+    const XrTrackableMarkerDatabaseANDROID *databases;
+} XrTrackableMarkerConfigurationANDROID;
+
+typedef struct XrTrackableObjectANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrTrackingStateANDROID trackingState;
+    XrPosef centerPose;
+    XrExtent3DfEXT extents;
+    XrObjectLabelANDROID objectLabel;
+    XrTime WINE_XR_ALIGN(8) lastUpdatedTime;
+} XrTrackableObjectANDROID;
+
+typedef struct XrTrackableObjectConfigurationANDROID
+{
+    XrStructureType type;
+    void *next;
+    uint32_t labelCount;
+    const XrObjectLabelANDROID *activeLabels;
+} XrTrackableObjectConfigurationANDROID;
+
+typedef struct XrTrackablePlaneANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrTrackingStateANDROID trackingState;
+    XrPosef centerPose;
+    XrExtent2Df extents;
+    XrPlaneTypeANDROID planeType;
+    XrPlaneLabelANDROID planeLabel;
+    XrTrackableANDROID WINE_XR_ALIGN(8) subsumedByPlane;
+    XrTime WINE_XR_ALIGN(8) lastUpdatedTime;
+    uint32_t vertexCapacityInput;
+    uint32_t *vertexCountOutput;
+    XrVector2f *vertices;
+} XrTrackablePlaneANDROID;
+
+typedef struct XrTrackableQrCodeANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrTrackingStateANDROID trackingState;
+    XrTime WINE_XR_ALIGN(8) lastUpdatedTime;
+    XrPosef centerPose;
+    XrExtent2Df extents;
+    uint32_t bufferCapacityInput;
+    uint32_t bufferCountOutput;
+    char *buffer;
+} XrTrackableQrCodeANDROID;
+
+typedef struct XrTrackableQrCodeConfigurationANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrQrCodeTrackingModeANDROID trackingMode;
+    float qrCodeEdgeSize;
+} XrTrackableQrCodeConfigurationANDROID;
+
+typedef struct XrTrackableTrackerCreateInfoANDROID
+{
+    XrStructureType type;
+    const void *next;
+    XrTrackableTypeANDROID trackableType;
+} XrTrackableTrackerCreateInfoANDROID;
+
+typedef struct XrUnpersistSpatialEntityCompletionEXT
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrSpatialPersistenceContextResultEXT unpersistResult;
+} XrUnpersistSpatialEntityCompletionEXT;
+
+typedef struct XrUserCalibrationEnableEventsInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 enabled;
+} XrUserCalibrationEnableEventsInfoML;
+
+typedef struct XrVPSAvailabilityCheckCompletionANDROID
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrVPSAvailabilityANDROID availability;
+} XrVPSAvailabilityCheckCompletionANDROID;
+
+typedef struct XrView
+{
+    XrStructureType type;
+    void *next;
+    XrPosef pose;
+    XrFovf fov;
+} XrView;
+
+typedef struct XrViewConfigurationDepthRangeEXT
+{
+    XrStructureType type;
+    void *next;
+    float recommendedNearZ;
+    float minNearZ;
+    float recommendedFarZ;
+    float maxFarZ;
+} XrViewConfigurationDepthRangeEXT;
+
+typedef struct XrViewConfigurationProperties
+{
+    XrStructureType type;
+    void *next;
+    XrViewConfigurationType viewConfigurationType;
+    XrBool32 fovMutable;
+} XrViewConfigurationProperties;
+
+typedef struct XrViewConfigurationView
+{
+    XrStructureType type;
+    void *next;
+    uint32_t recommendedImageRectWidth;
+    uint32_t maxImageRectWidth;
+    uint32_t recommendedImageRectHeight;
+    uint32_t maxImageRectHeight;
+    uint32_t recommendedSwapchainSampleCount;
+    uint32_t maxSwapchainSampleCount;
+} XrViewConfigurationView;
+
+typedef struct XrViewConfigurationViewFovEPIC
+{
+    XrStructureType type;
+    const void *next;
+    XrFovf recommendedFov;
+    XrFovf maxMutableFov;
+} XrViewConfigurationViewFovEPIC;
+
+typedef struct XrViewLocateFoveatedRenderingVARJO
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 foveatedRenderingActive;
+} XrViewLocateFoveatedRenderingVARJO;
+
+typedef struct XrViewLocateInfo
+{
+    XrStructureType type;
+    const void *next;
+    XrViewConfigurationType viewConfigurationType;
+    XrTime WINE_XR_ALIGN(8) displayTime;
+    XrSpace WINE_XR_ALIGN(8) space;
+} XrViewLocateInfo;
+
+typedef struct XrViewState
+{
+    XrStructureType type;
+    void *next;
+    XrViewStateFlags WINE_XR_ALIGN(8) viewStateFlags;
+} XrViewState;
+
+typedef struct XrVirtualKeyboardCreateInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+} XrVirtualKeyboardCreateInfoMETA;
+
+typedef struct XrVirtualKeyboardInputInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardInputSourceMETA inputSource;
+    XrSpace WINE_XR_ALIGN(8) inputSpace;
+    XrPosef inputPoseInSpace;
+    XrVirtualKeyboardInputStateFlagsMETA WINE_XR_ALIGN(8) inputState;
+} XrVirtualKeyboardInputInfoMETA;
+
+typedef struct XrVirtualKeyboardLocationInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardLocationTypeMETA locationType;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef poseInSpace;
+    float scale;
+} XrVirtualKeyboardLocationInfoMETA;
+
+typedef struct XrVirtualKeyboardModelAnimationStatesMETA
+{
+    XrStructureType type;
+    void *next;
+    uint32_t stateCapacityInput;
+    uint32_t stateCountOutput;
+    XrVirtualKeyboardAnimationStateMETA *states;
+} XrVirtualKeyboardModelAnimationStatesMETA;
+
+typedef struct XrVirtualKeyboardModelVisibilitySetInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrBool32 visible;
+} XrVirtualKeyboardModelVisibilitySetInfoMETA;
+
+typedef struct XrVirtualKeyboardSpaceCreateInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    XrVirtualKeyboardLocationTypeMETA locationType;
+    XrSpace WINE_XR_ALIGN(8) space;
+    XrPosef poseInSpace;
+} XrVirtualKeyboardSpaceCreateInfoMETA;
+
+typedef struct XrVirtualKeyboardTextContextChangeInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    const char *textContext;
+} XrVirtualKeyboardTextContextChangeInfoMETA;
+
+typedef struct XrVirtualKeyboardTextureDataMETA
+{
+    XrStructureType type;
+    void *next;
+    uint32_t textureWidth;
+    uint32_t textureHeight;
+    uint32_t bufferCapacityInput;
+    uint32_t bufferCountOutput;
+    uint8_t *buffer;
+} XrVirtualKeyboardTextureDataMETA;
+
+typedef struct XrVisibilityMaskKHR
+{
+    XrStructureType type;
+    void *next;
+    uint32_t vertexCapacityInput;
+    uint32_t vertexCountOutput;
+    XrVector2f *vertices;
+    uint32_t indexCapacityInput;
+    uint32_t indexCountOutput;
+    uint32_t *indices;
+} XrVisibilityMaskKHR;
+
+typedef struct XrVisualMeshComputeLodInfoMSFT
+{
+    XrStructureType type;
+    const void *next;
+    XrMeshComputeLodMSFT lod;
+} XrVisualMeshComputeLodInfoMSFT;
+
+typedef struct XrVulkanDeviceCreateInfoKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrSystemId WINE_XR_ALIGN(8) systemId;
+    XrVulkanDeviceCreateFlagsKHR WINE_XR_ALIGN(8) createFlags;
+    PFN_vkGetInstanceProcAddr pfnGetInstanceProcAddr;
+    VkPhysicalDevice vulkanPhysicalDevice;
+    const VkDeviceCreateInfo *vulkanCreateInfo;
+    const VkAllocationCallbacks *vulkanAllocator;
+} XrVulkanDeviceCreateInfoKHR;
+
+typedef struct XrVulkanGraphicsDeviceGetInfoKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrSystemId WINE_XR_ALIGN(8) systemId;
+    VkInstance vulkanInstance;
+} XrVulkanGraphicsDeviceGetInfoKHR;
+
+typedef struct XrVulkanInstanceCreateInfoKHR
+{
+    XrStructureType type;
+    const void *next;
+    XrSystemId WINE_XR_ALIGN(8) systemId;
+    XrVulkanInstanceCreateFlagsKHR WINE_XR_ALIGN(8) createFlags;
+    PFN_vkGetInstanceProcAddr pfnGetInstanceProcAddr;
+    const VkInstanceCreateInfo *vulkanCreateInfo;
+    const VkAllocationCallbacks *vulkanAllocator;
+} XrVulkanInstanceCreateInfoKHR;
+
+typedef struct XrVulkanSwapchainCreateInfoMETA
+{
+    XrStructureType type;
+    const void *next;
+    VkImageCreateFlags additionalCreateFlags;
+    VkImageUsageFlags additionalUsageFlags;
+} XrVulkanSwapchainCreateInfoMETA;
+
+typedef struct XrVulkanSwapchainFormatListCreateInfoKHR
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t viewFormatCount;
+    const VkFormat *viewFormats;
+} XrVulkanSwapchainFormatListCreateInfoKHR;
+
+typedef struct XrWorldMeshBufferML
+{
+    XrStructureType type;
+    void *next;
+    uint32_t bufferSize;
+    void *buffer;
+} XrWorldMeshBufferML;
+
+typedef struct XrWorldMeshBufferRecommendedSizeInfoML
+{
+    XrStructureType type;
+    const void *next;
+    uint32_t maxBlockCount;
+} XrWorldMeshBufferRecommendedSizeInfoML;
+
+typedef struct XrWorldMeshBufferSizeML
+{
+    XrStructureType type;
+    void *next;
+    uint32_t size;
+} XrWorldMeshBufferSizeML;
+
+typedef struct XrWorldMeshDetectorCreateInfoML
+{
+    XrStructureType type;
+    const void *next;
+} XrWorldMeshDetectorCreateInfoML;
+
+typedef struct XrWorldMeshGetInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrWorldMeshDetectorFlagsML WINE_XR_ALIGN(8) flags;
+    float fillHoleLength;
+    float disconnectedComponentArea;
+    uint32_t blockCount;
+    XrWorldMeshBlockRequestML *blocks;
+} XrWorldMeshGetInfoML;
+
+typedef struct XrWorldMeshRequestCompletionInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) meshSpace;
+    XrTime WINE_XR_ALIGN(8) meshSpaceLocateTime;
+} XrWorldMeshRequestCompletionInfoML;
+
+typedef struct XrWorldMeshRequestCompletionML
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    uint32_t blockCount;
+    XrWorldMeshBlockML *blocks;
+} XrWorldMeshRequestCompletionML;
+
+typedef struct XrWorldMeshStateRequestCompletionML
+{
+    XrStructureType type;
+    void *next;
+    XrResult futureResult;
+    XrTime WINE_XR_ALIGN(8) timestamp;
+    uint32_t meshBlockStateCapacityInput;
+    uint32_t meshBlockStateCountOutput;
+    XrWorldMeshBlockStateML *meshBlockStates;
+} XrWorldMeshStateRequestCompletionML;
+
+typedef struct XrWorldMeshStateRequestInfoML
+{
+    XrStructureType type;
+    const void *next;
+    XrSpace WINE_XR_ALIGN(8) baseSpace;
+    XrTime WINE_XR_ALIGN(8) time;
+    XrPosef boundingBoxCenter;
+    XrExtent3DfEXT boundingBoxExtents;
+} XrWorldMeshStateRequestInfoML;
+
+typedef union XrCompositionLayerBaseHeader_any
+{
+    XrCompositionLayerBaseHeader base;
+    XrCompositionLayerCubeKHR _XrCompositionLayerCubeKHR;
+    XrCompositionLayerCylinderKHR _XrCompositionLayerCylinderKHR;
+    XrCompositionLayerEquirect2KHR _XrCompositionLayerEquirect2KHR;
+    XrCompositionLayerEquirectKHR _XrCompositionLayerEquirectKHR;
+    XrCompositionLayerPassthroughANDROID _XrCompositionLayerPassthroughANDROID;
+    XrCompositionLayerPassthroughFB _XrCompositionLayerPassthroughFB;
+    XrCompositionLayerPassthroughHTC _XrCompositionLayerPassthroughHTC;
+    XrCompositionLayerProjection _XrCompositionLayerProjection;
+    XrCompositionLayerQuad _XrCompositionLayerQuad;
+} XrCompositionLayerBaseHeader_any;
+
+typedef union XrBindingModificationBaseHeaderKHR_any
+{
+    XrBindingModificationBaseHeaderKHR base;
+    XrInteractionProfileAnalogThresholdVALVE _XrInteractionProfileAnalogThresholdVALVE;
+    XrInteractionProfileDpadBindingEXT _XrInteractionProfileDpadBindingEXT;
+} XrBindingModificationBaseHeaderKHR_any;
+
+typedef union XrHapticBaseHeader_any
+{
+    XrHapticBaseHeader base;
+    XrHapticAmplitudeEnvelopeVibrationFB _XrHapticAmplitudeEnvelopeVibrationFB;
+    XrHapticParametricVibrationEXT _XrHapticParametricVibrationEXT;
+    XrHapticPcmVibrationFB _XrHapticPcmVibrationFB;
+    XrHapticVibration _XrHapticVibration;
+} XrHapticBaseHeader_any;
+
+typedef union XrShareSpacesRecipientBaseHeaderMETA_any
+{
+    XrShareSpacesRecipientBaseHeaderMETA base;
+    XrShareSpacesRecipientGroupsMETA _XrShareSpacesRecipientGroupsMETA;
+} XrShareSpacesRecipientBaseHeaderMETA_any;
+
+typedef union XrSpaceFilterInfoBaseHeaderFB_any
+{
+    XrSpaceFilterInfoBaseHeaderFB base;
+    XrSpaceComponentFilterInfoFB _XrSpaceComponentFilterInfoFB;
+    XrSpaceUuidFilterInfoFB _XrSpaceUuidFilterInfoFB;
+} XrSpaceFilterInfoBaseHeaderFB_any;
+
+typedef union XrSpatialCapabilityConfigurationBaseHeaderEXT_any
+{
+    XrSpatialCapabilityConfigurationBaseHeaderEXT base;
+    XrSpatialCapabilityConfigurationAnchorEXT _XrSpatialCapabilityConfigurationAnchorEXT;
+    XrSpatialCapabilityConfigurationAprilTagEXT _XrSpatialCapabilityConfigurationAprilTagEXT;
+    XrSpatialCapabilityConfigurationArucoMarkerEXT _XrSpatialCapabilityConfigurationArucoMarkerEXT;
+    XrSpatialCapabilityConfigurationDepthRaycastANDROID _XrSpatialCapabilityConfigurationDepthRaycastANDROID;
+    XrSpatialCapabilityConfigurationImageTrackingEXT _XrSpatialCapabilityConfigurationImageTrackingEXT;
+    XrSpatialCapabilityConfigurationMicroQrCodeEXT _XrSpatialCapabilityConfigurationMicroQrCodeEXT;
+    XrSpatialCapabilityConfigurationObjectTrackingANDROID _XrSpatialCapabilityConfigurationObjectTrackingANDROID;
+    XrSpatialCapabilityConfigurationPlaneTrackingEXT _XrSpatialCapabilityConfigurationPlaneTrackingEXT;
+    XrSpatialCapabilityConfigurationQrCodeEXT _XrSpatialCapabilityConfigurationQrCodeEXT;
+} XrSpatialCapabilityConfigurationBaseHeaderEXT_any;
+
+typedef union XrEventDataBuffer_any
+{
+    XrEventDataBuffer base;
+    XrEventDataBoundaryVisibilityChangedMETA _XrEventDataBoundaryVisibilityChangedMETA;
+    XrEventDataColocationAdvertisementCompleteMETA _XrEventDataColocationAdvertisementCompleteMETA;
+    XrEventDataColocationDiscoveryCompleteMETA _XrEventDataColocationDiscoveryCompleteMETA;
+    XrEventDataColocationDiscoveryResultMETA _XrEventDataColocationDiscoveryResultMETA;
+    XrEventDataDisplayRefreshRateChangedFB _XrEventDataDisplayRefreshRateChangedFB;
+    XrEventDataEventsLost _XrEventDataEventsLost;
+    XrEventDataEyeCalibrationChangedML _XrEventDataEyeCalibrationChangedML;
+    XrEventDataGeospatialTrackerStateChangedANDROID _XrEventDataGeospatialTrackerStateChangedANDROID;
+    XrEventDataHeadsetFitChangedML _XrEventDataHeadsetFitChangedML;
+    XrEventDataImageTrackingLostANDROID _XrEventDataImageTrackingLostANDROID;
+    XrEventDataInstanceLossPending _XrEventDataInstanceLossPending;
+    XrEventDataInteractionProfileChanged _XrEventDataInteractionProfileChanged;
+    XrEventDataInteractionRenderModelsChangedEXT _XrEventDataInteractionRenderModelsChangedEXT;
+    XrEventDataLocalizationChangedML _XrEventDataLocalizationChangedML;
+    XrEventDataMainSessionVisibilityChangedEXTX _XrEventDataMainSessionVisibilityChangedEXTX;
+    XrEventDataMarkerTrackingUpdateVARJO _XrEventDataMarkerTrackingUpdateVARJO;
+    XrEventDataPassthroughLayerResumedMETA _XrEventDataPassthroughLayerResumedMETA;
+    XrEventDataPassthroughStateChangedFB _XrEventDataPassthroughStateChangedFB;
+    XrEventDataPerfSettingsEXT _XrEventDataPerfSettingsEXT;
+    XrEventDataRecommendedResolutionChangedANDROID _XrEventDataRecommendedResolutionChangedANDROID;
+    XrEventDataReferenceSpaceChangePending _XrEventDataReferenceSpaceChangePending;
+    XrEventDataSceneCaptureCompleteFB _XrEventDataSceneCaptureCompleteFB;
+    XrEventDataSenseDataProviderStateChangedBD _XrEventDataSenseDataProviderStateChangedBD;
+    XrEventDataSenseDataUpdatedBD _XrEventDataSenseDataUpdatedBD;
+    XrEventDataSessionStateChanged _XrEventDataSessionStateChanged;
+    XrEventDataShareSpacesCompleteMETA _XrEventDataShareSpacesCompleteMETA;
+    XrEventDataSpaceEraseCompleteFB _XrEventDataSpaceEraseCompleteFB;
+    XrEventDataSpaceListSaveCompleteFB _XrEventDataSpaceListSaveCompleteFB;
+    XrEventDataSpaceQueryCompleteFB _XrEventDataSpaceQueryCompleteFB;
+    XrEventDataSpaceQueryResultsAvailableFB _XrEventDataSpaceQueryResultsAvailableFB;
+    XrEventDataSpaceSaveCompleteFB _XrEventDataSpaceSaveCompleteFB;
+    XrEventDataSpaceSetStatusCompleteFB _XrEventDataSpaceSetStatusCompleteFB;
+    XrEventDataSpaceShareCompleteFB _XrEventDataSpaceShareCompleteFB;
+    XrEventDataSpacesEraseResultMETA _XrEventDataSpacesEraseResultMETA;
+    XrEventDataSpacesSaveResultMETA _XrEventDataSpacesSaveResultMETA;
+    XrEventDataSpatialAnchorCreateCompleteFB _XrEventDataSpatialAnchorCreateCompleteFB;
+    XrEventDataSpatialContainerBoundsChangedEXT _XrEventDataSpatialContainerBoundsChangedEXT;
+    XrEventDataSpatialContainerBoundsModeRequestDeniedEXT _XrEventDataSpatialContainerBoundsModeRequestDeniedEXT;
+    XrEventDataSpatialContainerClosedEXT _XrEventDataSpatialContainerClosedEXT;
+    XrEventDataSpatialContainerInteractableChangedEXT _XrEventDataSpatialContainerInteractableChangedEXT;
+    XrEventDataSpatialContainerVisibleChangedEXT _XrEventDataSpatialContainerVisibleChangedEXT;
+    XrEventDataSpatialContainerVisibleRequestDeniedEXT _XrEventDataSpatialContainerVisibleRequestDeniedEXT;
+    XrEventDataSpatialDiscoveryRecommendedEXT _XrEventDataSpatialDiscoveryRecommendedEXT;
+    XrEventDataStartColocationAdvertisementCompleteMETA _XrEventDataStartColocationAdvertisementCompleteMETA;
+    XrEventDataStartColocationDiscoveryCompleteMETA _XrEventDataStartColocationDiscoveryCompleteMETA;
+    XrEventDataStopColocationAdvertisementCompleteMETA _XrEventDataStopColocationAdvertisementCompleteMETA;
+    XrEventDataStopColocationDiscoveryCompleteMETA _XrEventDataStopColocationDiscoveryCompleteMETA;
+    XrEventDataUserPresenceChangedEXT _XrEventDataUserPresenceChangedEXT;
+    XrEventDataViewConfigurationViewsChangedEXT _XrEventDataViewConfigurationViewsChangedEXT;
+    XrEventDataVirtualKeyboardBackspaceMETA _XrEventDataVirtualKeyboardBackspaceMETA;
+    XrEventDataVirtualKeyboardCommitTextMETA _XrEventDataVirtualKeyboardCommitTextMETA;
+    XrEventDataVirtualKeyboardEnterMETA _XrEventDataVirtualKeyboardEnterMETA;
+    XrEventDataVirtualKeyboardHiddenMETA _XrEventDataVirtualKeyboardHiddenMETA;
+    XrEventDataVirtualKeyboardShownMETA _XrEventDataVirtualKeyboardShownMETA;
+    XrEventDataVisibilityMaskChangedKHR _XrEventDataVisibilityMaskChangedKHR;
+    XrEventDataViveTrackerConnectedHTCX _XrEventDataViveTrackerConnectedHTCX;
+} XrEventDataBuffer_any;
+
+typedef union XrFutureCompletionBaseHeaderEXT_any
+{
+    XrFutureCompletionBaseHeaderEXT base;
+    XrCreateSpatialAnchorsCompletionML _XrCreateSpatialAnchorsCompletionML;
+    XrCreateSpatialContextCompletionEXT _XrCreateSpatialContextCompletionEXT;
+    XrCreateSpatialDiscoverySnapshotCompletionEXT _XrCreateSpatialDiscoverySnapshotCompletionEXT;
+    XrCreateSpatialImageTrackingDatabaseCompletionEXT _XrCreateSpatialImageTrackingDatabaseCompletionEXT;
+    XrCreateSpatialPersistenceContextCompletionEXT _XrCreateSpatialPersistenceContextCompletionEXT;
+    XrCreateTrackableImageDatabaseCompletionANDROID _XrCreateTrackableImageDatabaseCompletionANDROID;
+    XrFutureCompletionEXT _XrFutureCompletionEXT;
+    XrPersistSpatialEntityCompletionEXT _XrPersistSpatialEntityCompletionEXT;
+    XrSenseDataQueryCompletionBD _XrSenseDataQueryCompletionBD;
+    XrSpatialAnchorCreateCompletionBD _XrSpatialAnchorCreateCompletionBD;
+    XrSpatialAnchorsDeleteCompletionML _XrSpatialAnchorsDeleteCompletionML;
+    XrSpatialAnchorsPublishCompletionML _XrSpatialAnchorsPublishCompletionML;
+    XrSpatialAnchorsQueryCompletionML _XrSpatialAnchorsQueryCompletionML;
+    XrSpatialAnchorsUpdateExpirationCompletionML _XrSpatialAnchorsUpdateExpirationCompletionML;
+    XrSurfaceAnchorCreateCompletionANDROID _XrSurfaceAnchorCreateCompletionANDROID;
+    XrUnpersistSpatialEntityCompletionEXT _XrUnpersistSpatialEntityCompletionEXT;
+    XrVPSAvailabilityCheckCompletionANDROID _XrVPSAvailabilityCheckCompletionANDROID;
+    XrWorldMeshRequestCompletionML _XrWorldMeshRequestCompletionML;
+    XrWorldMeshStateRequestCompletionML _XrWorldMeshStateRequestCompletionML;
+} XrFutureCompletionBaseHeaderEXT_any;
+
+typedef union XrGoogleCloudAuthInfoBaseHeaderANDROID_any
+{
+    XrGoogleCloudAuthInfoBaseHeaderANDROID base;
+    XrGoogleCloudAuthInfoApiKeyANDROID _XrGoogleCloudAuthInfoApiKeyANDROID;
+    XrGoogleCloudAuthInfoKeylessANDROID _XrGoogleCloudAuthInfoKeylessANDROID;
+    XrGoogleCloudAuthInfoTokenANDROID _XrGoogleCloudAuthInfoTokenANDROID;
+} XrGoogleCloudAuthInfoBaseHeaderANDROID_any;
+
+typedef union XrSpaceQueryInfoBaseHeaderFB_any
+{
+    XrSpaceQueryInfoBaseHeaderFB base;
+    XrSpaceQueryInfoFB _XrSpaceQueryInfoFB;
+} XrSpaceQueryInfoBaseHeaderFB_any;
+
+typedef union XrSpatialAnchorsCreateInfoBaseHeaderML_any
+{
+    XrSpatialAnchorsCreateInfoBaseHeaderML base;
+    XrSpatialAnchorsCreateInfoFromPoseML _XrSpatialAnchorsCreateInfoFromPoseML;
+    XrSpatialAnchorsCreateInfoFromUuidsML _XrSpatialAnchorsCreateInfoFromUuidsML;
+} XrSpatialAnchorsCreateInfoBaseHeaderML_any;
+
+typedef union XrSpatialAnchorsQueryInfoBaseHeaderML_any
+{
+    XrSpatialAnchorsQueryInfoBaseHeaderML base;
+    XrSpatialAnchorsQueryInfoRadiusML _XrSpatialAnchorsQueryInfoRadiusML;
+} XrSpatialAnchorsQueryInfoBaseHeaderML_any;
+
+typedef union XrSwapchainImageBaseHeader_any
+{
+    XrSwapchainImageBaseHeader base;
+    XrSwapchainImageD3D11KHR _XrSwapchainImageD3D11KHR;
+    XrSwapchainImageD3D12KHR _XrSwapchainImageD3D12KHR;
+    XrSwapchainImageOpenGLKHR _XrSwapchainImageOpenGLKHR;
+    XrSwapchainImageVulkanKHR _XrSwapchainImageVulkanKHR;
+} XrSwapchainImageBaseHeader_any;
+
+typedef union XrSwapchainStateBaseHeaderFB_any
+{
+    XrSwapchainStateBaseHeaderFB base;
+    XrSwapchainStateFoveationFB _XrSwapchainStateFoveationFB;
+    XrSwapchainStateSamplerVulkanFB _XrSwapchainStateSamplerVulkanFB;
+} XrSwapchainStateBaseHeaderFB_any;
+
+typedef XrResult (XRAPI_PTR *PFN_xrAcquireSwapchainImage)(XrSwapchain swapchain, const XrSwapchainImageAcquireInfo *acquireInfo, uint32_t *index);
+typedef XrResult (XRAPI_PTR *PFN_xrAddTrackableImageDatabaseANDROID)(XrTrackableTrackerANDROID tracker, XrTrackableImageDatabaseANDROID database);
+typedef XrResult (XRAPI_PTR *PFN_xrAllocateWorldMeshBufferML)(XrWorldMeshDetectorML detector, const XrWorldMeshBufferSizeML *size, XrWorldMeshBufferML *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrApplyForceFeedbackCurlMNDX)(XrHandTrackerEXT handTracker, const XrForceFeedbackCurlApplyLocationsMNDX *locations);
+typedef XrResult (XRAPI_PTR *PFN_xrApplyHapticFeedback)(XrSession session, const XrHapticActionInfo *hapticActionInfo, const XrHapticBaseHeader *hapticFeedback);
+typedef XrResult (XRAPI_PTR *PFN_xrAttachSessionActionSets)(XrSession session, const XrSessionActionSetsAttachInfo *attachInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrBeginFrame)(XrSession session, const XrFrameBeginInfo *frameBeginInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrBeginPlaneDetectionEXT)(XrPlaneDetectorEXT planeDetector, const XrPlaneDetectorBeginInfoEXT *beginInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrBeginSession)(XrSession session, const XrSessionBeginInfo *beginInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrBeginSpatialContainerRenderingEXT)(XrSession session, const XrSpatialContainerBeginInfoEXT *beginInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrCancelFutureEXT)(XrInstance instance, const XrFutureCancelInfoEXT *cancelInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrCaptureSceneAsyncBD)(XrSenseDataProviderBD provider, const XrSceneCaptureInfoBD *info, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCaptureSceneCompleteBD)(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrChangeVirtualKeyboardTextContextMETA)(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardTextContextChangeInfoMETA *changeInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrCheckVpsAvailabilityAsyncANDROID)(XrSession session, double latitude, double longitude, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCheckVpsAvailabilityCompleteANDROID)(XrSession session, XrFutureEXT future, XrVPSAvailabilityCheckCompletionANDROID *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrClearSpatialAnchorStoreMSFT)(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore);
+typedef XrResult (XRAPI_PTR *PFN_xrComputeNewSceneMSFT)(XrSceneObserverMSFT sceneObserver, const XrNewSceneComputeInfoMSFT *computeInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrConvertTimeToWin32PerformanceCounterKHR)(XrInstance instance, XrTime time, LARGE_INTEGER *performanceCounter);
+typedef XrResult (XRAPI_PTR *PFN_xrConvertWin32PerformanceCounterToTimeKHR)(XrInstance instance, const LARGE_INTEGER *performanceCounter, XrTime *time);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateAction)(XrActionSet actionSet, const XrActionCreateInfo *createInfo, XrAction *action);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateActionSet)(XrInstance instance, const XrActionSetCreateInfo *createInfo, XrActionSet *actionSet);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateActionSpace)(XrSession session, const XrActionSpaceCreateInfo *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateAnchorSpaceANDROID)(XrSession session, const XrAnchorSpaceCreateInfoANDROID *createInfo, XrSpace *anchorOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateAnchorSpaceBD)(XrSession session, const XrAnchorSpaceCreateInfoBD *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateApiLayerInstance)(const XrInstanceCreateInfo *info, const XrApiLayerCreateInfo *layerInfo, XrInstance *instance);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateBodyTrackerBD)(XrSession session, const XrBodyTrackerCreateInfoBD *createInfo, XrBodyTrackerBD *bodyTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateBodyTrackerFB)(XrSession session, const XrBodyTrackerCreateInfoFB *createInfo, XrBodyTrackerFB *bodyTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateBodyTrackerHTC)(XrSession session, const XrBodyTrackerCreateInfoHTC *createInfo, XrBodyTrackerHTC *bodyTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateDeviceAnchorPersistenceANDROID)(XrSession session, const XrDeviceAnchorPersistenceCreateInfoANDROID *createInfo, XrDeviceAnchorPersistenceANDROID *outHandle);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateExportedLocalizationMapML)(XrSession session, const XrUuidEXT *mapUuid, XrExportedLocalizationMapML *map);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateEyeTrackerANDROID)(XrSession session, const XrEyeTrackerCreateInfoANDROID *createInfo, XrEyeTrackerANDROID *eyeTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateEyeTrackerFB)(XrSession session, const XrEyeTrackerCreateInfoFB *createInfo, XrEyeTrackerFB *eyeTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateFaceTracker2FB)(XrSession session, const XrFaceTrackerCreateInfo2FB *createInfo, XrFaceTracker2FB *faceTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateFaceTrackerANDROID)(XrSession session, const XrFaceTrackerCreateInfoANDROID *createInfo, XrFaceTrackerANDROID *faceTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateFaceTrackerBD)(XrSession session, const XrFaceTrackerCreateInfoBD *createInfo, XrFaceTrackerBD *tracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateFaceTrackerFB)(XrSession session, const XrFaceTrackerCreateInfoFB *createInfo, XrFaceTrackerFB *faceTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateFacialExpressionClientML)(XrSession session, const XrFacialExpressionClientCreateInfoML *createInfo, XrFacialExpressionClientML *facialExpressionClient);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateFacialTrackerHTC)(XrSession session, const XrFacialTrackerCreateInfoHTC *createInfo, XrFacialTrackerHTC *facialTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateFoveationProfileFB)(XrSession session, const XrFoveationProfileCreateInfoFB *createInfo, XrFoveationProfileFB *profile);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateGeometryInstanceFB)(XrSession session, const XrGeometryInstanceCreateInfoFB *createInfo, XrGeometryInstanceFB *outGeometryInstance);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateGeospatialAnchorANDROID)(XrSpatialContextEXT spatialContext, const XrGeospatialAnchorCreateInfoANDROID *createInfo, XrSpatialEntityIdEXT *anchorEntityId);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateGeospatialTrackerANDROID)(XrSession session, const XrGeospatialTrackerCreateInfoANDROID *createInfo, XrGeospatialTrackerANDROID *geospatialTrackerOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateHandMeshSpaceMSFT)(XrHandTrackerEXT handTracker, const XrHandMeshSpaceCreateInfoMSFT *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateHandTrackerEXT)(XrSession session, const XrHandTrackerCreateInfoEXT *createInfo, XrHandTrackerEXT *handTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateInstance)(const XrInstanceCreateInfo *createInfo, XrInstance *instance);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateKeyboardSpaceFB)(XrSession session, const XrKeyboardSpaceCreateInfoFB *createInfo, XrSpace *keyboardSpace);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateLightEstimatorANDROID)(XrSession session, XrLightEstimatorCreateInfoANDROID *createInfo, XrLightEstimatorANDROID *outHandle);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateMarkerDetectorML)(XrSession session, const XrMarkerDetectorCreateInfoML *createInfo, XrMarkerDetectorML *markerDetector);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateMarkerSpaceML)(XrSession session, const XrMarkerSpaceCreateInfoML *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateMarkerSpaceVARJO)(XrSession session, const XrMarkerSpaceCreateInfoVARJO *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreatePassthroughColorLutMETA)(XrPassthroughFB passthrough, const XrPassthroughColorLutCreateInfoMETA *createInfo, XrPassthroughColorLutMETA *colorLut);
+typedef XrResult (XRAPI_PTR *PFN_xrCreatePassthroughFB)(XrSession session, const XrPassthroughCreateInfoFB *createInfo, XrPassthroughFB *outPassthrough);
+typedef XrResult (XRAPI_PTR *PFN_xrCreatePassthroughHTC)(XrSession session, const XrPassthroughCreateInfoHTC *createInfo, XrPassthroughHTC *passthrough);
+typedef XrResult (XRAPI_PTR *PFN_xrCreatePassthroughLayerANDROID)(XrSession session, const XrPassthroughLayerCreateInfoANDROID *createInfo, XrPassthroughLayerANDROID *layer);
+typedef XrResult (XRAPI_PTR *PFN_xrCreatePassthroughLayerFB)(XrSession session, const XrPassthroughLayerCreateInfoFB *createInfo, XrPassthroughLayerFB *outLayer);
+typedef XrResult (XRAPI_PTR *PFN_xrCreatePersistedAnchorSpaceANDROID)(XrDeviceAnchorPersistenceANDROID handle, const XrPersistedAnchorSpaceCreateInfoANDROID *createInfo, XrSpace *anchorOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrCreatePlaneDetectorEXT)(XrSession session, const XrPlaneDetectorCreateInfoEXT *createInfo, XrPlaneDetectorEXT *planeDetector);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateReferenceSpace)(XrSession session, const XrReferenceSpaceCreateInfo *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateRenderModelAssetEXT)(XrSession session, const XrRenderModelAssetCreateInfoEXT *createInfo, XrRenderModelAssetEXT *asset);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateRenderModelEXT)(XrSession session, const XrRenderModelCreateInfoEXT *createInfo, XrRenderModelEXT *renderModel);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateRenderModelSpaceEXT)(XrSession session, const XrRenderModelSpaceCreateInfoEXT *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSceneMSFT)(XrSceneObserverMSFT sceneObserver, const XrSceneCreateInfoMSFT *createInfo, XrSceneMSFT *scene);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSceneMeshSnapshotANDROID)(XrSceneMeshingTrackerANDROID tracker, const XrSceneMeshSnapshotCreateInfoANDROID *createInfo, XrSceneMeshSnapshotCreationResultANDROID *outSnapshotCreationResult);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSceneMeshingTrackerANDROID)(XrSession session, const XrSceneMeshingTrackerCreateInfoANDROID *createInfo, XrSceneMeshingTrackerANDROID *tracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSceneObserverMSFT)(XrSession session, const XrSceneObserverCreateInfoMSFT *createInfo, XrSceneObserverMSFT *sceneObserver);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSenseDataProviderBD)(XrSession session, const XrSenseDataProviderCreateInfoBD *createInfo, XrSenseDataProviderBD *provider);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSession)(XrInstance instance, const XrSessionCreateInfo *createInfo, XrSession *session);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSoundFieldBD)(XrSpatialAudioRendererBD renderer, const XrSoundFieldConfigBD *config, XrSoundFieldBD *soundField);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSoundObjectBD)(XrSpatialAudioRendererBD renderer, const XrSoundObjectConfigBD *config, XrSoundObjectBD *soundObject);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSoundObstacleBD)(XrSpatialAudioRendererBD renderer, const XrSoundObstacleConfigBD *config, const XrSoundTriangleMeshBD *mesh, XrSoundObstacleBD *soundObstacle);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSoundObstacleMaterialBD)(XrSpatialAudioRendererBD renderer, const XrSoundObstacleMaterialConfigBD *config, XrSoundObstacleMaterialBD *material);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpaceUserFB)(XrSession session, const XrSpaceUserCreateInfoFB *info, XrSpaceUserFB *user);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorAsyncBD)(XrSenseDataProviderBD provider, const XrSpatialAnchorCreateInfoBD *info, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorCompleteBD)(XrSenseDataProviderBD provider, XrFutureEXT future, XrSpatialAnchorCreateCompletionBD *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorEXT)(XrSpatialContextEXT spatialContext, const XrSpatialAnchorCreateInfoEXT *createInfo, XrSpatialEntityIdEXT *anchorEntityId, XrSpatialEntityEXT *anchorEntity);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorFB)(XrSession session, const XrSpatialAnchorCreateInfoFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorFromPersistedNameMSFT)(XrSession session, const XrSpatialAnchorFromPersistedAnchorCreateInfoMSFT *spatialAnchorCreateInfo, XrSpatialAnchorMSFT *spatialAnchor);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorHTC)(XrSession session, const XrSpatialAnchorCreateInfoHTC *createInfo, XrSpace *anchor);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorMSFT)(XrSession session, const XrSpatialAnchorCreateInfoMSFT *createInfo, XrSpatialAnchorMSFT *anchor);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorSpaceANDROID)(XrSession session, XrSpatialContextEXT spatialContext, const XrSpatialAnchorCreateInfoEXT *createInfo, XrSpatialEntityIdEXT *anchorEntityId, XrSpace *anchorSpace);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorSpaceFromIdANDROID)(XrSession session, XrSpatialContextEXT spatialContext, const XrSpatialAnchorSpaceFromIdCreateInfoANDROID *createInfo, XrSpace *anchorSpace);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorSpaceMSFT)(XrSession session, const XrSpatialAnchorSpaceCreateInfoMSFT *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorStoreConnectionMSFT)(XrSession session, XrSpatialAnchorStoreConnectionMSFT *spatialAnchorStore);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorsAsyncML)(XrSession session, const XrSpatialAnchorsCreateInfoBaseHeaderML *createInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorsCompleteML)(XrSession session, XrFutureEXT future, XrCreateSpatialAnchorsCompletionML *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAnchorsStorageML)(XrSession session, const XrSpatialAnchorsCreateStorageInfoML *createInfo, XrSpatialAnchorsStorageML *storage);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialAudioRendererBD)(XrSession session, const XrSpatialAudioRendererCreateInfoBD *createInfo, XrSpatialAudioRendererBD *renderer);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialContainerEXT)(XrSession session, const XrSpatialContainerCreateInfoEXT *createInfo, XrSpatialContainerEXT *spatialContainer);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialContainerSpaceEXT)(XrSession session, const XrSpatialContainerSpaceCreateInfoEXT *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialContextAsyncEXT)(XrSession session, const XrSpatialContextCreateInfoEXT *createInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialContextCompleteEXT)(XrSession session, XrFutureEXT future, XrCreateSpatialContextCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialDiscoverySnapshotAsyncEXT)(XrSpatialContextEXT spatialContext, const XrSpatialDiscoverySnapshotCreateInfoEXT *createInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialDiscoverySnapshotCompleteEXT)(XrSpatialContextEXT spatialContext, const XrCreateSpatialDiscoverySnapshotCompletionInfoEXT *createSnapshotCompletionInfo, XrCreateSpatialDiscoverySnapshotCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialEntityAnchorBD)(XrSenseDataProviderBD provider, const XrSpatialEntityAnchorCreateInfoBD *createInfo, XrAnchorBD *anchor);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialEntityFromIdEXT)(XrSpatialContextEXT spatialContext, const XrSpatialEntityFromIdCreateInfoEXT *createInfo, XrSpatialEntityEXT *spatialEntity);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialGraphNodeSpaceMSFT)(XrSession session, const XrSpatialGraphNodeSpaceCreateInfoMSFT *createInfo, XrSpace *space);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialImageTrackingDatabaseAsyncEXT)(XrSession session, const XrSpatialImageTrackingDatabaseCreateInfoEXT *createInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialImageTrackingDatabaseCompleteEXT)(XrSession session, XrFutureEXT future, XrCreateSpatialImageTrackingDatabaseCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialPersistenceContextAsyncEXT)(XrSession session, const XrSpatialPersistenceContextCreateInfoEXT *createInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialPersistenceContextCompleteEXT)(XrSession session, XrFutureEXT future, XrCreateSpatialPersistenceContextCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialRaycastSnapshotANDROID)(XrSpatialContextEXT spatialContext, const XrSpatialRaycastSnapshotCreateInfoANDROID *createInfo, XrSpatialSnapshotEXT *snapshot);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSpatialUpdateSnapshotEXT)(XrSpatialContextEXT spatialContext, const XrSpatialUpdateSnapshotCreateInfoEXT *createInfo, XrSpatialSnapshotEXT *snapshot);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSurfaceAnchorAsyncANDROID)(XrSpatialContextEXT spatialContext, const XrSurfaceAnchorCreateInfoANDROID *createInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSurfaceAnchorCompleteANDROID)(XrSpatialContextEXT spatialContext, XrFutureEXT future, XrSurfaceAnchorCreateCompletionANDROID *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateSwapchain)(XrSession session, const XrSwapchainCreateInfo *createInfo, XrSwapchain *swapchain);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateTrackableImageDatabaseAsyncANDROID)(XrSession session, const XrTrackableImageDatabaseCreateInfoANDROID *createInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateTrackableImageDatabaseCompleteANDROID)(XrSession session, XrFutureEXT future, XrCreateTrackableImageDatabaseCompletionANDROID *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateTrackableTrackerANDROID)(XrSession session, const XrTrackableTrackerCreateInfoANDROID *createInfo, XrTrackableTrackerANDROID *trackableTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateVirtualKeyboardMETA)(XrSession session, const XrVirtualKeyboardCreateInfoMETA *createInfo, XrVirtualKeyboardMETA *keyboard);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateVirtualKeyboardSpaceMETA)(XrSession session, XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardSpaceCreateInfoMETA *createInfo, XrSpace *keyboardSpace);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateVulkanDeviceKHR)(XrInstance instance, const XrVulkanDeviceCreateInfoKHR *createInfo, VkDevice *vulkanDevice, VkResult *vulkanResult);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateVulkanInstanceKHR)(XrInstance instance, const XrVulkanInstanceCreateInfoKHR *createInfo, VkInstance *vulkanInstance, VkResult *vulkanResult);
+typedef XrResult (XRAPI_PTR *PFN_xrCreateWorldMeshDetectorML)(XrSession session, const XrWorldMeshDetectorCreateInfoML *createInfo, XrWorldMeshDetectorML *detector);
+typedef XrResult (XRAPI_PTR *PFN_xrDeleteSpatialAnchorsAsyncML)(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsDeleteInfoML *deleteInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrDeleteSpatialAnchorsCompleteML)(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsDeleteCompletionML *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrDeserializeSceneMSFT)(XrSceneObserverMSFT sceneObserver, const XrSceneDeserializeInfoMSFT *deserializeInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyAction)(XrAction action);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyActionSet)(XrActionSet actionSet);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyAnchorBD)(XrAnchorBD anchor);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyBodyTrackerBD)(XrBodyTrackerBD bodyTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyBodyTrackerFB)(XrBodyTrackerFB bodyTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyBodyTrackerHTC)(XrBodyTrackerHTC bodyTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyDeviceAnchorPersistenceANDROID)(XrDeviceAnchorPersistenceANDROID handle);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyExportedLocalizationMapML)(XrExportedLocalizationMapML map);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyEyeTrackerANDROID)(XrEyeTrackerANDROID eyeTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyEyeTrackerFB)(XrEyeTrackerFB eyeTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyFaceTracker2FB)(XrFaceTracker2FB faceTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyFaceTrackerANDROID)(XrFaceTrackerANDROID faceTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyFaceTrackerBD)(XrFaceTrackerBD tracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyFaceTrackerFB)(XrFaceTrackerFB faceTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyFacialExpressionClientML)(XrFacialExpressionClientML facialExpressionClient);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyFacialTrackerHTC)(XrFacialTrackerHTC facialTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyFoveationProfileFB)(XrFoveationProfileFB profile);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyGeometryInstanceFB)(XrGeometryInstanceFB instance);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyGeospatialTrackerANDROID)(XrGeospatialTrackerANDROID geospatialTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyHandTrackerEXT)(XrHandTrackerEXT handTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyInstance)(XrInstance instance);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyLightEstimatorANDROID)(XrLightEstimatorANDROID estimator);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyMarkerDetectorML)(XrMarkerDetectorML markerDetector);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyPassthroughColorLutMETA)(XrPassthroughColorLutMETA colorLut);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyPassthroughFB)(XrPassthroughFB passthrough);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyPassthroughHTC)(XrPassthroughHTC passthrough);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyPassthroughLayerANDROID)(XrPassthroughLayerANDROID layer);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyPassthroughLayerFB)(XrPassthroughLayerFB layer);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyPlaneDetectorEXT)(XrPlaneDetectorEXT planeDetector);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyRenderModelAssetEXT)(XrRenderModelAssetEXT asset);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyRenderModelEXT)(XrRenderModelEXT renderModel);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySceneMSFT)(XrSceneMSFT scene);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySceneMeshSnapshotANDROID)(XrSceneMeshSnapshotANDROID snapshot);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySceneMeshingTrackerANDROID)(XrSceneMeshingTrackerANDROID tracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySceneObserverMSFT)(XrSceneObserverMSFT sceneObserver);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySenseDataProviderBD)(XrSenseDataProviderBD provider);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySenseDataSnapshotBD)(XrSenseDataSnapshotBD snapshot);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySession)(XrSession session);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySoundFieldBD)(XrSoundFieldBD soundField);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySoundObjectBD)(XrSoundObjectBD soundObject);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySoundObstacleBD)(XrSoundObstacleBD soundObstacle);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySoundObstacleMaterialBD)(XrSoundObstacleMaterialBD material);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpace)(XrSpace space);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpaceUserFB)(XrSpaceUserFB user);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialAnchorMSFT)(XrSpatialAnchorMSFT anchor);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialAnchorStoreConnectionMSFT)(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialAnchorsStorageML)(XrSpatialAnchorsStorageML storage);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialAudioRendererBD)(XrSpatialAudioRendererBD renderer);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialContainerEXT)(XrSpatialContainerEXT spatialContainer);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialContextEXT)(XrSpatialContextEXT spatialContext);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialEntityEXT)(XrSpatialEntityEXT spatialEntity);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialGraphNodeBindingMSFT)(XrSpatialGraphNodeBindingMSFT nodeBinding);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialImageTrackingDatabaseEXT)(XrSpatialImageTrackingDatabaseEXT database);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialPersistenceContextEXT)(XrSpatialPersistenceContextEXT persistenceContext);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySpatialSnapshotEXT)(XrSpatialSnapshotEXT snapshot);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroySwapchain)(XrSwapchain swapchain);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyTrackableImageDatabaseANDROID)(XrTrackableImageDatabaseANDROID database);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyTrackableTrackerANDROID)(XrTrackableTrackerANDROID trackableTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyVirtualKeyboardMETA)(XrVirtualKeyboardMETA keyboard);
+typedef XrResult (XRAPI_PTR *PFN_xrDestroyWorldMeshDetectorML)(XrWorldMeshDetectorML detector);
+typedef XrResult (XRAPI_PTR *PFN_xrDownloadSharedSpatialAnchorAsyncBD)(XrSenseDataProviderBD provider, const XrSharedSpatialAnchorDownloadInfoBD *info, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrDownloadSharedSpatialAnchorCompleteBD)(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrEnableLocalizationEventsML)(XrSession session, const XrLocalizationEnableEventsInfoML *info);
+typedef XrResult (XRAPI_PTR *PFN_xrEnableUserCalibrationEventsML)(XrInstance instance, const XrUserCalibrationEnableEventsInfoML *enableInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrEndAudioPeriodBD)(XrSpatialAudioRendererBD renderer);
+typedef XrResult (XRAPI_PTR *PFN_xrEndFrame)(XrSession session, const XrFrameEndInfo *frameEndInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrEndSession)(XrSession session);
+typedef XrResult (XRAPI_PTR *PFN_xrEndSpatialContainerRenderingEXT)(XrSession session, const XrSpatialContainerEndInfoEXT *endInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateApiLayerProperties)(uint32_t propertyCapacityInput, uint32_t *propertyCountOutput, XrApiLayerProperties *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateBoundSourcesForAction)(XrSession session, const XrBoundSourcesForActionEnumerateInfo *enumerateInfo, uint32_t sourceCapacityInput, uint32_t *sourceCountOutput, XrPath *sources);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateColorSpacesFB)(XrSession session, uint32_t colorSpaceCapacityInput, uint32_t *colorSpaceCountOutput, XrColorSpaceFB *colorSpaces);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateColorSpacesSONY)(XrSession session, const XrColorSpacesEnumerateInfoSONY *enumerateInfo, uint32_t colorSpaceCapacityInput, uint32_t *colorSpaceCountOutput, XrColorSpaceSONY *colorSpaces);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateDisplayRefreshRatesFB)(XrSession session, uint32_t displayRefreshRateCapacityInput, uint32_t *displayRefreshRateCountOutput, float *displayRefreshRates);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateEnvironmentBlendModes)(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, uint32_t environmentBlendModeCapacityInput, uint32_t *environmentBlendModeCountOutput, XrEnvironmentBlendMode *environmentBlendModes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateEnvironmentTexturePixelFormatsBD)(XrSession session, uint32_t pixelFormatCapacityInput, uint32_t *pixelFormatCountOutput, XrEnvironmentTexturePixelFormatBD *pixelFormats);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateEnvironmentTextureResolutionsBD)(XrSession session, uint32_t resolutionCapacityInput, uint32_t *resolutionCountOutput, XrEnvironmentTextureResolutionBD *resolutions);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateEnvironmentTextureTransferTypesBD)(XrSession session, uint32_t transferTypeCapacityInput, uint32_t *transferTypeCountOutput, XrEnvironmentTextureTransferTypeBD *transferTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateExternalCamerasOCULUS)(XrSession session, uint32_t cameraCapacityInput, uint32_t *cameraCountOutput, XrExternalCameraOCULUS *cameras);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateFacialSimulationModesBD)(XrSession session, uint32_t modeCapacityInput, uint32_t *modeCountOutput, XrFacialSimulationModeBD *modes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateInstanceExtensionProperties)(const char *layerName, uint32_t propertyCapacityInput, uint32_t *propertyCountOutput, XrExtensionProperties *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateInteractionRenderModelIdsEXT)(XrSession session, const XrInteractionRenderModelIdsEnumerateInfoEXT *getInfo, uint32_t renderModelIdCapacityInput, uint32_t *renderModelIdCountOutput, XrRenderModelIdEXT *renderModelIds);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumeratePerformanceMetricsCounterPathsANDROID)(XrInstance instance, uint32_t counterPathCapacityInput, uint32_t *counterPathCountOutput, XrPath *counterPaths);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumeratePerformanceMetricsCounterPathsMETA)(XrInstance instance, uint32_t counterPathCapacityInput, uint32_t *counterPathCountOutput, XrPath *counterPaths);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumeratePersistedAnchorsANDROID)(XrDeviceAnchorPersistenceANDROID handle, uint32_t anchorIdCapacityInput, uint32_t *anchorIdCountOutput, XrUuidEXT *anchorIds);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumeratePersistedSpatialAnchorNamesMSFT)(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore, uint32_t spatialAnchorNameCapacityInput, uint32_t *spatialAnchorNameCountOutput, XrSpatialAnchorPersistenceNameMSFT *spatialAnchorNames);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateRaycastSupportedTrackableTypesANDROID)(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateReferenceSpaces)(XrSession session, uint32_t spaceCapacityInput, uint32_t *spaceCountOutput, XrReferenceSpaceType *spaces);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateRenderModelPathsFB)(XrSession session, uint32_t pathCapacityInput, uint32_t *pathCountOutput, XrRenderModelPathInfoFB *paths);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateRenderModelSubactionPathsEXT)(XrRenderModelEXT renderModel, const XrInteractionRenderModelSubactionPathInfoEXT *info, uint32_t pathCapacityInput, uint32_t *pathCountOutput, XrPath *paths);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateReprojectionModesMSFT)(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, uint32_t modeCapacityInput, uint32_t *modeCountOutput, XrReprojectionModeMSFT *modes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSceneComputeFeaturesMSFT)(XrInstance instance, XrSystemId systemId, uint32_t featureCapacityInput, uint32_t *featureCountOutput, XrSceneComputeFeatureMSFT *features);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpaceSupportedComponentsFB)(XrSpace space, uint32_t componentTypeCapacityInput, uint32_t *componentTypeCountOutput, XrSpaceComponentTypeFB *componentTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpatialAnchorAttachableComponentsANDROID)(XrInstance instance, XrSystemId systemId, uint32_t attachableComponentCapacityInput, uint32_t *attachableComponentCountOutput, XrSpatialComponentTypeEXT *attachableComponents);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpatialCapabilitiesEXT)(XrInstance instance, XrSystemId systemId, uint32_t capabilityCapacityInput, uint32_t *capabilityCountOutput, XrSpatialCapabilityEXT *capabilities);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpatialCapabilityComponentTypesEXT)(XrInstance instance, XrSystemId systemId, XrSpatialCapabilityEXT capability, XrSpatialCapabilityComponentTypesEXT *capabilityComponents);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpatialCapabilityFeaturesEXT)(XrInstance instance, XrSystemId systemId, XrSpatialCapabilityEXT capability, uint32_t capabilityFeatureCapacityInput, uint32_t *capabilityFeatureCountOutput, XrSpatialCapabilityFeatureEXT *capabilityFeatures);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpatialEntityComponentTypesBD)(XrSenseDataSnapshotBD snapshot, XrSpatialEntityIdBD entityId, uint32_t componentTypeCapacityInput, uint32_t *componentTypeCountOutput, XrSpatialEntityComponentTypeBD *componentTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpatialPersistenceScopesEXT)(XrInstance instance, XrSystemId systemId, uint32_t persistenceScopeCapacityInput, uint32_t *persistenceScopeCountOutput, XrSpatialPersistenceScopeEXT *persistenceScopes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSpatialReferenceImageFormatsEXT)(XrInstance instance, XrSystemId systemId, XrSpatialCapabilityEXT capability, uint32_t formatCapacityInput, uint32_t *formatCountOutput, XrSpatialReferenceImageFormatEXT *formats);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSupportedAnchorTrackableTypesANDROID)(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSupportedAudioSampleRateBD)(XrSession session, uint32_t sampleRateCapacityInput, uint32_t *sampleRateCountOutput, XrAudioSampleRateBD *sampleRates);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSupportedPersistenceAnchorTypesANDROID)(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSupportedSemanticLabelSetsANDROID)(XrInstance instance, XrSystemId systemId, uint32_t supportedSemanticLabelSetsInputCapacity, uint32_t *supportedSemanticLabelSetsOutputCount, XrSceneMeshSemanticLabelSetANDROID *supportedSemanticLabelSets);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSupportedSpatialContainerGraphicsPresentationsEXT)(XrInstance instance, XrSystemId systemId, uint32_t graphicsPresentationCapacityInput, uint32_t *graphicsPresentationCountOutput, XrSpatialContainerGraphicsPresentationEXT *graphicsPresentations);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSupportedTrackableTypesANDROID)(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSwapchainFormats)(XrSession session, uint32_t formatCapacityInput, uint32_t *formatCountOutput, int64_t *formats);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateSwapchainImages)(XrSwapchain swapchain, uint32_t imageCapacityInput, uint32_t *imageCountOutput, XrSwapchainImageBaseHeader *images);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateViewConfigurationViews)(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, uint32_t viewCapacityInput, uint32_t *viewCountOutput, XrViewConfigurationView *views);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateViewConfigurations)(XrInstance instance, XrSystemId systemId, uint32_t viewConfigurationTypeCapacityInput, uint32_t *viewConfigurationTypeCountOutput, XrViewConfigurationType *viewConfigurationTypes);
+typedef XrResult (XRAPI_PTR *PFN_xrEnumerateViveTrackerPathsHTCX)(XrInstance instance, uint32_t pathCapacityInput, uint32_t *pathCountOutput, XrViveTrackerPathsHTCX *paths);
+typedef XrResult (XRAPI_PTR *PFN_xrEraseSpaceFB)(XrSession session, const XrSpaceEraseInfoFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrEraseSpacesMETA)(XrSession session, const XrSpacesEraseInfoMETA *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrFreeWorldMeshBufferML)(XrWorldMeshDetectorML detector, const XrWorldMeshBufferML *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGeometryInstanceSetTransformFB)(XrGeometryInstanceFB instance, const XrGeometryInstanceTransformFB *transformation);
+typedef XrResult (XRAPI_PTR *PFN_xrGetActionStateBoolean)(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStateBoolean *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetActionStateFloat)(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStateFloat *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetActionStatePose)(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStatePose *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetActionStateVector2f)(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStateVector2f *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetAllSubmeshStatesANDROID)(XrSceneMeshSnapshotANDROID snapshot, uint32_t submeshStateCapacityInput, uint32_t *submeshStateCountOutput, XrSceneSubmeshStateANDROID *submeshStates);
+typedef XrResult (XRAPI_PTR *PFN_xrGetAllTrackablesANDROID)(XrTrackableTrackerANDROID trackableTracker, uint32_t trackableCapacityInput, uint32_t *trackableCountOutput, XrTrackableANDROID *trackables);
+typedef XrResult (XRAPI_PTR *PFN_xrGetAnchorPersistStateANDROID)(XrDeviceAnchorPersistenceANDROID handle, const XrUuidEXT *anchorId, XrAnchorPersistStateANDROID *persistState);
+typedef XrResult (XRAPI_PTR *PFN_xrGetAnchorUuidBD)(XrAnchorBD anchor, XrUuidEXT *uuid);
+typedef XrResult (XRAPI_PTR *PFN_xrGetAudioInputDeviceGuidOculus)(XrInstance instance, wchar_t buffer[XR_MAX_AUDIO_DEVICE_STR_SIZE_OCULUS]);
+typedef XrResult (XRAPI_PTR *PFN_xrGetAudioOutputDeviceGuidOculus)(XrInstance instance, wchar_t buffer[XR_MAX_AUDIO_DEVICE_STR_SIZE_OCULUS]);
+typedef XrResult (XRAPI_PTR *PFN_xrGetBodySkeletonFB)(XrBodyTrackerFB bodyTracker, XrBodySkeletonFB *skeleton);
+typedef XrResult (XRAPI_PTR *PFN_xrGetBodySkeletonHTC)(XrBodyTrackerHTC bodyTracker, XrSpace baseSpace, uint32_t skeletonGenerationId, XrBodySkeletonHTC *skeleton);
+typedef XrResult (XRAPI_PTR *PFN_xrGetBodyTrackingStateBD)(XrSession session, XrBodyTrackingStateBD *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetCoarseTrackingEyesInfoANDROID)(XrEyeTrackerANDROID eyeTracker, const XrEyesGetInfoANDROID *getInfo, XrEyesANDROID *eyesOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetControllerModelKeyMSFT)(XrSession session, XrPath topLevelUserPath, XrControllerModelKeyStateMSFT *controllerModelKeyState);
+typedef XrResult (XRAPI_PTR *PFN_xrGetControllerModelPropertiesMSFT)(XrSession session, XrControllerModelKeyMSFT modelKey, XrControllerModelPropertiesMSFT *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetControllerModelStateMSFT)(XrSession session, XrControllerModelKeyMSFT modelKey, XrControllerModelStateMSFT *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetCurrentInteractionProfile)(XrSession session, XrPath topLevelUserPath, XrInteractionProfileState *interactionProfile);
+typedef XrResult (XRAPI_PTR *PFN_xrGetD3D11GraphicsRequirementsKHR)(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsD3D11KHR *graphicsRequirements);
+typedef XrResult (XRAPI_PTR *PFN_xrGetD3D12GraphicsRequirementsKHR)(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsD3D12KHR *graphicsRequirements);
+typedef XrResult (XRAPI_PTR *PFN_xrGetDeviceSampleRateFB)(XrSession session, const XrHapticActionInfo *hapticActionInfo, XrDevicePcmSampleRateGetInfoFB *deviceSampleRate);
+typedef XrResult (XRAPI_PTR *PFN_xrGetDisplayRefreshRateFB)(XrSession session, float *displayRefreshRate);
+typedef XrResult (XRAPI_PTR *PFN_xrGetExportedLocalizationMapDataML)(XrExportedLocalizationMapML map, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetEyeGazesFB)(XrEyeTrackerFB eyeTracker, const XrEyeGazesInfoFB *gazeInfo, XrEyeGazesFB *eyeGazes);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFaceCalibrationStateANDROID)(XrFaceTrackerANDROID faceTracker, XrBool32 *faceIsCalibratedOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFaceExpressionWeights2FB)(XrFaceTracker2FB faceTracker, const XrFaceExpressionInfo2FB *expressionInfo, XrFaceExpressionWeights2FB *expressionWeights);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFaceExpressionWeightsFB)(XrFaceTrackerFB faceTracker, const XrFaceExpressionInfoFB *expressionInfo, XrFaceExpressionWeightsFB *expressionWeights);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFaceStateANDROID)(XrFaceTrackerANDROID faceTracker, const XrFaceStateGetInfoANDROID *getInfo, XrFaceStateANDROID *faceStateOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFacialExpressionBlendShapePropertiesML)(XrFacialExpressionClientML facialExpressionClient, const XrFacialExpressionBlendShapeGetInfoML *blendShapeGetInfo, uint32_t blendShapeCount, XrFacialExpressionBlendShapePropertiesML *blendShapes);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFacialExpressionsHTC)(XrFacialTrackerHTC facialTracker, XrFacialExpressionsHTC *facialExpressions);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFacialSimulationDataBD)(XrFaceTrackerBD tracker, const XrFacialSimulationDataGetInfoBD *info, XrFacialSimulationDataBD *facialData);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFacialSimulationModeBD)(XrFaceTrackerBD tracker, XrFacialSimulationModeBD *mode);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFineTrackingEyesInfoANDROID)(XrEyeTrackerANDROID eyeTracker, const XrEyesGetInfoANDROID *getInfo, XrEyesANDROID *eyesOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetFoveationEyeTrackedStateMETA)(XrSession session, XrFoveationEyeTrackedStateMETA *foveationState);
+typedef XrResult (XRAPI_PTR *PFN_xrGetHandGestureQCOM)(XrHandTrackerEXT handTracker, XrTime time, XrHandGestureQCOM *handGesture);
+typedef XrResult (XRAPI_PTR *PFN_xrGetHandMeshFB)(XrHandTrackerEXT handTracker, XrHandTrackingMeshFB *mesh);
+typedef XrResult (XRAPI_PTR *PFN_xrGetInputSourceLocalizedName)(XrSession session, const XrInputSourceLocalizedNameGetInfo *getInfo, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetInstanceProcAddr)(XrInstance instance, const char *name, PFN_xrVoidFunction *function);
+typedef XrResult (XRAPI_PTR *PFN_xrGetInstanceProperties)(XrInstance instance, XrInstanceProperties *instanceProperties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetLightEstimateANDROID)(XrLightEstimatorANDROID estimator, const XrLightEstimateGetInfoANDROID *input, XrLightEstimateANDROID *output);
+typedef XrResult (XRAPI_PTR *PFN_xrGetMarkerDetectorStateML)(XrMarkerDetectorML markerDetector, XrMarkerDetectorStateML *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetMarkerLengthML)(XrMarkerDetectorML markerDetector, XrMarkerML marker, float *meters);
+typedef XrResult (XRAPI_PTR *PFN_xrGetMarkerNumberML)(XrMarkerDetectorML markerDetector, XrMarkerML marker, uint64_t *number);
+typedef XrResult (XRAPI_PTR *PFN_xrGetMarkerReprojectionErrorML)(XrMarkerDetectorML markerDetector, XrMarkerML marker, float *reprojectionErrorMeters);
+typedef XrResult (XRAPI_PTR *PFN_xrGetMarkerSizeVARJO)(XrSession session, uint64_t markerId, XrExtent2Df *size);
+typedef XrResult (XRAPI_PTR *PFN_xrGetMarkerStringML)(XrMarkerDetectorML markerDetector, XrMarkerML marker, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetMarkersML)(XrMarkerDetectorML markerDetector, uint32_t markerCapacityInput, uint32_t *markerCountOutput, XrMarkerML *markers);
+typedef XrResult (XRAPI_PTR *PFN_xrGetOpenGLGraphicsRequirementsKHR)(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsOpenGLKHR *graphicsRequirements);
+typedef XrResult (XRAPI_PTR *PFN_xrGetPassthroughCameraStateANDROID)(XrSession session, const XrPassthroughCameraStateGetInfoANDROID *getInfo, XrPassthroughCameraStateANDROID *cameraStateOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetPassthroughPreferencesMETA)(XrSession session, XrPassthroughPreferencesMETA *preferences);
+typedef XrResult (XRAPI_PTR *PFN_xrGetPerformanceMetricsStateANDROID)(XrSession session, XrPerformanceMetricsStateANDROID *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetPerformanceMetricsStateMETA)(XrSession session, XrPerformanceMetricsStateMETA *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetPlaneDetectionStateEXT)(XrPlaneDetectorEXT planeDetector, XrPlaneDetectionStateEXT *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetPlaneDetectionsEXT)(XrPlaneDetectorEXT planeDetector, const XrPlaneDetectorGetInfoEXT *info, XrPlaneDetectorLocationsEXT *locations);
+typedef XrResult (XRAPI_PTR *PFN_xrGetPlanePolygonBufferEXT)(XrPlaneDetectorEXT planeDetector, uint64_t planeId, uint32_t polygonBufferIndex, XrPlaneDetectorPolygonBufferEXT *polygonBuffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetQueriedSenseDataBD)(XrSenseDataSnapshotBD snapshot, XrQueriedSenseDataGetInfoBD *getInfo, XrQueriedSenseDataBD *queriedSenseData);
+typedef XrResult (XRAPI_PTR *PFN_xrGetRecommendedLayerResolutionMETA)(XrSession session, const XrRecommendedLayerResolutionGetInfoMETA *info, XrRecommendedLayerResolutionMETA *resolution);
+typedef XrResult (XRAPI_PTR *PFN_xrGetReferenceSpaceBoundsRect)(XrSession session, XrReferenceSpaceType referenceSpaceType, XrExtent2Df *bounds);
+typedef XrResult (XRAPI_PTR *PFN_xrGetRenderModelAssetDataEXT)(XrRenderModelAssetEXT asset, const XrRenderModelAssetDataGetInfoEXT *getInfo, XrRenderModelAssetDataEXT *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetRenderModelAssetPropertiesEXT)(XrRenderModelAssetEXT asset, const XrRenderModelAssetPropertiesGetInfoEXT *getInfo, XrRenderModelAssetPropertiesEXT *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetRenderModelPoseTopLevelUserPathEXT)(XrRenderModelEXT renderModel, const XrInteractionRenderModelTopLevelUserPathGetInfoEXT *info, XrPath *topLevelUserPath);
+typedef XrResult (XRAPI_PTR *PFN_xrGetRenderModelPropertiesEXT)(XrRenderModelEXT renderModel, const XrRenderModelPropertiesGetInfoEXT *getInfo, XrRenderModelPropertiesEXT *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetRenderModelPropertiesFB)(XrSession session, XrPath path, XrRenderModelPropertiesFB *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetRenderModelStateEXT)(XrRenderModelEXT renderModel, const XrRenderModelStateGetInfoEXT *getInfo, XrRenderModelStateEXT *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSceneComponentsMSFT)(XrSceneMSFT scene, const XrSceneComponentsGetInfoMSFT *getInfo, XrSceneComponentsMSFT *components);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSceneComputeStateMSFT)(XrSceneObserverMSFT sceneObserver, XrSceneComputeStateMSFT *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSceneMarkerDecodedStringMSFT)(XrSceneMSFT scene, const XrUuidMSFT *markerId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSceneMarkerRawDataMSFT)(XrSceneMSFT scene, const XrUuidMSFT *markerId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint8_t *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSceneMeshBuffersMSFT)(XrSceneMSFT scene, const XrSceneMeshBuffersGetInfoMSFT *getInfo, XrSceneMeshBuffersMSFT *buffers);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSenseDataProviderStateBD)(XrSenseDataProviderBD provider, XrSenseDataProviderStateBD *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSerializedSceneFragmentDataMSFT)(XrSceneMSFT scene, const XrSerializedSceneFragmentDataGetInfoMSFT *getInfo, uint32_t countInput, uint32_t *readOutput, uint8_t *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceBoundary2DFB)(XrSession session, XrSpace space, XrBoundary2DFB *boundary2DOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceBoundingBox2DFB)(XrSession session, XrSpace space, XrRect2Df *boundingBox2DOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceBoundingBox3DFB)(XrSession session, XrSpace space, XrRect3DfFB *boundingBox3DOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceComponentStatusFB)(XrSpace space, XrSpaceComponentTypeFB componentType, XrSpaceComponentStatusFB *status);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceContainerFB)(XrSession session, XrSpace space, XrSpaceContainerFB *spaceContainerOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceRoomLayoutFB)(XrSession session, XrSpace space, XrRoomLayoutFB *roomLayoutOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceRoomMeshFaceIndicesMETA)(XrSpace space, const XrUuid *faceUuid, XrRoomMeshFaceIndicesMETA *roomMeshFaceIndicesOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceRoomMeshMETA)(XrSpace space, const XrSpaceRoomMeshGetInfoMETA *getInfo, XrRoomMeshMETA *roomMeshOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceSemanticLabelsFB)(XrSession session, XrSpace space, XrSemanticLabelsFB *semanticLabelsOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceTriangleMeshMETA)(XrSpace space, const XrSpaceTriangleMeshGetInfoMETA *getInfo, XrSpaceTriangleMeshMETA *triangleMeshOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceUserIdFB)(XrSpaceUserFB user, XrSpaceUserIdFB *userId);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpaceUuidFB)(XrSpace space, XrUuidEXT *uuid);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialAnchorNameHTC)(XrSpace anchor, XrSpatialAnchorNameHTC *name);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialAnchorStateML)(XrSpace anchor, XrSpatialAnchorStateML *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialBufferFloatEXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, float *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialBufferStringEXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialBufferUint16EXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint16_t *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialBufferUint32EXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint32_t *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialBufferUint8EXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint8_t *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialBufferVector2fEXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, XrVector2f *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialBufferVector3fEXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, XrVector3f *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialContainerBoundsEXT)(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerBoundsGetInfoEXT *getInfo, XrSpatialContainerBoundsEXT *bounds);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialContainerStateEXT)(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerStateGetInfoEXT *getInfo, XrSpatialContainerStateEXT *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialEntityComponentDataBD)(XrSenseDataSnapshotBD snapshot, const XrSpatialEntityComponentGetInfoBD *getInfo, XrSpatialEntityComponentDataBaseHeaderBD *componentData);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialEntityUuidBD)(XrSenseDataSnapshotBD snapshot, XrSpatialEntityIdBD entityId, XrUuidEXT *uuid);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSpatialGraphNodeBindingPropertiesMSFT)(XrSpatialGraphNodeBindingMSFT nodeBinding, const XrSpatialGraphNodeBindingPropertiesGetInfoMSFT *getInfo, XrSpatialGraphNodeBindingPropertiesMSFT *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetStationaryReferenceSpaceGenerationIdEXT)(XrSession session, const XrStationaryReferenceSpaceGenerationIdGetInfoEXT *getInfo, XrStationaryReferenceSpaceGenerationIdResultEXT *generationIdResult);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSubmeshDataANDROID)(XrSceneMeshSnapshotANDROID snapshot, uint32_t submeshDataCount, XrSceneSubmeshDataANDROID *inoutSubmeshData);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSwapchainStateFB)(XrSwapchain swapchain, XrSwapchainStateBaseHeaderFB *state);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSystem)(XrInstance instance, const XrSystemGetInfo *getInfo, XrSystemId *systemId);
+typedef XrResult (XRAPI_PTR *PFN_xrGetSystemProperties)(XrInstance instance, XrSystemId systemId, XrSystemProperties *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetTrackableImageANDROID)(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableImageANDROID *trackable);
+typedef XrResult (XRAPI_PTR *PFN_xrGetTrackableMarkerANDROID)(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableMarkerANDROID *markerOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetTrackableObjectANDROID)(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableObjectANDROID *objectOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetTrackablePlaneANDROID)(XrTrackableTrackerANDROID trackableTracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackablePlaneANDROID *planeOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetTrackableQrCodeANDROID)(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableQrCodeANDROID *qrCodeOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrGetViewConfigurationProperties)(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, XrViewConfigurationProperties *configurationProperties);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVirtualKeyboardDirtyTexturesMETA)(XrVirtualKeyboardMETA keyboard, uint32_t textureIdCapacityInput, uint32_t *textureIdCountOutput, uint64_t *textureIds);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVirtualKeyboardModelAnimationStatesMETA)(XrVirtualKeyboardMETA keyboard, XrVirtualKeyboardModelAnimationStatesMETA *animationStates);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVirtualKeyboardScaleMETA)(XrVirtualKeyboardMETA keyboard, float *scale);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVirtualKeyboardTextureDataMETA)(XrVirtualKeyboardMETA keyboard, uint64_t textureId, XrVirtualKeyboardTextureDataMETA *textureData);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVisibilityMaskKHR)(XrSession session, XrViewConfigurationType viewConfigurationType, uint32_t viewIndex, XrVisibilityMaskTypeKHR visibilityMaskType, XrVisibilityMaskKHR *visibilityMask);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVulkanDeviceExtensionsKHR)(XrInstance instance, XrSystemId systemId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVulkanGraphicsDevice2KHR)(XrInstance instance, const XrVulkanGraphicsDeviceGetInfoKHR *getInfo, VkPhysicalDevice *vulkanPhysicalDevice);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVulkanGraphicsDeviceKHR)(XrInstance instance, XrSystemId systemId, VkInstance vkInstance, VkPhysicalDevice *vkPhysicalDevice);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVulkanGraphicsRequirements2KHR)(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsVulkanKHR *graphicsRequirements);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVulkanGraphicsRequirementsKHR)(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsVulkanKHR *graphicsRequirements);
+typedef XrResult (XRAPI_PTR *PFN_xrGetVulkanInstanceExtensionsKHR)(XrInstance instance, XrSystemId systemId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrGetWorldMeshBufferRecommendSizeML)(XrWorldMeshDetectorML detector, const XrWorldMeshBufferRecommendedSizeInfoML *sizeInfo, XrWorldMeshBufferSizeML *size);
+typedef XrResult (XRAPI_PTR *PFN_xrHapticParametricGetPropertiesEXT)(XrSession session, const XrHapticActionInfo *hapticActionInfo, XrHapticParametricPropertiesEXT *parametricProperties);
+typedef XrResult (XRAPI_PTR *PFN_xrImportLocalizationMapML)(XrSession session, const XrLocalizationMapImportInfoML *importInfo, XrUuidEXT *mapUuid);
+typedef XrResult (XRAPI_PTR *PFN_xrLoadControllerModelMSFT)(XrSession session, XrControllerModelKeyMSFT modelKey, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint8_t *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrLoadRenderModelFB)(XrSession session, const XrRenderModelLoadInfoFB *info, XrRenderModelBufferFB *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateBodyJointsBD)(XrBodyTrackerBD bodyTracker, const XrBodyJointsLocateInfoBD *locateInfo, XrBodyJointLocationsBD *locations);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateBodyJointsFB)(XrBodyTrackerFB bodyTracker, const XrBodyJointsLocateInfoFB *locateInfo, XrBodyJointLocationsFB *locations);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateBodyJointsHTC)(XrBodyTrackerHTC bodyTracker, const XrBodyJointsLocateInfoHTC *locateInfo, XrBodyJointLocationsHTC *locations);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateGeospatialPoseANDROID)(XrGeospatialTrackerANDROID geospatialTracker, const XrGeospatialPoseLocateInfoANDROID *locateInfo, XrSpaceLocation *location);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateGeospatialPoseFromPoseANDROID)(XrGeospatialTrackerANDROID geospatialTracker, const XrGeospatialPoseFromPoseLocateInfoANDROID *locateInfo, XrGeospatialPoseResultANDROID *geospatialPoseResult);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateHandJointsEXT)(XrHandTrackerEXT handTracker, const XrHandJointsLocateInfoEXT *locateInfo, XrHandJointLocationsEXT *locations);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateSceneComponentsMSFT)(XrSceneMSFT scene, const XrSceneComponentsLocateInfoMSFT *locateInfo, XrSceneComponentLocationsMSFT *locations);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateSpace)(XrSpace space, XrSpace baseSpace, XrTime time, XrSpaceLocation *location);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateSpaces)(XrSession session, const XrSpacesLocateInfo *locateInfo, XrSpaceLocations *spaceLocations);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateSpacesKHR)(XrSession session, const XrSpacesLocateInfo *locateInfo, XrSpaceLocations *spaceLocations);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateSpatialContainerViewsEXT)(XrSession session, const XrSpatialContainerViewsLocateInfoEXT *locateInfo, uint32_t viewStateCount, XrSpatialContainerViewStateEXT *viewStates, uint32_t viewCount, XrView *views);
+typedef XrResult (XRAPI_PTR *PFN_xrLocateViews)(XrSession session, const XrViewLocateInfo *viewLocateInfo, XrViewState *viewState, uint32_t viewCapacityInput, uint32_t *viewCountOutput, XrView *views);
+typedef XrResult (XRAPI_PTR *PFN_xrNegotiateLoaderApiLayerInterface)(const XrNegotiateLoaderInfo *loaderInfo, const char *layerName, XrNegotiateApiLayerRequest *apiLayerRequest);
+typedef XrResult (XRAPI_PTR *PFN_xrNegotiateLoaderRuntimeInterface)(const XrNegotiateLoaderInfo *loaderInfo, XrNegotiateRuntimeRequest *runtimeRequest);
+typedef XrResult (XRAPI_PTR *PFN_xrPassthroughLayerPauseFB)(XrPassthroughLayerFB layer);
+typedef XrResult (XRAPI_PTR *PFN_xrPassthroughLayerResumeFB)(XrPassthroughLayerFB layer);
+typedef XrResult (XRAPI_PTR *PFN_xrPassthroughLayerSetKeyboardHandsIntensityFB)(XrPassthroughLayerFB layer, const XrPassthroughKeyboardHandsIntensityFB *intensity);
+typedef XrResult (XRAPI_PTR *PFN_xrPassthroughLayerSetStyleFB)(XrPassthroughLayerFB layer, const XrPassthroughStyleFB *style);
+typedef XrResult (XRAPI_PTR *PFN_xrPassthroughPauseFB)(XrPassthroughFB passthrough);
+typedef XrResult (XRAPI_PTR *PFN_xrPassthroughStartFB)(XrPassthroughFB passthrough);
+typedef XrResult (XRAPI_PTR *PFN_xrPathToString)(XrInstance instance, XrPath path, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrPauseSimultaneousHandsAndControllersTrackingMETA)(XrSession session, const XrSimultaneousHandsAndControllersTrackingPauseInfoMETA *pauseInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrPerfSettingsSetPerformanceLevelEXT)(XrSession session, XrPerfSettingsDomainEXT domain, XrPerfSettingsLevelEXT level);
+typedef XrResult (XRAPI_PTR *PFN_xrPersistAnchorANDROID)(XrDeviceAnchorPersistenceANDROID handle, const XrPersistedAnchorSpaceInfoANDROID *persistedInfo, XrUuidEXT *anchorIdOutput);
+typedef XrResult (XRAPI_PTR *PFN_xrPersistSpatialAnchorAsyncBD)(XrSenseDataProviderBD provider, const XrSpatialAnchorPersistInfoBD *info, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrPersistSpatialAnchorCompleteBD)(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrPersistSpatialAnchorMSFT)(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore, const XrSpatialAnchorPersistenceInfoMSFT *spatialAnchorPersistenceInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrPersistSpatialEntityAsyncEXT)(XrSpatialPersistenceContextEXT persistenceContext, const XrSpatialEntityPersistInfoEXT *persistInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrPersistSpatialEntityCompleteEXT)(XrSpatialPersistenceContextEXT persistenceContext, XrFutureEXT future, XrPersistSpatialEntityCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrPollEvent)(XrInstance instance, XrEventDataBuffer *eventData);
+typedef XrResult (XRAPI_PTR *PFN_xrPollFutureEXT)(XrInstance instance, const XrFuturePollInfoEXT *pollInfo, XrFuturePollResultEXT *pollResult);
+typedef XrResult (XRAPI_PTR *PFN_xrPublishSpatialAnchorsAsyncML)(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsPublishInfoML *publishInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrPublishSpatialAnchorsCompleteML)(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsPublishCompletionML *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrQueryFramesPerBufferRangeBD)(XrSession session, XrAudioSampleRateBD sampleRate, uint32_t *min, uint32_t *max);
+typedef XrResult (XRAPI_PTR *PFN_xrQueryLocalizationMapsML)(XrSession session, const XrLocalizationMapQueryInfoBaseHeaderML *queryInfo, uint32_t mapCapacityInput, uint32_t *mapCountOutput, XrLocalizationMapML *maps);
+typedef XrResult (XRAPI_PTR *PFN_xrQueryPerformanceMetricsCounterANDROID)(XrSession session, XrPath counterPath, XrPerformanceMetricsCounterANDROID *counter);
+typedef XrResult (XRAPI_PTR *PFN_xrQueryPerformanceMetricsCounterMETA)(XrSession session, XrPath counterPath, XrPerformanceMetricsCounterMETA *counter);
+typedef XrResult (XRAPI_PTR *PFN_xrQuerySenseDataAsyncBD)(XrSenseDataProviderBD provider, const XrSenseDataQueryInfoBD *queryInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrQuerySenseDataCompleteBD)(XrSenseDataProviderBD provider, XrFutureEXT future, XrSenseDataQueryCompletionBD *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrQuerySpacesFB)(XrSession session, const XrSpaceQueryInfoBaseHeaderFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrQuerySpatialAnchorsAsyncML)(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsQueryInfoBaseHeaderML *queryInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrQuerySpatialAnchorsCompleteML)(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsQueryCompletionML *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrQuerySpatialComponentDataEXT)(XrSpatialSnapshotEXT snapshot, const XrSpatialComponentDataQueryConditionEXT *queryCondition, XrSpatialComponentDataQueryResultEXT *queryResult);
+typedef XrResult (XRAPI_PTR *PFN_xrQuerySystemTrackedKeyboardFB)(XrSession session, const XrKeyboardTrackingQueryFB *queryInfo, XrKeyboardTrackingDescriptionFB *keyboard);
+typedef XrResult (XRAPI_PTR *PFN_xrRaycastANDROID)(XrSession session, const XrRaycastInfoANDROID *rayInfo, XrRaycastHitResultsANDROID *results);
+typedef XrResult (XRAPI_PTR *PFN_xrReleaseSwapchainImage)(XrSwapchain swapchain, const XrSwapchainImageReleaseInfo *releaseInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrRemoveTrackableImageDatabaseANDROID)(XrTrackableTrackerANDROID tracker, XrTrackableImageDatabaseANDROID database);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestBodyTrackingFidelityMETA)(XrBodyTrackerFB bodyTracker, const XrBodyTrackingFidelityMETA fidelity);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestBoundaryVisibilityMETA)(XrSession session, XrBoundaryVisibilityMETA boundaryVisibility);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestDisplayRefreshRateFB)(XrSession session, float displayRefreshRate);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestExitSession)(XrSession session);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestMapLocalizationML)(XrSession session, const XrMapLocalizationRequestInfoML *requestInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestSceneCaptureFB)(XrSession session, const XrSceneCaptureRequestInfoFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestSpatialContainerBoundsModeEXT)(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerBoundsModeRequestInfoEXT *info);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestSpatialContainerVisibleEXT)(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerVisibleRequestInfoEXT *info);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestWorldMeshAsyncML)(XrWorldMeshDetectorML detector, const XrWorldMeshGetInfoML *getInfo, XrWorldMeshBufferML *buffer, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestWorldMeshCompleteML)(XrWorldMeshDetectorML detector, const XrWorldMeshRequestCompletionInfoML *completionInfo, XrFutureEXT future, XrWorldMeshRequestCompletionML *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestWorldMeshStateAsyncML)(XrWorldMeshDetectorML detector, const XrWorldMeshStateRequestInfoML *stateRequest, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrRequestWorldMeshStateCompleteML)(XrWorldMeshDetectorML detector, XrFutureEXT future, XrWorldMeshStateRequestCompletionML *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrResetBodyTrackingCalibrationMETA)(XrBodyTrackerFB bodyTracker);
+typedef XrResult (XRAPI_PTR *PFN_xrResultToString)(XrInstance instance, XrResult value, char buffer[XR_MAX_RESULT_STRING_SIZE]);
+typedef XrResult (XRAPI_PTR *PFN_xrResultToString2KHR)(XrInstance instance, XrResult value, char buffer[XR_MAX_RESULT_STRING_SIZE_EXTENDED_KHR]);
+typedef XrResult (XRAPI_PTR *PFN_xrResumeSimultaneousHandsAndControllersTrackingMETA)(XrSession session, const XrSimultaneousHandsAndControllersTrackingResumeInfoMETA *resumeInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrRetrieveSpaceQueryResultsFB)(XrSession session, XrAsyncRequestIdFB requestId, XrSpaceQueryResultsFB *results);
+typedef XrResult (XRAPI_PTR *PFN_xrSaveSpaceFB)(XrSession session, const XrSpaceSaveInfoFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrSaveSpaceListFB)(XrSession session, const XrSpaceListSaveInfoFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrSaveSpacesMETA)(XrSession session, const XrSpacesSaveInfoMETA *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrSendVirtualKeyboardInputMETA)(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardInputInfoMETA *info, XrPosef *interactorRootPose);
+typedef XrResult (XRAPI_PTR *PFN_xrSetColorSpaceFB)(XrSession session, const XrColorSpaceFB colorSpace);
+typedef XrResult (XRAPI_PTR *PFN_xrSetDigitalLensControlALMALENCE)(XrSession session, const XrDigitalLensControlALMALENCE *digitalLensControl);
+typedef XrResult (XRAPI_PTR *PFN_xrSetEnvironmentDepthEstimationVARJO)(XrSession session, XrBool32 enabled);
+typedef XrResult (XRAPI_PTR *PFN_xrSetFacialSimulationModeBD)(XrFaceTrackerBD tracker, XrFacialSimulationModeBD mode);
+typedef XrResult (XRAPI_PTR *PFN_xrSetGoogleCloudAuthAsyncANDROID)(XrSession session, const XrGoogleCloudAuthInfoBaseHeaderANDROID *authInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrSetGoogleCloudAuthCompleteANDROID)(XrSession session, XrFutureEXT future, XrFutureCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrSetHandTrackingFrequencyHintMETA)(XrSession session, XrHandTrackingFrequencyHintMETA frequencyHint);
+typedef XrResult (XRAPI_PTR *PFN_xrSetHdrMetadataSONY)(XrSwapchain swapchain, const XrHdrMetadataSONY *hdrMetadata);
+typedef XrResult (XRAPI_PTR *PFN_xrSetInputDeviceActiveEXT)(XrSession session, XrPath interactionProfile, XrPath topLevelPath, XrBool32 isActive);
+typedef XrResult (XRAPI_PTR *PFN_xrSetInputDeviceLocationEXT)(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, XrSpace space, XrPosef pose);
+typedef XrResult (XRAPI_PTR *PFN_xrSetInputDeviceStateBoolEXT)(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, XrBool32 state);
+typedef XrResult (XRAPI_PTR *PFN_xrSetInputDeviceStateFloatEXT)(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, float state);
+typedef XrResult (XRAPI_PTR *PFN_xrSetInputDeviceStateVector2fEXT)(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, XrVector2f state);
+typedef XrResult (XRAPI_PTR *PFN_xrSetMarkerTrackingPredictionVARJO)(XrSession session, uint64_t markerId, XrBool32 enable);
+typedef XrResult (XRAPI_PTR *PFN_xrSetMarkerTrackingTimeoutVARJO)(XrSession session, uint64_t markerId, XrDuration timeout);
+typedef XrResult (XRAPI_PTR *PFN_xrSetMarkerTrackingVARJO)(XrSession session, XrBool32 enabled);
+typedef XrResult (XRAPI_PTR *PFN_xrSetPassthroughLayerMeshANDROID)(XrPassthroughLayerANDROID layer, const XrPassthroughLayerMeshANDROID *mesh);
+typedef XrResult (XRAPI_PTR *PFN_xrSetPerformanceMetricsStateANDROID)(XrSession session, const XrPerformanceMetricsStateANDROID *state);
+typedef XrResult (XRAPI_PTR *PFN_xrSetPerformanceMetricsStateMETA)(XrSession session, const XrPerformanceMetricsStateMETA *state);
+typedef XrResult (XRAPI_PTR *PFN_xrSetSpaceComponentStatusFB)(XrSpace space, const XrSpaceComponentStatusSetInfoFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrSetSystemNotificationsML)(XrInstance instance, const XrSystemNotificationsSetInfoML *info);
+typedef XrResult (XRAPI_PTR *PFN_xrSetTilePropertiesHintMETA)(XrSession session, const XrTilePropertiesHintMETA *properties);
+typedef XrResult (XRAPI_PTR *PFN_xrSetTrackingOptimizationSettingsHintQCOM)(XrSession session, XrTrackingOptimizationSettingsDomainQCOM domain, XrTrackingOptimizationSettingsHintQCOM hint);
+typedef XrResult (XRAPI_PTR *PFN_xrSetViewOffsetVARJO)(XrSession session, float offset);
+typedef XrResult (XRAPI_PTR *PFN_xrSetVirtualKeyboardModelVisibilityMETA)(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardModelVisibilitySetInfoMETA *modelVisibility);
+typedef XrResult (XRAPI_PTR *PFN_xrShareSpacesFB)(XrSession session, const XrSpaceShareInfoFB *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrShareSpacesMETA)(XrSession session, const XrShareSpacesInfoMETA *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrShareSpatialAnchorAsyncBD)(XrSenseDataProviderBD provider, const XrSpatialAnchorShareInfoBD *info, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrShareSpatialAnchorCompleteBD)(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrSnapshotMarkerDetectorML)(XrMarkerDetectorML markerDetector, XrMarkerDetectorSnapshotInfoML *snapshotInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrStartBodyTrackingCalibrationAppBD)(XrSession session);
+typedef XrResult (XRAPI_PTR *PFN_xrStartColocationAdvertisementMETA)(XrSession session, const XrColocationAdvertisementStartInfoMETA *info, XrAsyncRequestIdFB *advertisementRequestId);
+typedef XrResult (XRAPI_PTR *PFN_xrStartColocationDiscoveryMETA)(XrSession session, const XrColocationDiscoveryStartInfoMETA *info, XrAsyncRequestIdFB *discoveryRequestId);
+typedef XrResult (XRAPI_PTR *PFN_xrStartSenseDataProviderAsyncBD)(XrSenseDataProviderBD provider, const XrSenseDataProviderStartInfoBD *startInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrStartSenseDataProviderCompleteBD)(XrSession session, XrFutureEXT future, XrFutureCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrStopColocationAdvertisementMETA)(XrSession session, const XrColocationAdvertisementStopInfoMETA *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrStopColocationDiscoveryMETA)(XrSession session, const XrColocationDiscoveryStopInfoMETA *info, XrAsyncRequestIdFB *requestId);
+typedef XrResult (XRAPI_PTR *PFN_xrStopHapticFeedback)(XrSession session, const XrHapticActionInfo *hapticActionInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrStopSenseDataProviderBD)(XrSenseDataProviderBD provider);
+typedef XrResult (XRAPI_PTR *PFN_xrStringToPath)(XrInstance instance, const char *pathString, XrPath *path);
+typedef XrResult (XRAPI_PTR *PFN_xrStructureTypeToString)(XrInstance instance, XrStructureType value, char buffer[XR_MAX_STRUCTURE_NAME_SIZE]);
+typedef XrResult (XRAPI_PTR *PFN_xrStructureTypeToString2KHR)(XrInstance instance, XrStructureType value, char buffer[XR_MAX_STRUCTURE_NAME_SIZE_EXTENDED_KHR]);
+typedef XrResult (XRAPI_PTR *PFN_xrSubmitSoundFieldBufferBD)(XrSoundFieldBD soundField, const XrAudioBufferBD *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrSubmitSoundObjectBufferBD)(XrSoundObjectBD soundObject, const XrAudioBufferBD *buffer);
+typedef XrResult (XRAPI_PTR *PFN_xrSuggestBodyTrackingCalibrationOverrideMETA)(XrBodyTrackerFB bodyTracker, const XrBodyTrackingCalibrationInfoMETA *calibrationInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrSuggestInteractionProfileBindings)(XrInstance instance, const XrInteractionProfileSuggestedBinding *suggestedBindings);
+typedef XrResult (XRAPI_PTR *PFN_xrSuggestVirtualKeyboardLocationMETA)(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardLocationInfoMETA *locationInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrSyncActions)(XrSession session, const XrActionsSyncInfo *syncInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrThermalGetTemperatureTrendEXT)(XrSession session, XrPerfSettingsDomainEXT domain, XrPerfSettingsNotificationLevelEXT *notificationLevel, float *tempHeadroom, float *tempSlope);
+typedef XrResult (XRAPI_PTR *PFN_xrTryCreateSpatialGraphStaticNodeBindingMSFT)(XrSession session, const XrSpatialGraphStaticNodeBindingCreateInfoMSFT *createInfo, XrSpatialGraphNodeBindingMSFT *nodeBinding);
+typedef XrResult (XRAPI_PTR *PFN_xrUnpersistAnchorANDROID)(XrDeviceAnchorPersistenceANDROID handle, const XrUuidEXT *anchorId);
+typedef XrResult (XRAPI_PTR *PFN_xrUnpersistSpatialAnchorAsyncBD)(XrSenseDataProviderBD provider, const XrSpatialAnchorUnpersistInfoBD *info, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrUnpersistSpatialAnchorCompleteBD)(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrUnpersistSpatialAnchorMSFT)(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore, const XrSpatialAnchorPersistenceNameMSFT *spatialAnchorPersistenceName);
+typedef XrResult (XRAPI_PTR *PFN_xrUnpersistSpatialEntityAsyncEXT)(XrSpatialPersistenceContextEXT persistenceContext, const XrSpatialEntityUnpersistInfoEXT *unpersistInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrUnpersistSpatialEntityCompleteEXT)(XrSpatialPersistenceContextEXT persistenceContext, XrFutureEXT future, XrUnpersistSpatialEntityCompletionEXT *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateHandMeshMSFT)(XrHandTrackerEXT handTracker, const XrHandMeshUpdateInfoMSFT *updateInfo, XrHandMeshMSFT *handMesh);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdatePassthroughColorLutMETA)(XrPassthroughColorLutMETA colorLut, const XrPassthroughColorLutUpdateInfoMETA *updateInfo);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateSoundFieldConfigBD)(XrSoundFieldBD soundField, const XrSoundFieldConfigBD *config, XrSoundFieldFlagsBD flags);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateSoundObjectConfigBD)(XrSoundObjectBD soundObject, const XrSoundObjectConfigBD *config, XrSoundObjectFlagsBD flags);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateSoundObstacleConfigBD)(XrSoundObstacleBD soundObstacle, const XrSoundObstacleConfigBD *config, const XrSoundTriangleMeshBD *mesh, XrSoundObstacleFlagsBD flags);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateSoundObstacleMaterialConfigBD)(XrSoundObstacleMaterialBD material, const XrSoundObstacleMaterialConfigBD *config);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateSpatialAnchorsExpirationAsyncML)(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsUpdateExpirationInfoML *updateInfo, XrFutureEXT *future);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateSpatialAnchorsExpirationCompleteML)(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsUpdateExpirationCompletionML *completion);
+typedef XrResult (XRAPI_PTR *PFN_xrUpdateSwapchainFB)(XrSwapchain swapchain, const XrSwapchainStateBaseHeaderFB *state);
+typedef XrResult (XRAPI_PTR *PFN_xrWaitAudioPeriodBD)(XrSpatialAudioRendererBD renderer, XrDuration timeout);
+typedef XrResult (XRAPI_PTR *PFN_xrWaitFrame)(XrSession session, const XrFrameWaitInfo *frameWaitInfo, XrFrameState *frameState);
+typedef XrResult (XRAPI_PTR *PFN_xrWaitSwapchainImage)(XrSwapchain swapchain, const XrSwapchainImageWaitInfo *waitInfo);
+
+#ifndef XR_NO_PROTOTYPES
+XrResult XRAPI_CALL xrAcquireSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageAcquireInfo *acquireInfo, uint32_t *index);
+XrResult XRAPI_CALL xrAddTrackableImageDatabaseANDROID(XrTrackableTrackerANDROID tracker, XrTrackableImageDatabaseANDROID database);
+XrResult XRAPI_CALL xrAllocateWorldMeshBufferML(XrWorldMeshDetectorML detector, const XrWorldMeshBufferSizeML *size, XrWorldMeshBufferML *buffer);
+XrResult XRAPI_CALL xrApplyForceFeedbackCurlMNDX(XrHandTrackerEXT handTracker, const XrForceFeedbackCurlApplyLocationsMNDX *locations);
+XrResult XRAPI_CALL xrApplyHapticFeedback(XrSession session, const XrHapticActionInfo *hapticActionInfo, const XrHapticBaseHeader *hapticFeedback);
+XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession session, const XrSessionActionSetsAttachInfo *attachInfo);
+XrResult XRAPI_CALL xrBeginFrame(XrSession session, const XrFrameBeginInfo *frameBeginInfo);
+XrResult XRAPI_CALL xrBeginPlaneDetectionEXT(XrPlaneDetectorEXT planeDetector, const XrPlaneDetectorBeginInfoEXT *beginInfo);
+XrResult XRAPI_CALL xrBeginSession(XrSession session, const XrSessionBeginInfo *beginInfo);
+XrResult XRAPI_CALL xrBeginSpatialContainerRenderingEXT(XrSession session, const XrSpatialContainerBeginInfoEXT *beginInfo);
+XrResult XRAPI_CALL xrCancelFutureEXT(XrInstance instance, const XrFutureCancelInfoEXT *cancelInfo);
+XrResult XRAPI_CALL xrCaptureSceneAsyncBD(XrSenseDataProviderBD provider, const XrSceneCaptureInfoBD *info, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCaptureSceneCompleteBD(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+XrResult XRAPI_CALL xrChangeVirtualKeyboardTextContextMETA(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardTextContextChangeInfoMETA *changeInfo);
+XrResult XRAPI_CALL xrCheckVpsAvailabilityAsyncANDROID(XrSession session, double latitude, double longitude, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCheckVpsAvailabilityCompleteANDROID(XrSession session, XrFutureEXT future, XrVPSAvailabilityCheckCompletionANDROID *completion);
+XrResult XRAPI_CALL xrClearSpatialAnchorStoreMSFT(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore);
+XrResult XRAPI_CALL xrComputeNewSceneMSFT(XrSceneObserverMSFT sceneObserver, const XrNewSceneComputeInfoMSFT *computeInfo);
+XrResult XRAPI_CALL xrConvertTimeToWin32PerformanceCounterKHR(XrInstance instance, XrTime time, LARGE_INTEGER *performanceCounter);
+XrResult XRAPI_CALL xrConvertWin32PerformanceCounterToTimeKHR(XrInstance instance, const LARGE_INTEGER *performanceCounter, XrTime *time);
+XrResult XRAPI_CALL xrCreateAction(XrActionSet actionSet, const XrActionCreateInfo *createInfo, XrAction *action);
+XrResult XRAPI_CALL xrCreateActionSet(XrInstance instance, const XrActionSetCreateInfo *createInfo, XrActionSet *actionSet);
+XrResult XRAPI_CALL xrCreateActionSpace(XrSession session, const XrActionSpaceCreateInfo *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateAnchorSpaceANDROID(XrSession session, const XrAnchorSpaceCreateInfoANDROID *createInfo, XrSpace *anchorOutput);
+XrResult XRAPI_CALL xrCreateAnchorSpaceBD(XrSession session, const XrAnchorSpaceCreateInfoBD *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateApiLayerInstance(const XrInstanceCreateInfo *info, const XrApiLayerCreateInfo *layerInfo, XrInstance *instance);
+XrResult XRAPI_CALL xrCreateBodyTrackerBD(XrSession session, const XrBodyTrackerCreateInfoBD *createInfo, XrBodyTrackerBD *bodyTracker);
+XrResult XRAPI_CALL xrCreateBodyTrackerFB(XrSession session, const XrBodyTrackerCreateInfoFB *createInfo, XrBodyTrackerFB *bodyTracker);
+XrResult XRAPI_CALL xrCreateBodyTrackerHTC(XrSession session, const XrBodyTrackerCreateInfoHTC *createInfo, XrBodyTrackerHTC *bodyTracker);
+XrResult XRAPI_CALL xrCreateDeviceAnchorPersistenceANDROID(XrSession session, const XrDeviceAnchorPersistenceCreateInfoANDROID *createInfo, XrDeviceAnchorPersistenceANDROID *outHandle);
+XrResult XRAPI_CALL xrCreateExportedLocalizationMapML(XrSession session, const XrUuidEXT *mapUuid, XrExportedLocalizationMapML *map);
+XrResult XRAPI_CALL xrCreateEyeTrackerANDROID(XrSession session, const XrEyeTrackerCreateInfoANDROID *createInfo, XrEyeTrackerANDROID *eyeTracker);
+XrResult XRAPI_CALL xrCreateEyeTrackerFB(XrSession session, const XrEyeTrackerCreateInfoFB *createInfo, XrEyeTrackerFB *eyeTracker);
+XrResult XRAPI_CALL xrCreateFaceTracker2FB(XrSession session, const XrFaceTrackerCreateInfo2FB *createInfo, XrFaceTracker2FB *faceTracker);
+XrResult XRAPI_CALL xrCreateFaceTrackerANDROID(XrSession session, const XrFaceTrackerCreateInfoANDROID *createInfo, XrFaceTrackerANDROID *faceTracker);
+XrResult XRAPI_CALL xrCreateFaceTrackerBD(XrSession session, const XrFaceTrackerCreateInfoBD *createInfo, XrFaceTrackerBD *tracker);
+XrResult XRAPI_CALL xrCreateFaceTrackerFB(XrSession session, const XrFaceTrackerCreateInfoFB *createInfo, XrFaceTrackerFB *faceTracker);
+XrResult XRAPI_CALL xrCreateFacialExpressionClientML(XrSession session, const XrFacialExpressionClientCreateInfoML *createInfo, XrFacialExpressionClientML *facialExpressionClient);
+XrResult XRAPI_CALL xrCreateFacialTrackerHTC(XrSession session, const XrFacialTrackerCreateInfoHTC *createInfo, XrFacialTrackerHTC *facialTracker);
+XrResult XRAPI_CALL xrCreateFoveationProfileFB(XrSession session, const XrFoveationProfileCreateInfoFB *createInfo, XrFoveationProfileFB *profile);
+XrResult XRAPI_CALL xrCreateGeometryInstanceFB(XrSession session, const XrGeometryInstanceCreateInfoFB *createInfo, XrGeometryInstanceFB *outGeometryInstance);
+XrResult XRAPI_CALL xrCreateGeospatialAnchorANDROID(XrSpatialContextEXT spatialContext, const XrGeospatialAnchorCreateInfoANDROID *createInfo, XrSpatialEntityIdEXT *anchorEntityId);
+XrResult XRAPI_CALL xrCreateGeospatialTrackerANDROID(XrSession session, const XrGeospatialTrackerCreateInfoANDROID *createInfo, XrGeospatialTrackerANDROID *geospatialTrackerOutput);
+XrResult XRAPI_CALL xrCreateHandMeshSpaceMSFT(XrHandTrackerEXT handTracker, const XrHandMeshSpaceCreateInfoMSFT *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateHandTrackerEXT(XrSession session, const XrHandTrackerCreateInfoEXT *createInfo, XrHandTrackerEXT *handTracker);
+XrResult XRAPI_CALL xrCreateInstance(const XrInstanceCreateInfo *createInfo, XrInstance *instance);
+XrResult XRAPI_CALL xrCreateKeyboardSpaceFB(XrSession session, const XrKeyboardSpaceCreateInfoFB *createInfo, XrSpace *keyboardSpace);
+XrResult XRAPI_CALL xrCreateLightEstimatorANDROID(XrSession session, XrLightEstimatorCreateInfoANDROID *createInfo, XrLightEstimatorANDROID *outHandle);
+XrResult XRAPI_CALL xrCreateMarkerDetectorML(XrSession session, const XrMarkerDetectorCreateInfoML *createInfo, XrMarkerDetectorML *markerDetector);
+XrResult XRAPI_CALL xrCreateMarkerSpaceML(XrSession session, const XrMarkerSpaceCreateInfoML *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateMarkerSpaceVARJO(XrSession session, const XrMarkerSpaceCreateInfoVARJO *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreatePassthroughColorLutMETA(XrPassthroughFB passthrough, const XrPassthroughColorLutCreateInfoMETA *createInfo, XrPassthroughColorLutMETA *colorLut);
+XrResult XRAPI_CALL xrCreatePassthroughFB(XrSession session, const XrPassthroughCreateInfoFB *createInfo, XrPassthroughFB *outPassthrough);
+XrResult XRAPI_CALL xrCreatePassthroughHTC(XrSession session, const XrPassthroughCreateInfoHTC *createInfo, XrPassthroughHTC *passthrough);
+XrResult XRAPI_CALL xrCreatePassthroughLayerANDROID(XrSession session, const XrPassthroughLayerCreateInfoANDROID *createInfo, XrPassthroughLayerANDROID *layer);
+XrResult XRAPI_CALL xrCreatePassthroughLayerFB(XrSession session, const XrPassthroughLayerCreateInfoFB *createInfo, XrPassthroughLayerFB *outLayer);
+XrResult XRAPI_CALL xrCreatePersistedAnchorSpaceANDROID(XrDeviceAnchorPersistenceANDROID handle, const XrPersistedAnchorSpaceCreateInfoANDROID *createInfo, XrSpace *anchorOutput);
+XrResult XRAPI_CALL xrCreatePlaneDetectorEXT(XrSession session, const XrPlaneDetectorCreateInfoEXT *createInfo, XrPlaneDetectorEXT *planeDetector);
+XrResult XRAPI_CALL xrCreateReferenceSpace(XrSession session, const XrReferenceSpaceCreateInfo *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateRenderModelAssetEXT(XrSession session, const XrRenderModelAssetCreateInfoEXT *createInfo, XrRenderModelAssetEXT *asset);
+XrResult XRAPI_CALL xrCreateRenderModelEXT(XrSession session, const XrRenderModelCreateInfoEXT *createInfo, XrRenderModelEXT *renderModel);
+XrResult XRAPI_CALL xrCreateRenderModelSpaceEXT(XrSession session, const XrRenderModelSpaceCreateInfoEXT *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateSceneMSFT(XrSceneObserverMSFT sceneObserver, const XrSceneCreateInfoMSFT *createInfo, XrSceneMSFT *scene);
+XrResult XRAPI_CALL xrCreateSceneMeshSnapshotANDROID(XrSceneMeshingTrackerANDROID tracker, const XrSceneMeshSnapshotCreateInfoANDROID *createInfo, XrSceneMeshSnapshotCreationResultANDROID *outSnapshotCreationResult);
+XrResult XRAPI_CALL xrCreateSceneMeshingTrackerANDROID(XrSession session, const XrSceneMeshingTrackerCreateInfoANDROID *createInfo, XrSceneMeshingTrackerANDROID *tracker);
+XrResult XRAPI_CALL xrCreateSceneObserverMSFT(XrSession session, const XrSceneObserverCreateInfoMSFT *createInfo, XrSceneObserverMSFT *sceneObserver);
+XrResult XRAPI_CALL xrCreateSenseDataProviderBD(XrSession session, const XrSenseDataProviderCreateInfoBD *createInfo, XrSenseDataProviderBD *provider);
+XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSessionCreateInfo *createInfo, XrSession *session);
+XrResult XRAPI_CALL xrCreateSoundFieldBD(XrSpatialAudioRendererBD renderer, const XrSoundFieldConfigBD *config, XrSoundFieldBD *soundField);
+XrResult XRAPI_CALL xrCreateSoundObjectBD(XrSpatialAudioRendererBD renderer, const XrSoundObjectConfigBD *config, XrSoundObjectBD *soundObject);
+XrResult XRAPI_CALL xrCreateSoundObstacleBD(XrSpatialAudioRendererBD renderer, const XrSoundObstacleConfigBD *config, const XrSoundTriangleMeshBD *mesh, XrSoundObstacleBD *soundObstacle);
+XrResult XRAPI_CALL xrCreateSoundObstacleMaterialBD(XrSpatialAudioRendererBD renderer, const XrSoundObstacleMaterialConfigBD *config, XrSoundObstacleMaterialBD *material);
+XrResult XRAPI_CALL xrCreateSpaceUserFB(XrSession session, const XrSpaceUserCreateInfoFB *info, XrSpaceUserFB *user);
+XrResult XRAPI_CALL xrCreateSpatialAnchorAsyncBD(XrSenseDataProviderBD provider, const XrSpatialAnchorCreateInfoBD *info, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateSpatialAnchorCompleteBD(XrSenseDataProviderBD provider, XrFutureEXT future, XrSpatialAnchorCreateCompletionBD *completion);
+XrResult XRAPI_CALL xrCreateSpatialAnchorEXT(XrSpatialContextEXT spatialContext, const XrSpatialAnchorCreateInfoEXT *createInfo, XrSpatialEntityIdEXT *anchorEntityId, XrSpatialEntityEXT *anchorEntity);
+XrResult XRAPI_CALL xrCreateSpatialAnchorFB(XrSession session, const XrSpatialAnchorCreateInfoFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrCreateSpatialAnchorFromPersistedNameMSFT(XrSession session, const XrSpatialAnchorFromPersistedAnchorCreateInfoMSFT *spatialAnchorCreateInfo, XrSpatialAnchorMSFT *spatialAnchor);
+XrResult XRAPI_CALL xrCreateSpatialAnchorHTC(XrSession session, const XrSpatialAnchorCreateInfoHTC *createInfo, XrSpace *anchor);
+XrResult XRAPI_CALL xrCreateSpatialAnchorMSFT(XrSession session, const XrSpatialAnchorCreateInfoMSFT *createInfo, XrSpatialAnchorMSFT *anchor);
+XrResult XRAPI_CALL xrCreateSpatialAnchorSpaceANDROID(XrSession session, XrSpatialContextEXT spatialContext, const XrSpatialAnchorCreateInfoEXT *createInfo, XrSpatialEntityIdEXT *anchorEntityId, XrSpace *anchorSpace);
+XrResult XRAPI_CALL xrCreateSpatialAnchorSpaceFromIdANDROID(XrSession session, XrSpatialContextEXT spatialContext, const XrSpatialAnchorSpaceFromIdCreateInfoANDROID *createInfo, XrSpace *anchorSpace);
+XrResult XRAPI_CALL xrCreateSpatialAnchorSpaceMSFT(XrSession session, const XrSpatialAnchorSpaceCreateInfoMSFT *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateSpatialAnchorStoreConnectionMSFT(XrSession session, XrSpatialAnchorStoreConnectionMSFT *spatialAnchorStore);
+XrResult XRAPI_CALL xrCreateSpatialAnchorsAsyncML(XrSession session, const XrSpatialAnchorsCreateInfoBaseHeaderML *createInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateSpatialAnchorsCompleteML(XrSession session, XrFutureEXT future, XrCreateSpatialAnchorsCompletionML *completion);
+XrResult XRAPI_CALL xrCreateSpatialAnchorsStorageML(XrSession session, const XrSpatialAnchorsCreateStorageInfoML *createInfo, XrSpatialAnchorsStorageML *storage);
+XrResult XRAPI_CALL xrCreateSpatialAudioRendererBD(XrSession session, const XrSpatialAudioRendererCreateInfoBD *createInfo, XrSpatialAudioRendererBD *renderer);
+XrResult XRAPI_CALL xrCreateSpatialContainerEXT(XrSession session, const XrSpatialContainerCreateInfoEXT *createInfo, XrSpatialContainerEXT *spatialContainer);
+XrResult XRAPI_CALL xrCreateSpatialContainerSpaceEXT(XrSession session, const XrSpatialContainerSpaceCreateInfoEXT *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateSpatialContextAsyncEXT(XrSession session, const XrSpatialContextCreateInfoEXT *createInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateSpatialContextCompleteEXT(XrSession session, XrFutureEXT future, XrCreateSpatialContextCompletionEXT *completion);
+XrResult XRAPI_CALL xrCreateSpatialDiscoverySnapshotAsyncEXT(XrSpatialContextEXT spatialContext, const XrSpatialDiscoverySnapshotCreateInfoEXT *createInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateSpatialDiscoverySnapshotCompleteEXT(XrSpatialContextEXT spatialContext, const XrCreateSpatialDiscoverySnapshotCompletionInfoEXT *createSnapshotCompletionInfo, XrCreateSpatialDiscoverySnapshotCompletionEXT *completion);
+XrResult XRAPI_CALL xrCreateSpatialEntityAnchorBD(XrSenseDataProviderBD provider, const XrSpatialEntityAnchorCreateInfoBD *createInfo, XrAnchorBD *anchor);
+XrResult XRAPI_CALL xrCreateSpatialEntityFromIdEXT(XrSpatialContextEXT spatialContext, const XrSpatialEntityFromIdCreateInfoEXT *createInfo, XrSpatialEntityEXT *spatialEntity);
+XrResult XRAPI_CALL xrCreateSpatialGraphNodeSpaceMSFT(XrSession session, const XrSpatialGraphNodeSpaceCreateInfoMSFT *createInfo, XrSpace *space);
+XrResult XRAPI_CALL xrCreateSpatialImageTrackingDatabaseAsyncEXT(XrSession session, const XrSpatialImageTrackingDatabaseCreateInfoEXT *createInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateSpatialImageTrackingDatabaseCompleteEXT(XrSession session, XrFutureEXT future, XrCreateSpatialImageTrackingDatabaseCompletionEXT *completion);
+XrResult XRAPI_CALL xrCreateSpatialPersistenceContextAsyncEXT(XrSession session, const XrSpatialPersistenceContextCreateInfoEXT *createInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateSpatialPersistenceContextCompleteEXT(XrSession session, XrFutureEXT future, XrCreateSpatialPersistenceContextCompletionEXT *completion);
+XrResult XRAPI_CALL xrCreateSpatialRaycastSnapshotANDROID(XrSpatialContextEXT spatialContext, const XrSpatialRaycastSnapshotCreateInfoANDROID *createInfo, XrSpatialSnapshotEXT *snapshot);
+XrResult XRAPI_CALL xrCreateSpatialUpdateSnapshotEXT(XrSpatialContextEXT spatialContext, const XrSpatialUpdateSnapshotCreateInfoEXT *createInfo, XrSpatialSnapshotEXT *snapshot);
+XrResult XRAPI_CALL xrCreateSurfaceAnchorAsyncANDROID(XrSpatialContextEXT spatialContext, const XrSurfaceAnchorCreateInfoANDROID *createInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateSurfaceAnchorCompleteANDROID(XrSpatialContextEXT spatialContext, XrFutureEXT future, XrSurfaceAnchorCreateCompletionANDROID *completion);
+XrResult XRAPI_CALL xrCreateSwapchain(XrSession session, const XrSwapchainCreateInfo *createInfo, XrSwapchain *swapchain);
+XrResult XRAPI_CALL xrCreateTrackableImageDatabaseAsyncANDROID(XrSession session, const XrTrackableImageDatabaseCreateInfoANDROID *createInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrCreateTrackableImageDatabaseCompleteANDROID(XrSession session, XrFutureEXT future, XrCreateTrackableImageDatabaseCompletionANDROID *completion);
+XrResult XRAPI_CALL xrCreateTrackableTrackerANDROID(XrSession session, const XrTrackableTrackerCreateInfoANDROID *createInfo, XrTrackableTrackerANDROID *trackableTracker);
+XrResult XRAPI_CALL xrCreateVirtualKeyboardMETA(XrSession session, const XrVirtualKeyboardCreateInfoMETA *createInfo, XrVirtualKeyboardMETA *keyboard);
+XrResult XRAPI_CALL xrCreateVirtualKeyboardSpaceMETA(XrSession session, XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardSpaceCreateInfoMETA *createInfo, XrSpace *keyboardSpace);
+XrResult XRAPI_CALL xrCreateVulkanDeviceKHR(XrInstance instance, const XrVulkanDeviceCreateInfoKHR *createInfo, VkDevice *vulkanDevice, VkResult *vulkanResult);
+XrResult XRAPI_CALL xrCreateVulkanInstanceKHR(XrInstance instance, const XrVulkanInstanceCreateInfoKHR *createInfo, VkInstance *vulkanInstance, VkResult *vulkanResult);
+XrResult XRAPI_CALL xrCreateWorldMeshDetectorML(XrSession session, const XrWorldMeshDetectorCreateInfoML *createInfo, XrWorldMeshDetectorML *detector);
+XrResult XRAPI_CALL xrDeleteSpatialAnchorsAsyncML(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsDeleteInfoML *deleteInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrDeleteSpatialAnchorsCompleteML(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsDeleteCompletionML *completion);
+XrResult XRAPI_CALL xrDeserializeSceneMSFT(XrSceneObserverMSFT sceneObserver, const XrSceneDeserializeInfoMSFT *deserializeInfo);
+XrResult XRAPI_CALL xrDestroyAction(XrAction action);
+XrResult XRAPI_CALL xrDestroyActionSet(XrActionSet actionSet);
+XrResult XRAPI_CALL xrDestroyAnchorBD(XrAnchorBD anchor);
+XrResult XRAPI_CALL xrDestroyBodyTrackerBD(XrBodyTrackerBD bodyTracker);
+XrResult XRAPI_CALL xrDestroyBodyTrackerFB(XrBodyTrackerFB bodyTracker);
+XrResult XRAPI_CALL xrDestroyBodyTrackerHTC(XrBodyTrackerHTC bodyTracker);
+XrResult XRAPI_CALL xrDestroyDeviceAnchorPersistenceANDROID(XrDeviceAnchorPersistenceANDROID handle);
+XrResult XRAPI_CALL xrDestroyExportedLocalizationMapML(XrExportedLocalizationMapML map);
+XrResult XRAPI_CALL xrDestroyEyeTrackerANDROID(XrEyeTrackerANDROID eyeTracker);
+XrResult XRAPI_CALL xrDestroyEyeTrackerFB(XrEyeTrackerFB eyeTracker);
+XrResult XRAPI_CALL xrDestroyFaceTracker2FB(XrFaceTracker2FB faceTracker);
+XrResult XRAPI_CALL xrDestroyFaceTrackerANDROID(XrFaceTrackerANDROID faceTracker);
+XrResult XRAPI_CALL xrDestroyFaceTrackerBD(XrFaceTrackerBD tracker);
+XrResult XRAPI_CALL xrDestroyFaceTrackerFB(XrFaceTrackerFB faceTracker);
+XrResult XRAPI_CALL xrDestroyFacialExpressionClientML(XrFacialExpressionClientML facialExpressionClient);
+XrResult XRAPI_CALL xrDestroyFacialTrackerHTC(XrFacialTrackerHTC facialTracker);
+XrResult XRAPI_CALL xrDestroyFoveationProfileFB(XrFoveationProfileFB profile);
+XrResult XRAPI_CALL xrDestroyGeometryInstanceFB(XrGeometryInstanceFB instance);
+XrResult XRAPI_CALL xrDestroyGeospatialTrackerANDROID(XrGeospatialTrackerANDROID geospatialTracker);
+XrResult XRAPI_CALL xrDestroyHandTrackerEXT(XrHandTrackerEXT handTracker);
+XrResult XRAPI_CALL xrDestroyInstance(XrInstance instance);
+XrResult XRAPI_CALL xrDestroyLightEstimatorANDROID(XrLightEstimatorANDROID estimator);
+XrResult XRAPI_CALL xrDestroyMarkerDetectorML(XrMarkerDetectorML markerDetector);
+XrResult XRAPI_CALL xrDestroyPassthroughColorLutMETA(XrPassthroughColorLutMETA colorLut);
+XrResult XRAPI_CALL xrDestroyPassthroughFB(XrPassthroughFB passthrough);
+XrResult XRAPI_CALL xrDestroyPassthroughHTC(XrPassthroughHTC passthrough);
+XrResult XRAPI_CALL xrDestroyPassthroughLayerANDROID(XrPassthroughLayerANDROID layer);
+XrResult XRAPI_CALL xrDestroyPassthroughLayerFB(XrPassthroughLayerFB layer);
+XrResult XRAPI_CALL xrDestroyPlaneDetectorEXT(XrPlaneDetectorEXT planeDetector);
+XrResult XRAPI_CALL xrDestroyRenderModelAssetEXT(XrRenderModelAssetEXT asset);
+XrResult XRAPI_CALL xrDestroyRenderModelEXT(XrRenderModelEXT renderModel);
+XrResult XRAPI_CALL xrDestroySceneMSFT(XrSceneMSFT scene);
+XrResult XRAPI_CALL xrDestroySceneMeshSnapshotANDROID(XrSceneMeshSnapshotANDROID snapshot);
+XrResult XRAPI_CALL xrDestroySceneMeshingTrackerANDROID(XrSceneMeshingTrackerANDROID tracker);
+XrResult XRAPI_CALL xrDestroySceneObserverMSFT(XrSceneObserverMSFT sceneObserver);
+XrResult XRAPI_CALL xrDestroySenseDataProviderBD(XrSenseDataProviderBD provider);
+XrResult XRAPI_CALL xrDestroySenseDataSnapshotBD(XrSenseDataSnapshotBD snapshot);
+XrResult XRAPI_CALL xrDestroySession(XrSession session);
+XrResult XRAPI_CALL xrDestroySoundFieldBD(XrSoundFieldBD soundField);
+XrResult XRAPI_CALL xrDestroySoundObjectBD(XrSoundObjectBD soundObject);
+XrResult XRAPI_CALL xrDestroySoundObstacleBD(XrSoundObstacleBD soundObstacle);
+XrResult XRAPI_CALL xrDestroySoundObstacleMaterialBD(XrSoundObstacleMaterialBD material);
+XrResult XRAPI_CALL xrDestroySpace(XrSpace space);
+XrResult XRAPI_CALL xrDestroySpaceUserFB(XrSpaceUserFB user);
+XrResult XRAPI_CALL xrDestroySpatialAnchorMSFT(XrSpatialAnchorMSFT anchor);
+XrResult XRAPI_CALL xrDestroySpatialAnchorStoreConnectionMSFT(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore);
+XrResult XRAPI_CALL xrDestroySpatialAnchorsStorageML(XrSpatialAnchorsStorageML storage);
+XrResult XRAPI_CALL xrDestroySpatialAudioRendererBD(XrSpatialAudioRendererBD renderer);
+XrResult XRAPI_CALL xrDestroySpatialContainerEXT(XrSpatialContainerEXT spatialContainer);
+XrResult XRAPI_CALL xrDestroySpatialContextEXT(XrSpatialContextEXT spatialContext);
+XrResult XRAPI_CALL xrDestroySpatialEntityEXT(XrSpatialEntityEXT spatialEntity);
+XrResult XRAPI_CALL xrDestroySpatialGraphNodeBindingMSFT(XrSpatialGraphNodeBindingMSFT nodeBinding);
+XrResult XRAPI_CALL xrDestroySpatialImageTrackingDatabaseEXT(XrSpatialImageTrackingDatabaseEXT database);
+XrResult XRAPI_CALL xrDestroySpatialPersistenceContextEXT(XrSpatialPersistenceContextEXT persistenceContext);
+XrResult XRAPI_CALL xrDestroySpatialSnapshotEXT(XrSpatialSnapshotEXT snapshot);
+XrResult XRAPI_CALL xrDestroySwapchain(XrSwapchain swapchain);
+XrResult XRAPI_CALL xrDestroyTrackableImageDatabaseANDROID(XrTrackableImageDatabaseANDROID database);
+XrResult XRAPI_CALL xrDestroyTrackableTrackerANDROID(XrTrackableTrackerANDROID trackableTracker);
+XrResult XRAPI_CALL xrDestroyVirtualKeyboardMETA(XrVirtualKeyboardMETA keyboard);
+XrResult XRAPI_CALL xrDestroyWorldMeshDetectorML(XrWorldMeshDetectorML detector);
+XrResult XRAPI_CALL xrDownloadSharedSpatialAnchorAsyncBD(XrSenseDataProviderBD provider, const XrSharedSpatialAnchorDownloadInfoBD *info, XrFutureEXT *future);
+XrResult XRAPI_CALL xrDownloadSharedSpatialAnchorCompleteBD(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+XrResult XRAPI_CALL xrEnableLocalizationEventsML(XrSession session, const XrLocalizationEnableEventsInfoML *info);
+XrResult XRAPI_CALL xrEnableUserCalibrationEventsML(XrInstance instance, const XrUserCalibrationEnableEventsInfoML *enableInfo);
+XrResult XRAPI_CALL xrEndAudioPeriodBD(XrSpatialAudioRendererBD renderer);
+XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInfo *frameEndInfo);
+XrResult XRAPI_CALL xrEndSession(XrSession session);
+XrResult XRAPI_CALL xrEndSpatialContainerRenderingEXT(XrSession session, const XrSpatialContainerEndInfoEXT *endInfo);
+XrResult XRAPI_CALL xrEnumerateApiLayerProperties(uint32_t propertyCapacityInput, uint32_t *propertyCountOutput, XrApiLayerProperties *properties);
+XrResult XRAPI_CALL xrEnumerateBoundSourcesForAction(XrSession session, const XrBoundSourcesForActionEnumerateInfo *enumerateInfo, uint32_t sourceCapacityInput, uint32_t *sourceCountOutput, XrPath *sources);
+XrResult XRAPI_CALL xrEnumerateColorSpacesFB(XrSession session, uint32_t colorSpaceCapacityInput, uint32_t *colorSpaceCountOutput, XrColorSpaceFB *colorSpaces);
+XrResult XRAPI_CALL xrEnumerateColorSpacesSONY(XrSession session, const XrColorSpacesEnumerateInfoSONY *enumerateInfo, uint32_t colorSpaceCapacityInput, uint32_t *colorSpaceCountOutput, XrColorSpaceSONY *colorSpaces);
+XrResult XRAPI_CALL xrEnumerateDisplayRefreshRatesFB(XrSession session, uint32_t displayRefreshRateCapacityInput, uint32_t *displayRefreshRateCountOutput, float *displayRefreshRates);
+XrResult XRAPI_CALL xrEnumerateEnvironmentBlendModes(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, uint32_t environmentBlendModeCapacityInput, uint32_t *environmentBlendModeCountOutput, XrEnvironmentBlendMode *environmentBlendModes);
+XrResult XRAPI_CALL xrEnumerateEnvironmentTexturePixelFormatsBD(XrSession session, uint32_t pixelFormatCapacityInput, uint32_t *pixelFormatCountOutput, XrEnvironmentTexturePixelFormatBD *pixelFormats);
+XrResult XRAPI_CALL xrEnumerateEnvironmentTextureResolutionsBD(XrSession session, uint32_t resolutionCapacityInput, uint32_t *resolutionCountOutput, XrEnvironmentTextureResolutionBD *resolutions);
+XrResult XRAPI_CALL xrEnumerateEnvironmentTextureTransferTypesBD(XrSession session, uint32_t transferTypeCapacityInput, uint32_t *transferTypeCountOutput, XrEnvironmentTextureTransferTypeBD *transferTypes);
+XrResult XRAPI_CALL xrEnumerateExternalCamerasOCULUS(XrSession session, uint32_t cameraCapacityInput, uint32_t *cameraCountOutput, XrExternalCameraOCULUS *cameras);
+XrResult XRAPI_CALL xrEnumerateFacialSimulationModesBD(XrSession session, uint32_t modeCapacityInput, uint32_t *modeCountOutput, XrFacialSimulationModeBD *modes);
+XrResult XRAPI_CALL xrEnumerateInstanceExtensionProperties(const char *layerName, uint32_t propertyCapacityInput, uint32_t *propertyCountOutput, XrExtensionProperties *properties);
+XrResult XRAPI_CALL xrEnumerateInteractionRenderModelIdsEXT(XrSession session, const XrInteractionRenderModelIdsEnumerateInfoEXT *getInfo, uint32_t renderModelIdCapacityInput, uint32_t *renderModelIdCountOutput, XrRenderModelIdEXT *renderModelIds);
+XrResult XRAPI_CALL xrEnumeratePerformanceMetricsCounterPathsANDROID(XrInstance instance, uint32_t counterPathCapacityInput, uint32_t *counterPathCountOutput, XrPath *counterPaths);
+XrResult XRAPI_CALL xrEnumeratePerformanceMetricsCounterPathsMETA(XrInstance instance, uint32_t counterPathCapacityInput, uint32_t *counterPathCountOutput, XrPath *counterPaths);
+XrResult XRAPI_CALL xrEnumeratePersistedAnchorsANDROID(XrDeviceAnchorPersistenceANDROID handle, uint32_t anchorIdCapacityInput, uint32_t *anchorIdCountOutput, XrUuidEXT *anchorIds);
+XrResult XRAPI_CALL xrEnumeratePersistedSpatialAnchorNamesMSFT(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore, uint32_t spatialAnchorNameCapacityInput, uint32_t *spatialAnchorNameCountOutput, XrSpatialAnchorPersistenceNameMSFT *spatialAnchorNames);
+XrResult XRAPI_CALL xrEnumerateRaycastSupportedTrackableTypesANDROID(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+XrResult XRAPI_CALL xrEnumerateReferenceSpaces(XrSession session, uint32_t spaceCapacityInput, uint32_t *spaceCountOutput, XrReferenceSpaceType *spaces);
+XrResult XRAPI_CALL xrEnumerateRenderModelPathsFB(XrSession session, uint32_t pathCapacityInput, uint32_t *pathCountOutput, XrRenderModelPathInfoFB *paths);
+XrResult XRAPI_CALL xrEnumerateRenderModelSubactionPathsEXT(XrRenderModelEXT renderModel, const XrInteractionRenderModelSubactionPathInfoEXT *info, uint32_t pathCapacityInput, uint32_t *pathCountOutput, XrPath *paths);
+XrResult XRAPI_CALL xrEnumerateReprojectionModesMSFT(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, uint32_t modeCapacityInput, uint32_t *modeCountOutput, XrReprojectionModeMSFT *modes);
+XrResult XRAPI_CALL xrEnumerateSceneComputeFeaturesMSFT(XrInstance instance, XrSystemId systemId, uint32_t featureCapacityInput, uint32_t *featureCountOutput, XrSceneComputeFeatureMSFT *features);
+XrResult XRAPI_CALL xrEnumerateSpaceSupportedComponentsFB(XrSpace space, uint32_t componentTypeCapacityInput, uint32_t *componentTypeCountOutput, XrSpaceComponentTypeFB *componentTypes);
+XrResult XRAPI_CALL xrEnumerateSpatialAnchorAttachableComponentsANDROID(XrInstance instance, XrSystemId systemId, uint32_t attachableComponentCapacityInput, uint32_t *attachableComponentCountOutput, XrSpatialComponentTypeEXT *attachableComponents);
+XrResult XRAPI_CALL xrEnumerateSpatialCapabilitiesEXT(XrInstance instance, XrSystemId systemId, uint32_t capabilityCapacityInput, uint32_t *capabilityCountOutput, XrSpatialCapabilityEXT *capabilities);
+XrResult XRAPI_CALL xrEnumerateSpatialCapabilityComponentTypesEXT(XrInstance instance, XrSystemId systemId, XrSpatialCapabilityEXT capability, XrSpatialCapabilityComponentTypesEXT *capabilityComponents);
+XrResult XRAPI_CALL xrEnumerateSpatialCapabilityFeaturesEXT(XrInstance instance, XrSystemId systemId, XrSpatialCapabilityEXT capability, uint32_t capabilityFeatureCapacityInput, uint32_t *capabilityFeatureCountOutput, XrSpatialCapabilityFeatureEXT *capabilityFeatures);
+XrResult XRAPI_CALL xrEnumerateSpatialEntityComponentTypesBD(XrSenseDataSnapshotBD snapshot, XrSpatialEntityIdBD entityId, uint32_t componentTypeCapacityInput, uint32_t *componentTypeCountOutput, XrSpatialEntityComponentTypeBD *componentTypes);
+XrResult XRAPI_CALL xrEnumerateSpatialPersistenceScopesEXT(XrInstance instance, XrSystemId systemId, uint32_t persistenceScopeCapacityInput, uint32_t *persistenceScopeCountOutput, XrSpatialPersistenceScopeEXT *persistenceScopes);
+XrResult XRAPI_CALL xrEnumerateSpatialReferenceImageFormatsEXT(XrInstance instance, XrSystemId systemId, XrSpatialCapabilityEXT capability, uint32_t formatCapacityInput, uint32_t *formatCountOutput, XrSpatialReferenceImageFormatEXT *formats);
+XrResult XRAPI_CALL xrEnumerateSupportedAnchorTrackableTypesANDROID(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+XrResult XRAPI_CALL xrEnumerateSupportedAudioSampleRateBD(XrSession session, uint32_t sampleRateCapacityInput, uint32_t *sampleRateCountOutput, XrAudioSampleRateBD *sampleRates);
+XrResult XRAPI_CALL xrEnumerateSupportedPersistenceAnchorTypesANDROID(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+XrResult XRAPI_CALL xrEnumerateSupportedSemanticLabelSetsANDROID(XrInstance instance, XrSystemId systemId, uint32_t supportedSemanticLabelSetsInputCapacity, uint32_t *supportedSemanticLabelSetsOutputCount, XrSceneMeshSemanticLabelSetANDROID *supportedSemanticLabelSets);
+XrResult XRAPI_CALL xrEnumerateSupportedSpatialContainerGraphicsPresentationsEXT(XrInstance instance, XrSystemId systemId, uint32_t graphicsPresentationCapacityInput, uint32_t *graphicsPresentationCountOutput, XrSpatialContainerGraphicsPresentationEXT *graphicsPresentations);
+XrResult XRAPI_CALL xrEnumerateSupportedTrackableTypesANDROID(XrInstance instance, XrSystemId systemId, uint32_t trackableTypeCapacityInput, uint32_t *trackableTypeCountOutput, XrTrackableTypeANDROID *trackableTypes);
+XrResult XRAPI_CALL xrEnumerateSwapchainFormats(XrSession session, uint32_t formatCapacityInput, uint32_t *formatCountOutput, int64_t *formats);
+XrResult XRAPI_CALL xrEnumerateSwapchainImages(XrSwapchain swapchain, uint32_t imageCapacityInput, uint32_t *imageCountOutput, XrSwapchainImageBaseHeader *images);
+XrResult XRAPI_CALL xrEnumerateViewConfigurationViews(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, uint32_t viewCapacityInput, uint32_t *viewCountOutput, XrViewConfigurationView *views);
+XrResult XRAPI_CALL xrEnumerateViewConfigurations(XrInstance instance, XrSystemId systemId, uint32_t viewConfigurationTypeCapacityInput, uint32_t *viewConfigurationTypeCountOutput, XrViewConfigurationType *viewConfigurationTypes);
+XrResult XRAPI_CALL xrEnumerateViveTrackerPathsHTCX(XrInstance instance, uint32_t pathCapacityInput, uint32_t *pathCountOutput, XrViveTrackerPathsHTCX *paths);
+XrResult XRAPI_CALL xrEraseSpaceFB(XrSession session, const XrSpaceEraseInfoFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrEraseSpacesMETA(XrSession session, const XrSpacesEraseInfoMETA *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrFreeWorldMeshBufferML(XrWorldMeshDetectorML detector, const XrWorldMeshBufferML *buffer);
+XrResult XRAPI_CALL xrGeometryInstanceSetTransformFB(XrGeometryInstanceFB instance, const XrGeometryInstanceTransformFB *transformation);
+XrResult XRAPI_CALL xrGetActionStateBoolean(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStateBoolean *state);
+XrResult XRAPI_CALL xrGetActionStateFloat(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStateFloat *state);
+XrResult XRAPI_CALL xrGetActionStatePose(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStatePose *state);
+XrResult XRAPI_CALL xrGetActionStateVector2f(XrSession session, const XrActionStateGetInfo *getInfo, XrActionStateVector2f *state);
+XrResult XRAPI_CALL xrGetAllSubmeshStatesANDROID(XrSceneMeshSnapshotANDROID snapshot, uint32_t submeshStateCapacityInput, uint32_t *submeshStateCountOutput, XrSceneSubmeshStateANDROID *submeshStates);
+XrResult XRAPI_CALL xrGetAllTrackablesANDROID(XrTrackableTrackerANDROID trackableTracker, uint32_t trackableCapacityInput, uint32_t *trackableCountOutput, XrTrackableANDROID *trackables);
+XrResult XRAPI_CALL xrGetAnchorPersistStateANDROID(XrDeviceAnchorPersistenceANDROID handle, const XrUuidEXT *anchorId, XrAnchorPersistStateANDROID *persistState);
+XrResult XRAPI_CALL xrGetAnchorUuidBD(XrAnchorBD anchor, XrUuidEXT *uuid);
+XrResult XRAPI_CALL xrGetAudioInputDeviceGuidOculus(XrInstance instance, wchar_t buffer[XR_MAX_AUDIO_DEVICE_STR_SIZE_OCULUS]);
+XrResult XRAPI_CALL xrGetAudioOutputDeviceGuidOculus(XrInstance instance, wchar_t buffer[XR_MAX_AUDIO_DEVICE_STR_SIZE_OCULUS]);
+XrResult XRAPI_CALL xrGetBodySkeletonFB(XrBodyTrackerFB bodyTracker, XrBodySkeletonFB *skeleton);
+XrResult XRAPI_CALL xrGetBodySkeletonHTC(XrBodyTrackerHTC bodyTracker, XrSpace baseSpace, uint32_t skeletonGenerationId, XrBodySkeletonHTC *skeleton);
+XrResult XRAPI_CALL xrGetBodyTrackingStateBD(XrSession session, XrBodyTrackingStateBD *state);
+XrResult XRAPI_CALL xrGetCoarseTrackingEyesInfoANDROID(XrEyeTrackerANDROID eyeTracker, const XrEyesGetInfoANDROID *getInfo, XrEyesANDROID *eyesOutput);
+XrResult XRAPI_CALL xrGetControllerModelKeyMSFT(XrSession session, XrPath topLevelUserPath, XrControllerModelKeyStateMSFT *controllerModelKeyState);
+XrResult XRAPI_CALL xrGetControllerModelPropertiesMSFT(XrSession session, XrControllerModelKeyMSFT modelKey, XrControllerModelPropertiesMSFT *properties);
+XrResult XRAPI_CALL xrGetControllerModelStateMSFT(XrSession session, XrControllerModelKeyMSFT modelKey, XrControllerModelStateMSFT *state);
+XrResult XRAPI_CALL xrGetCurrentInteractionProfile(XrSession session, XrPath topLevelUserPath, XrInteractionProfileState *interactionProfile);
+XrResult XRAPI_CALL xrGetD3D11GraphicsRequirementsKHR(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsD3D11KHR *graphicsRequirements);
+XrResult XRAPI_CALL xrGetD3D12GraphicsRequirementsKHR(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsD3D12KHR *graphicsRequirements);
+XrResult XRAPI_CALL xrGetDeviceSampleRateFB(XrSession session, const XrHapticActionInfo *hapticActionInfo, XrDevicePcmSampleRateGetInfoFB *deviceSampleRate);
+XrResult XRAPI_CALL xrGetDisplayRefreshRateFB(XrSession session, float *displayRefreshRate);
+XrResult XRAPI_CALL xrGetExportedLocalizationMapDataML(XrExportedLocalizationMapML map, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrGetEyeGazesFB(XrEyeTrackerFB eyeTracker, const XrEyeGazesInfoFB *gazeInfo, XrEyeGazesFB *eyeGazes);
+XrResult XRAPI_CALL xrGetFaceCalibrationStateANDROID(XrFaceTrackerANDROID faceTracker, XrBool32 *faceIsCalibratedOutput);
+XrResult XRAPI_CALL xrGetFaceExpressionWeights2FB(XrFaceTracker2FB faceTracker, const XrFaceExpressionInfo2FB *expressionInfo, XrFaceExpressionWeights2FB *expressionWeights);
+XrResult XRAPI_CALL xrGetFaceExpressionWeightsFB(XrFaceTrackerFB faceTracker, const XrFaceExpressionInfoFB *expressionInfo, XrFaceExpressionWeightsFB *expressionWeights);
+XrResult XRAPI_CALL xrGetFaceStateANDROID(XrFaceTrackerANDROID faceTracker, const XrFaceStateGetInfoANDROID *getInfo, XrFaceStateANDROID *faceStateOutput);
+XrResult XRAPI_CALL xrGetFacialExpressionBlendShapePropertiesML(XrFacialExpressionClientML facialExpressionClient, const XrFacialExpressionBlendShapeGetInfoML *blendShapeGetInfo, uint32_t blendShapeCount, XrFacialExpressionBlendShapePropertiesML *blendShapes);
+XrResult XRAPI_CALL xrGetFacialExpressionsHTC(XrFacialTrackerHTC facialTracker, XrFacialExpressionsHTC *facialExpressions);
+XrResult XRAPI_CALL xrGetFacialSimulationDataBD(XrFaceTrackerBD tracker, const XrFacialSimulationDataGetInfoBD *info, XrFacialSimulationDataBD *facialData);
+XrResult XRAPI_CALL xrGetFacialSimulationModeBD(XrFaceTrackerBD tracker, XrFacialSimulationModeBD *mode);
+XrResult XRAPI_CALL xrGetFineTrackingEyesInfoANDROID(XrEyeTrackerANDROID eyeTracker, const XrEyesGetInfoANDROID *getInfo, XrEyesANDROID *eyesOutput);
+XrResult XRAPI_CALL xrGetFoveationEyeTrackedStateMETA(XrSession session, XrFoveationEyeTrackedStateMETA *foveationState);
+XrResult XRAPI_CALL xrGetHandGestureQCOM(XrHandTrackerEXT handTracker, XrTime time, XrHandGestureQCOM *handGesture);
+XrResult XRAPI_CALL xrGetHandMeshFB(XrHandTrackerEXT handTracker, XrHandTrackingMeshFB *mesh);
+XrResult XRAPI_CALL xrGetInputSourceLocalizedName(XrSession session, const XrInputSourceLocalizedNameGetInfo *getInfo, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_xrVoidFunction *function);
+XrResult XRAPI_CALL xrGetInstanceProperties(XrInstance instance, XrInstanceProperties *instanceProperties);
+XrResult XRAPI_CALL xrGetLightEstimateANDROID(XrLightEstimatorANDROID estimator, const XrLightEstimateGetInfoANDROID *input, XrLightEstimateANDROID *output);
+XrResult XRAPI_CALL xrGetMarkerDetectorStateML(XrMarkerDetectorML markerDetector, XrMarkerDetectorStateML *state);
+XrResult XRAPI_CALL xrGetMarkerLengthML(XrMarkerDetectorML markerDetector, XrMarkerML marker, float *meters);
+XrResult XRAPI_CALL xrGetMarkerNumberML(XrMarkerDetectorML markerDetector, XrMarkerML marker, uint64_t *number);
+XrResult XRAPI_CALL xrGetMarkerReprojectionErrorML(XrMarkerDetectorML markerDetector, XrMarkerML marker, float *reprojectionErrorMeters);
+XrResult XRAPI_CALL xrGetMarkerSizeVARJO(XrSession session, uint64_t markerId, XrExtent2Df *size);
+XrResult XRAPI_CALL xrGetMarkerStringML(XrMarkerDetectorML markerDetector, XrMarkerML marker, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrGetMarkersML(XrMarkerDetectorML markerDetector, uint32_t markerCapacityInput, uint32_t *markerCountOutput, XrMarkerML *markers);
+XrResult XRAPI_CALL xrGetOpenGLGraphicsRequirementsKHR(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsOpenGLKHR *graphicsRequirements);
+XrResult XRAPI_CALL xrGetPassthroughCameraStateANDROID(XrSession session, const XrPassthroughCameraStateGetInfoANDROID *getInfo, XrPassthroughCameraStateANDROID *cameraStateOutput);
+XrResult XRAPI_CALL xrGetPassthroughPreferencesMETA(XrSession session, XrPassthroughPreferencesMETA *preferences);
+XrResult XRAPI_CALL xrGetPerformanceMetricsStateANDROID(XrSession session, XrPerformanceMetricsStateANDROID *state);
+XrResult XRAPI_CALL xrGetPerformanceMetricsStateMETA(XrSession session, XrPerformanceMetricsStateMETA *state);
+XrResult XRAPI_CALL xrGetPlaneDetectionStateEXT(XrPlaneDetectorEXT planeDetector, XrPlaneDetectionStateEXT *state);
+XrResult XRAPI_CALL xrGetPlaneDetectionsEXT(XrPlaneDetectorEXT planeDetector, const XrPlaneDetectorGetInfoEXT *info, XrPlaneDetectorLocationsEXT *locations);
+XrResult XRAPI_CALL xrGetPlanePolygonBufferEXT(XrPlaneDetectorEXT planeDetector, uint64_t planeId, uint32_t polygonBufferIndex, XrPlaneDetectorPolygonBufferEXT *polygonBuffer);
+XrResult XRAPI_CALL xrGetQueriedSenseDataBD(XrSenseDataSnapshotBD snapshot, XrQueriedSenseDataGetInfoBD *getInfo, XrQueriedSenseDataBD *queriedSenseData);
+XrResult XRAPI_CALL xrGetRecommendedLayerResolutionMETA(XrSession session, const XrRecommendedLayerResolutionGetInfoMETA *info, XrRecommendedLayerResolutionMETA *resolution);
+XrResult XRAPI_CALL xrGetReferenceSpaceBoundsRect(XrSession session, XrReferenceSpaceType referenceSpaceType, XrExtent2Df *bounds);
+XrResult XRAPI_CALL xrGetRenderModelAssetDataEXT(XrRenderModelAssetEXT asset, const XrRenderModelAssetDataGetInfoEXT *getInfo, XrRenderModelAssetDataEXT *buffer);
+XrResult XRAPI_CALL xrGetRenderModelAssetPropertiesEXT(XrRenderModelAssetEXT asset, const XrRenderModelAssetPropertiesGetInfoEXT *getInfo, XrRenderModelAssetPropertiesEXT *properties);
+XrResult XRAPI_CALL xrGetRenderModelPoseTopLevelUserPathEXT(XrRenderModelEXT renderModel, const XrInteractionRenderModelTopLevelUserPathGetInfoEXT *info, XrPath *topLevelUserPath);
+XrResult XRAPI_CALL xrGetRenderModelPropertiesEXT(XrRenderModelEXT renderModel, const XrRenderModelPropertiesGetInfoEXT *getInfo, XrRenderModelPropertiesEXT *properties);
+XrResult XRAPI_CALL xrGetRenderModelPropertiesFB(XrSession session, XrPath path, XrRenderModelPropertiesFB *properties);
+XrResult XRAPI_CALL xrGetRenderModelStateEXT(XrRenderModelEXT renderModel, const XrRenderModelStateGetInfoEXT *getInfo, XrRenderModelStateEXT *state);
+XrResult XRAPI_CALL xrGetSceneComponentsMSFT(XrSceneMSFT scene, const XrSceneComponentsGetInfoMSFT *getInfo, XrSceneComponentsMSFT *components);
+XrResult XRAPI_CALL xrGetSceneComputeStateMSFT(XrSceneObserverMSFT sceneObserver, XrSceneComputeStateMSFT *state);
+XrResult XRAPI_CALL xrGetSceneMarkerDecodedStringMSFT(XrSceneMSFT scene, const XrUuidMSFT *markerId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrGetSceneMarkerRawDataMSFT(XrSceneMSFT scene, const XrUuidMSFT *markerId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint8_t *buffer);
+XrResult XRAPI_CALL xrGetSceneMeshBuffersMSFT(XrSceneMSFT scene, const XrSceneMeshBuffersGetInfoMSFT *getInfo, XrSceneMeshBuffersMSFT *buffers);
+XrResult XRAPI_CALL xrGetSenseDataProviderStateBD(XrSenseDataProviderBD provider, XrSenseDataProviderStateBD *state);
+XrResult XRAPI_CALL xrGetSerializedSceneFragmentDataMSFT(XrSceneMSFT scene, const XrSerializedSceneFragmentDataGetInfoMSFT *getInfo, uint32_t countInput, uint32_t *readOutput, uint8_t *buffer);
+XrResult XRAPI_CALL xrGetSpaceBoundary2DFB(XrSession session, XrSpace space, XrBoundary2DFB *boundary2DOutput);
+XrResult XRAPI_CALL xrGetSpaceBoundingBox2DFB(XrSession session, XrSpace space, XrRect2Df *boundingBox2DOutput);
+XrResult XRAPI_CALL xrGetSpaceBoundingBox3DFB(XrSession session, XrSpace space, XrRect3DfFB *boundingBox3DOutput);
+XrResult XRAPI_CALL xrGetSpaceComponentStatusFB(XrSpace space, XrSpaceComponentTypeFB componentType, XrSpaceComponentStatusFB *status);
+XrResult XRAPI_CALL xrGetSpaceContainerFB(XrSession session, XrSpace space, XrSpaceContainerFB *spaceContainerOutput);
+XrResult XRAPI_CALL xrGetSpaceRoomLayoutFB(XrSession session, XrSpace space, XrRoomLayoutFB *roomLayoutOutput);
+XrResult XRAPI_CALL xrGetSpaceRoomMeshFaceIndicesMETA(XrSpace space, const XrUuid *faceUuid, XrRoomMeshFaceIndicesMETA *roomMeshFaceIndicesOutput);
+XrResult XRAPI_CALL xrGetSpaceRoomMeshMETA(XrSpace space, const XrSpaceRoomMeshGetInfoMETA *getInfo, XrRoomMeshMETA *roomMeshOutput);
+XrResult XRAPI_CALL xrGetSpaceSemanticLabelsFB(XrSession session, XrSpace space, XrSemanticLabelsFB *semanticLabelsOutput);
+XrResult XRAPI_CALL xrGetSpaceTriangleMeshMETA(XrSpace space, const XrSpaceTriangleMeshGetInfoMETA *getInfo, XrSpaceTriangleMeshMETA *triangleMeshOutput);
+XrResult XRAPI_CALL xrGetSpaceUserIdFB(XrSpaceUserFB user, XrSpaceUserIdFB *userId);
+XrResult XRAPI_CALL xrGetSpaceUuidFB(XrSpace space, XrUuidEXT *uuid);
+XrResult XRAPI_CALL xrGetSpatialAnchorNameHTC(XrSpace anchor, XrSpatialAnchorNameHTC *name);
+XrResult XRAPI_CALL xrGetSpatialAnchorStateML(XrSpace anchor, XrSpatialAnchorStateML *state);
+XrResult XRAPI_CALL xrGetSpatialBufferFloatEXT(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, float *buffer);
+XrResult XRAPI_CALL xrGetSpatialBufferStringEXT(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrGetSpatialBufferUint16EXT(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint16_t *buffer);
+XrResult XRAPI_CALL xrGetSpatialBufferUint32EXT(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint32_t *buffer);
+XrResult XRAPI_CALL xrGetSpatialBufferUint8EXT(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint8_t *buffer);
+XrResult XRAPI_CALL xrGetSpatialBufferVector2fEXT(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, XrVector2f *buffer);
+XrResult XRAPI_CALL xrGetSpatialBufferVector3fEXT(XrSpatialSnapshotEXT snapshot, const XrSpatialBufferGetInfoEXT *info, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, XrVector3f *buffer);
+XrResult XRAPI_CALL xrGetSpatialContainerBoundsEXT(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerBoundsGetInfoEXT *getInfo, XrSpatialContainerBoundsEXT *bounds);
+XrResult XRAPI_CALL xrGetSpatialContainerStateEXT(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerStateGetInfoEXT *getInfo, XrSpatialContainerStateEXT *state);
+XrResult XRAPI_CALL xrGetSpatialEntityComponentDataBD(XrSenseDataSnapshotBD snapshot, const XrSpatialEntityComponentGetInfoBD *getInfo, XrSpatialEntityComponentDataBaseHeaderBD *componentData);
+XrResult XRAPI_CALL xrGetSpatialEntityUuidBD(XrSenseDataSnapshotBD snapshot, XrSpatialEntityIdBD entityId, XrUuidEXT *uuid);
+XrResult XRAPI_CALL xrGetSpatialGraphNodeBindingPropertiesMSFT(XrSpatialGraphNodeBindingMSFT nodeBinding, const XrSpatialGraphNodeBindingPropertiesGetInfoMSFT *getInfo, XrSpatialGraphNodeBindingPropertiesMSFT *properties);
+XrResult XRAPI_CALL xrGetStationaryReferenceSpaceGenerationIdEXT(XrSession session, const XrStationaryReferenceSpaceGenerationIdGetInfoEXT *getInfo, XrStationaryReferenceSpaceGenerationIdResultEXT *generationIdResult);
+XrResult XRAPI_CALL xrGetSubmeshDataANDROID(XrSceneMeshSnapshotANDROID snapshot, uint32_t submeshDataCount, XrSceneSubmeshDataANDROID *inoutSubmeshData);
+XrResult XRAPI_CALL xrGetSwapchainStateFB(XrSwapchain swapchain, XrSwapchainStateBaseHeaderFB *state);
+XrResult XRAPI_CALL xrGetSystem(XrInstance instance, const XrSystemGetInfo *getInfo, XrSystemId *systemId);
+XrResult XRAPI_CALL xrGetSystemProperties(XrInstance instance, XrSystemId systemId, XrSystemProperties *properties);
+XrResult XRAPI_CALL xrGetTrackableImageANDROID(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableImageANDROID *trackable);
+XrResult XRAPI_CALL xrGetTrackableMarkerANDROID(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableMarkerANDROID *markerOutput);
+XrResult XRAPI_CALL xrGetTrackableObjectANDROID(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableObjectANDROID *objectOutput);
+XrResult XRAPI_CALL xrGetTrackablePlaneANDROID(XrTrackableTrackerANDROID trackableTracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackablePlaneANDROID *planeOutput);
+XrResult XRAPI_CALL xrGetTrackableQrCodeANDROID(XrTrackableTrackerANDROID tracker, const XrTrackableGetInfoANDROID *getInfo, XrTrackableQrCodeANDROID *qrCodeOutput);
+XrResult XRAPI_CALL xrGetViewConfigurationProperties(XrInstance instance, XrSystemId systemId, XrViewConfigurationType viewConfigurationType, XrViewConfigurationProperties *configurationProperties);
+XrResult XRAPI_CALL xrGetVirtualKeyboardDirtyTexturesMETA(XrVirtualKeyboardMETA keyboard, uint32_t textureIdCapacityInput, uint32_t *textureIdCountOutput, uint64_t *textureIds);
+XrResult XRAPI_CALL xrGetVirtualKeyboardModelAnimationStatesMETA(XrVirtualKeyboardMETA keyboard, XrVirtualKeyboardModelAnimationStatesMETA *animationStates);
+XrResult XRAPI_CALL xrGetVirtualKeyboardScaleMETA(XrVirtualKeyboardMETA keyboard, float *scale);
+XrResult XRAPI_CALL xrGetVirtualKeyboardTextureDataMETA(XrVirtualKeyboardMETA keyboard, uint64_t textureId, XrVirtualKeyboardTextureDataMETA *textureData);
+XrResult XRAPI_CALL xrGetVisibilityMaskKHR(XrSession session, XrViewConfigurationType viewConfigurationType, uint32_t viewIndex, XrVisibilityMaskTypeKHR visibilityMaskType, XrVisibilityMaskKHR *visibilityMask);
+XrResult XRAPI_CALL xrGetVulkanDeviceExtensionsKHR(XrInstance instance, XrSystemId systemId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrGetVulkanGraphicsDevice2KHR(XrInstance instance, const XrVulkanGraphicsDeviceGetInfoKHR *getInfo, VkPhysicalDevice *vulkanPhysicalDevice);
+XrResult XRAPI_CALL xrGetVulkanGraphicsDeviceKHR(XrInstance instance, XrSystemId systemId, VkInstance vkInstance, VkPhysicalDevice *vkPhysicalDevice);
+XrResult XRAPI_CALL xrGetVulkanGraphicsRequirements2KHR(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsVulkanKHR *graphicsRequirements);
+XrResult XRAPI_CALL xrGetVulkanGraphicsRequirementsKHR(XrInstance instance, XrSystemId systemId, XrGraphicsRequirementsVulkanKHR *graphicsRequirements);
+XrResult XRAPI_CALL xrGetVulkanInstanceExtensionsKHR(XrInstance instance, XrSystemId systemId, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrGetWorldMeshBufferRecommendSizeML(XrWorldMeshDetectorML detector, const XrWorldMeshBufferRecommendedSizeInfoML *sizeInfo, XrWorldMeshBufferSizeML *size);
+XrResult XRAPI_CALL xrHapticParametricGetPropertiesEXT(XrSession session, const XrHapticActionInfo *hapticActionInfo, XrHapticParametricPropertiesEXT *parametricProperties);
+XrResult XRAPI_CALL xrImportLocalizationMapML(XrSession session, const XrLocalizationMapImportInfoML *importInfo, XrUuidEXT *mapUuid);
+XrResult XRAPI_CALL xrLoadControllerModelMSFT(XrSession session, XrControllerModelKeyMSFT modelKey, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, uint8_t *buffer);
+XrResult XRAPI_CALL xrLoadRenderModelFB(XrSession session, const XrRenderModelLoadInfoFB *info, XrRenderModelBufferFB *buffer);
+XrResult XRAPI_CALL xrLocateBodyJointsBD(XrBodyTrackerBD bodyTracker, const XrBodyJointsLocateInfoBD *locateInfo, XrBodyJointLocationsBD *locations);
+XrResult XRAPI_CALL xrLocateBodyJointsFB(XrBodyTrackerFB bodyTracker, const XrBodyJointsLocateInfoFB *locateInfo, XrBodyJointLocationsFB *locations);
+XrResult XRAPI_CALL xrLocateBodyJointsHTC(XrBodyTrackerHTC bodyTracker, const XrBodyJointsLocateInfoHTC *locateInfo, XrBodyJointLocationsHTC *locations);
+XrResult XRAPI_CALL xrLocateGeospatialPoseANDROID(XrGeospatialTrackerANDROID geospatialTracker, const XrGeospatialPoseLocateInfoANDROID *locateInfo, XrSpaceLocation *location);
+XrResult XRAPI_CALL xrLocateGeospatialPoseFromPoseANDROID(XrGeospatialTrackerANDROID geospatialTracker, const XrGeospatialPoseFromPoseLocateInfoANDROID *locateInfo, XrGeospatialPoseResultANDROID *geospatialPoseResult);
+XrResult XRAPI_CALL xrLocateHandJointsEXT(XrHandTrackerEXT handTracker, const XrHandJointsLocateInfoEXT *locateInfo, XrHandJointLocationsEXT *locations);
+XrResult XRAPI_CALL xrLocateSceneComponentsMSFT(XrSceneMSFT scene, const XrSceneComponentsLocateInfoMSFT *locateInfo, XrSceneComponentLocationsMSFT *locations);
+XrResult XRAPI_CALL xrLocateSpace(XrSpace space, XrSpace baseSpace, XrTime time, XrSpaceLocation *location);
+XrResult XRAPI_CALL xrLocateSpaces(XrSession session, const XrSpacesLocateInfo *locateInfo, XrSpaceLocations *spaceLocations);
+XrResult XRAPI_CALL xrLocateSpacesKHR(XrSession session, const XrSpacesLocateInfo *locateInfo, XrSpaceLocations *spaceLocations);
+XrResult XRAPI_CALL xrLocateSpatialContainerViewsEXT(XrSession session, const XrSpatialContainerViewsLocateInfoEXT *locateInfo, uint32_t viewStateCount, XrSpatialContainerViewStateEXT *viewStates, uint32_t viewCount, XrView *views);
+XrResult XRAPI_CALL xrLocateViews(XrSession session, const XrViewLocateInfo *viewLocateInfo, XrViewState *viewState, uint32_t viewCapacityInput, uint32_t *viewCountOutput, XrView *views);
+XrResult XRAPI_CALL xrNegotiateLoaderApiLayerInterface(const XrNegotiateLoaderInfo *loaderInfo, const char *layerName, XrNegotiateApiLayerRequest *apiLayerRequest);
+XrResult XRAPI_CALL xrNegotiateLoaderRuntimeInterface(const XrNegotiateLoaderInfo *loaderInfo, XrNegotiateRuntimeRequest *runtimeRequest);
+XrResult XRAPI_CALL xrPassthroughLayerPauseFB(XrPassthroughLayerFB layer);
+XrResult XRAPI_CALL xrPassthroughLayerResumeFB(XrPassthroughLayerFB layer);
+XrResult XRAPI_CALL xrPassthroughLayerSetKeyboardHandsIntensityFB(XrPassthroughLayerFB layer, const XrPassthroughKeyboardHandsIntensityFB *intensity);
+XrResult XRAPI_CALL xrPassthroughLayerSetStyleFB(XrPassthroughLayerFB layer, const XrPassthroughStyleFB *style);
+XrResult XRAPI_CALL xrPassthroughPauseFB(XrPassthroughFB passthrough);
+XrResult XRAPI_CALL xrPassthroughStartFB(XrPassthroughFB passthrough);
+XrResult XRAPI_CALL xrPathToString(XrInstance instance, XrPath path, uint32_t bufferCapacityInput, uint32_t *bufferCountOutput, char *buffer);
+XrResult XRAPI_CALL xrPauseSimultaneousHandsAndControllersTrackingMETA(XrSession session, const XrSimultaneousHandsAndControllersTrackingPauseInfoMETA *pauseInfo);
+XrResult XRAPI_CALL xrPerfSettingsSetPerformanceLevelEXT(XrSession session, XrPerfSettingsDomainEXT domain, XrPerfSettingsLevelEXT level);
+XrResult XRAPI_CALL xrPersistAnchorANDROID(XrDeviceAnchorPersistenceANDROID handle, const XrPersistedAnchorSpaceInfoANDROID *persistedInfo, XrUuidEXT *anchorIdOutput);
+XrResult XRAPI_CALL xrPersistSpatialAnchorAsyncBD(XrSenseDataProviderBD provider, const XrSpatialAnchorPersistInfoBD *info, XrFutureEXT *future);
+XrResult XRAPI_CALL xrPersistSpatialAnchorCompleteBD(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+XrResult XRAPI_CALL xrPersistSpatialAnchorMSFT(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore, const XrSpatialAnchorPersistenceInfoMSFT *spatialAnchorPersistenceInfo);
+XrResult XRAPI_CALL xrPersistSpatialEntityAsyncEXT(XrSpatialPersistenceContextEXT persistenceContext, const XrSpatialEntityPersistInfoEXT *persistInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrPersistSpatialEntityCompleteEXT(XrSpatialPersistenceContextEXT persistenceContext, XrFutureEXT future, XrPersistSpatialEntityCompletionEXT *completion);
+XrResult XRAPI_CALL xrPollEvent(XrInstance instance, XrEventDataBuffer *eventData);
+XrResult XRAPI_CALL xrPollFutureEXT(XrInstance instance, const XrFuturePollInfoEXT *pollInfo, XrFuturePollResultEXT *pollResult);
+XrResult XRAPI_CALL xrPublishSpatialAnchorsAsyncML(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsPublishInfoML *publishInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrPublishSpatialAnchorsCompleteML(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsPublishCompletionML *completion);
+XrResult XRAPI_CALL xrQueryFramesPerBufferRangeBD(XrSession session, XrAudioSampleRateBD sampleRate, uint32_t *min, uint32_t *max);
+XrResult XRAPI_CALL xrQueryLocalizationMapsML(XrSession session, const XrLocalizationMapQueryInfoBaseHeaderML *queryInfo, uint32_t mapCapacityInput, uint32_t *mapCountOutput, XrLocalizationMapML *maps);
+XrResult XRAPI_CALL xrQueryPerformanceMetricsCounterANDROID(XrSession session, XrPath counterPath, XrPerformanceMetricsCounterANDROID *counter);
+XrResult XRAPI_CALL xrQueryPerformanceMetricsCounterMETA(XrSession session, XrPath counterPath, XrPerformanceMetricsCounterMETA *counter);
+XrResult XRAPI_CALL xrQuerySenseDataAsyncBD(XrSenseDataProviderBD provider, const XrSenseDataQueryInfoBD *queryInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrQuerySenseDataCompleteBD(XrSenseDataProviderBD provider, XrFutureEXT future, XrSenseDataQueryCompletionBD *completion);
+XrResult XRAPI_CALL xrQuerySpacesFB(XrSession session, const XrSpaceQueryInfoBaseHeaderFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrQuerySpatialAnchorsAsyncML(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsQueryInfoBaseHeaderML *queryInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrQuerySpatialAnchorsCompleteML(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsQueryCompletionML *completion);
+XrResult XRAPI_CALL xrQuerySpatialComponentDataEXT(XrSpatialSnapshotEXT snapshot, const XrSpatialComponentDataQueryConditionEXT *queryCondition, XrSpatialComponentDataQueryResultEXT *queryResult);
+XrResult XRAPI_CALL xrQuerySystemTrackedKeyboardFB(XrSession session, const XrKeyboardTrackingQueryFB *queryInfo, XrKeyboardTrackingDescriptionFB *keyboard);
+XrResult XRAPI_CALL xrRaycastANDROID(XrSession session, const XrRaycastInfoANDROID *rayInfo, XrRaycastHitResultsANDROID *results);
+XrResult XRAPI_CALL xrReleaseSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageReleaseInfo *releaseInfo);
+XrResult XRAPI_CALL xrRemoveTrackableImageDatabaseANDROID(XrTrackableTrackerANDROID tracker, XrTrackableImageDatabaseANDROID database);
+XrResult XRAPI_CALL xrRequestBodyTrackingFidelityMETA(XrBodyTrackerFB bodyTracker, const XrBodyTrackingFidelityMETA fidelity);
+XrResult XRAPI_CALL xrRequestBoundaryVisibilityMETA(XrSession session, XrBoundaryVisibilityMETA boundaryVisibility);
+XrResult XRAPI_CALL xrRequestDisplayRefreshRateFB(XrSession session, float displayRefreshRate);
+XrResult XRAPI_CALL xrRequestExitSession(XrSession session);
+XrResult XRAPI_CALL xrRequestMapLocalizationML(XrSession session, const XrMapLocalizationRequestInfoML *requestInfo);
+XrResult XRAPI_CALL xrRequestSceneCaptureFB(XrSession session, const XrSceneCaptureRequestInfoFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrRequestSpatialContainerBoundsModeEXT(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerBoundsModeRequestInfoEXT *info);
+XrResult XRAPI_CALL xrRequestSpatialContainerVisibleEXT(XrSpatialContainerEXT spatialContainer, const XrSpatialContainerVisibleRequestInfoEXT *info);
+XrResult XRAPI_CALL xrRequestWorldMeshAsyncML(XrWorldMeshDetectorML detector, const XrWorldMeshGetInfoML *getInfo, XrWorldMeshBufferML *buffer, XrFutureEXT *future);
+XrResult XRAPI_CALL xrRequestWorldMeshCompleteML(XrWorldMeshDetectorML detector, const XrWorldMeshRequestCompletionInfoML *completionInfo, XrFutureEXT future, XrWorldMeshRequestCompletionML *completion);
+XrResult XRAPI_CALL xrRequestWorldMeshStateAsyncML(XrWorldMeshDetectorML detector, const XrWorldMeshStateRequestInfoML *stateRequest, XrFutureEXT *future);
+XrResult XRAPI_CALL xrRequestWorldMeshStateCompleteML(XrWorldMeshDetectorML detector, XrFutureEXT future, XrWorldMeshStateRequestCompletionML *completion);
+XrResult XRAPI_CALL xrResetBodyTrackingCalibrationMETA(XrBodyTrackerFB bodyTracker);
+XrResult XRAPI_CALL xrResultToString(XrInstance instance, XrResult value, char buffer[XR_MAX_RESULT_STRING_SIZE]);
+XrResult XRAPI_CALL xrResultToString2KHR(XrInstance instance, XrResult value, char buffer[XR_MAX_RESULT_STRING_SIZE_EXTENDED_KHR]);
+XrResult XRAPI_CALL xrResumeSimultaneousHandsAndControllersTrackingMETA(XrSession session, const XrSimultaneousHandsAndControllersTrackingResumeInfoMETA *resumeInfo);
+XrResult XRAPI_CALL xrRetrieveSpaceQueryResultsFB(XrSession session, XrAsyncRequestIdFB requestId, XrSpaceQueryResultsFB *results);
+XrResult XRAPI_CALL xrSaveSpaceFB(XrSession session, const XrSpaceSaveInfoFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrSaveSpaceListFB(XrSession session, const XrSpaceListSaveInfoFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrSaveSpacesMETA(XrSession session, const XrSpacesSaveInfoMETA *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrSendVirtualKeyboardInputMETA(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardInputInfoMETA *info, XrPosef *interactorRootPose);
+XrResult XRAPI_CALL xrSetColorSpaceFB(XrSession session, const XrColorSpaceFB colorSpace);
+XrResult XRAPI_CALL xrSetDigitalLensControlALMALENCE(XrSession session, const XrDigitalLensControlALMALENCE *digitalLensControl);
+XrResult XRAPI_CALL xrSetEnvironmentDepthEstimationVARJO(XrSession session, XrBool32 enabled);
+XrResult XRAPI_CALL xrSetFacialSimulationModeBD(XrFaceTrackerBD tracker, XrFacialSimulationModeBD mode);
+XrResult XRAPI_CALL xrSetGoogleCloudAuthAsyncANDROID(XrSession session, const XrGoogleCloudAuthInfoBaseHeaderANDROID *authInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrSetGoogleCloudAuthCompleteANDROID(XrSession session, XrFutureEXT future, XrFutureCompletionEXT *completion);
+XrResult XRAPI_CALL xrSetHandTrackingFrequencyHintMETA(XrSession session, XrHandTrackingFrequencyHintMETA frequencyHint);
+XrResult XRAPI_CALL xrSetHdrMetadataSONY(XrSwapchain swapchain, const XrHdrMetadataSONY *hdrMetadata);
+XrResult XRAPI_CALL xrSetInputDeviceActiveEXT(XrSession session, XrPath interactionProfile, XrPath topLevelPath, XrBool32 isActive);
+XrResult XRAPI_CALL xrSetInputDeviceLocationEXT(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, XrSpace space, XrPosef pose);
+XrResult XRAPI_CALL xrSetInputDeviceStateBoolEXT(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, XrBool32 state);
+XrResult XRAPI_CALL xrSetInputDeviceStateFloatEXT(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, float state);
+XrResult XRAPI_CALL xrSetInputDeviceStateVector2fEXT(XrSession session, XrPath topLevelPath, XrPath inputSourcePath, XrVector2f state);
+XrResult XRAPI_CALL xrSetMarkerTrackingPredictionVARJO(XrSession session, uint64_t markerId, XrBool32 enable);
+XrResult XRAPI_CALL xrSetMarkerTrackingTimeoutVARJO(XrSession session, uint64_t markerId, XrDuration timeout);
+XrResult XRAPI_CALL xrSetMarkerTrackingVARJO(XrSession session, XrBool32 enabled);
+XrResult XRAPI_CALL xrSetPassthroughLayerMeshANDROID(XrPassthroughLayerANDROID layer, const XrPassthroughLayerMeshANDROID *mesh);
+XrResult XRAPI_CALL xrSetPerformanceMetricsStateANDROID(XrSession session, const XrPerformanceMetricsStateANDROID *state);
+XrResult XRAPI_CALL xrSetPerformanceMetricsStateMETA(XrSession session, const XrPerformanceMetricsStateMETA *state);
+XrResult XRAPI_CALL xrSetSpaceComponentStatusFB(XrSpace space, const XrSpaceComponentStatusSetInfoFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrSetSystemNotificationsML(XrInstance instance, const XrSystemNotificationsSetInfoML *info);
+XrResult XRAPI_CALL xrSetTilePropertiesHintMETA(XrSession session, const XrTilePropertiesHintMETA *properties);
+XrResult XRAPI_CALL xrSetTrackingOptimizationSettingsHintQCOM(XrSession session, XrTrackingOptimizationSettingsDomainQCOM domain, XrTrackingOptimizationSettingsHintQCOM hint);
+XrResult XRAPI_CALL xrSetViewOffsetVARJO(XrSession session, float offset);
+XrResult XRAPI_CALL xrSetVirtualKeyboardModelVisibilityMETA(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardModelVisibilitySetInfoMETA *modelVisibility);
+XrResult XRAPI_CALL xrShareSpacesFB(XrSession session, const XrSpaceShareInfoFB *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrShareSpacesMETA(XrSession session, const XrShareSpacesInfoMETA *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrShareSpatialAnchorAsyncBD(XrSenseDataProviderBD provider, const XrSpatialAnchorShareInfoBD *info, XrFutureEXT *future);
+XrResult XRAPI_CALL xrShareSpatialAnchorCompleteBD(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+XrResult XRAPI_CALL xrSnapshotMarkerDetectorML(XrMarkerDetectorML markerDetector, XrMarkerDetectorSnapshotInfoML *snapshotInfo);
+XrResult XRAPI_CALL xrStartBodyTrackingCalibrationAppBD(XrSession session);
+XrResult XRAPI_CALL xrStartColocationAdvertisementMETA(XrSession session, const XrColocationAdvertisementStartInfoMETA *info, XrAsyncRequestIdFB *advertisementRequestId);
+XrResult XRAPI_CALL xrStartColocationDiscoveryMETA(XrSession session, const XrColocationDiscoveryStartInfoMETA *info, XrAsyncRequestIdFB *discoveryRequestId);
+XrResult XRAPI_CALL xrStartSenseDataProviderAsyncBD(XrSenseDataProviderBD provider, const XrSenseDataProviderStartInfoBD *startInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrStartSenseDataProviderCompleteBD(XrSession session, XrFutureEXT future, XrFutureCompletionEXT *completion);
+XrResult XRAPI_CALL xrStopColocationAdvertisementMETA(XrSession session, const XrColocationAdvertisementStopInfoMETA *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrStopColocationDiscoveryMETA(XrSession session, const XrColocationDiscoveryStopInfoMETA *info, XrAsyncRequestIdFB *requestId);
+XrResult XRAPI_CALL xrStopHapticFeedback(XrSession session, const XrHapticActionInfo *hapticActionInfo);
+XrResult XRAPI_CALL xrStopSenseDataProviderBD(XrSenseDataProviderBD provider);
+XrResult XRAPI_CALL xrStringToPath(XrInstance instance, const char *pathString, XrPath *path);
+XrResult XRAPI_CALL xrStructureTypeToString(XrInstance instance, XrStructureType value, char buffer[XR_MAX_STRUCTURE_NAME_SIZE]);
+XrResult XRAPI_CALL xrStructureTypeToString2KHR(XrInstance instance, XrStructureType value, char buffer[XR_MAX_STRUCTURE_NAME_SIZE_EXTENDED_KHR]);
+XrResult XRAPI_CALL xrSubmitSoundFieldBufferBD(XrSoundFieldBD soundField, const XrAudioBufferBD *buffer);
+XrResult XRAPI_CALL xrSubmitSoundObjectBufferBD(XrSoundObjectBD soundObject, const XrAudioBufferBD *buffer);
+XrResult XRAPI_CALL xrSuggestBodyTrackingCalibrationOverrideMETA(XrBodyTrackerFB bodyTracker, const XrBodyTrackingCalibrationInfoMETA *calibrationInfo);
+XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(XrInstance instance, const XrInteractionProfileSuggestedBinding *suggestedBindings);
+XrResult XRAPI_CALL xrSuggestVirtualKeyboardLocationMETA(XrVirtualKeyboardMETA keyboard, const XrVirtualKeyboardLocationInfoMETA *locationInfo);
+XrResult XRAPI_CALL xrSyncActions(XrSession session, const XrActionsSyncInfo *syncInfo);
+XrResult XRAPI_CALL xrThermalGetTemperatureTrendEXT(XrSession session, XrPerfSettingsDomainEXT domain, XrPerfSettingsNotificationLevelEXT *notificationLevel, float *tempHeadroom, float *tempSlope);
+XrResult XRAPI_CALL xrTryCreateSpatialGraphStaticNodeBindingMSFT(XrSession session, const XrSpatialGraphStaticNodeBindingCreateInfoMSFT *createInfo, XrSpatialGraphNodeBindingMSFT *nodeBinding);
+XrResult XRAPI_CALL xrUnpersistAnchorANDROID(XrDeviceAnchorPersistenceANDROID handle, const XrUuidEXT *anchorId);
+XrResult XRAPI_CALL xrUnpersistSpatialAnchorAsyncBD(XrSenseDataProviderBD provider, const XrSpatialAnchorUnpersistInfoBD *info, XrFutureEXT *future);
+XrResult XRAPI_CALL xrUnpersistSpatialAnchorCompleteBD(XrSenseDataProviderBD provider, XrFutureEXT future, XrFutureCompletionEXT *completion);
+XrResult XRAPI_CALL xrUnpersistSpatialAnchorMSFT(XrSpatialAnchorStoreConnectionMSFT spatialAnchorStore, const XrSpatialAnchorPersistenceNameMSFT *spatialAnchorPersistenceName);
+XrResult XRAPI_CALL xrUnpersistSpatialEntityAsyncEXT(XrSpatialPersistenceContextEXT persistenceContext, const XrSpatialEntityUnpersistInfoEXT *unpersistInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrUnpersistSpatialEntityCompleteEXT(XrSpatialPersistenceContextEXT persistenceContext, XrFutureEXT future, XrUnpersistSpatialEntityCompletionEXT *completion);
+XrResult XRAPI_CALL xrUpdateHandMeshMSFT(XrHandTrackerEXT handTracker, const XrHandMeshUpdateInfoMSFT *updateInfo, XrHandMeshMSFT *handMesh);
+XrResult XRAPI_CALL xrUpdatePassthroughColorLutMETA(XrPassthroughColorLutMETA colorLut, const XrPassthroughColorLutUpdateInfoMETA *updateInfo);
+XrResult XRAPI_CALL xrUpdateSoundFieldConfigBD(XrSoundFieldBD soundField, const XrSoundFieldConfigBD *config, XrSoundFieldFlagsBD flags);
+XrResult XRAPI_CALL xrUpdateSoundObjectConfigBD(XrSoundObjectBD soundObject, const XrSoundObjectConfigBD *config, XrSoundObjectFlagsBD flags);
+XrResult XRAPI_CALL xrUpdateSoundObstacleConfigBD(XrSoundObstacleBD soundObstacle, const XrSoundObstacleConfigBD *config, const XrSoundTriangleMeshBD *mesh, XrSoundObstacleFlagsBD flags);
+XrResult XRAPI_CALL xrUpdateSoundObstacleMaterialConfigBD(XrSoundObstacleMaterialBD material, const XrSoundObstacleMaterialConfigBD *config);
+XrResult XRAPI_CALL xrUpdateSpatialAnchorsExpirationAsyncML(XrSpatialAnchorsStorageML storage, const XrSpatialAnchorsUpdateExpirationInfoML *updateInfo, XrFutureEXT *future);
+XrResult XRAPI_CALL xrUpdateSpatialAnchorsExpirationCompleteML(XrSpatialAnchorsStorageML storage, XrFutureEXT future, XrSpatialAnchorsUpdateExpirationCompletionML *completion);
+XrResult XRAPI_CALL xrUpdateSwapchainFB(XrSwapchain swapchain, const XrSwapchainStateBaseHeaderFB *state);
+XrResult XRAPI_CALL xrWaitAudioPeriodBD(XrSpatialAudioRendererBD renderer, XrDuration timeout);
+XrResult XRAPI_CALL xrWaitFrame(XrSession session, const XrFrameWaitInfo *frameWaitInfo, XrFrameState *frameState);
+XrResult XRAPI_CALL xrWaitSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageWaitInfo *waitInfo);
+#endif /* XR_NO_PROTOTYPES */
+
+#endif /* __WINE_OPENXR_H */

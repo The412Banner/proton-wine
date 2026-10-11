@@ -15,6 +15,7 @@
 #include "ntuser.h"
 
 #include "wine/wgl.h"
+#include "wine/opengl_driver.h"
 #include "wine/unixlib.h"
 
 struct process_attach_params
@@ -88,6 +89,27 @@ struct wglSwapBuffers_params
 {
     TEB *teb;
     HDC hdc;
+    BOOL ret;
+};
+
+struct wglWineCloseDmaBufWINE_params
+{
+    int fd;
+};
+
+struct wglWineDmaBufExportSupportedWINE_params
+{
+    TEB *teb;
+    BOOL ret;
+};
+
+struct wglWineExportDmaBufWINE_params
+{
+    TEB *teb;
+    GLuint texture;
+    GLenum target;
+    struct wgl_dmabuf_desc *desc;
+    int *fd;
     BOOL ret;
 };
 
@@ -25686,6 +25708,73 @@ struct wglCreatePbufferARB_params
     HPBUFFERARB ret;
 };
 
+struct wglDXCloseDeviceNV_params
+{
+    TEB *teb;
+    HANDLE hDevice;
+    BOOL ret;
+};
+
+struct wglDXLockObjectsNV_params
+{
+    TEB *teb;
+    HANDLE hDevice;
+    GLint count;
+    HANDLE *hObjects;
+    BOOL ret;
+};
+
+struct wglDXObjectAccessNV_params
+{
+    TEB *teb;
+    HANDLE hObject;
+    GLenum access;
+    BOOL ret;
+};
+
+struct wglDXOpenDeviceNV_params
+{
+    TEB *teb;
+    void *dxDevice;
+    HANDLE ret;
+};
+
+struct wglDXRegisterObjectNV_params
+{
+    TEB *teb;
+    HANDLE hDevice;
+    void *dxObject;
+    GLuint name;
+    GLenum type;
+    GLenum access;
+    HANDLE ret;
+};
+
+struct wglDXSetResourceShareHandleNV_params
+{
+    TEB *teb;
+    void *dxObject;
+    HANDLE shareHandle;
+    BOOL ret;
+};
+
+struct wglDXUnlockObjectsNV_params
+{
+    TEB *teb;
+    HANDLE hDevice;
+    GLint count;
+    HANDLE *hObjects;
+    BOOL ret;
+};
+
+struct wglDXUnregisterObjectNV_params
+{
+    TEB *teb;
+    HANDLE hDevice;
+    HANDLE hObject;
+    BOOL ret;
+};
+
 struct wglDestroyPbufferARB_params
 {
     TEB *teb;
@@ -28935,6 +29024,14 @@ enum unix_funcs
     unix_wglChoosePixelFormatARB,
     unix_wglCreateContextAttribsARB,
     unix_wglCreatePbufferARB,
+    unix_wglDXCloseDeviceNV,
+    unix_wglDXLockObjectsNV,
+    unix_wglDXObjectAccessNV,
+    unix_wglDXOpenDeviceNV,
+    unix_wglDXRegisterObjectNV,
+    unix_wglDXSetResourceShareHandleNV,
+    unix_wglDXUnlockObjectsNV,
+    unix_wglDXUnregisterObjectNV,
     unix_wglDestroyPbufferARB,
     unix_wglFreeMemoryNV,
     unix_wglGetExtensionsStringARB,
@@ -28954,6 +29051,9 @@ enum unix_funcs
     unix_wglSetPbufferAttribARB,
     unix_wglSetPixelFormatWINE,
     unix_wglSwapIntervalEXT,
+    unix_wglWineCloseDmaBufWINE,
+    unix_wglWineDmaBufExportSupportedWINE,
+    unix_wglWineExportDmaBufWINE,
     funcs_count
 };
 

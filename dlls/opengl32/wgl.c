@@ -37,6 +37,7 @@
 
 #include "wine/glu.h"
 #include "wine/debug.h"
+#include "wine/hwnd_dmabuf.h"
 #include "wine/opengl_driver.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(opengl);
@@ -978,6 +979,100 @@ BOOL WINAPI DECLSPEC_HOTPATCH wglSwapBuffers( HDC hdc )
     }
 
     return args.ret;
+}
+
+void WINAPI wglWineCloseDmaBufWINE( int fd )
+{
+    struct wglWineCloseDmaBufWINE_params args = { .fd = fd };
+    NTSTATUS status;
+
+    TRACE( "fd %d.\n", fd );
+
+    if ((status = UNIX_CALL( wglWineCloseDmaBufWINE, &args )))
+        WARN( "wglWineCloseDmaBufWINE returned %#lx\n", status );
+}
+
+BOOL WINAPI wglWineDmaBufExportSupportedWINE( void )
+{
+    struct wglWineDmaBufExportSupportedWINE_params args = { .teb = NtCurrentTeb() };
+    NTSTATUS status;
+
+    TRACE( "\n" );
+
+    if ((status = UNIX_CALL( wglWineDmaBufExportSupportedWINE, &args )))
+    {
+        WARN( "wglWineDmaBufExportSupportedWINE returned %#lx\n", status );
+        return FALSE;
+    }
+
+    return args.ret;
+}
+
+BOOL WINAPI wglWineExportDmaBufWINE( GLuint texture, GLenum target, struct wgl_dmabuf_desc *desc, int *fd )
+{
+    struct wglWineExportDmaBufWINE_params args =
+    {
+        .teb = NtCurrentTeb(),
+        .texture = texture,
+        .target = target,
+        .desc = desc,
+        .fd = fd,
+    };
+    NTSTATUS status;
+
+    TRACE( "texture %u, target %#x, desc %p, fd %p.\n", texture, target, desc, fd );
+
+    if ((status = UNIX_CALL( wglWineExportDmaBufWINE, &args )))
+    {
+        if (status != STATUS_NOT_IMPLEMENTED)
+            WARN( "wglWineExportDmaBufWINE returned %#lx\n", status );
+        return FALSE;
+    }
+
+    return args.ret;
+}
+
+int WINAPI wglWineHwndDmaBufOpenProducerWINE( HWND hwnd )
+{
+    TRACE( "hwnd %p.\n", hwnd );
+
+    return NtUserHwndDmaBufOpenProducer( hwnd );
+}
+
+UINT WINAPI wglWineHwndDmaBufGetCapsWINE( HWND hwnd, hwnd_dmabuf_host_caps_t *caps,
+        hwnd_dmabuf_format_modifier_t *format_modifiers, UINT max_format_modifiers,
+        UINT *format_modifier_count )
+{
+    TRACE( "hwnd %p, caps %p, format_modifiers %p, max_format_modifiers %u, format_modifier_count %p.\n",
+            hwnd, caps, format_modifiers, max_format_modifiers, format_modifier_count );
+
+    return NtUserHwndDmaBufGetCaps( hwnd, caps, format_modifiers,
+            max_format_modifiers, format_modifier_count );
+}
+
+void WINAPI wglWineHwndDmaBufCloseProducerWINE( HWND hwnd, int channel_fd )
+{
+    TRACE( "hwnd %p, channel_fd %d.\n", hwnd, channel_fd );
+
+    NtUserHwndDmaBufCloseProducer( hwnd, channel_fd );
+}
+
+int WINAPI wglWineHwndDmaBufPublishWINE( HWND hwnd, int channel_fd,
+        const hwnd_dmabuf_frame_desc_t *desc, int dmabuf_fd )
+{
+    TRACE( "hwnd %p, channel_fd %d, desc %p, dmabuf_fd %d.\n",
+            hwnd, channel_fd, desc, dmabuf_fd );
+
+    if (!desc) return HWND_DMABUF_CHANNEL_ERROR;
+    return NtUserHwndDmaBufPublish( hwnd, channel_fd, desc, dmabuf_fd );
+}
+
+int WINAPI wglWineHwndDmaBufDrainReleaseWINE( int channel_fd, hwnd_dmabuf_release_t *release )
+{
+    TRACE( "channel_fd %d, release %p.\n", channel_fd, release );
+
+    if (!release) return HWND_DMABUF_CHANNEL_ERROR;
+    return NtUserHwndDmaBufDrainRelease( channel_fd, release );
 }
 
 /***********************************************************************

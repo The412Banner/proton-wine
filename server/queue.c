@@ -1677,21 +1677,25 @@ static struct timer *set_timer( struct msg_queue *queue, unsigned int rate )
 }
 
 /* change the input key state for a given key */
-static void set_input_key_state( volatile unsigned char *keystate, unsigned char key, unsigned char down )
+static int set_input_key_state( volatile unsigned char *keystate, unsigned char key, unsigned char down )
 {
+    unsigned char old = keystate[key];
+
     if (down)
     {
         if (!(keystate[key] & 0x80)) keystate[key] ^= 0x01;
         keystate[key] |= down;
     }
     else keystate[key] &= ~0x80;
+    return old != keystate[key];
 }
 
 /* update the input key state for a keyboard message */
-static void update_key_state( volatile unsigned char *keystate, unsigned int msg,
-                              lparam_t wparam, int desktop )
+static int update_key_state( volatile unsigned char *keystate, unsigned int msg,
+                             lparam_t wparam, int desktop )
 {
     unsigned char key, down = 0, down_val = desktop ? 0xc0 : 0x80;
+    int changed = 0;
 
     switch (msg)
     {
@@ -1699,26 +1703,26 @@ static void update_key_state( volatile unsigned char *keystate, unsigned int msg
         down = down_val;
         /* fall through */
     case WM_LBUTTONUP:
-        set_input_key_state( keystate, VK_LBUTTON, down );
+        changed |= set_input_key_state( keystate, VK_LBUTTON, down );
         break;
     case WM_MBUTTONDOWN:
         down = down_val;
         /* fall through */
     case WM_MBUTTONUP:
-        set_input_key_state( keystate, VK_MBUTTON, down );
+        changed |= set_input_key_state( keystate, VK_MBUTTON, down );
         break;
     case WM_RBUTTONDOWN:
         down = down_val;
         /* fall through */
     case WM_RBUTTONUP:
-        set_input_key_state( keystate, VK_RBUTTON, down );
+        changed |= set_input_key_state( keystate, VK_RBUTTON, down );
         break;
     case WM_XBUTTONDOWN:
         down = down_val;
         /* fall through */
     case WM_XBUTTONUP:
-        if (wparam >> 16 == XBUTTON1) set_input_key_state( keystate, VK_XBUTTON1, down );
-        else if (wparam >> 16 == XBUTTON2) set_input_key_state( keystate, VK_XBUTTON2, down );
+        if (wparam >> 16 == XBUTTON1) changed |= set_input_key_state( keystate, VK_XBUTTON1, down );
+        else if (wparam >> 16 == XBUTTON2) changed |= set_input_key_state( keystate, VK_XBUTTON2, down );
         break;
     case WM_KEYDOWN:
     case WM_SYSKEYDOWN:
@@ -1727,27 +1731,28 @@ static void update_key_state( volatile unsigned char *keystate, unsigned int msg
     case WM_KEYUP:
     case WM_SYSKEYUP:
         key = (unsigned char)wparam;
-        set_input_key_state( keystate, key, down );
+        changed |= set_input_key_state( keystate, key, down );
         switch(key)
         {
         case VK_LCONTROL:
         case VK_RCONTROL:
             down = (keystate[VK_LCONTROL] | keystate[VK_RCONTROL]) & 0x80;
-            set_input_key_state( keystate, VK_CONTROL, down );
+            changed |= set_input_key_state( keystate, VK_CONTROL, down );
             break;
         case VK_LMENU:
         case VK_RMENU:
             down = (keystate[VK_LMENU] | keystate[VK_RMENU]) & 0x80;
-            set_input_key_state( keystate, VK_MENU, down );
+            changed |= set_input_key_state( keystate, VK_MENU, down );
             break;
         case VK_LSHIFT:
         case VK_RSHIFT:
             down = (keystate[VK_LSHIFT] | keystate[VK_RSHIFT]) & 0x80;
-            set_input_key_state( keystate, VK_SHIFT, down );
+            changed |= set_input_key_state( keystate, VK_SHIFT, down );
             break;
         }
         break;
     }
+    return changed;
 }
 
 static void update_thread_input_key_state( struct thread_input *input, unsigned int msg, lparam_t wparam )
@@ -1764,8 +1769,7 @@ static void update_desktop_key_state( struct desktop *desktop, unsigned int msg,
 {
     SHARED_WRITE_BEGIN( desktop->shared, desktop_shm_t )
     {
-        update_key_state( shared->keystate, msg, wparam, 1 );
-        ++shared->keystate_serial;
+        if (update_key_state( shared->keystate, msg, wparam, 1 )) ++shared->keystate_serial;
     }
     SHARED_WRITE_END;
 }
@@ -2293,7 +2297,8 @@ static int queue_mouse_message( struct desktop *desktop, user_handle_t win, cons
             x = desktop_shm->cursor.x + input->mouse.x;
             y = desktop_shm->cursor.y + input->mouse.y;
         }
-        if (x == desktop_shm->cursor.x && y == desktop_shm->cursor.y)
+        if (x == desktop_shm->cursor.x && y == desktop_shm->cursor.y &&
+            (!win || desktop->cursor_win == win))
             flags &= ~MOUSEEVENTF_MOVE;
     }
     else
@@ -2454,24 +2459,24 @@ static int queue_keyboard_message( struct desktop *desktop, user_handle_t win, c
     }
 
     /* send numpad vkeys if NumLock is active */
-    if ((input->kbd.vkey & KBDNUMPAD) && (desktop->keystate[VK_NUMLOCK] & 0x01) &&
-        !(desktop->keystate[VK_SHIFT] & 0x80))
+    if ((input->kbd.vkey & KBDNUMPAD) && (desktop_shm->keystate[VK_NUMLOCK] & 0x01) &&
+        !(desktop_shm->keystate[VK_SHIFT] & 0x80))
     {
-       switch (vkey)
-       {
-       case VK_INSERT: hook_vkey = vkey = VK_NUMPAD0; break;
-       case VK_END:    hook_vkey = vkey = VK_NUMPAD1; break;
-       case VK_DOWN:   hook_vkey = vkey = VK_NUMPAD2; break;
-       case VK_NEXT:   hook_vkey = vkey = VK_NUMPAD3; break;
-       case VK_LEFT:   hook_vkey = vkey = VK_NUMPAD4; break;
-       case VK_CLEAR:  hook_vkey = vkey = VK_NUMPAD5; break;
-       case VK_RIGHT:  hook_vkey = vkey = VK_NUMPAD6; break;
-       case VK_HOME:   hook_vkey = vkey = VK_NUMPAD7; break;
-       case VK_UP:     hook_vkey = vkey = VK_NUMPAD8; break;
-       case VK_PRIOR:  hook_vkey = vkey = VK_NUMPAD9; break;
-       case VK_DELETE: hook_vkey = vkey = VK_DECIMAL; break;
-       default: break;
-       }
+        switch (vkey)
+        {
+        case VK_INSERT: hook_vkey = vkey = VK_NUMPAD0; break;
+        case VK_END:    hook_vkey = vkey = VK_NUMPAD1; break;
+        case VK_DOWN:   hook_vkey = vkey = VK_NUMPAD2; break;
+        case VK_NEXT:   hook_vkey = vkey = VK_NUMPAD3; break;
+        case VK_LEFT:   hook_vkey = vkey = VK_NUMPAD4; break;
+        case VK_CLEAR:  hook_vkey = vkey = VK_NUMPAD5; break;
+        case VK_RIGHT:  hook_vkey = vkey = VK_NUMPAD6; break;
+        case VK_HOME:   hook_vkey = vkey = VK_NUMPAD7; break;
+        case VK_UP:     hook_vkey = vkey = VK_NUMPAD8; break;
+        case VK_PRIOR:  hook_vkey = vkey = VK_NUMPAD9; break;
+        case VK_DELETE: hook_vkey = vkey = VK_DECIMAL; break;
+        default: break;
+        }
     }
 
     if (origin == IMO_HARDWARE)
@@ -3060,6 +3065,32 @@ void send_notify_message( user_handle_t win, unsigned int message, lparam_t wpar
         set_queue_bits( thread->queue, QS_SENDMESSAGE );
     }
     release_object( thread );
+}
+
+/* Let a surviving GUI thread release the client resources of a dead thread's window. */
+void notify_abandoned_window( struct thread *owner, user_handle_t win )
+{
+    struct thread *thread;
+    struct message *msg;
+
+    LIST_FOR_EACH_ENTRY( thread, &owner->process->thread_list, struct thread, proc_entry )
+    {
+        if (thread->state == TERMINATED || thread->is_system || !thread->queue) continue;
+        if (!(msg = mem_alloc( sizeof(*msg) ))) continue;
+
+        msg->type      = MSG_NOTIFY;
+        msg->win       = 0; /* not tied to the window's dead message queue */
+        msg->msg       = WM_WINE_DESTROY_ABANDONED_WINDOW;
+        msg->wparam    = win;
+        msg->lparam    = 0;
+        msg->result    = NULL;
+        msg->data      = NULL;
+        msg->data_size = 0;
+        get_message_defaults( thread->queue, &msg->x, &msg->y, &msg->time );
+
+        list_add_tail( &thread->queue->msg_list[SEND_MESSAGE], &msg->entry );
+        set_queue_bits( thread->queue, QS_SENDMESSAGE );
+    }
 }
 
 /* post a win event */
@@ -4126,9 +4157,28 @@ DECL_HANDLER(set_caret_info)
 /* get/set the time of the last user input event */
 DECL_HANDLER(set_user_input_time)
 {
-    struct msg_queue *queue;
+    struct msg_queue *queue = current->queue;
 
-    if (req->set && (queue = current->queue))
+    if (req->forward)
+    {
+        struct thread *thread;
+        struct thread_input *input;
+
+        if (!(thread = get_window_thread( req->forward )))
+        {
+            set_win32_error( ERROR_INVALID_WINDOW_HANDLE );
+            return;
+        }
+        if (!queue || !queue->input || !thread->queue || !(input = thread->queue->input) ||
+            input->desktop != queue->input->desktop)
+            set_error( STATUS_ACCESS_DENIED );
+        else if (input->user_time < queue->input->user_time)
+            /* Forward the existing input permission, not a new input event. A
+             * subsequent click in another application must still take priority. */
+            input->user_time = queue->input->user_time;
+        release_object( thread );
+    }
+    else if (req->set && queue)
     {
         queue->input->user_time = monotonic_time;
         last_input_time = get_tick_count();

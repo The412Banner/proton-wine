@@ -654,6 +654,9 @@ enum wine_internal_message
     WM_WINE_GETSCROLLBARINFO,
     WM_WINE_GETSCROLLINFO,
     WM_WINE_SETSCROLLINFO,
+    WM_WINE_MAP_NOTIFY_ICON_POINT,
+    WM_WINE_SETWINDOWSURFACECLIP,
+    WM_WINE_DESTROY_ABANDONED_WINDOW,
     WM_WINE_FIRST_DRIVER_MSG = 0x80001000,  /* range of messages reserved for the USER driver */
     WM_WINE_CLIPCURSOR = 0x80001ff0, /* internal driver notification messages */
     WM_WINE_SETCURSOR,
@@ -697,6 +700,11 @@ enum wine_systray_call
     WINE_SYSTRAY_DOCK_INSERT,
     WINE_SYSTRAY_DOCK_CLEAR,
     WINE_SYSTRAY_DOCK_REMOVE,
+    WINE_SYSTRAY_DBUS_RUN,
+    WINE_SYSTRAY_NOTIFY_ICON_SNI,
+    WINE_SYSTRAY_DBUS_HAS_ICONS,
+    WINE_SYSTRAY_NOTIFY_BALLOON_SNI,
+    WINE_SYSTRAY_NOTIFY_INPUT,
 };
 
 /* NtUserDragDropCall calls */
@@ -919,6 +927,12 @@ W32KAPI BOOL    WINAPI NtUserGetWindowDisplayAffinity( HWND hwnd, DWORD *affinit
 W32KAPI BOOL    WINAPI NtUserGetWindowPlacement( HWND hwnd, WINDOWPLACEMENT *placement );
 W32KAPI int     WINAPI NtUserGetWindowRgnEx( HWND hwnd, HRGN hrgn, UINT unk );
 W32KAPI BOOL    WINAPI NtUserHideCaret( HWND hwnd );
+W32KAPI void    WINAPI NtUserHwndDmaBufCloseProducer( HWND hwnd, int channel_fd );
+W32KAPI int     WINAPI NtUserHwndDmaBufDrainRelease( int channel_fd, void *release );
+W32KAPI UINT    WINAPI NtUserHwndDmaBufGetCaps( HWND hwnd, void *caps, void *format_modifiers,
+                                                UINT max_format_modifiers, UINT *format_modifier_count );
+W32KAPI int     WINAPI NtUserHwndDmaBufOpenProducer( HWND hwnd );
+W32KAPI int     WINAPI NtUserHwndDmaBufPublish( HWND hwnd, int channel_fd, const void *desc, int dmabuf_fd );
 W32KAPI BOOL    WINAPI NtUserHiliteMenuItem( HWND hwnd, HMENU handle, UINT item, UINT hilite );
 W32KAPI NTSTATUS WINAPI NtUserInitializeClientPfnArrays( const ntuser_client_func_ptr *client_procsA,
                                                          const ntuser_client_func_ptr *client_procsW,
@@ -1431,6 +1445,7 @@ enum
     NtUserCallHwndParam_ExposeWindowSurface,
     NtUserCallHwndParam_GetWinMonitorDpi,
     NtUserCallHwndParam_SetRawWindowPos,
+    NtUserCallHwndParam_SendSizingMessage,
 };
 
 struct get_window_rects_params
@@ -1659,6 +1674,19 @@ static inline BOOL NtUserSetRawWindowPos( HWND hwnd, RECT rect, UINT flags, BOOL
 {
     struct set_raw_window_pos_params params = {.rect = rect, .flags = flags, .internal = internal};
     return NtUserCallHwndParam( hwnd, (UINT_PTR)&params, NtUserCallHwndParam_SetRawWindowPos );
+}
+
+struct send_sizing_message_params
+{
+    RECT *rect;
+    UINT edge;
+};
+
+/* The rectangle is in raw screen coordinates; edge 0 infers the changed edges. */
+static inline BOOL NtUserSendSizingMessage( HWND hwnd, UINT edge, RECT *rect )
+{
+    struct send_sizing_message_params params = {.rect = rect, .edge = edge};
+    return NtUserCallHwndParam( hwnd, (UINT_PTR)&params, NtUserCallHwndParam_SendSizingMessage );
 }
 
 #endif /* _NTUSER_ */

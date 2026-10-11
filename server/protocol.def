@@ -281,6 +281,98 @@ struct rectangle
     int  bottom;
 };
 
+#define HWND_DMABUF_DESC_VERSION_V1       1
+#define HWND_DMABUF_MAX_DIRTY_RECTS       7
+#define HWND_DMABUF_MAX_PLANES            4
+
+enum hwnd_dmabuf_status
+{
+    HWND_DMABUF_OK = 0,
+    HWND_DMABUF_INVALID_ARGS = 1,
+    HWND_DMABUF_NOT_FOUND = 2,
+    HWND_DMABUF_NO_FRAME = 3,
+    HWND_DMABUF_BUSY = 4
+};
+
+#define HWND_DMABUF_RELEASE_PRESENTED     0x00000001
+#define HWND_DMABUF_RELEASE_FAILED        0x00000002
+#define HWND_DMABUF_RELEASE_DROPPED       0x00000004
+#define HWND_DMABUF_RELEASE_ORPHANED      0x00000008
+#define HWND_DMABUF_RELEASE_CACHED        0x00000010
+/* Consumer state records use release_token 0 and apply to the channel. */
+#define HWND_DMABUF_RELEASE_CONSUMER_ACTIVE    0x00000020
+#define HWND_DMABUF_RELEASE_CONSUMER_SUSPENDED 0x00000040
+
+/* hwnd_dmabuf_frame_desc_t.flags bits */
+/* image_id names a dmabuf slot whose backing store stays valid until its release
+ * token returns. The consumer may cache and reuse the wl_buffer for that slot.
+ * Producers that export a fresh dmabuf for every frame must not set this flag. */
+#define HWND_DMABUF_FLAG_STABLE_SLOT      0x00000001
+/* Frame fd is a wl_shm-compatible shared-memory buffer, not a dma-buf. */
+#define HWND_DMABUF_FLAG_SHM              0x00000002
+/* Frame is a GDI overlay carried above normal self-presenting producers. */
+#define HWND_DMABUF_FLAG_GDI_OVERLAY      0x00000004
+
+#define HWND_DMABUF_FRAME_OPENED          0x00000001
+#define HWND_DMABUF_FRAME_GDI_OVERLAY     0x00000002
+
+#define HWND_DMABUF_CHANNEL_GDI_OVERLAY   0x00000001
+
+typedef struct
+{
+    unsigned short RedPrimary[2];
+    unsigned short GreenPrimary[2];
+    unsigned short BluePrimary[2];
+    unsigned short WhitePoint[2];
+    unsigned int   MaxMasteringLuminance;
+    unsigned int   MinMasteringLuminance;
+    unsigned short MaxContentLightLevel;
+    unsigned short MaxFrameAverageLightLevel;
+} hwnd_dmabuf_hdr_metadata_hdr10_t;
+
+typedef struct
+{
+    unsigned int     version;
+    unsigned int     flags;
+    unsigned int     width;
+    unsigned int     height;
+    unsigned int     fourcc;
+    unsigned int     stride;
+    unsigned int     offset;
+    unsigned int     frame_seq;
+    unsigned int     ring_generation;
+    unsigned int     image_id;
+    unsigned int     sync_fd_kind;
+    unsigned int     dirty_count;
+    unsigned short   dirty_rects[HWND_DMABUF_MAX_DIRTY_RECTS][4];
+    unsigned __int64 modifier;
+    unsigned __int64 producer_unique_id;
+    unsigned __int64 sync_timeline_point;
+    unsigned __int64 release_token;
+    unsigned int     dxgi_format;
+    unsigned int     alpha_mode;
+    unsigned int     color_space;
+    unsigned int     hdr_metadata_type;
+    hwnd_dmabuf_hdr_metadata_hdr10_t hdr_metadata;
+    /* All memory planes of the modifier. Plane 0 mirrors stride/offset. */
+    unsigned int     plane_count;
+    unsigned int     plane_offsets[HWND_DMABUF_MAX_PLANES];
+    unsigned int     plane_strides[HWND_DMABUF_MAX_PLANES];
+} hwnd_dmabuf_frame_desc_t;
+
+typedef struct
+{
+    user_handle_t hwnd;
+    user_handle_t host_hwnd;
+    struct rectangle window;
+    struct rectangle client;
+    unsigned int style;
+    unsigned int ex_style;
+    unsigned int dpi;
+    unsigned int frame_seq;
+    unsigned int opened;
+} hwnd_dmabuf_frame_info_t;
+
 /* structure for parameters of async I/O calls */
 struct async_data
 {
@@ -1132,6 +1224,7 @@ typedef volatile struct
     unsigned int access;       /* wanted access rights */
     unsigned int flags;        /* thread creation flags */
     int          request_fd;   /* fd for request pipe */
+    int          is_system;    /* system thread (kernel mode only) */
     VARARG(objattr,object_attributes); /* object attributes */
 @REPLY
     thread_id_t  tid;          /* thread id */
@@ -2785,6 +2878,17 @@ enum message_type
     VARARG(children,user_handles); /* children handles */
 @END
 
+/* Get the first window that contains a given point */
+@REQ(get_window_from_point)
+    user_handle_t  parent;        /* parent window */
+    int            x;             /* point in parent coordinates */
+    int            y;
+    int            dpi;           /* dpi for the point coordinates */
+@REPLY
+    user_handle_t  handle;        /* window handle */
+    unsigned int   style;         /* window style */
+@END
+
 
 /* Get window tree information from a window handle */
 @REQ(get_window_tree)
@@ -2818,6 +2922,7 @@ enum message_type
 #define SET_WINPOS_PAINT_SURFACE    0x01  /* window has a paintable surface */
 #define SET_WINPOS_PIXEL_FORMAT     0x02  /* window has a custom pixel format */
 #define SET_WINPOS_LAYERED_WINDOW   0x04  /* window is drawn with UpdateLayeredWindow */
+#define SET_WINPOS_CLIP_CLIENT      0x08  /* window client is clipped out of parent surfaces */
 
 /* Get the window and client rectangles of a window */
 @REQ(get_window_rectangles)
@@ -2827,6 +2932,7 @@ enum message_type
 @REPLY
     struct rectangle window;      /* window rectangle */
     struct rectangle client;      /* client rectangle */
+    unsigned int     style;       /* window style */
 @END
 enum coords_relative
 {
@@ -2896,7 +3002,6 @@ enum coords_relative
     int            redraw;        /* redraw the window? */
     VARARG(region,rectangles);    /* list of rectangles for the region (in window coords) */
 @END
-
 
 /* Get the window update region */
 @REQ(get_update_region)
@@ -3087,6 +3192,18 @@ enum coords_relative
     obj_handle_t   handle;        /* handle to the desktop */
 @END
 
+/* Get the thread current keyboard layout */
+@REQ(get_thread_layout)
+    thread_id_t tid;              /* thread id */
+@REPLY
+    client_ptr_t layout;          /* keyboard layout HKL */
+@END
+
+/* Set the thread current keyboard layout */
+@REQ(set_thread_layout)
+    thread_id_t tid;              /* thread id */
+    client_ptr_t layout;          /* keyboard layout HKL */
+@END
 
 /* Set the thread current desktop */
 @REQ(set_thread_desktop)
@@ -3154,6 +3271,7 @@ enum coords_relative
 /* Get/Set the time of the input event */
 @REQ(set_user_input_time)
     int          set;             /* update queue input time */
+    user_handle_t forward;        /* copy caller's input time to this window's thread */
 @REPLY
     unsigned int time;            /* time of the last session-wide user input */
 @END
@@ -4359,4 +4477,61 @@ enum fsync_type
 @REQ(fsync_free_shm_idx)
     unsigned int shm_idx;
 @REPLY
+@END
+
+
+/* Enumerate dmabuf-producing children below a top-level HWND. */
+@REQ(hwnd_list_dmabuf_frames)
+    user_handle_t  host_hwnd;           /* top-level host HWND */
+@REPLY
+    unsigned int   status;              /* enum hwnd_dmabuf_status */
+    unsigned int   count;               /* total frame count, may exceed reply capacity */
+    VARARG(frames,bytes);               /* hwnd_dmabuf_frame_info_t[count] */
+@END
+
+
+/* Producer: mark an HWND as about to become a dmabuf producer. */
+@REQ(hwnd_dmabuf_set_pending)
+    user_handle_t  hwnd;                /* child HWND being produced for */
+    unsigned int   pending;             /* nonzero increments, zero decrements */
+@REPLY
+    unsigned int   status;              /* enum hwnd_dmabuf_status */
+@END
+
+
+/* Producer: mint and return the producer end of hwnd's private frame socket. */
+@REQ(hwnd_dmabuf_get_channel)
+    user_handle_t  hwnd;                /* child HWND being produced for */
+    unsigned int   flags;               /* HWND_DMABUF_CHANNEL_* */
+@REPLY
+    unsigned int   status;              /* enum hwnd_dmabuf_status */
+    obj_handle_t   channel_handle;      /* producer end of the socketpair */
+@END
+
+
+/* Producer: mint the channel only if no producer is already active. */
+@REQ(hwnd_dmabuf_get_channel_exclusive)
+    user_handle_t  hwnd;                /* child HWND being produced for */
+@REPLY
+    unsigned int   status;              /* enum hwnd_dmabuf_status */
+    obj_handle_t   channel_handle;      /* producer end of the socketpair */
+@END
+
+
+/* Consumer: claim the consumer end of the channel minted for hwnd, if any. */
+@REQ(hwnd_dmabuf_claim_channel)
+    user_handle_t  hwnd;                /* child HWND owned by the caller */
+    unsigned int   flags;               /* HWND_DMABUF_CHANNEL_* */
+@REPLY
+    unsigned int   status;              /* enum hwnd_dmabuf_status */
+    obj_handle_t   channel_handle;      /* consumer end or zero if none */
+@END
+
+
+/* Producer: release one active producer reference for hwnd's frame socket. */
+@REQ(hwnd_dmabuf_release_channel)
+    user_handle_t  hwnd;                /* child HWND being produced for */
+    unsigned int   flags;               /* HWND_DMABUF_CHANNEL_* */
+@REPLY
+    unsigned int   status;              /* enum hwnd_dmabuf_status */
 @END
