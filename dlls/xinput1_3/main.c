@@ -1038,11 +1038,27 @@ static LRESULT CALLBACK xinput_devnotify_wndproc(HWND hwnd, UINT msg, WPARAM wpa
     return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+/* MsgWaitForMultipleObjectsEx can return a transient WAIT_FAILED (seen as an esync ppoll EAGAIN).
+ * Upstream then leaves the update loop and stops XInput polling for the rest of the session.
+ * Absorb a bounded number of these as timeouts, and still give up if they keep coming. */
+#define XINPUT_MAX_TRANSIENT_WAIT_FAILURES 100
+
+static BOOL retry_transient_wait_failure( DWORD *ret, DWORD *failures )
+{
+    if (*ret != WAIT_FAILED) return FALSE;
+    if (++*failures > XINPUT_MAX_TRANSIENT_WAIT_FAILURES) return FALSE;
+    ERR("transient wait failure in the update thread (%lu/%u), error %lu - retrying\n",
+        *failures, XINPUT_MAX_TRANSIENT_WAIT_FAILURES, GetLastError());
+    Sleep(50);
+    *ret = WAIT_TIMEOUT;
+    return TRUE;
+}
+
 static DWORD WINAPI hid_update_thread_proc(void *param)
 {
     struct xinput_controller *devices[XUSER_MAX_COUNT + 1];
     HANDLE events[XUSER_MAX_COUNT + 1];
-    DWORD i, count = 1, ret = WAIT_TIMEOUT;
+    DWORD i, count = 1, ret = WAIT_TIMEOUT, wait_failures = 0;
     DEV_BROADCAST_DEVICEINTERFACE_W filter =
     {
         .dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE_W),
@@ -1095,7 +1111,7 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
         LeaveCriticalSection(&xinput_cs);
     }
     while ((ret = MsgWaitForMultipleObjectsEx(count, events, 2000, QS_ALLINPUT, MWMO_ALERTABLE)) <= count ||
-            ret == WAIT_TIMEOUT);
+            ret == WAIT_TIMEOUT || retry_transient_wait_failure(&ret, &wait_failures));
 
     ERR("wait failed in the update thread, ret %lu, error %lu\n", ret, GetLastError());
 
