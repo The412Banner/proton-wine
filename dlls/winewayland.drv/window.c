@@ -304,29 +304,6 @@ static BOOL should_keep_minimized_toplevel_mapped(struct wayland_surface *surfac
            (surface->current.caps & WAYLAND_SURFACE_WM_CAPS_MINIMIZE);
 }
 
-static BOOL window_or_root_minimized(HWND hwnd)
-{
-    HWND root = NtUserGetAncestor(hwnd, GA_ROOT);
-
-    if (NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_MINIMIZE) return TRUE;
-    return root && root != hwnd && (NtUserGetWindowLongW(root, GWL_STYLE) & WS_MINIMIZE);
-}
-
-static void detach_client_surfaces_for_toplevel(HWND toplevel)
-{
-    struct wayland_win_data *data;
-
-    RB_FOR_EACH_ENTRY(data, &win_data_rb, struct wayland_win_data, entry)
-    {
-        struct wayland_client_surface *client;
-
-        LIST_FOR_EACH_ENTRY(client, &data->client_surfaces,
-                            struct wayland_client_surface, hwnd_entry)
-            if (client->toplevel == toplevel)
-                wayland_client_surface_attach(client, NULL);
-    }
-}
-
 static BOOL is_menu_popup_candidate_style(DWORD style, DWORD exstyle)
 {
     if (!(style & WS_POPUP)) return FALSE;
@@ -403,8 +380,8 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
         visible = visible && layer_set;
 
     /* A fullscreen renderer may hide and show the same HWND synchronously while
-     * focus changes. Preserve its established presentation tree, but continue to
-     * unmap minimized windows and non-rendering windows such as launchers. */
+     * focus changes. Preserve its established presentation tree. Explicit hides
+     * of minimized windows or non-rendering windows still unmap them. */
     if ((swp_flags & SWP_HIDEWINDOW) && data->is_fullscreen && !(style & WS_MINIMIZE) &&
         (client || wayland_surface_has_hwnd_dmabuf_content(surface)))
         visible = TRUE;
@@ -486,12 +463,10 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
         break;
     }
 
-    if (role != WAYLAND_SURFACE_ROLE_NONE && !window_or_root_minimized(data->hwnd))
+    if (role != WAYLAND_SURFACE_ROLE_NONE)
         wayland_client_surfaces_attach(data, data->hwnd);
     else
         wayland_client_surfaces_attach(data, NULL);
-    if (surface->role == WAYLAND_SURFACE_ROLE_TOPLEVEL && surface->window.minimized)
-        detach_client_surfaces_for_toplevel(data->hwnd);
     wayland_surface_sync_window_regions(surface, window_surface);
 
     /* Size/position changes affect the effective pointer constraint, so update
@@ -1045,7 +1020,7 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     if (!surface)
     {
-        if (toplevel && NtUserIsWindowVisible(hwnd) && !window_or_root_minimized(hwnd))
+        if (toplevel && NtUserIsWindowVisible(hwnd))
             wayland_client_surfaces_attach(data, toplevel);
         else
             wayland_client_surfaces_attach(data, NULL);

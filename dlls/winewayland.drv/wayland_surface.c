@@ -4854,12 +4854,8 @@ static void wayland_client_surface_detach(struct client_surface *client)
 
 static BOOL is_client_visible(HWND hwnd)
 {
-    HWND root = NtUserGetAncestor(hwnd, GA_ROOT);
     RECT dummy;
 
-    if (NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_MINIMIZE) return FALSE;
-    if (root && root != hwnd && (NtUserGetWindowLongW(root, GWL_STYLE) & WS_MINIMIZE))
-        return FALSE;
     return NtUserIsWindowVisible(hwnd) || NtUserGetPresentRect(hwnd, &dummy, -1);
 }
 
@@ -5245,11 +5241,13 @@ void wayland_client_surface_attach(struct wayland_client_surface *client, HWND t
         if (toplevel_data) wayland_win_data_release(toplevel_data);
         return wayland_client_surface_attach(client, NULL);
     }
-    if (surface->role == WAYLAND_SURFACE_ROLE_TOPLEVEL && surface->window.minimized)
-    {
-        wayland_client_surface_attach(client, NULL);
-        return;
-    }
+    /* The compositor minimizes the whole surface tree. Preserve an existing
+     * renderer's role, geometry and stacking so restoring the toplevel can
+     * deliver its pending WSI frame callbacks without waiting for the app's
+     * message thread, which may itself be blocked on presentation. */
+    if (surface->role == WAYLAND_SURFACE_ROLE_TOPLEVEL && surface->window.minimized &&
+        client->toplevel == toplevel && client->toplevel_wl_surface == surface->wl_surface)
+        goto done;
 
     stack_above_parent = wayland_client_surface_should_stack_above_parent(
             surface, client, hwnd, toplevel, toplevel_data->content_over_producer);
