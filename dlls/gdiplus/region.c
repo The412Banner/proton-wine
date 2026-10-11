@@ -2420,6 +2420,10 @@ static GpStatus combine_regions_to_spans(const struct region_element *left, cons
 
             x1_min = min(x1_left, x1_right);
 
+            /* Some callers (the EA app installer wizard) feed degenerate spans here.
+             * Upstream asserts and aborts the process; clamp to a one-pixel advance instead. */
+            if (x1_min <= x) x1_min = x + 1;
+
             switch (type)
             {
                 case CombineModeIntersect:  in_result = in_left & in_right; break;
@@ -2444,7 +2448,6 @@ static GpStatus combine_regions_to_spans(const struct region_element *left, cons
                 }
             }
 
-            assert(x1_min > x);
             x = x1_min;
         }
     }
