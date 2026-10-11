@@ -261,6 +261,9 @@ struct data_writer
     IBuffer *buffer;
     byte *data;
     BOOL storing;
+
+    UnicodeEncoding encoding;
+    ByteOrder byte_order;
 };
 
 static HRESULT data_writer_async_complete(struct data_writer *impl);
@@ -399,152 +402,307 @@ static HRESULT WINAPI data_writer_GetTrustLevel(IDataWriter *iface, TrustLevel *
 
 static HRESULT WINAPI data_writer_get_UnstoredBufferLength(IDataWriter *iface, UINT32 *value)
 {
-    FIXME("iface %p, value %p stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    *value = 0;
+    if (impl->buffer) IBuffer_get_Length(impl->buffer, value);
+    return S_OK;
 }
 
 static HRESULT WINAPI data_writer_get_UnicodeEncoding(IDataWriter *iface, UnicodeEncoding *value)
 {
-    FIXME("iface %p, value %p stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    *value = impl->encoding;
+    return S_OK;
 }
 
 static HRESULT WINAPI data_writer_put_UnicodeEncoding(IDataWriter *iface, UnicodeEncoding value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    if (value > UnicodeEncoding_Utf16BE) return E_INVALIDARG;
+    impl->encoding = value;
+    return S_OK;
 }
 
 static HRESULT WINAPI data_writer_get_ByteOrder(IDataWriter *iface, ByteOrder *value)
 {
-    FIXME("iface %p, value %p stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    *value = impl->byte_order;
+    return S_OK;
 }
 
 static HRESULT WINAPI data_writer_put_ByteOrder(IDataWriter *iface, ByteOrder value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    if (value > ByteOrder_BigEndian) return E_INVALIDARG;
+    impl->byte_order = value;
+    return S_OK;
+}
+
+static HRESULT data_writer_write(struct data_writer *impl, const void *value, UINT32 size)
+{
+    UINT32 pos = 0;
+    HRESULT hr;
+
+    if (FAILED(hr = data_writer_init_buffer(impl, size)))
+        return hr;
+
+    IBuffer_get_Length(impl->buffer, &pos);
+    memcpy(&impl->data[pos], value, size);
+    IBuffer_put_Length(impl->buffer, pos + size);
+    return S_OK;
+}
+
+/* Write a little-endian scalar honouring the writer's byte order. */
+static HRESULT data_writer_write_scalar(struct data_writer *impl, const void *value, UINT32 size)
+{
+    const BYTE *src = value;
+    BYTE tmp[8];
+    UINT32 i;
+
+    if (impl->byte_order == ByteOrder_LittleEndian)
+        return data_writer_write(impl, value, size);
+
+    for (i = 0; i < size; i++) tmp[i] = src[size - 1 - i];
+    return data_writer_write(impl, tmp, size);
+}
+
+static HRESULT data_writer_write_buffer(struct data_writer *impl, IBuffer *buffer, UINT32 start, UINT32 count)
+{
+    IBufferByteAccess *access;
+    UINT32 length;
+    HRESULT hr;
+    BYTE *data;
+
+    if (!buffer) return E_POINTER;
+    if (FAILED(hr = IBuffer_get_Length(buffer, &length))) return hr;
+    if (start > length || count > length - start) return E_BOUNDS;
+    if (FAILED(hr = IBuffer_QueryInterface(buffer, &IID_IBufferByteAccess, (void **)&access))) return hr;
+    if (SUCCEEDED(hr = IBufferByteAccess_Buffer(access, &data)))
+        hr = data_writer_write(impl, data + start, count);
+    IBufferByteAccess_Release(access);
+    return hr;
+}
+
+/* Encodes value into the writer's encoding; with write FALSE only the length is computed. */
+static HRESULT data_writer_encode_string(struct data_writer *impl, HSTRING value, BOOL write, UINT32 *code_unit_count)
+{
+    UINT32 len, i, size;
+    const WCHAR *str = WindowsGetStringRawBuffer(value, &len);
+    HRESULT hr = S_OK;
+    BYTE *bytes;
+
+    if (!code_unit_count) return E_POINTER;
+
+    if (impl->encoding == UnicodeEncoding_Utf8)
+    {
+        size = len ? WideCharToMultiByte(CP_UTF8, 0, str, len, NULL, 0, NULL, NULL) : 0;
+        *code_unit_count = size;
+        if (!write || !size) return S_OK;
+        if (!(bytes = malloc(size))) return E_OUTOFMEMORY;
+        WideCharToMultiByte(CP_UTF8, 0, str, len, (char *)bytes, size, NULL, NULL);
+    }
+    else
+    {
+        *code_unit_count = len;
+        size = len * sizeof(WCHAR);
+        if (!write || !size) return S_OK;
+        if (!(bytes = malloc(size))) return E_OUTOFMEMORY;
+        memcpy(bytes, str, size);
+        if (impl->encoding == UnicodeEncoding_Utf16BE)
+            for (i = 0; i < size; i += 2) { BYTE b = bytes[i]; bytes[i] = bytes[i + 1]; bytes[i + 1] = b; }
+    }
+
+    hr = data_writer_write(impl, bytes, size);
+    free(bytes);
+    return hr;
 }
 
 static HRESULT WINAPI data_writer_WriteByte(IDataWriter *iface, BYTE value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    return data_writer_write(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteBytes(IDataWriter *iface, UINT32 value_size, BYTE *value)
 {
     struct data_writer *impl = impl_from_IDataWriter(iface);
-    UINT32 pos = 0;
-    HRESULT hr;
 
     TRACE("iface %p, value_size %u, value %p.\n", iface, value_size, value);
 
-    if (FAILED(hr = data_writer_init_buffer(impl, value_size)))
-        return hr;
-
-    IBuffer_get_Length(impl->buffer, &pos);
-    memcpy(&impl->data[pos], value, value_size);
-    IBuffer_put_Length(impl->buffer, pos + value_size);
-
-    return hr;
+    return data_writer_write(impl, value, value_size);
 }
 
 static HRESULT WINAPI data_writer_WriteBuffer(IDataWriter *iface, IBuffer *buffer)
 {
-    FIXME("iface %p, buffer %p stub!\n", iface, buffer);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+    UINT32 length = 0;
+
+    TRACE("iface %p, buffer %p.\n", iface, buffer);
+
+    if (!buffer) return E_POINTER;
+    IBuffer_get_Length(buffer, &length);
+    return data_writer_write_buffer(impl, buffer, 0, length);
 }
 
 static HRESULT WINAPI data_writer_WriteBufferRange(IDataWriter *iface, IBuffer *buffer, UINT32 start, UINT32 count)
 {
-    FIXME("iface %p, buffer %p, start %u, count %u stub!\n", iface, buffer, start, count);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, buffer %p, start %u, count %u.\n", iface, buffer, start, count);
+
+    return data_writer_write_buffer(impl, buffer, start, count);
 }
 
 static HRESULT WINAPI data_writer_WriteBoolean(IDataWriter *iface, boolean value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+    BYTE byte = value ? 1 : 0;
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    return data_writer_write(impl, &byte, sizeof(byte));
 }
 
 static HRESULT WINAPI data_writer_WriteGuid(IDataWriter *iface, GUID value)
 {
-    FIXME("iface %p, value %s stub!\n", iface, debugstr_guid(&value));
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+    HRESULT hr;
+
+    TRACE("iface %p, value %s.\n", iface, debugstr_guid(&value));
+
+    if (FAILED(hr = data_writer_write_scalar(impl, &value.Data1, sizeof(value.Data1)))) return hr;
+    if (FAILED(hr = data_writer_write_scalar(impl, &value.Data2, sizeof(value.Data2)))) return hr;
+    if (FAILED(hr = data_writer_write_scalar(impl, &value.Data3, sizeof(value.Data3)))) return hr;
+    return data_writer_write(impl, value.Data4, sizeof(value.Data4));
 }
 
 static HRESULT WINAPI data_writer_WriteInt16(IDataWriter *iface, INT16 value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %d.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteInt32(IDataWriter *iface, INT32 value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %d.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteInt64(IDataWriter *iface, INT64 value)
 {
-    FIXME("iface %p, value %I64d stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %I64d.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteUInt16(IDataWriter *iface, UINT16 value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteUInt32(IDataWriter *iface, UINT32 value)
 {
-    FIXME("iface %p, value %u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteUInt64(IDataWriter *iface, UINT64 value)
 {
-    FIXME("iface %p, value %I64u stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %I64u.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteSingle(IDataWriter *iface, FLOAT value)
 {
-    FIXME("iface %p, value %.7f stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %.7f.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteDouble(IDataWriter *iface, DOUBLE value)
 {
-    FIXME("iface %p, value %.15f stub!\n", iface, value);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %.15f.\n", iface, value);
+
+    return data_writer_write_scalar(impl, &value, sizeof(value));
 }
 
 static HRESULT WINAPI data_writer_WriteDateTime(IDataWriter *iface, DateTime value)
 {
-    FIXME("iface %p, value %I64u stub!\n", iface, value.UniversalTime);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %I64d.\n", iface, value.UniversalTime);
+
+    return data_writer_write_scalar(impl, &value.UniversalTime, sizeof(value.UniversalTime));
 }
 
 static HRESULT WINAPI data_writer_WriteTimeSpan(IDataWriter *iface, TimeSpan value)
 {
-    FIXME("iface %p, value %I64u stub!\n", iface, value.Duration);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %I64d.\n", iface, value.Duration);
+
+    return data_writer_write_scalar(impl, &value.Duration, sizeof(value.Duration));
 }
 
 static HRESULT WINAPI data_writer_WriteString(IDataWriter *iface, HSTRING value, UINT32 *code_unit_count)
 {
-    FIXME("iface %p, value %p, code_unit_count %p stub!\n", iface, value, code_unit_count);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %s, code_unit_count %p.\n", iface, debugstr_hstring(value), code_unit_count);
+
+    return data_writer_encode_string(impl, value, TRUE, code_unit_count);
 }
 
 static HRESULT WINAPI data_writer_MeasureString(IDataWriter *iface, HSTRING value, UINT32 *code_unit_count)
 {
-    FIXME("iface %p, value %p, code_unit_count %p stub!\n", iface, value, code_unit_count);
-    return E_NOTIMPL;
+    struct data_writer *impl = impl_from_IDataWriter(iface);
+
+    TRACE("iface %p, value %s, code_unit_count %p.\n", iface, debugstr_hstring(value), code_unit_count);
+
+    return data_writer_encode_string(impl, value, FALSE, code_unit_count);
 }
 
 static HRESULT data_writer_async_complete(struct data_writer *impl)
@@ -674,6 +832,8 @@ static HRESULT data_writer_create(IOutputStream *output_stream, IDataWriter **ou
     impl->IDataWriter_iface.lpVtbl = &data_writer_vtbl;
     impl->stream = output_stream;
     impl->ref = 1;
+    impl->encoding = UnicodeEncoding_Utf8;
+    impl->byte_order = ByteOrder_BigEndian;
 
     if (FAILED(hr = data_writer_init_buffer(impl, 0)))
     {
@@ -892,3 +1052,656 @@ struct data_writer_factory data_writer_factory =
 };
 
 IActivationFactory *data_writer_activation_factory = &data_writer_factory.IActivationFactory_iface;
+
+struct data_reader
+{
+    IDataReader IDataReader_iface;
+    IClosable IClosable_iface;
+    LONG ref;
+
+    IBuffer *buffer;
+    BYTE *data;
+    UINT32 length;
+    UINT32 pos;
+
+    UnicodeEncoding encoding;
+    ByteOrder byte_order;
+    InputStreamOptions options;
+};
+
+static struct data_reader *impl_from_IDataReader(IDataReader *iface)
+{
+    return CONTAINING_RECORD(iface, struct data_reader, IDataReader_iface);
+}
+
+static HRESULT WINAPI data_reader_QueryInterface(IDataReader *iface, REFIID iid, void **out)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (IsEqualGUID(iid, &IID_IUnknown)
+            || IsEqualGUID(iid, &IID_IInspectable)
+            || IsEqualGUID(iid, &IID_IAgileObject)
+            || IsEqualGUID(iid, &IID_IDataReader))
+    {
+        *out = iface;
+        IDataReader_AddRef(iface);
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_IClosable))
+    {
+        *out = &impl->IClosable_iface;
+        IDataReader_AddRef(iface);
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI data_reader_AddRef(IDataReader *iface)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+    ULONG ref = InterlockedIncrement(&impl->ref);
+    TRACE("iface %p, ref %lu.\n", iface, ref);
+    return ref;
+}
+
+static ULONG WINAPI data_reader_Release(IDataReader *iface)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+    ULONG ref = InterlockedDecrement(&impl->ref);
+
+    TRACE("iface %p, ref %lu.\n", iface, ref);
+
+    if (!ref)
+    {
+        if (impl->buffer)
+            IBuffer_Release(impl->buffer);
+        free(impl);
+    }
+
+    return ref;
+}
+
+static HRESULT WINAPI data_reader_GetIids(IDataReader *iface, ULONG *iid_count, IID **iids)
+{
+    FIXME("iface %p, iid_count %p, iids %p stub!\n", iface, iid_count, iids);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI data_reader_GetRuntimeClassName(IDataReader *iface, HSTRING *class_name)
+{
+    static const WCHAR name[] = L"Windows.Storage.Streams.DataReader";
+
+    TRACE("iface %p, class_name %p.\n", iface, class_name);
+
+    return WindowsCreateString(name, ARRAY_SIZE(name) - 1, class_name);
+}
+
+static HRESULT WINAPI data_reader_GetTrustLevel(IDataReader *iface, TrustLevel *trust_level)
+{
+    FIXME("iface %p, trust_level %p stub!\n", iface, trust_level);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI data_reader_get_UnconsumedBufferLength(IDataReader *iface, UINT32 *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    *value = impl->length - impl->pos;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_get_UnicodeEncoding(IDataReader *iface, UnicodeEncoding *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    *value = impl->encoding;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_put_UnicodeEncoding(IDataReader *iface, UnicodeEncoding value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    if (value > UnicodeEncoding_Utf16BE) return E_INVALIDARG;
+    impl->encoding = value;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_get_ByteOrder(IDataReader *iface, ByteOrder *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    *value = impl->byte_order;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_put_ByteOrder(IDataReader *iface, ByteOrder value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %u.\n", iface, value);
+
+    if (value > ByteOrder_BigEndian) return E_INVALIDARG;
+    impl->byte_order = value;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_get_InputStreamOptions(IDataReader *iface, InputStreamOptions *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    *value = impl->options;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_put_InputStreamOptions(IDataReader *iface, InputStreamOptions value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %#x.\n", iface, value);
+
+    impl->options = value;
+    return S_OK;
+}
+
+static HRESULT data_reader_read(struct data_reader *impl, void *value, UINT32 size)
+{
+    if (!impl->data && size) return HRESULT_FROM_WIN32(ERROR_INVALID_OPERATION);
+    if (size > impl->length - impl->pos) return E_BOUNDS;
+    memcpy(value, impl->data + impl->pos, size);
+    impl->pos += size;
+    return S_OK;
+}
+
+/* Read a scalar into little-endian host order, honouring the reader's byte order. */
+static HRESULT data_reader_read_scalar(struct data_reader *impl, void *value, UINT32 size)
+{
+    BYTE *bytes = value, tmp;
+    UINT32 i;
+    HRESULT hr;
+
+    if (FAILED(hr = data_reader_read(impl, value, size))) return hr;
+    if (impl->byte_order == ByteOrder_BigEndian)
+        for (i = 0; i < size / 2; i++)
+        {
+            tmp = bytes[i];
+            bytes[i] = bytes[size - 1 - i];
+            bytes[size - 1 - i] = tmp;
+        }
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_ReadByte(IDataReader *iface, BYTE *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    return data_reader_read(impl, value, sizeof(*value));
+}
+
+static HRESULT WINAPI data_reader_ReadBytes(IDataReader *iface, UINT32 value_size, BYTE *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value_size %u, value %p.\n", iface, value_size, value);
+
+    if (!value && value_size) return E_POINTER;
+    return data_reader_read(impl, value, value_size);
+}
+
+static HRESULT WINAPI data_reader_ReadBuffer(IDataReader *iface, UINT32 length, IBuffer **buffer)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+    IBufferByteAccess *access;
+    IBuffer *out;
+    HRESULT hr;
+    BYTE *data;
+
+    TRACE("iface %p, length %u, buffer %p.\n", iface, length, buffer);
+
+    if (!buffer) return E_POINTER;
+    *buffer = NULL;
+    if (length > impl->length - impl->pos) return E_BOUNDS;
+
+    if (FAILED(hr = buffer_create(length, &out))) return hr;
+    if (SUCCEEDED(hr = IBuffer_QueryInterface(out, &IID_IBufferByteAccess, (void **)&access)))
+    {
+        if (SUCCEEDED(hr = IBufferByteAccess_Buffer(access, &data)))
+            hr = data_reader_read(impl, data, length);
+        IBufferByteAccess_Release(access);
+    }
+    if (SUCCEEDED(hr)) hr = IBuffer_put_Length(out, length);
+    if (FAILED(hr))
+    {
+        IBuffer_Release(out);
+        return hr;
+    }
+
+    *buffer = out;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_ReadBoolean(IDataReader *iface, boolean *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+    BYTE byte;
+    HRESULT hr;
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    if (FAILED(hr = data_reader_read(impl, &byte, sizeof(byte)))) return hr;
+    *value = !!byte;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_ReadGuid(IDataReader *iface, GUID *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+    UINT32 start = impl->pos;
+    HRESULT hr;
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    if (impl->length - impl->pos < sizeof(*value)) return E_BOUNDS;
+    if (FAILED(hr = data_reader_read_scalar(impl, &value->Data1, sizeof(value->Data1))) ||
+        FAILED(hr = data_reader_read_scalar(impl, &value->Data2, sizeof(value->Data2))) ||
+        FAILED(hr = data_reader_read_scalar(impl, &value->Data3, sizeof(value->Data3))) ||
+        FAILED(hr = data_reader_read(impl, value->Data4, sizeof(value->Data4))))
+        impl->pos = start;
+    return hr;
+}
+
+#define DEFINE_DATA_READER_READ_SCALAR(name, type)                                   \
+static HRESULT WINAPI data_reader_Read##name(IDataReader *iface, type *value)        \
+{                                                                                    \
+    struct data_reader *impl = impl_from_IDataReader(iface);                         \
+                                                                                     \
+    TRACE("iface %p, value %p.\n", iface, value);                                    \
+                                                                                     \
+    if (!value) return E_POINTER;                                                    \
+    return data_reader_read_scalar(impl, value, sizeof(*value));                     \
+}
+
+DEFINE_DATA_READER_READ_SCALAR(Int16, INT16)
+DEFINE_DATA_READER_READ_SCALAR(Int32, INT32)
+DEFINE_DATA_READER_READ_SCALAR(Int64, INT64)
+DEFINE_DATA_READER_READ_SCALAR(UInt16, UINT16)
+DEFINE_DATA_READER_READ_SCALAR(UInt32, UINT32)
+DEFINE_DATA_READER_READ_SCALAR(UInt64, UINT64)
+DEFINE_DATA_READER_READ_SCALAR(Single, FLOAT)
+DEFINE_DATA_READER_READ_SCALAR(Double, DOUBLE)
+
+static HRESULT WINAPI data_reader_ReadString(IDataReader *iface, UINT32 code_unit_count, HSTRING *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+    UINT32 size, i, len;
+    const BYTE *src;
+    WCHAR *str;
+    HRESULT hr;
+
+    TRACE("iface %p, code_unit_count %u, value %p.\n", iface, code_unit_count, value);
+
+    if (!value) return E_POINTER;
+    *value = NULL;
+
+    size = impl->encoding == UnicodeEncoding_Utf8 ? code_unit_count : code_unit_count * sizeof(WCHAR);
+    if (impl->encoding != UnicodeEncoding_Utf8 && code_unit_count > UINT_MAX / sizeof(WCHAR)) return E_BOUNDS;
+    if (size > impl->length - impl->pos) return E_BOUNDS;
+    if (!size) return S_OK;
+    src = impl->data + impl->pos;
+
+    if (impl->encoding == UnicodeEncoding_Utf8)
+    {
+        len = MultiByteToWideChar(CP_UTF8, 0, (const char *)src, size, NULL, 0);
+        if (!(str = malloc(len * sizeof(WCHAR)))) return E_OUTOFMEMORY;
+        MultiByteToWideChar(CP_UTF8, 0, (const char *)src, size, str, len);
+    }
+    else
+    {
+        len = code_unit_count;
+        if (!(str = malloc(size))) return E_OUTOFMEMORY;
+        for (i = 0; i < len; i++)
+            str[i] = impl->encoding == UnicodeEncoding_Utf16BE ? (src[2 * i] << 8) | src[2 * i + 1]
+                                                               : src[2 * i] | (src[2 * i + 1] << 8);
+    }
+
+    if (SUCCEEDED(hr = WindowsCreateString(str, len, value)))
+        impl->pos += size;
+    free(str);
+    return hr;
+}
+
+static HRESULT WINAPI data_reader_ReadDateTime(IDataReader *iface, DateTime *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    return data_reader_read_scalar(impl, &value->UniversalTime, sizeof(value->UniversalTime));
+}
+
+static HRESULT WINAPI data_reader_ReadTimeSpan(IDataReader *iface, TimeSpan *value)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
+    return data_reader_read_scalar(impl, &value->Duration, sizeof(value->Duration));
+}
+
+static HRESULT WINAPI data_reader_LoadAsync(IDataReader *iface, UINT32 count, IAsyncOperation_UINT32 **operation)
+{
+    FIXME("iface %p, count %u, operation %p stub!\n", iface, count, operation);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI data_reader_DetachBuffer(IDataReader *iface, IBuffer **buffer)
+{
+    struct data_reader *impl = impl_from_IDataReader(iface);
+
+    TRACE("iface %p, buffer %p.\n", iface, buffer);
+
+    if (!buffer) return E_POINTER;
+    *buffer = impl->buffer;
+    impl->buffer = NULL;
+    impl->data = NULL;
+    impl->length = impl->pos = 0;
+    return S_OK;
+}
+
+static HRESULT WINAPI data_reader_DetachStream(IDataReader *iface, IInputStream **stream)
+{
+    FIXME("iface %p, stream %p stub!\n", iface, stream);
+
+    if (!stream) return E_POINTER;
+    *stream = NULL;
+    return S_OK;
+}
+
+static const struct IDataReaderVtbl data_reader_vtbl =
+{
+    data_reader_QueryInterface,
+    data_reader_AddRef,
+    data_reader_Release,
+    /* IInspectable methods */
+    data_reader_GetIids,
+    data_reader_GetRuntimeClassName,
+    data_reader_GetTrustLevel,
+    /* IDataReader methods */
+    data_reader_get_UnconsumedBufferLength,
+    data_reader_get_UnicodeEncoding,
+    data_reader_put_UnicodeEncoding,
+    data_reader_get_ByteOrder,
+    data_reader_put_ByteOrder,
+    data_reader_get_InputStreamOptions,
+    data_reader_put_InputStreamOptions,
+    data_reader_ReadByte,
+    data_reader_ReadBytes,
+    data_reader_ReadBuffer,
+    data_reader_ReadBoolean,
+    data_reader_ReadGuid,
+    data_reader_ReadInt16,
+    data_reader_ReadInt32,
+    data_reader_ReadInt64,
+    data_reader_ReadUInt16,
+    data_reader_ReadUInt32,
+    data_reader_ReadUInt64,
+    data_reader_ReadSingle,
+    data_reader_ReadDouble,
+    data_reader_ReadString,
+    data_reader_ReadDateTime,
+    data_reader_ReadTimeSpan,
+    data_reader_LoadAsync,
+    data_reader_DetachBuffer,
+    data_reader_DetachStream,
+};
+
+DEFINE_IINSPECTABLE(data_reader_closable, IClosable, struct data_reader, IDataReader_iface)
+
+static HRESULT WINAPI data_reader_closable_Close(IClosable *iface)
+{
+    struct data_reader *impl = impl_from_IClosable(iface);
+
+    TRACE("iface %p.\n", iface);
+
+    if (impl->buffer)
+        IBuffer_Release(impl->buffer);
+    impl->buffer = NULL;
+    impl->data = NULL;
+    impl->length = impl->pos = 0;
+    return S_OK;
+}
+
+static const struct IClosableVtbl data_reader_closable_vtbl =
+{
+    data_reader_closable_QueryInterface,
+    data_reader_closable_AddRef,
+    data_reader_closable_Release,
+    /* IInspectable methods */
+    data_reader_closable_GetIids,
+    data_reader_closable_GetRuntimeClassName,
+    data_reader_closable_GetTrustLevel,
+    /* IClosable methods */
+    data_reader_closable_Close,
+};
+
+static HRESULT data_reader_create(IBuffer *buffer, IDataReader **out)
+{
+    struct data_reader *impl;
+    IBufferByteAccess *access;
+    HRESULT hr;
+
+    *out = NULL;
+    if (!(impl = calloc(1, sizeof(*impl))))
+        return E_OUTOFMEMORY;
+
+    impl->IDataReader_iface.lpVtbl = &data_reader_vtbl;
+    impl->IClosable_iface.lpVtbl = &data_reader_closable_vtbl;
+    impl->ref = 1;
+    impl->encoding = UnicodeEncoding_Utf8;
+    impl->byte_order = ByteOrder_BigEndian;
+
+    if (FAILED(hr = IBuffer_get_Length(buffer, &impl->length)) ||
+        FAILED(hr = IBuffer_QueryInterface(buffer, &IID_IBufferByteAccess, (void **)&access)))
+    {
+        free(impl);
+        return hr;
+    }
+    hr = IBufferByteAccess_Buffer(access, &impl->data);
+    IBufferByteAccess_Release(access);
+    if (FAILED(hr))
+    {
+        free(impl);
+        return hr;
+    }
+
+    IBuffer_AddRef((impl->buffer = buffer));
+    *out = &impl->IDataReader_iface;
+    return S_OK;
+}
+
+struct data_reader_statics
+{
+    IActivationFactory IActivationFactory_iface;
+    IDataReaderStatics IDataReaderStatics_iface;
+    IDataReaderFactory IDataReaderFactory_iface;
+    LONG ref;
+};
+
+static inline struct data_reader_statics *data_reader_statics_from_IActivationFactory(IActivationFactory *iface)
+{
+    return CONTAINING_RECORD(iface, struct data_reader_statics, IActivationFactory_iface);
+}
+
+static HRESULT WINAPI data_reader_factory_QueryInterface(IActivationFactory *iface, REFIID iid, void **out)
+{
+    struct data_reader_statics *impl = data_reader_statics_from_IActivationFactory(iface);
+
+    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (IsEqualGUID(iid, &IID_IUnknown)
+            || IsEqualGUID(iid, &IID_IInspectable)
+            || IsEqualGUID(iid, &IID_IAgileObject)
+            || IsEqualGUID(iid, &IID_IActivationFactory))
+    {
+        IActivationFactory_AddRef((*out = &impl->IActivationFactory_iface));
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_IDataReaderStatics))
+    {
+        IActivationFactory_AddRef(iface);
+        *out = &impl->IDataReaderStatics_iface;
+        return S_OK;
+    }
+
+    if (IsEqualGUID(iid, &IID_IDataReaderFactory))
+    {
+        IActivationFactory_AddRef(iface);
+        *out = &impl->IDataReaderFactory_iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI data_reader_factory_AddRef(IActivationFactory *iface)
+{
+    struct data_reader_statics *impl = data_reader_statics_from_IActivationFactory(iface);
+    ULONG ref = InterlockedIncrement(&impl->ref);
+    TRACE("iface %p, ref %lu.\n", iface, ref);
+    return ref;
+}
+
+static ULONG WINAPI data_reader_factory_Release(IActivationFactory *iface)
+{
+    struct data_reader_statics *impl = data_reader_statics_from_IActivationFactory(iface);
+    ULONG ref = InterlockedDecrement(&impl->ref);
+    TRACE("iface %p, ref %lu.\n", iface, ref);
+    return ref;
+}
+
+static HRESULT WINAPI data_reader_factory_GetIids(IActivationFactory *iface, ULONG *iid_count, IID **iids)
+{
+    FIXME("iface %p, iid_count %p, iids %p stub!\n", iface, iid_count, iids);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI data_reader_factory_GetRuntimeClassName(IActivationFactory *iface, HSTRING *class_name)
+{
+    FIXME("iface %p, class_name %p stub!\n", iface, class_name);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI data_reader_factory_GetTrustLevel(IActivationFactory *iface, TrustLevel *trust_level)
+{
+    FIXME("iface %p, trust_level %p stub!\n", iface, trust_level);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI data_reader_factory_ActivateInstance(IActivationFactory *iface, IInspectable **instance)
+{
+    FIXME("iface %p, instance %p stub!\n", iface, instance);
+    return E_NOTIMPL;
+}
+
+static const struct IActivationFactoryVtbl data_reader_factory_vtbl =
+{
+    data_reader_factory_QueryInterface,
+    data_reader_factory_AddRef,
+    data_reader_factory_Release,
+    /* IInspectable methods */
+    data_reader_factory_GetIids,
+    data_reader_factory_GetRuntimeClassName,
+    data_reader_factory_GetTrustLevel,
+    /* IActivationFactory methods */
+    data_reader_factory_ActivateInstance,
+};
+
+DEFINE_IINSPECTABLE(data_reader_statics, IDataReaderStatics, struct data_reader_statics, IActivationFactory_iface)
+
+static HRESULT WINAPI data_reader_statics_FromBuffer(IDataReaderStatics *iface, IBuffer *buffer, IDataReader **data_reader)
+{
+    TRACE("iface %p, buffer %p, data_reader %p.\n", iface, buffer, data_reader);
+
+    if (!data_reader) return E_POINTER;
+    if (!buffer)
+    {
+        *data_reader = NULL;
+        return E_INVALIDARG;
+    }
+    return data_reader_create(buffer, data_reader);
+}
+
+static const struct IDataReaderStaticsVtbl data_reader_statics_vtbl =
+{
+    data_reader_statics_QueryInterface,
+    data_reader_statics_AddRef,
+    data_reader_statics_Release,
+    /* IInspectable methods */
+    data_reader_statics_GetIids,
+    data_reader_statics_GetRuntimeClassName,
+    data_reader_statics_GetTrustLevel,
+    /* IDataReaderStatics methods */
+    data_reader_statics_FromBuffer,
+};
+
+DEFINE_IINSPECTABLE(data_reader_factory2, IDataReaderFactory, struct data_reader_statics, IActivationFactory_iface)
+
+static HRESULT WINAPI data_reader_factory2_CreateDataReader(IDataReaderFactory *iface, IInputStream *input_stream,
+        IDataReader **data_reader)
+{
+    FIXME("iface %p, input_stream %p, data_reader %p stub!\n", iface, input_stream, data_reader);
+    return E_NOTIMPL;
+}
+
+static const struct IDataReaderFactoryVtbl data_reader_factory2_vtbl =
+{
+    data_reader_factory2_QueryInterface,
+    data_reader_factory2_AddRef,
+    data_reader_factory2_Release,
+    /* IInspectable methods */
+    data_reader_factory2_GetIids,
+    data_reader_factory2_GetRuntimeClassName,
+    data_reader_factory2_GetTrustLevel,
+    /* IDataReaderFactory methods */
+    data_reader_factory2_CreateDataReader,
+};
+
+static struct data_reader_statics data_reader_statics =
+{
+    {&data_reader_factory_vtbl},
+    {&data_reader_statics_vtbl},
+    {&data_reader_factory2_vtbl},
+    1
+};
+
+IActivationFactory *data_reader_activation_factory = &data_reader_statics.IActivationFactory_iface;

@@ -2288,6 +2288,7 @@ static void dump_get_thread_input_reply( const struct get_thread_input_reply *re
 static void dump_set_user_input_time_request( const struct set_user_input_time_request *req )
 {
     fprintf( stderr, " set=%d", req->set );
+    fprintf( stderr, ", forward=%08x", req->forward );
 }
 
 static void dump_set_user_input_time_reply( const struct set_user_input_time_reply *req )
@@ -3031,6 +3032,28 @@ static void dump_create_device_manager_request( const struct create_device_manag
 static void dump_create_device_manager_reply( const struct create_device_manager_reply *req )
 {
     fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_set_sony_active_controller_request( const struct set_sony_active_controller_request *req )
+{
+    fprintf( stderr, " container0=%08x", req->container0 );
+    fprintf( stderr, ", container1=%08x", req->container1 );
+    fprintf( stderr, ", container2=%08x", req->container2 );
+    fprintf( stderr, ", container3=%08x", req->container3 );
+    fprintf( stderr, ", valid=%d", req->valid );
+}
+
+static void dump_get_sony_active_controller_request( const struct get_sony_active_controller_request *req )
+{
+}
+
+static void dump_get_sony_active_controller_reply( const struct get_sony_active_controller_reply *req )
+{
+    fprintf( stderr, " container0=%08x", req->container0 );
+    fprintf( stderr, ", container1=%08x", req->container1 );
+    fprintf( stderr, ", container2=%08x", req->container2 );
+    fprintf( stderr, ", container3=%08x", req->container3 );
+    fprintf( stderr, ", valid=%d", req->valid );
 }
 
 static void dump_create_device_request( const struct create_device_request *req )
@@ -3933,6 +3956,8 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_get_object_types_request,
     (dump_func)dump_allocate_locally_unique_id_request,
     (dump_func)dump_create_device_manager_request,
+    (dump_func)dump_set_sony_active_controller_request,
+    (dump_func)dump_get_sony_active_controller_request,
     (dump_func)dump_create_device_request,
     (dump_func)dump_delete_device_request,
     (dump_func)dump_get_next_device_request_request,
@@ -4257,6 +4282,8 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_allocate_locally_unique_id_reply,
     (dump_func)dump_create_device_manager_reply,
     NULL,
+    (dump_func)dump_get_sony_active_controller_reply,
+    NULL,
     NULL,
     (dump_func)dump_get_next_device_request_reply,
     (dump_func)dump_get_kernel_object_ptr_reply,
@@ -4579,6 +4606,8 @@ static const char * const req_names[REQ_NB_REQUESTS] =
     "get_object_types",
     "allocate_locally_unique_id",
     "create_device_manager",
+    "set_sony_active_controller",
+    "get_sony_active_controller",
     "create_device",
     "delete_device",
     "get_next_device_request",
@@ -4720,7 +4749,6 @@ static const struct
     { "INVALID_PIPE_STATE",          STATUS_INVALID_PIPE_STATE },
     { "INVALID_READ_MODE",           STATUS_INVALID_READ_MODE },
     { "INVALID_SECURITY_DESCR",      STATUS_INVALID_SECURITY_DESCR },
-    { "INVALID_STATE_TRANSITION",    STATUS_INVALID_STATE_TRANSITION },
     { "INVALID_USER_BUFFER",         STATUS_INVALID_USER_BUFFER },
     { "IO_REPARSE_DATA_INVALID",     STATUS_IO_REPARSE_DATA_INVALID },
     { "IO_REPARSE_TAG_INVALID",      STATUS_IO_REPARSE_TAG_INVALID },

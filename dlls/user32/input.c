@@ -26,6 +26,7 @@
 
 #include "user_private.h"
 #include "dbt.h"
+#include "setupapi.h"
 #include "wine/debug.h"
 #include "wine/plugplay.h"
 
@@ -606,6 +607,123 @@ static DWORD CALLBACK steam_input_callbackA(HANDLE handle, DWORD flags, DEV_BROA
     return steam_input_devnotify(handle, flags, header, TRUE);
 }
 
+static void *diablo_startup_notify;
+
+struct diablo_startup_hid
+{
+    HWND hwnd;
+    HDEVNOTIFY notify;
+};
+
+static BOOL is_diablo_main_window( HWND hwnd )
+{
+    WCHAR name[64];
+    DWORD process;
+
+    return GetWindowThreadProcessId( hwnd, &process ) && process == GetCurrentProcessId() &&
+           GetClassNameW( hwnd, name, ARRAY_SIZE(name) ) &&
+           !wcscmp( name, L"Diablo IV Main Window Class" );
+}
+
+static DWORD WINAPI diablo_startup_hid_proc( void *arg )
+{
+    static const GUID hid_guid =
+        {0x4d1e55b2, 0xf16f, 0x11cf, {0x88, 0xcb, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30}};
+    static const WCHAR dualsense_prefix[] = L"\\\\?\\hid#vid_054c&pid_0ce6&mi_03#";
+    static const WCHAR steam_prefix[] = L"\\\\?\\hid#vid_28de&pid_11ff";
+    struct diablo_startup_hid *startup = arg;
+    SP_DEVICE_INTERFACE_DATA iface = {sizeof(iface)};
+    DEV_BROADCAST_DEVICEINTERFACE_W *event;
+    WCHAR *path = NULL;
+    HDEVINFO set;
+    DWORD index, size;
+    BOOL steam_input = FALSE;
+
+    /* Diablo can keep its initial XInput-only selection until a HID arrives.
+     * Allow startup to settle, then request one native HID refresh. */
+    Sleep( 2000 );
+    if (InterlockedCompareExchangePointer( &diablo_startup_notify, NULL, NULL ) != startup->notify ||
+            !is_diablo_main_window( startup->hwnd )) goto done;
+
+    set = SetupDiGetClassDevsW( &hid_guid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE );
+    if (set == INVALID_HANDLE_VALUE) goto done;
+
+    for (index = 0; SetupDiEnumDeviceInterfaces( set, NULL, &hid_guid, index, &iface ); index++)
+    {
+        SP_DEVICE_INTERFACE_DETAIL_DATA_W *detail;
+
+        size = 0;
+        SetupDiGetDeviceInterfaceDetailW( set, &iface, NULL, 0, &size, NULL );
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !(detail = malloc( size ))) continue;
+        detail->cbSize = sizeof(*detail);
+        if (SetupDiGetDeviceInterfaceDetailW( set, &iface, detail, size, NULL, NULL ))
+        {
+            if (!wcsnicmp( detail->DevicePath, steam_prefix, ARRAY_SIZE(steam_prefix) - 1 ))
+                steam_input = TRUE;
+            else if (!path && !wcsnicmp( detail->DevicePath, dualsense_prefix, ARRAY_SIZE(dualsense_prefix) - 1 ))
+                path = wcsdup( detail->DevicePath );
+        }
+        free( detail );
+        if (steam_input) break;
+    }
+    SetupDiDestroyDeviceInfoList( set );
+
+    if (steam_input)
+        TRACE_(rawinput)( "Skipping Diablo IV startup HID refresh while Steam Input is present.\n" );
+    if (steam_input || !path || !is_diablo_main_window( startup->hwnd )) goto done;
+    if (InterlockedCompareExchangePointer( &diablo_startup_notify, NULL, startup->notify ) != startup->notify)
+        goto done;
+
+    size = offsetof(DEV_BROADCAST_DEVICEINTERFACE_W, dbcc_name) + (wcslen(path) + 1) * sizeof(WCHAR);
+    if (!(event = calloc( 1, size ))) goto done;
+    event->dbcc_size = size;
+    event->dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+    event->dbcc_classguid = hid_guid;
+    wcscpy( event->dbcc_name, path );
+    TRACE_(rawinput)( "Refreshing Diablo IV startup DualSense %s on window %p.\n", debugstr_w(path), startup->hwnd );
+    steam_input_devnotify( startup->hwnd, DBT_DEVICEARRIVAL, (DEV_BROADCAST_HDR *)event,
+                          !IsWindowUnicode( startup->hwnd ) );
+    free( event );
+
+done:
+    InterlockedCompareExchangePointer( &diablo_startup_notify, NULL, startup->notify );
+    free( path );
+    free( startup );
+    return 0;
+}
+
+static void queue_diablo_startup_hid( HWND hwnd, HDEVNOTIFY notify )
+{
+    static LONG scheduled;
+    struct diablo_startup_hid *startup;
+    WCHAR filename[MAX_PATH], *name;
+    HANDLE thread;
+    DWORD length;
+
+    if (!notify || !is_diablo_main_window( hwnd )) return;
+    length = GetModuleFileNameW( NULL, filename, ARRAY_SIZE(filename) );
+    if (!length || length >= ARRAY_SIZE(filename)) return;
+    name = wcsrchr( filename, '\\' );
+    if (wcsicmp( name ? name + 1 : filename, L"Diablo IV.exe" )) return;
+    if (!(startup = malloc( sizeof(*startup) ))) return;
+    if (InterlockedCompareExchange( &scheduled, 1, 0 ))
+    {
+        free( startup );
+        return;
+    }
+    startup->hwnd = hwnd;
+    startup->notify = notify;
+    InterlockedExchangePointer( &diablo_startup_notify, notify );
+    if ((thread = CreateThread( NULL, 0, diablo_startup_hid_proc, startup, 0, NULL )))
+        CloseHandle( thread );
+    else
+    {
+        InterlockedCompareExchangePointer( &diablo_startup_notify, NULL, notify );
+        InterlockedExchange( &scheduled, 0 );
+        free( startup );
+    }
+}
+
 static DWORD CALLBACK devnotify_service_callback(HANDLE handle, DWORD flags, DEV_BROADCAST_HDR *header)
 {
     FIXME("Support for service handles is not yet implemented!\n");
@@ -659,13 +777,16 @@ HDEVNOTIFY WINAPI RegisterDeviceNotificationW( HANDLE handle, void *filter, DWOR
     if (header->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE)
     {
         DEV_BROADCAST_DEVICEINTERFACE_W iface = *(DEV_BROADCAST_DEVICEINTERFACE_W *)header;
+        HDEVNOTIFY notify;
 
         if (flags & DEVICE_NOTIFY_ALL_INTERFACE_CLASSES)
             iface.dbcc_size = offsetof( DEV_BROADCAST_DEVICEINTERFACE_W, dbcc_classguid );
         else
             iface.dbcc_size = offsetof( DEV_BROADCAST_DEVICEINTERFACE_W, dbcc_name );
 
-        return I_ScRegisterDeviceNotification( handle, (DEV_BROADCAST_HDR *)&iface, callback );
+        notify = I_ScRegisterDeviceNotification( handle, (DEV_BROADCAST_HDR *)&iface, callback );
+        if (!(flags & DEVICE_NOTIFY_SERVICE_HANDLE)) queue_diablo_startup_hid( handle, notify );
+        return notify;
     }
     if (header->dbch_devicetype == DBT_DEVTYP_HANDLE)
         return I_ScRegisterDeviceNotification( handle, header, callback );
@@ -682,6 +803,7 @@ BOOL WINAPI UnregisterDeviceNotification( HDEVNOTIFY handle )
 {
     TRACE("%p\n", handle);
 
+    InterlockedCompareExchangePointer( &diablo_startup_notify, NULL, handle );
     return I_ScUnregisterDeviceNotification( handle );
 }
 

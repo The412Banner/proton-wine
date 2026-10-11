@@ -1268,12 +1268,10 @@ static HRESULT WINAPI video_sample_GetSampleTime(IMFSample *iface, LONGLONG *tim
 
     TRACE("%p, %p.\n", iface, timestamp);
 
-    EnterCriticalSection(&sample->cs);
     if (sample->flags & SAMPLE_PROP_HAS_TIMESTAMP)
         *timestamp = sample->timestamp;
     else
         hr = MF_E_NO_SAMPLE_TIMESTAMP;
-    LeaveCriticalSection(&sample->cs);
 
     return hr;
 }
@@ -1284,10 +1282,8 @@ static HRESULT WINAPI video_sample_SetSampleTime(IMFSample *iface, LONGLONG time
 
     TRACE("%p, %s.\n", iface, debugstr_time(timestamp));
 
-    EnterCriticalSection(&sample->cs);
     sample->timestamp = timestamp;
     sample->flags |= SAMPLE_PROP_HAS_TIMESTAMP;
-    LeaveCriticalSection(&sample->cs);
 
     return S_OK;
 }
@@ -1299,12 +1295,10 @@ static HRESULT WINAPI video_sample_GetSampleDuration(IMFSample *iface, LONGLONG 
 
     TRACE("%p, %p.\n", iface, duration);
 
-    EnterCriticalSection(&sample->cs);
     if (sample->flags & SAMPLE_PROP_HAS_DURATION)
         *duration = sample->duration;
     else
         hr = MF_E_NO_SAMPLE_DURATION;
-    LeaveCriticalSection(&sample->cs);
 
     return hr;
 }
@@ -1315,10 +1309,8 @@ static HRESULT WINAPI video_sample_SetSampleDuration(IMFSample *iface, LONGLONG 
 
     TRACE("%p, %s.\n", iface, debugstr_time(duration));
 
-    EnterCriticalSection(&sample->cs);
     sample->duration = duration;
     sample->flags |= SAMPLE_PROP_HAS_DURATION;
-    LeaveCriticalSection(&sample->cs);
 
     return S_OK;
 }

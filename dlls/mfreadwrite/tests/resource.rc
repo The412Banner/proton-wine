@@ -25,3 +25,6 @@ test.wav RCDATA test.wav
 /* ffmpeg -f lavfi -i smptebars -f lavfi -i "sine=frequency=1000" -t 1.0 -r 25 -f mp4 -vcodec h264 -vf scale=160x120 -acodec aac test.mp4 */
 /* @makedep: test.mp4 */
 test.mp4 RCDATA test.mp4
+
+/* @makedep: ../../wmvcore/tests/test.wmv */
+test.wmv RCDATA ../../wmvcore/tests/test.wmv

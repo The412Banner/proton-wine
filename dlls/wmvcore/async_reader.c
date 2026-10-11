@@ -83,6 +83,9 @@ struct stream
     struct list deliver_samples;
     CONDITION_VARIABLE deliver_cv;
 
+    bool delivered_sample;
+    QWORD last_delivered_pts;
+
     bool running;
 };
 
@@ -110,6 +113,8 @@ struct async_reader
 
     REFERENCE_TIME clock_start;
     LARGE_INTEGER clock_frequency;
+    QWORD active_start;
+    QWORD active_duration;
 
     HANDLE callback_thread;
     CRITICAL_SECTION callback_cs;
@@ -123,6 +128,7 @@ struct async_reader
 
     bool user_clock;
     QWORD user_time;
+    bool manual_stream_selection;
 };
 
 struct allocator
@@ -295,6 +301,7 @@ static void async_reader_deliver_sample(struct async_reader *reader, struct samp
 {
     IWMReaderCallbackAdvanced *callback_advanced = reader->callback_advanced;
     IWMReaderCallback *callback = reader->callback;
+    struct stream *stream = reader->streams + sample->output;
     BOOL read_compressed;
     HRESULT hr;
 
@@ -314,6 +321,9 @@ static void async_reader_deliver_sample(struct async_reader *reader, struct samp
         hr = IWMReaderCallback_OnSample(callback, sample->output, sample->pts, sample->duration,
                 sample->flags, sample->buffer, reader->context);
     EnterCriticalSection(&reader->callback_cs);
+
+    stream->delivered_sample = true;
+    stream->last_delivered_pts = sample->pts;
 
     TRACE("Callback returned %#lx.\n", hr);
 
@@ -480,11 +490,15 @@ static HRESULT stream_open(struct stream *stream, struct async_reader *reader, W
 
     stream->number = number;
     stream->reader = reader;
+    stream->running = true;
     list_init(&stream->read_samples);
     list_init(&stream->deliver_samples);
 
     if (!(stream->read_thread = CreateThread(NULL, 0, stream_read_thread, stream, 0, NULL)))
+    {
+        stream->running = false;
         return E_OUTOFMEMORY;
+    }
 
     if (!(stream->deliver_thread = CreateThread(NULL, 0, stream_deliver_thread, stream, 0, NULL)))
     {
@@ -493,7 +507,6 @@ static HRESULT stream_open(struct stream *stream, struct async_reader *reader, W
         EnterCriticalSection(&reader->callback_cs);
         return E_OUTOFMEMORY;
     }
-    stream->running = true;
 
     return S_OK;
 }
@@ -518,12 +531,55 @@ static HRESULT async_reader_open_all_streams(struct async_reader *reader)
     for (i = 0; i < reader->stream_count; ++i)
     {
         struct stream *stream = reader->streams + i;
+        WMT_STREAM_SELECTION selection;
+
+        if (FAILED(IWMSyncReader2_GetStreamSelected(reader->reader, i + 1, &selection))
+                || selection == WMT_OFF)
+            continue;
 
         if (FAILED(hr = stream_open(stream, reader, i + 1)))
             return hr;
         stream_request_read(stream);
     }
     return S_OK;
+}
+
+static void async_reader_wait_initial_samples(struct async_reader *reader)
+{
+    DWORD start = GetTickCount();
+
+    while (reader->running && list_empty(&reader->async_ops))
+    {
+        BOOL waiting = FALSE;
+        DWORD i;
+
+        for (i = 0; i < reader->stream_count; ++i)
+        {
+            struct stream *stream = reader->streams + i;
+            WMT_STREAM_SELECTION selection;
+
+            if (FAILED(IWMSyncReader2_GetStreamSelected(reader->reader, i + 1, &selection))
+                    || selection == WMT_OFF)
+                continue;
+
+            if (list_empty(&stream->read_samples) && stream->read_result == E_PENDING)
+            {
+                waiting = TRUE;
+                break;
+            }
+        }
+
+        if (!waiting)
+            return;
+
+        if (GetTickCount() - start >= 5000)
+        {
+            WARN("Timed out waiting for initial samples, starting reader clock anyway.\n");
+            return;
+        }
+
+        SleepConditionVariableCS(&reader->callback_cv, &reader->callback_cs, 50);
+    }
 }
 
 static HRESULT async_reader_get_next_sample(struct async_reader *reader,
@@ -548,7 +604,7 @@ static HRESULT async_reader_get_next_sample(struct async_reader *reader,
         if (!(entry = list_head(&stream->read_samples)))
         {
             if (stream->read_result == E_PENDING)
-                return E_PENDING;
+                pending = TRUE;
             continue;
         }
 
@@ -562,6 +618,27 @@ static HRESULT async_reader_get_next_sample(struct async_reader *reader,
 
     if (!first_sample)
         return pending ? E_PENDING : NS_E_NO_MORE_SAMPLES;
+
+    for (i = 0; i < reader->stream_count; ++i)
+    {
+        stream = reader->streams + i;
+
+        if (stream == first_stream)
+            continue;
+        if (FAILED(IWMSyncReader2_GetStreamSelected(reader->reader, i + 1, &selection))
+                || selection == WMT_OFF)
+            continue;
+        if (!list_empty(&stream->read_samples) || stream->read_result != E_PENDING)
+            continue;
+
+        if (stream->delivered_sample && first_sample->pts > stream->last_delivered_pts + 10000000)
+        {
+            TRACE("Waiting for stream %u before delivering stream %u sample %s past %s.\n",
+                    stream->number, first_stream->number, debugstr_time(first_sample->pts),
+                    debugstr_time(stream->last_delivered_pts));
+            return E_PENDING;
+        }
+    }
 
     TRACE("Found first stream %u with pts %I64d.\n", first_stream->number, first_sample->pts);
     *out_sample = first_sample;
@@ -659,11 +736,29 @@ static DWORD WINAPI async_reader_callback_thread(void *arg)
                 case ASYNC_OP_START:
                 {
                     reader->context = op->u.start.context;
-                    if (SUCCEEDED(hr))
-                        hr = IWMSyncReader2_SetRange(reader->reader, op->u.start.start, op->u.start.duration);
-                    if (SUCCEEDED(hr))
+                    if (SUCCEEDED(hr) && reader->clock_start
+                            && reader->active_start == op->u.start.start
+                            && reader->active_duration == op->u.start.duration)
                     {
-                        reader->clock_start = get_current_time(reader);
+                        TRACE("Ignoring duplicate start for active range %s, duration %s.\n",
+                                debugstr_time(op->u.start.start), debugstr_time(op->u.start.duration));
+                    }
+                    else if (SUCCEEDED(hr))
+                    {
+                        if (reader->clock_start)
+                        {
+                            LeaveCriticalSection(&reader->callback_cs);
+                            async_reader_close_all_streams(reader);
+                            EnterCriticalSection(&reader->callback_cs);
+                            reader->clock_start = 0;
+                        }
+
+                        hr = IWMSyncReader2_SetRange(reader->reader, op->u.start.start, op->u.start.duration);
+                    }
+                    if (SUCCEEDED(hr) && !reader->clock_start)
+                    {
+                        reader->active_start = op->u.start.start;
+                        reader->active_duration = op->u.start.duration;
 
                         if (FAILED(hr = async_reader_open_all_streams(reader)))
                         {
@@ -674,6 +769,11 @@ static DWORD WINAPI async_reader_callback_thread(void *arg)
                                                        WMT_TYPE_DWORD, (BYTE *)&zero, reader->context);
                             EnterCriticalSection(&reader->callback_cs);
                             reader->running = false;
+                        }
+                        else
+                        {
+                            async_reader_wait_initial_samples(reader);
+                            reader->clock_start = get_current_time(reader);
                         }
                     }
 
@@ -1138,16 +1238,31 @@ static HRESULT WINAPI WMReaderAdvanced_DeliverTime(IWMReaderAdvanced6 *iface, QW
 
 static HRESULT WINAPI WMReaderAdvanced_SetManualStreamSelection(IWMReaderAdvanced6 *iface, BOOL selection)
 {
-    struct async_reader *This = impl_from_IWMReaderAdvanced6(iface);
-    FIXME("(%p)->(%x)\n", This, selection);
-    return E_NOTIMPL;
+    struct async_reader *reader = impl_from_IWMReaderAdvanced6(iface);
+
+    TRACE("reader %p, selection %d.\n", reader, selection);
+
+    EnterCriticalSection(&reader->callback_cs);
+    reader->manual_stream_selection = !!selection;
+    LeaveCriticalSection(&reader->callback_cs);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI WMReaderAdvanced_GetManualStreamSelection(IWMReaderAdvanced6 *iface, BOOL *selection)
 {
-    struct async_reader *This = impl_from_IWMReaderAdvanced6(iface);
-    FIXME("(%p)->(%p)\n", This, selection);
-    return E_NOTIMPL;
+    struct async_reader *reader = impl_from_IWMReaderAdvanced6(iface);
+
+    TRACE("reader %p, selection %p.\n", reader, selection);
+
+    if (!selection)
+        return E_INVALIDARG;
+
+    EnterCriticalSection(&reader->callback_cs);
+    *selection = reader->manual_stream_selection;
+    LeaveCriticalSection(&reader->callback_cs);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI WMReaderAdvanced_SetStreamsSelected(IWMReaderAdvanced6 *iface,
@@ -1271,9 +1386,11 @@ static HRESULT WINAPI WMReaderAdvanced_SetClientInfo(IWMReaderAdvanced6 *iface, 
 
 static HRESULT WINAPI WMReaderAdvanced_GetMaxOutputSampleSize(IWMReaderAdvanced6 *iface, DWORD output, DWORD *max)
 {
-    struct async_reader *This = impl_from_IWMReaderAdvanced6(iface);
-    FIXME("(%p)->(%lu %p)\n", This, output, max);
-    return E_NOTIMPL;
+    struct async_reader *reader = impl_from_IWMReaderAdvanced6(iface);
+
+    TRACE("reader %p, output %lu, max %p.\n", reader, output, max);
+
+    return IWMSyncReader2_GetMaxOutputSampleSize(reader->reader, output, max);
 }
 
 static HRESULT WINAPI WMReaderAdvanced_GetMaxStreamSampleSize(IWMReaderAdvanced6 *iface,
@@ -2259,7 +2376,7 @@ static HRESULT WINAPI async_reader_create(IWMReader **reader)
     object->IWMReaderTypeNegotiation_iface.lpVtbl = &WMReaderTypeNegotiationVtbl;
     object->refcount = 1;
 
-    if (FAILED(hr = winegstreamer_create_wm_sync_reader((IUnknown *)&object->IWMReader_iface,
+    if (FAILED(hr = winedmo_create_wm_sync_reader((IUnknown *)&object->IWMReader_iface,
             (void **)&object->reader_inner)))
         goto failed;
 

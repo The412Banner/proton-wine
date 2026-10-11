@@ -139,7 +139,7 @@ struct context_data
         struct { unsigned __int64 rax, rbx, rcx, rdx, rbp, rsi, rdi,
                                   r8, r9, r10, r11, r12, r13, r14, r15; } x86_64_regs;
         struct { unsigned int r[13]; } arm_regs;
-        struct { unsigned __int64 x[31]; } arm64_regs;
+        struct { unsigned __int64 x0[18], x19[12]; } arm64_regs;
     } integer;
     union
     {
@@ -173,16 +173,21 @@ struct context_data
     {
         struct { struct { unsigned __int64 low, high; } ymm_high[16]; } regs;
     } ymm;
+    union
+    {
+        unsigned __int64 arm64_x18;
+    } tls;
 };
 
-#define SERVER_CTX_CONTROL            0x01
-#define SERVER_CTX_INTEGER            0x02
-#define SERVER_CTX_SEGMENTS           0x04
-#define SERVER_CTX_FLOATING_POINT     0x08
-#define SERVER_CTX_DEBUG_REGISTERS    0x10
-#define SERVER_CTX_EXTENDED_REGISTERS 0x20
-#define SERVER_CTX_YMM_REGISTERS      0x40
-#define SERVER_CTX_EXEC_SPACE         0x80
+#define SERVER_CTX_CONTROL            0x0001
+#define SERVER_CTX_INTEGER            0x0002
+#define SERVER_CTX_SEGMENTS           0x0004
+#define SERVER_CTX_FLOATING_POINT     0x0008
+#define SERVER_CTX_DEBUG_REGISTERS    0x0010
+#define SERVER_CTX_EXTENDED_REGISTERS 0x0020
+#define SERVER_CTX_YMM_REGISTERS      0x0040
+#define SERVER_CTX_EXEC_SPACE         0x0080
+#define SERVER_CTX_TLS                0x0100
 
 
 struct send_fd
@@ -287,9 +292,9 @@ enum hwnd_dmabuf_status
  * token returns. The consumer may cache and reuse the wl_buffer for that slot.
  * Producers that export a fresh dmabuf for every frame must not set this flag. */
 #define HWND_DMABUF_FLAG_STABLE_SLOT      0x00000001
-/* Frame fd is a wl_shm-compatible shared-memory buffer, not a dma-buf. */
+
 #define HWND_DMABUF_FLAG_SHM              0x00000002
-/* Frame is a GDI overlay carried above normal self-presenting producers. */
+
 #define HWND_DMABUF_FLAG_GDI_OVERLAY      0x00000004
 
 #define HWND_DMABUF_FRAME_OPENED          0x00000001
@@ -1498,25 +1503,27 @@ struct set_thread_info_request
     int          priority;
     int          base_priority;
     affinity_t   affinity;
+    affinity_t   system_affinity;
     client_ptr_t entry_point;
     obj_handle_t token;
     int          disable_boost;
     unsigned int mask;
     /* VARARG(desc,unicode_str); */
-    char __pad_52[4];
+    char __pad_60[4];
 };
 struct set_thread_info_reply
 {
     struct reply_header __header;
 };
-#define SET_THREAD_INFO_PRIORITY        0x01
-#define SET_THREAD_INFO_BASE_PRIORITY   0x02
-#define SET_THREAD_INFO_AFFINITY        0x04
-#define SET_THREAD_INFO_TOKEN           0x08
-#define SET_THREAD_INFO_ENTRYPOINT      0x10
-#define SET_THREAD_INFO_DESCRIPTION     0x20
-#define SET_THREAD_INFO_DBG_HIDDEN      0x40
-#define SET_THREAD_INFO_DISABLE_BOOST   0x80
+#define SET_THREAD_INFO_PRIORITY        0x001
+#define SET_THREAD_INFO_BASE_PRIORITY   0x002
+#define SET_THREAD_INFO_AFFINITY        0x004
+#define SET_THREAD_INFO_GROUP_AFFINITY  0x008
+#define SET_THREAD_INFO_TOKEN           0x010
+#define SET_THREAD_INFO_ENTRYPOINT      0x020
+#define SET_THREAD_INFO_DESCRIPTION     0x040
+#define SET_THREAD_INFO_DBG_HIDDEN      0x080
+#define SET_THREAD_INFO_DISABLE_BOOST   0x100
 
 
 
@@ -4445,6 +4452,8 @@ struct set_user_input_time_request
 {
     struct request_header __header;
     int          set;
+    user_handle_t forward;
+    char __pad_20[4];
 };
 struct set_user_input_time_reply
 {
@@ -5480,6 +5489,40 @@ struct create_device_manager_reply
     struct reply_header __header;
     obj_handle_t handle;
     char __pad_12[4];
+};
+
+
+
+struct set_sony_active_controller_request
+{
+    struct request_header __header;
+    unsigned int container0;
+    unsigned int container1;
+    unsigned int container2;
+    unsigned int container3;
+    int          valid;
+};
+struct set_sony_active_controller_reply
+{
+    struct reply_header __header;
+};
+
+
+
+struct get_sony_active_controller_request
+{
+    struct request_header __header;
+    char __pad_12[4];
+};
+struct get_sony_active_controller_reply
+{
+    struct reply_header __header;
+    unsigned int container0;
+    unsigned int container1;
+    unsigned int container2;
+    unsigned int container3;
+    int          valid;
+    char __pad_28[4];
 };
 
 
@@ -6753,6 +6796,8 @@ enum request
     REQ_get_object_types,
     REQ_allocate_locally_unique_id,
     REQ_create_device_manager,
+    REQ_set_sony_active_controller,
+    REQ_get_sony_active_controller,
     REQ_create_device,
     REQ_delete_device,
     REQ_get_next_device_request,
@@ -7079,6 +7124,8 @@ union generic_request
     struct get_object_types_request get_object_types_request;
     struct allocate_locally_unique_id_request allocate_locally_unique_id_request;
     struct create_device_manager_request create_device_manager_request;
+    struct set_sony_active_controller_request set_sony_active_controller_request;
+    struct get_sony_active_controller_request get_sony_active_controller_request;
     struct create_device_request create_device_request;
     struct delete_device_request delete_device_request;
     struct get_next_device_request_request get_next_device_request_request;
@@ -7403,6 +7450,8 @@ union generic_reply
     struct get_object_types_reply get_object_types_reply;
     struct allocate_locally_unique_id_reply allocate_locally_unique_id_reply;
     struct create_device_manager_reply create_device_manager_reply;
+    struct set_sony_active_controller_reply set_sony_active_controller_reply;
+    struct get_sony_active_controller_reply get_sony_active_controller_reply;
     struct create_device_reply create_device_reply;
     struct delete_device_reply delete_device_reply;
     struct get_next_device_request_reply get_next_device_request_reply;
@@ -7467,6 +7516,6 @@ union generic_reply
     struct hwnd_dmabuf_release_channel_reply hwnd_dmabuf_release_channel_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 937
+#define SERVER_PROTOCOL_VERSION 938
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */

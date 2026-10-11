@@ -157,9 +157,24 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
         else
             dst_texture = wined3d_swapchain_get_front_buffer(ddraw->wined3d_swapchain);
 
-        if (SUCCEEDED(hr = wined3d_device_context_blt(ddraw->immediate_context, dst_texture, 0, rect,
+        hr = wined3d_device_context_blt(ddraw->immediate_context, dst_texture, 0, rect,
                 ddraw_surface_get_any_texture(surface, DDRAW_SURFACE_READ), surface->sub_resource_idx, rect, 0,
-                NULL, WINED3D_TEXF_POINT)) && swap_interval)
+                NULL, WINED3D_TEXF_POINT);
+
+        /* Overlays are not part of the destination surface: draw the
+         * visible one over it, like the hardware scan-out would. */
+        if (SUCCEEDED(hr) && ddraw->overlay && ddraw->overlay_dst == surface)
+        {
+            struct ddraw_surface *overlay = ddraw->overlay;
+            HRESULT overlay_hr;
+
+            if (FAILED(overlay_hr = wined3d_device_context_blt(ddraw->immediate_context, dst_texture, 0,
+                    &ddraw->overlay_dst_rect, ddraw_surface_get_any_texture(overlay, DDRAW_SURFACE_READ),
+                    overlay->sub_resource_idx, &ddraw->overlay_src_rect, 0, NULL, WINED3D_TEXF_LINEAR)))
+                WARN("Failed to draw overlay %p, hr %#lx.\n", overlay, overlay_hr);
+        }
+
+        if (SUCCEEDED(hr) && swap_interval)
         {
             hr = wined3d_swapchain_present(ddraw->wined3d_swapchain, rect, rect, NULL, swap_interval, 0);
             ddraw->flags |= DDRAW_SWAPPED;
@@ -204,6 +219,17 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
     }
 
     return DD_OK;
+}
+
+/* Show the visible overlay: refresh its destination area on the screen. */
+static HRESULT ddraw_surface_update_overlay_dst(struct ddraw *ddraw)
+{
+    struct ddraw_surface *dst = ddraw->overlay_dst;
+
+    if (!ddraw->overlay || !dst || !(dst->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE))
+        return DD_OK;
+
+    return ddraw_surface_update_frontbuffer(dst, &ddraw->overlay_dst_rect, FALSE, 0);
 }
 
 /*****************************************************************************
@@ -1515,6 +1541,8 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Flip(IDirectDrawSurface *
 
     if (dst_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
         hr = ddraw_surface_update_frontbuffer(dst_impl, NULL, FALSE, ddraw_swap_interval_from_flags(flags));
+    else if (impl_from_IDirectDrawSurface(iface) == dst_impl->ddraw->overlay)
+        hr = ddraw_surface_update_overlay_dst(dst_impl->ddraw);
     else
         hr = DD_OK;
 
@@ -4109,6 +4137,93 @@ static HRESULT WINAPI ddraw_surface1_SetOverlayPosition(IDirectDrawSurface *ifac
     return ddraw_surface7_SetOverlayPosition(&surface->IDirectDrawSurface7_iface, x, y);
 }
 
+static BOOL CALLBACK find_overlay_window_proc(HWND window, LPARAM param)
+{
+    HWND *ret = (HWND *)param;
+    DWORD pid;
+
+    GetWindowThreadProcessId(window, &pid);
+    if (pid != GetCurrentProcessId() || !IsWindowVisible(window))
+        return TRUE;
+    *ret = window;
+    return FALSE;
+}
+
+/* The window an overlay on the screen shows in: the cooperative level
+ * window, else the application's topmost visible top-level window. */
+static HWND ddraw_find_overlay_window(struct ddraw *ddraw)
+{
+    HWND window = ddraw->dest_window;
+
+    if (!window)
+        EnumWindows(find_overlay_window_proc, (LPARAM)&window);
+    return window;
+}
+
+/* Wine has no hardware overlays: the visible overlay is drawn over its
+ * destination when that is presented (see ddraw_surface_update_frontbuffer()).
+ * Only one overlay is shown at a time. */
+static void ddraw_surface_set_visible_overlay(struct ddraw_surface *overlay, const RECT *src_rect,
+        struct ddraw_surface *dst, const RECT *dst_rect, DWORD flags)
+{
+    struct ddraw *ddraw = overlay->ddraw;
+    struct ddraw_surface *old_dst;
+    BOOL bind_window;
+    RECT old_dst_rect;
+    HWND window;
+
+    if (flags & DDOVER_HIDE)
+    {
+        if (ddraw->overlay != overlay)
+            return;
+        old_dst = ddraw->overlay_dst;
+        old_dst_rect = ddraw->overlay_dst_rect;
+        ddraw->overlay = ddraw->overlay_dst = NULL;
+        /* Uncover the destination. */
+        if (old_dst->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
+        {
+            ddraw_surface_update_frontbuffer(old_dst, &old_dst_rect, FALSE, 0);
+            if (!old_dst->clipper && ddraw->wined3d_swapchain && !(ddraw->cooperative_level & DDSCL_EXCLUSIVE))
+            {
+                wined3d_swapchain_set_window(ddraw->wined3d_swapchain, ddraw->d3d_window);
+                ddraw_set_swapchain_window(ddraw, ddraw->dest_window);
+            }
+        }
+        return;
+    }
+
+    if (!(flags & DDOVER_SHOW) && ddraw->overlay != overlay)
+        return;
+    if (!dst)
+        return;
+
+    /* Without a clipper, a non-exclusive primary is drawn to ddraw's hidden
+     * window, or through GDI to the desktop, under the application's windows.
+     * An overlay is shown on top of everything: draw it in the application
+     * window, as with a clipper on that window. */
+    window = ddraw_find_overlay_window(ddraw);
+    bind_window = (dst->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE) && !dst->clipper
+            && ddraw->wined3d_swapchain && window && !(ddraw->cooperative_level & DDSCL_EXCLUSIVE);
+    if (bind_window)
+    {
+        wined3d_swapchain_set_window(ddraw->wined3d_swapchain, window);
+        ddraw_set_swapchain_window(ddraw, window);
+    }
+
+    ddraw->overlay = overlay;
+    ddraw->overlay_dst = dst;
+    if (src_rect)
+        ddraw->overlay_src_rect = *src_rect;
+    else
+        SetRect(&ddraw->overlay_src_rect, 0, 0, overlay->surface_desc.dwWidth, overlay->surface_desc.dwHeight);
+    if (dst_rect)
+        ddraw->overlay_dst_rect = *dst_rect;
+    else
+        SetRect(&ddraw->overlay_dst_rect, 0, 0, dst->surface_desc.dwWidth, dst->surface_desc.dwHeight);
+
+    ddraw_surface_update_overlay_dst(ddraw);
+}
+
 /*****************************************************************************
  * IDirectDrawSurface7::UpdateOverlay
  *
@@ -4147,6 +4262,8 @@ static HRESULT WINAPI ddraw_surface7_UpdateOverlay(IDirectDrawSurface7 *iface, R
     }
     hr = wined3d_texture_update_overlay(src_impl->wined3d_texture, src_impl->sub_resource_idx,
             src_rect, dst_wined3d_texture, dst_sub_resource_idx, dst_rect, flags);
+    if (SUCCEEDED(hr))
+        ddraw_surface_set_visible_overlay(src_impl, src_rect, dst_impl, dst_rect, flags);
     wined3d_mutex_unlock();
 
     return hr_ddraw_from_wined3d(hr);
@@ -4588,14 +4705,14 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_BltFast(IDirectDrawSurfac
         return DDERR_BLTFASTCANTCLIP;
     }
 
-    if (src_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
+    if ((src_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE) && src_impl != dst_impl)
         hr = ddraw_surface_update_frontbuffer(src_impl, src_rect, TRUE, 0);
     if (SUCCEEDED(hr))
         hr = wined3d_device_context_blt(dst_impl->ddraw->immediate_context,
                 ddraw_surface_get_any_texture(dst_impl, DDRAW_SURFACE_RW), dst_impl->sub_resource_idx, &dst_rect,
                 ddraw_surface_get_any_texture(src_impl,DDRAW_SURFACE_READ), src_impl->sub_resource_idx, src_rect,
                 flags, NULL, WINED3D_TEXF_POINT);
-    if (SUCCEEDED(hr) && (dst_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE))
+    if (SUCCEEDED(hr) && (dst_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE) && src_impl != dst_impl)
         hr = ddraw_surface_update_frontbuffer(dst_impl, &dst_rect, FALSE, 0);
     wined3d_mutex_unlock();
 
@@ -6217,6 +6334,9 @@ static void STDMETHODCALLTYPE ddraw_surface_wined3d_object_destroyed(void *paren
         surface->ddraw->primary = NULL;
         surface->ddraw->gdi_surface = NULL;
     }
+
+    if (surface == surface->ddraw->overlay || surface == surface->ddraw->overlay_dst)
+        surface->ddraw->overlay = surface->ddraw->overlay_dst = NULL;
 
     wined3d_private_store_cleanup(&surface->private_store);
 

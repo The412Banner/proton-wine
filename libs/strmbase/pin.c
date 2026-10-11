@@ -686,22 +686,41 @@ HRESULT WINAPI BaseOutputPinImpl_DecideAllocator(struct strmbase_source *This,
     HRESULT hr;
 
     hr = IMemInputPin_GetAllocator(pPin, pAlloc);
+    TRACE("pin %p %s:%s, GetAllocator returned %#lx, allocator %p.\n", This,
+            debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name), hr, *pAlloc);
 
     if (hr == VFW_E_NO_ALLOCATOR)
+    {
         hr = CoCreateInstance(&CLSID_MemoryAllocator, NULL,
                 CLSCTX_INPROC_SERVER, &IID_IMemAllocator, (void **)pAlloc);
+        TRACE("pin %p %s:%s, created default allocator, hr %#lx, allocator %p.\n", This,
+                debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name), hr, *pAlloc);
+    }
 
     if (SUCCEEDED(hr))
     {
         ALLOCATOR_PROPERTIES rProps;
         ZeroMemory(&rProps, sizeof(ALLOCATOR_PROPERTIES));
 
-        IMemInputPin_GetAllocatorRequirements(pPin, &rProps);
+        hr = IMemInputPin_GetAllocatorRequirements(pPin, &rProps);
+        TRACE("pin %p %s:%s, GetAllocatorRequirements returned %#lx, buffers %ld, size %ld, align %ld, prefix %ld.\n",
+                This, debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name), hr,
+                rProps.cBuffers, rProps.cbBuffer, rProps.cbAlign, rProps.cbPrefix);
+
         hr = This->pFuncsTable->pfnDecideBufferSize(This, *pAlloc, &rProps);
+        TRACE("pin %p %s:%s, DecideBufferSize returned %#lx, requested buffers %ld, size %ld, align %ld, prefix %ld.\n",
+                This, debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name), hr,
+                rProps.cBuffers, rProps.cbBuffer, rProps.cbAlign, rProps.cbPrefix);
     }
 
+    TRACE("pin %p %s:%s, allocator negotiation before NotifyAllocator hr %#lx, allocator %p.\n",
+            This, debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name), hr, *pAlloc);
     if (SUCCEEDED(hr))
+    {
         hr = IMemInputPin_NotifyAllocator(pPin, *pAlloc, FALSE);
+        TRACE("pin %p %s:%s, NotifyAllocator returned %#lx.\n", This,
+                debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name), hr);
+    }
 
     return hr;
 }
@@ -713,19 +732,42 @@ HRESULT WINAPI BaseOutputPinImpl_DecideAllocator(struct strmbase_source *This,
 HRESULT WINAPI BaseOutputPinImpl_AttemptConnection(struct strmbase_source *This,
         IPin *pReceivePin, const AM_MEDIA_TYPE *pmt)
 {
+    PIN_INFO receive_info;
     HRESULT hr;
     IMemAllocator * pMemAlloc = NULL;
 
-    TRACE("(%p)->(%p, %p)\n", This, pReceivePin, pmt);
+    TRACE("pin %p %s:%s -> peer %p, mt %p.\n", This, debugstr_w(This->pin.filter->name),
+            debugstr_w(This->pin.name), pReceivePin, pmt);
+    strmbase_dump_media_type(pmt);
+
+    hr = IPin_QueryPinInfo(pReceivePin, &receive_info);
+    if (SUCCEEDED(hr))
+    {
+        TRACE("peer pin %p filter %p:%s.\n", pReceivePin, receive_info.pFilter,
+                debugstr_w(receive_info.achName));
+        if (receive_info.pFilter)
+            IBaseFilter_Release(receive_info.pFilter);
+    }
+    else
+    {
+        TRACE("peer pin %p QueryPinInfo returned %#lx.\n", pReceivePin, hr);
+    }
 
     if (!query_accept(&This->pin, pmt))
+    {
+        TRACE("pin %p %s:%s rejected type in source query_accept.\n", This,
+                debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name));
         return VFW_E_TYPE_NOT_ACCEPTED;
+    }
+    TRACE("pin %p %s:%s accepted type locally; calling peer ReceiveConnection.\n", This,
+            debugstr_w(This->pin.filter->name), debugstr_w(This->pin.name));
 
     This->pin.peer = pReceivePin;
     IPin_AddRef(pReceivePin);
     CopyMediaType(&This->pin.mt, pmt);
 
     hr = IPin_ReceiveConnection(pReceivePin, &This->pin.IPin_iface, pmt);
+    TRACE("peer ReceiveConnection returned %#lx.\n", hr);
 
     /* get the IMemInputPin interface we will use to deliver samples to the
      * connected pin */
@@ -733,10 +775,13 @@ HRESULT WINAPI BaseOutputPinImpl_AttemptConnection(struct strmbase_source *This,
     {
         This->pMemInputPin = NULL;
         hr = IPin_QueryInterface(pReceivePin, &IID_IMemInputPin, (LPVOID)&This->pMemInputPin);
+        TRACE("peer QueryInterface(IID_IMemInputPin) returned %#lx, mem input pin %p.\n",
+                hr, This->pMemInputPin);
 
         if (SUCCEEDED(hr))
         {
             hr = This->pFuncsTable->pfnDecideAllocator(This, This->pMemInputPin, &pMemAlloc);
+            TRACE("DecideAllocator returned %#lx, allocator %p.\n", hr, pMemAlloc);
             if (SUCCEEDED(hr))
                 This->pAllocator = pMemAlloc;
             else if (pMemAlloc)
@@ -751,6 +796,7 @@ HRESULT WINAPI BaseOutputPinImpl_AttemptConnection(struct strmbase_source *This,
             This->pMemInputPin = NULL;
 
             IPin_Disconnect(pReceivePin);
+            TRACE("Disconnected peer after allocator/setup failure %#lx.\n", hr);
         }
     }
 

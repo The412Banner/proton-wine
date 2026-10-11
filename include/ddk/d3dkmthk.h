@@ -288,6 +288,44 @@ typedef struct _D3DKMT_QUERYADAPTERINFO
     UINT                    PrivateDriverDataSize;
 } D3DKMT_QUERYADAPTERINFO;
 
+typedef struct _D3DKMT_ADAPTERTYPE
+{
+    union
+    {
+        struct
+        {
+            UINT RenderSupported : 1;
+            UINT DisplaySupported : 1;
+            UINT SoftwareDevice : 1;
+            UINT PostDevice : 1;
+            UINT HybridDiscrete : 1;
+            UINT HybridIntegrated : 1;
+            UINT IndirectDisplayDevice : 1;
+            UINT Paravirtualized : 1;
+            UINT ACGSupported : 1;
+            UINT SupportSetTimingsFromVidPn : 1;
+            UINT Detachable : 1;
+            UINT ComputeOnly : 1;
+            UINT Prototype : 1;
+            UINT RuntimePowerManagement : 1;
+            UINT Reserved : 19;
+        };
+        UINT Value;
+    };
+} D3DKMT_ADAPTERTYPE;
+
+typedef struct _D3DKMT_OPENGLINFO {
+    WCHAR UMOpenglICDFileName[MAX_PATH];
+    UINT  Version;
+} D3DKMT_OPENGLINFO;
+
+typedef struct _D3DKMT_ADAPTERREGISTRYINFO {
+    WCHAR AdapterString[MAX_PATH];
+    WCHAR BiosString[MAX_PATH];
+    WCHAR DacType[MAX_PATH];
+    WCHAR ChipType[MAX_PATH];
+} D3DKMT_ADAPTERREGISTRYINFO;
+
 typedef enum _D3DKMT_QUERYRESULT_PREEMPTION_ATTEMPT_RESULT
 {
     D3DKMT_PreemptionAttempt                               = 0,

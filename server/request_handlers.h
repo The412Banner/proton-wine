@@ -264,6 +264,8 @@ DECL_HANDLER(get_object_type);
 DECL_HANDLER(get_object_types);
 DECL_HANDLER(allocate_locally_unique_id);
 DECL_HANDLER(create_device_manager);
+DECL_HANDLER(set_sony_active_controller);
+DECL_HANDLER(get_sony_active_controller);
 DECL_HANDLER(create_device);
 DECL_HANDLER(delete_device);
 DECL_HANDLER(get_next_device_request);
@@ -587,6 +589,8 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_get_object_types,
     (req_handler)req_allocate_locally_unique_id,
     (req_handler)req_create_device_manager,
+    (req_handler)req_set_sony_active_controller,
+    (req_handler)req_get_sony_active_controller,
     (req_handler)req_create_device,
     (req_handler)req_delete_device,
     (req_handler)req_get_next_device_request,
@@ -1802,7 +1806,8 @@ C_ASSERT( sizeof(struct get_thread_input_request) == 16 );
 C_ASSERT( offsetof(struct get_thread_input_reply, locator) == 8 );
 C_ASSERT( sizeof(struct get_thread_input_reply) == 24 );
 C_ASSERT( offsetof(struct set_user_input_time_request, set) == 12 );
-C_ASSERT( sizeof(struct set_user_input_time_request) == 16 );
+C_ASSERT( offsetof(struct set_user_input_time_request, forward) == 16 );
+C_ASSERT( sizeof(struct set_user_input_time_request) == 24 );
 C_ASSERT( offsetof(struct set_user_input_time_reply, time) == 8 );
 C_ASSERT( sizeof(struct set_user_input_time_reply) == 16 );
 C_ASSERT( offsetof(struct get_key_state_request, async) == 12 );
@@ -2155,6 +2160,19 @@ C_ASSERT( offsetof(struct create_device_manager_request, attributes) == 16 );
 C_ASSERT( sizeof(struct create_device_manager_request) == 24 );
 C_ASSERT( offsetof(struct create_device_manager_reply, handle) == 8 );
 C_ASSERT( sizeof(struct create_device_manager_reply) == 16 );
+C_ASSERT( offsetof(struct set_sony_active_controller_request, container0) == 12 );
+C_ASSERT( offsetof(struct set_sony_active_controller_request, container1) == 16 );
+C_ASSERT( offsetof(struct set_sony_active_controller_request, container2) == 20 );
+C_ASSERT( offsetof(struct set_sony_active_controller_request, container3) == 24 );
+C_ASSERT( offsetof(struct set_sony_active_controller_request, valid) == 28 );
+C_ASSERT( sizeof(struct set_sony_active_controller_request) == 32 );
+C_ASSERT( sizeof(struct get_sony_active_controller_request) == 16 );
+C_ASSERT( offsetof(struct get_sony_active_controller_reply, container0) == 8 );
+C_ASSERT( offsetof(struct get_sony_active_controller_reply, container1) == 12 );
+C_ASSERT( offsetof(struct get_sony_active_controller_reply, container2) == 16 );
+C_ASSERT( offsetof(struct get_sony_active_controller_reply, container3) == 20 );
+C_ASSERT( offsetof(struct get_sony_active_controller_reply, valid) == 24 );
+C_ASSERT( sizeof(struct get_sony_active_controller_reply) == 32 );
 C_ASSERT( offsetof(struct create_device_request, rootdir) == 12 );
 C_ASSERT( offsetof(struct create_device_request, user_ptr) == 16 );
 C_ASSERT( offsetof(struct create_device_request, manager) == 24 );

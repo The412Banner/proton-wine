@@ -803,7 +803,7 @@ static HRESULT WINAPI IDirectSoundBufferImpl_SetFX(IDirectSoundBuffer8 *iface, D
 	dmt.subtype = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 	dmt.bFixedSizeSamples = TRUE;
 	dmt.bTemporalCompression = FALSE;
-	dmt.lSampleSize = sizeof(float) * This->pwfx->nChannels / 8;
+	dmt.lSampleSize = wfx.nBlockAlign;
 	dmt.formattype = FORMAT_WaveFormatEx;
 	dmt.pUnk = NULL;
 	dmt.cbFormat = sizeof(WAVEFORMATEX);

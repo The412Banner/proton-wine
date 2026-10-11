@@ -76,6 +76,7 @@ extern HRESULT parse_midi(IStream *stream, IDirectMusicSegment8 *segment);
 extern void set_audiopath_perf_pointer(IDirectMusicAudioPath*,IDirectMusicPerformance8*);
 extern void set_audiopath_dsound_buffer(IDirectMusicAudioPath*,IDirectSoundBuffer*);
 extern void set_audiopath_primary_dsound_buffer(IDirectMusicAudioPath*,IDirectSoundBuffer*);
+extern void set_audiopath_port(IDirectMusicAudioPath*,IDirectMusicPort*);
 
 extern HRESULT segment_state_create(IDirectMusicSegment *segment, MUSIC_TIME start_time, DWORD segment_flags,
         IDirectMusicPerformance8 *performance, IDirectMusicSegmentState **ret_iface);

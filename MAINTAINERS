@@ -169,11 +169,6 @@ GPhoto Driver
 M:	Marcus Meissner <marcus@jet.franken.de> @msmeissn
 F:	dlls/gphoto2.ds/
 
-GStreamer multimedia backend
-P:	Elizabeth Figura <zfigura@codeweavers.com> @zfigura
-P:	Rémi Bernon <rbernon@codeweavers.com> @rbernon
-F:	dlls/winegstreamer/
-
 HID support
 M:	Rémi Bernon <rbernon@codeweavers.com> @rbernon
 P:	Aric Stewart <aric@codeweavers.com> @aricstewart

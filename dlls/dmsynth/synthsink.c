@@ -237,6 +237,7 @@ static DWORD CALLBACK synth_sink_render_thread(void *args)
     WAVEFORMATEX format;
     HANDLE buffer_event;
     DWORD samples_size;
+    BOOL stopped = FALSE;
     short *samples;
     HRESULT hr;
 
@@ -296,6 +297,7 @@ static DWORD CALLBACK synth_sink_render_thread(void *args)
 
         if (S_OK != (wait_hr = synth_sink_wait_write(sink, buffer_event)))
         {
+            stopped = wait_hr == S_FALSE;
             hr = wait_hr;
             break;
         }
@@ -307,7 +309,8 @@ static DWORD CALLBACK synth_sink_render_thread(void *args)
         return hr;
     }
 
-    synth_sink_wait_play_end(sink, buffer, &caps, &format, buffer_event);
+    if (!stopped)
+        synth_sink_wait_play_end(sink, buffer, &caps, &format, buffer_event);
     free(samples);
 
 done:

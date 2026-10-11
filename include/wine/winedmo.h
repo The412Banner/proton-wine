@@ -40,7 +40,26 @@ struct winedmo_stream
     NTSTATUS (CDECL *p_read)( struct winedmo_stream *stream, BYTE *buffer, ULONG *size );
 };
 
-struct winedmo_demuxer { UINT64 handle; };
+struct winedmo_demuxer   { UINT64 handle; };
+struct winedmo_muxer     { UINT64 handle; };
+struct winedmo_transform { UINT64 handle; };
+
+/* Flags for winedmo_transform_push_input */
+#define WINEDMO_SAMPLE_FLAG_SYNC_POINT      0x01
+#define WINEDMO_SAMPLE_FLAG_DISCONTINUITY   0x02
+/* Flags returned by winedmo_transform_get_output */
+#define WINEDMO_SAMPLE_FLAG_INCOMPLETE      0x04  /* more output pending without new input */
+#define WINEDMO_SAMPLE_FLAG_FORMAT_CHANGED  0x08  /* output format changed; call get_output_format */
+
+NTSTATUS CDECL winedmo_muxer_create( const char *format, struct winedmo_muxer *muxer );
+NTSTATUS CDECL winedmo_muxer_destroy( struct winedmo_muxer muxer );
+NTSTATUS CDECL winedmo_muxer_add_stream( struct winedmo_muxer muxer, UINT32 stream_id, const GUID *major_type,
+                                          const union winedmo_format *format, UINT32 format_size );
+NTSTATUS CDECL winedmo_muxer_start( struct winedmo_muxer muxer );
+NTSTATUS CDECL winedmo_muxer_push_sample( struct winedmo_muxer muxer, UINT32 stream_id,
+                                           const BYTE *data, UINT32 size, INT64 pts, INT64 duration, DWORD flags );
+NTSTATUS CDECL winedmo_muxer_read_data( struct winedmo_muxer muxer, BYTE *buffer, UINT32 *size, UINT64 *offset );
+NTSTATUS CDECL winedmo_muxer_finalize( struct winedmo_muxer muxer );
 
 NTSTATUS CDECL winedmo_demuxer_check( const char *mime_type );
 NTSTATUS CDECL winedmo_demuxer_create( const WCHAR *url, struct winedmo_stream *stream, UINT64 stream_size, INT64 *duration,
@@ -52,5 +71,23 @@ NTSTATUS CDECL winedmo_demuxer_stream_lang( struct winedmo_demuxer demuxer, UINT
 NTSTATUS CDECL winedmo_demuxer_stream_name( struct winedmo_demuxer demuxer, UINT stream, WCHAR *buffer, UINT len );
 NTSTATUS CDECL winedmo_demuxer_stream_type( struct winedmo_demuxer demuxer, UINT stream,
                                             GUID *major, union winedmo_format **format );
+
+NTSTATUS CDECL winedmo_transform_create( GUID major_type,
+                                         const union winedmo_format *input_format,  UINT32 input_format_size,
+                                         const union winedmo_format *output_format, UINT32 output_format_size,
+                                         struct winedmo_transform *transform );
+NTSTATUS CDECL winedmo_transform_destroy( struct winedmo_transform transform );
+NTSTATUS CDECL winedmo_transform_push_input( struct winedmo_transform transform,
+                                              const BYTE *data, UINT32 size,
+                                              INT64 pts, INT64 dts, INT64 duration, DWORD flags );
+NTSTATUS CDECL winedmo_transform_get_output( struct winedmo_transform transform,
+                                              BYTE *data, UINT32 *size,
+                                              INT64 *pts, INT64 *duration, DWORD *flags );
+NTSTATUS CDECL winedmo_transform_drain( struct winedmo_transform transform );
+NTSTATUS CDECL winedmo_transform_flush( struct winedmo_transform transform );
+NTSTATUS CDECL winedmo_transform_get_output_format( struct winedmo_transform transform,
+                                                     GUID *major, union winedmo_format **format );
+NTSTATUS CDECL winedmo_transform_set_output_format( struct winedmo_transform transform,
+                                                     const union winedmo_format *format, UINT32 format_size );
 
 #endif /* __WINE_WINEDMO_H */

@@ -28,10 +28,20 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
+#include <stdio.h>
+#include <time.h>
 #include <math.h>
 #include <poll.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
+#ifdef HAVE_LINUX_HIDRAW_H
+# include <linux/hidraw.h>
+#endif
+#include <alsa/asoundlib.h>
 #include <pulse/pulseaudio.h>
 
 #include "ntstatus.h"
@@ -44,6 +54,7 @@
 
 #include "wine/debug.h"
 #include "wine/list.h"
+#include "wine/server.h"
 #include "wine/unixlib.h"
 
 #include "initguid.h"
@@ -74,13 +85,15 @@ struct pulse_period
     char *device;
     pa_usec_t period;
     pa_usec_t timer_last_time, stream_time;
-    pa_usec_t adjust;
+    int64_t adjust;
     struct list streams;
     pa_time_event *time_event;
     struct pulse_stream *timer_stream;
 };
 
 static struct list active_periods = LIST_INIT(active_periods);
+static struct list dualsense_mono_streams = LIST_INIT(dualsense_mono_streams);
+static struct list dualsense_haptic_streams = LIST_INIT(dualsense_haptic_streams);
 
 struct pulse_stream
 {
@@ -88,6 +101,10 @@ struct pulse_stream
 
     char *device;
     pa_stream *stream;
+    pa_stream *speaker_stream;
+    char *speaker_device;
+    snd_pcm_t *haptic_pcm;
+    char *haptic_alsa_path;
     pa_sample_spec ss;
     pa_channel_map map;
     pa_buffer_attr attr;
@@ -106,18 +123,43 @@ struct pulse_stream
     SIZE_T peek_ofs, read_offs_bytes, lcl_offs_bytes, pa_offs_bytes;
     SIZE_T tmp_buffer_bytes, held_bytes, peek_len, peek_buffer_len, pa_held_bytes, max_pa_held_bytes;
     BYTE *local_buffer, *tmp_buffer, *peek_buffer;
+    int16_t *haptic_buffer;
+    SIZE_T haptic_buffer_frames;
+    BYTE *speaker_buffer;
+    SIZE_T speaker_buffer_bytes, speaker_buffer_held, speaker_dropped_bytes;
+    float speaker_peak;
+    pa_usec_t speaker_trace_time;
+    unsigned int haptic_channel_peak[4];
+    pa_usec_t haptic_channel_trace_time;
+    pa_usec_t haptic_reconnect_time;
+    pa_usec_t haptic_path_check_time;
+    unsigned int haptic_hotplug_generation;
     void *locked_ptr;
-    BOOL just_underran, pa_started, update_timing_info_pending;
+    BOOL just_underran, pa_started, update_timing_info_pending, rebase_write_index;
     pa_usec_t mmdev_period_usec;
     pa_usec_t timeline_start_stream_time, timeline_start_period_time;
 
     INT64 clock_lastpos, clock_written;
 
     struct list packet_free_head;
+    struct list dualsense_mono_entry;
+    struct list dualsense_haptic_entry;
     struct list packet_filled_head;
     struct list period_entry;
     struct pulse_period *period;
+    unsigned int dualsense_mono_hotplug_generation;
+    BOOL dualsense_mono_registered;
+    BOOL dualsense_haptic_registered;
+    GUID sony_controller_container_id;
+    BOOL sony_controller_container_valid;
+    BOOL sony_speaker_source;
+    BOOL sony_actuator_source;
+    pa_usec_t sony_speaker_signal_time;
+    pa_usec_t sony_actuator_signal_time;
+    BOOL speaker_route_selected;
 };
+
+static void pulse_write(struct pulse_stream *stream);
 
 typedef struct _ACPacket
 {
@@ -132,20 +174,54 @@ typedef struct _PhysDevice {
     WCHAR *name;
     enum phys_device_bus_type bus_type;
     USHORT vendor_id, product_id;
+
+    /* ready vars */
+    BOOL ready;
+    pthread_mutex_t ready_mutex;
+    pthread_cond_t ready_cond;
+
+    /* probe vars */
+    pa_channel_map map;
+    pa_sample_spec ss;
+    unsigned int length;
+    int probe_status;
+
+    EDataFlow flow;
     EndpointFormFactor form;
     UINT channel_mask;
     UINT index;
+    int alsa_card;
     REFERENCE_TIME min_period, def_period;
     WAVEFORMATEXTENSIBLE fmt;
     GUID container_id;
+    char *raw_haptic_target;
+    char *raw_haptic_alsa_path;
+    char *endpoint_id;
     char pulse_name[0];
 } PhysDevice;
 
 static pa_context *pulse_ctx;
 static pa_mainloop *pulse_ml;
 
+static pthread_mutex_t g_phys_mutex;
+static pthread_cond_t g_phys_cond = PTHREAD_COND_INITIALIZER;
+static unsigned int g_haptic_hotplug_generation;
+static unsigned int g_dualsense_endpoint_generation;
+static LONG g_sony_windows_audio_mode;
+static unsigned int g_dualsense_mono_speaker_add_generation;
+static char *g_dualsense_mono_preferred_sink;
+static unsigned int g_phys_event_mask;
+static unsigned int g_phys_event_stale_render;
+static unsigned int g_phys_event_stale_capture;
 static struct list g_phys_speakers = LIST_INIT(g_phys_speakers);
 static struct list g_phys_sources = LIST_INIT(g_phys_sources);
+static struct list g_phys_speakers_added = LIST_INIT(g_phys_speakers_added);
+static struct list g_phys_sources_added = LIST_INIT(g_phys_sources_added);
+static struct list g_phys_speakers_removed = LIST_INIT(g_phys_speakers_removed);
+static struct list g_phys_sources_removed = LIST_INIT(g_phys_sources_removed);
+/* separate list for holding removed devices that were just added */
+/* to avoid race-condition/deadlock. */
+static struct list g_phys_added_removed = LIST_INIT(g_phys_added_removed);
 
 static pthread_mutex_t pulse_mutex;
 static pthread_cond_t pulse_cond = PTHREAD_COND_INITIALIZER;
@@ -155,9 +231,86 @@ static ULONG_PTR zero_bits = 0;
 static UINT32 silence_buf_size = 1048576;
 static BYTE *silence_buf;
 
+#define PHYS_EVENT_RENDER 0x1
+#define PHYS_EVENT_CAPTURE 0x2
+
+static BOOL device_list_has_dualsense_audio_device(struct list *devices)
+{
+    PhysDevice *dev;
+
+    LIST_FOR_EACH_ENTRY(dev, devices, PhysDevice, entry)
+    {
+        if (dev->bus_type == phys_device_bus_usb && dev->vendor_id == 0x054c
+                && (dev->product_id == 0x05c4 || dev->product_id == 0x09cc ||
+                    dev->product_id == 0x0ce6 || dev->product_id == 0x0df2))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static BOOL device_list_has_missing_dualsense_render_profile(struct list *capture_devices)
+{
+    static const char monitor_suffix[] = ".monitor";
+    PhysDevice *capture, *render;
+
+    LIST_FOR_EACH_ENTRY(capture, capture_devices, PhysDevice, entry)
+    {
+        size_t capture_length, render_length;
+        BOOL found = FALSE;
+
+        if (capture->bus_type != phys_device_bus_usb || capture->vendor_id != 0x054c ||
+                (capture->product_id != 0x05c4 && capture->product_id != 0x09cc &&
+                 capture->product_id != 0x0ce6 && capture->product_id != 0x0df2))
+            continue;
+
+        capture_length = strlen(capture->pulse_name);
+        if (capture_length <= sizeof(monitor_suffix) - 1 ||
+                strcmp(capture->pulse_name + capture_length -
+                (sizeof(monitor_suffix) - 1), monitor_suffix))
+            continue;
+        render_length = capture_length - (sizeof(monitor_suffix) - 1);
+
+        LIST_FOR_EACH_ENTRY(render, &g_phys_speakers, PhysDevice, entry)
+        {
+            if (strlen(render->pulse_name) == render_length &&
+                    !memcmp(render->pulse_name, capture->pulse_name, render_length))
+            {
+                found = TRUE;
+                break;
+            }
+        }
+        if (!found)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
 static NTSTATUS pulse_not_implemented(void *args)
 {
     return STATUS_SUCCESS;
+}
+
+#define DUALSENSE_HAPTIC_REFRESH_USEC 1000000
+
+static int16_t float_to_s16(float sample)
+{
+    if (sample > 1.0f) sample = 1.0f;
+    else if (sample < -1.0f) sample = -1.0f;
+
+    return sample < 0.0f ? sample * 32768.0f : sample * 32767.0f;
+}
+
+
+static void g_phys_lock(void)
+{
+    pthread_mutex_lock(&g_phys_mutex);
+}
+
+static void g_phys_unlock(void)
+{
+    pthread_mutex_unlock(&g_phys_mutex);
 }
 
 static void pulse_lock(void)
@@ -175,14 +328,220 @@ static int pulse_cond_wait(void)
     return pthread_cond_wait(&pulse_cond, &pulse_mutex);
 }
 
+static int pulse_cond_timedwait_ms(unsigned int timeout_ms)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += timeout_ms / 1000;
+    ts.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (ts.tv_nsec >= 1000000000)
+    {
+        ts.tv_sec++;
+        ts.tv_nsec -= 1000000000;
+    }
+
+    return pthread_cond_timedwait(&pulse_cond, &pulse_mutex, &ts);
+}
+
+static int g_phys_cond_timedwait_ms(unsigned int timeout_ms)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += timeout_ms / 1000;
+    ts.tv_nsec += (timeout_ms % 1000) * 1000000;
+    if (ts.tv_nsec >= 1000000000)
+    {
+        ts.tv_sec++;
+        ts.tv_nsec -= 1000000000;
+    }
+
+    return pthread_cond_timedwait(&g_phys_cond, &g_phys_mutex, &ts);
+}
+
 static void pulse_broadcast(void)
 {
     pthread_cond_broadcast(&pulse_cond);
 }
 
+static void pulse_dev_free(PhysDevice *dev)
+{
+    pthread_mutex_destroy(&dev->ready_mutex);
+    pthread_cond_destroy(&dev->ready_cond);
+    free(dev->name);
+    free(dev->raw_haptic_target);
+    free(dev->raw_haptic_alsa_path);
+    free(dev->endpoint_id);
+    free(dev);
+}
+
+static void pulse_dev_wait_ready(PhysDevice *dev)
+{
+    if (dev->ready)
+        return;
+    pthread_mutex_lock(&dev->ready_mutex);
+    while (!dev->ready)
+        pthread_cond_wait(&dev->ready_cond, &dev->ready_mutex);
+    pthread_mutex_unlock(&dev->ready_mutex);
+}
+
 static struct pulse_stream *handle_get_stream(stream_handle h)
 {
     return (struct pulse_stream *)(UINT_PTR)h;
+}
+
+static void remove_stream_from_period(struct pulse_stream *stream);
+static void pulse_add_stream_to_period(struct pulse_stream *stream);
+
+static const char *pulse_endpoint_id(const PhysDevice *dev)
+{
+    return dev->endpoint_id ? dev->endpoint_id : dev->pulse_name;
+}
+
+static BOOL pulse_device_matches(const PhysDevice *dev, const char *name)
+{
+    return name && (!strcmp(name, dev->pulse_name) || !strcmp(name, pulse_endpoint_id(dev)));
+}
+
+static BOOL pulse_get_device_container_id(const char *name, GUID *container_id)
+{
+    static struct list *const lists[] =
+    {
+        &g_phys_speakers_added,
+        &g_phys_speakers,
+        &g_phys_sources_added,
+        &g_phys_sources,
+        NULL
+    };
+    struct list *const *list;
+    PhysDevice *dev;
+    BOOL found = FALSE;
+
+    if (!name)
+        return FALSE;
+
+    g_phys_lock();
+    for (list = lists; *list && !found; ++list)
+    {
+        LIST_FOR_EACH_ENTRY(dev, *list, PhysDevice, entry)
+        {
+            if (!pulse_device_matches(dev, name) || IsEqualGUID(&dev->container_id, &GUID_NULL))
+                continue;
+
+            *container_id = dev->container_id;
+            found = TRUE;
+            break;
+        }
+    }
+    g_phys_unlock();
+    return found;
+}
+
+static BOOL pulse_get_haptic_target_container_id(const char *target, BOOL alsa, GUID *container_id)
+{
+    static struct list *const lists[] = { &g_phys_speakers_added, &g_phys_speakers, NULL };
+    struct list *const *list;
+    PhysDevice *dev;
+    BOOL found = FALSE;
+
+    if (!target)
+        return FALSE;
+
+    g_phys_lock();
+    for (list = lists; *list && !found; ++list)
+    {
+        LIST_FOR_EACH_ENTRY(dev, *list, PhysDevice, entry)
+        {
+            const char *device_target = alsa ? dev->raw_haptic_alsa_path : dev->raw_haptic_target;
+
+            if (!device_target || strcmp(device_target, target) ||
+                    IsEqualGUID(&dev->container_id, &GUID_NULL))
+                continue;
+
+            *container_id = dev->container_id;
+            found = TRUE;
+            break;
+        }
+    }
+    g_phys_unlock();
+    return found;
+}
+
+static char *make_pipewire_dualsense_haptic_path(const char *target);
+
+static char *pulse_get_haptic_path_for_container(const GUID *container_id)
+{
+    static struct list *const lists[] = { &g_phys_speakers_added, &g_phys_speakers, NULL };
+    struct list *const *list;
+    PhysDevice *dev;
+    char *path = NULL;
+
+    g_phys_lock();
+    for (list = lists; *list && !path; ++list)
+    {
+        LIST_FOR_EACH_ENTRY(dev, *list, PhysDevice, entry)
+        {
+            if (!IsEqualGUID(&dev->container_id, container_id))
+                continue;
+
+            if (dev->raw_haptic_target && dev->raw_haptic_target[0])
+                path = make_pipewire_dualsense_haptic_path(dev->raw_haptic_target);
+            else if (dev->raw_haptic_alsa_path && dev->raw_haptic_alsa_path[0])
+                path = strdup(dev->raw_haptic_alsa_path);
+            if (path)
+                break;
+        }
+    }
+    g_phys_unlock();
+    return path;
+}
+
+static BOOL pulse_get_active_sony_controller(GUID *container_id)
+{
+    unsigned int data[4];
+    BOOL valid = FALSE;
+
+    C_ASSERT(sizeof(data) == sizeof(*container_id));
+    SERVER_START_REQ(get_sony_active_controller)
+    {
+        if (!wine_server_call(req) && reply->valid)
+        {
+            data[0] = reply->container0;
+            data[1] = reply->container1;
+            data[2] = reply->container2;
+            data[3] = reply->container3;
+            valid = TRUE;
+        }
+    }
+    SERVER_END_REQ;
+
+    if (valid)
+        memcpy(container_id, data, sizeof(data));
+    return valid;
+}
+
+static BOOL pulse_container_is_present(const GUID *container_id)
+{
+    static struct list *const lists[] = { &g_phys_speakers_added, &g_phys_speakers, NULL };
+    struct list *const *list;
+    PhysDevice *dev;
+    BOOL found = FALSE;
+
+    g_phys_lock();
+    for (list = lists; *list && !found; ++list)
+    {
+        LIST_FOR_EACH_ENTRY(dev, *list, PhysDevice, entry)
+        {
+            if (!IsEqualGUID(&dev->container_id, container_id))
+                continue;
+
+            found = TRUE;
+            break;
+        }
+    }
+    g_phys_unlock();
+    return found;
 }
 
 static void dump_attr(const pa_buffer_attr *attr)
@@ -196,16 +555,26 @@ static void dump_attr(const pa_buffer_attr *attr)
 
 static void free_phys_device_lists(void)
 {
-    static struct list *const lists[] = { &g_phys_speakers, &g_phys_sources, NULL };
+    static struct list *const lists[] = {
+        &g_phys_speakers,
+        &g_phys_sources,
+        &g_phys_speakers_added,
+        &g_phys_sources_added,
+        &g_phys_speakers_removed,
+        &g_phys_sources_removed,
+        &g_phys_added_removed,
+        NULL
+    };
     struct list *const *list = lists;
     PhysDevice *dev, *dev_next;
 
+    g_phys_lock();
     do {
-        LIST_FOR_EACH_ENTRY_SAFE(dev, dev_next, *list, PhysDevice, entry) {
-            free(dev->name);
-            free(dev);
-        }
+        LIST_FOR_EACH_ENTRY_SAFE(dev, dev_next, *list, PhysDevice, entry)
+            pulse_dev_free(dev);
+        list_init(*list);
     } while (*(++list));
+    g_phys_unlock();
 }
 
 /* copied from kernelbase */
@@ -285,6 +654,9 @@ static NTSTATUS pulse_process_attach(void *args)
     if (pthread_mutex_init(&pulse_mutex, &attr) != 0)
         pthread_mutex_init(&pulse_mutex, NULL);
 
+    if (pthread_mutex_init(&g_phys_mutex, &attr) != 0)
+        pthread_mutex_init(&g_phys_mutex, NULL);
+
 #ifdef _WIN64
     if (NtCurrentTeb()->WowTebOffset)
     {
@@ -311,15 +683,38 @@ static NTSTATUS pulse_process_detach(void *args)
 
     free( silence_buf );
     silence_buf = NULL;
+    free(g_dualsense_mono_preferred_sink);
+    g_dualsense_mono_preferred_sink = NULL;
+
+    pthread_mutex_destroy(&pulse_mutex);
+    pthread_mutex_destroy(&g_phys_mutex);
+
     return STATUS_SUCCESS;
 }
 
 static void pulse_main_loop_thread_cleanup(void *context)
 {
     TRACE("Main loop thread is being aborted.\n");
-
-    pulse_ml = NULL;
     pulse_broadcast();
+}
+
+static pa_mainloop *pulse_main_loop_new(void)
+{
+    if (pulse_ml)
+        return pulse_ml;
+    pulse_ml = pa_mainloop_new();
+    if (!pulse_ml)
+        return NULL;
+    pa_mainloop_set_poll_func(pulse_ml, pulse_poll_func, NULL);
+    return pulse_ml;
+}
+
+static void pulse_main_loop_free(void)
+{
+    if (!pulse_ml)
+        return;
+    pa_mainloop_free(pulse_ml);
+    pulse_ml = NULL;
 }
 
 static NTSTATUS pulse_main_loop(void *args)
@@ -327,90 +722,413 @@ static NTSTATUS pulse_main_loop(void *args)
     struct main_loop_params *params = args;
     int ret;
     pulse_lock();
-    pulse_ml = pa_mainloop_new();
-    pa_mainloop_set_poll_func(pulse_ml, pulse_poll_func, NULL);
+    if (!pulse_main_loop_new()) {
+        NtSetEvent(params->event, NULL);
+        pulse_unlock();
+        ERR("Failed to create main loop\n");
+        return STATUS_SUCCESS;
+    }
     NtSetEvent(params->event, NULL);
     pthread_cleanup_push(pulse_main_loop_thread_cleanup, NULL);
     pa_mainloop_run(pulse_ml, &ret);
     pthread_cleanup_pop(0);
-    pa_mainloop_free(pulse_ml);
+    pulse_main_loop_free();
     pulse_unlock();
+
+    pthread_cond_broadcast(&g_phys_cond);
+
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS pulse_get_endpoint_ids(void *args)
+static BOOL pulse_get_endpoints_size_needed(struct list *list, size_t *needed, unsigned int size)
 {
-    struct get_endpoint_ids_params *params = args;
-    struct list *list = (params->flow == eRender) ? &g_phys_speakers : &g_phys_sources;
-    struct endpoint *endpoint = params->endpoints;
-    size_t len, name_len, needed;
-    unsigned int offset;
     PhysDevice *dev;
-
-    params->num = list_count(list);
-    offset = needed = params->num * sizeof(*params->endpoints);
+    size_t len, name_len;
 
     LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry) {
         name_len = lstrlenW(dev->name) + 1;
-        len = strlen(dev->pulse_name) + 1;
-        needed += name_len * sizeof(WCHAR) + ((len + 1) & ~1);
+        len = strlen(pulse_endpoint_id(dev)) + 1;
+        *needed += name_len * sizeof(WCHAR) + ((len + 1) & ~1);
 
-        if (needed <= params->size) {
-            endpoint->name = offset;
-            memcpy((char *)params->endpoints + offset, dev->name, name_len * sizeof(WCHAR));
-            offset += name_len * sizeof(WCHAR);
-            endpoint->device = offset;
-            memcpy((char *)params->endpoints + offset, dev->pulse_name, len);
-            offset += (len + 1) & ~1;
-            endpoint++;
+        if (*needed > size)
+            return FALSE;
+    }
+    return TRUE;
+}
+
+static void pulse_get_endpoints(struct list *list, struct endpoint **endpoint, unsigned int *offset, void *names)
+{
+    PhysDevice *dev;
+    size_t len, name_len;
+
+    LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry) {
+        name_len = lstrlenW(dev->name) + 1;
+        len = strlen(pulse_endpoint_id(dev)) + 1;
+
+        (*endpoint)->name = *offset;
+        memcpy((char *)names + *offset, dev->name, name_len * sizeof(WCHAR));
+        *offset += name_len * sizeof(WCHAR);
+        (*endpoint)->device = *offset;
+        memcpy((char *)names + *offset, pulse_endpoint_id(dev), len);
+        *offset += (len + 1) & ~1;
+        (*endpoint)++;
+    }
+}
+
+static void pulse_wait_devices(struct list *list)
+{
+    PhysDevice *dev;
+again:
+    LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry) {
+        if (dev->ready)
+            continue;
+
+        g_phys_unlock();
+        pulse_dev_wait_ready(dev);
+        g_phys_lock();
+        goto again;
+    }
+}
+
+static BOOL pulse_refresh_devices(EDataFlow flow);
+static BOOL is_dualsense_speaker_sink(const PhysDevice *dev);
+static char *pulse_find_shared_sony_speaker_survivor(const PhysDevice *removed,
+        struct list *active, struct list *added);
+static void pulse_retarget_dualsense_mono_streams(const char *preferred);
+static BOOL use_pipewire_dualsense_haptic_target(void);
+static BOOL use_dualsense_split_audio(void);
+static void pulse_retarget_dualsense_haptic_streams(const char *target);
+static void pulse_retarget_dualsense_haptic_streams_to_alsa(const char *path);
+static char *find_dualsense_haptic_alsa_path(void);
+
+/* for winepulse, this function can be called in a separate thread from other functions. */
+/* this function cannot be called from multiple threads at the same time however. */
+/* for the list variable, all devices in it must be ready by the end of the lock. */
+static NTSTATUS pulse_get_endpoint_ids(void *args)
+{
+    struct get_endpoint_ids_params *params = args;
+    struct list *list;
+    struct list *list_added;
+    struct list *list_removed;
+    struct list *other_list_added;
+    struct list *other_list_removed;
+    struct endpoint *endpoint = params->endpoints;
+    size_t needed = 0;
+    unsigned int offset;
+    unsigned int retry;
+    unsigned int event_mask;
+    unsigned int other_event_mask;
+    unsigned int *event_stale;
+    BOOL refreshed;
+    PhysDevice *dev, *dev_next;
+    BOOL delta = params->delta;
+    BOOL find_dualsense_haptic_alsa = FALSE;
+    BOOL retarget_haptic = use_pipewire_dualsense_haptic_target();
+    BOOL refresh_render_after_capture = FALSE;
+    char *dualsense_mono_target = NULL;
+    char *dualsense_haptic_target = NULL;
+    char *dualsense_haptic_alsa_path = NULL;
+
+    TRACE("flow %d, delta %d\n", (int)params->flow, (int)params->delta);
+
+    if (params->flow == eRender)
+    {
+        list = &g_phys_speakers;
+        list_added = &g_phys_speakers_added;
+        list_removed = &g_phys_speakers_removed;
+        event_mask = PHYS_EVENT_RENDER;
+        other_event_mask = PHYS_EVENT_CAPTURE;
+        event_stale = &g_phys_event_stale_render;
+
+        other_list_added = &g_phys_sources_added;
+        other_list_removed = &g_phys_sources_removed;
+    }
+    else
+    {
+        list = &g_phys_sources;
+        list_added = &g_phys_sources_added;
+        list_removed = &g_phys_sources_removed;
+        event_mask = PHYS_EVENT_CAPTURE;
+        other_event_mask = PHYS_EVENT_RENDER;
+        event_stale = &g_phys_event_stale_capture;
+
+        other_list_added = &g_phys_speakers_added;
+        other_list_removed = &g_phys_speakers_removed;
+    }
+
+    params->num = params->num_removed = 0;
+    params->more_data = FALSE;
+
+    g_phys_lock();
+
+    pulse_wait_devices(&g_phys_added_removed);
+    LIST_FOR_EACH_ENTRY_SAFE(dev, dev_next, &g_phys_added_removed, PhysDevice, entry)
+        pulse_dev_free(dev);
+    list_init(&g_phys_added_removed);
+
+    if (delta)
+    {
+        /* also check if we are still running */
+        if (!pulse_ml)
+        {
+            g_phys_cond_timedwait_ms(1000);
+            goto done;
+        }
+        if (!list_count(list_added) && !list_count(list_removed))
+        {
+            if (!(g_phys_event_mask & event_mask)
+                    && (list_count(other_list_added) + list_count(other_list_removed)
+                    || (g_phys_event_mask & other_event_mask)))
+            {
+                params->more_data = TRUE;
+                goto done;
+            }
+            while (!(g_phys_event_mask & event_mask))
+            {
+                if (!pulse_ml)
+                {
+                    g_phys_cond_timedwait_ms(1000);
+                    goto done;
+                }
+                if (g_phys_event_mask & ~event_mask)
+                {
+                    params->more_data = TRUE;
+                    goto done;
+                }
+                if (g_phys_cond_timedwait_ms(1000) == ETIMEDOUT)
+                    goto done;
+            }
+            for (retry = 0; retry < 4 && !list_count(list_added) && !list_count(list_removed); ++retry)
+            {
+                g_phys_unlock();
+                if (retry)
+                    poll(NULL, 0, 250);
+                refreshed = pulse_refresh_devices(params->flow);
+                g_phys_lock();
+                if (!refreshed)
+                    break;
+            }
+            if (!list_count(list_added) && !list_count(list_removed))
+            {
+                if (++*event_stale >= 8)
+                {
+                    TRACE("Dropping stale PulseAudio endpoint event for flow %d after %u refresh passes.\n",
+                            (int)params->flow, *event_stale);
+                    g_phys_event_mask &= ~event_mask;
+                    *event_stale = 0;
+                }
+                goto done;
+            }
+            g_phys_event_mask &= ~event_mask;
+            *event_stale = 0;
+        }
+
+        params->default_idx = -1;
+
+        if (params->flow == eCapture && (g_phys_event_mask & PHYS_EVENT_RENDER)
+                && (device_list_has_dualsense_audio_device(list_added)
+                    || device_list_has_dualsense_audio_device(list_removed)))
+        {
+            TRACE("Deferring DualSense capture endpoint delta until render endpoints are refreshed.\n");
+            params->more_data = TRUE;
+            goto done;
+        }
+
+        pulse_wait_devices(list_added);
+        pulse_wait_devices(list_removed);
+
+        if (params->flow == eRender)
+        {
+            LIST_FOR_EACH_ENTRY_SAFE(dev, dev_next, list_removed, PhysDevice, entry)
+            {
+                char *survivor = pulse_find_shared_sony_speaker_survivor(dev,
+                        list, list_added);
+
+                if (!survivor)
+                    continue;
+
+                TRACE("Keeping shared Sony speaker endpoint %s while physical sink %s survives.\n",
+                        debugstr_a(pulse_endpoint_id(dev)), debugstr_a(survivor));
+                free(dualsense_mono_target);
+                dualsense_mono_target = survivor;
+                list_remove(&dev->entry);
+                pulse_dev_free(dev);
+            }
+        }
+
+        params->num = list_count(list_added);
+        params->num_removed = list_count(list_removed);
+        offset = needed = (params->num + params->num_removed) * sizeof(*params->endpoints);
+
+        if (!pulse_get_endpoints_size_needed(list_added, &needed, params->size))
+            goto done;
+        if (!pulse_get_endpoints_size_needed(list_removed, &needed, params->size))
+            goto done;
+
+        pulse_get_endpoints(list_added, &endpoint, &offset, params->endpoints);
+        pulse_get_endpoints(list_removed, &endpoint, &offset, params->endpoints);
+
+        refresh_render_after_capture = params->flow == eCapture &&
+                device_list_has_dualsense_audio_device(list_added) &&
+                device_list_has_dualsense_audio_device(list_removed) &&
+                device_list_has_missing_dualsense_render_profile(list_added);
+
+        LIST_FOR_EACH_ENTRY_SAFE(dev, dev_next, list_added, PhysDevice, entry) {
+            if (params->flow == eRender && is_dualsense_speaker_sink(dev))
+            {
+                char *target = strdup(dev->pulse_name);
+
+                if (target)
+                {
+                    free(dualsense_mono_target);
+                    dualsense_mono_target = target;
+                }
+                if (retarget_haptic && !dev->raw_haptic_target)
+                    find_dualsense_haptic_alsa = TRUE;
+            }
+            if (retarget_haptic && params->flow == eRender && dev->raw_haptic_target)
+            {
+                char *target = strdup(dev->raw_haptic_target);
+
+                if (target)
+                {
+                    free(dualsense_haptic_target);
+                    dualsense_haptic_target = target;
+                }
+            }
+            list_remove(&dev->entry);
+            list_add_tail(list, &dev->entry);
+        }
+        LIST_FOR_EACH_ENTRY_SAFE(dev, dev_next, list_removed, PhysDevice, entry) {
+            list_remove(&dev->entry);
+            pulse_dev_free(dev);
+        }
+        params->more_data = list_count(other_list_added) + list_count(other_list_removed)
+                || (g_phys_event_mask & other_event_mask);
+        if (refresh_render_after_capture)
+        {
+            TRACE("Scheduling a render refresh after Sony capture profile replacement.\n");
+            g_phys_event_mask |= PHYS_EVENT_RENDER;
+            params->more_data = TRUE;
         }
     }
-    params->default_idx = 0;
+    else
+    {
+        pulse_wait_devices(list);
+        pulse_wait_devices(list_added);
+
+        params->default_idx = 0;
+        params->num = list_count(list) + list_count(list_added);
+        params->num_removed = 0;
+        offset = needed = params->num * sizeof(*params->endpoints);
+
+        if (!pulse_get_endpoints_size_needed(list, &needed, params->size))
+            goto done;
+        if (!pulse_get_endpoints_size_needed(list_added, &needed, params->size))
+            goto done;
+
+        pulse_get_endpoints(list, &endpoint, &offset, params->endpoints);
+        pulse_get_endpoints(list_added, &endpoint, &offset, params->endpoints);
+
+        LIST_FOR_EACH_ENTRY_SAFE(dev, dev_next, list_added, PhysDevice, entry) {
+            if (params->flow == eRender && is_dualsense_speaker_sink(dev))
+            {
+                char *target = strdup(dev->pulse_name);
+
+                if (target)
+                {
+                    free(dualsense_mono_target);
+                    dualsense_mono_target = target;
+                }
+                if (retarget_haptic && !dev->raw_haptic_target)
+                    find_dualsense_haptic_alsa = TRUE;
+            }
+            if (retarget_haptic && params->flow == eRender && dev->raw_haptic_target)
+            {
+                char *target = strdup(dev->raw_haptic_target);
+
+                if (target)
+                {
+                    free(dualsense_haptic_target);
+                    dualsense_haptic_target = target;
+                }
+            }
+            list_remove(&dev->entry);
+            list_add_tail(list, &dev->entry);
+        }
+    }
+
+done:
+    g_phys_unlock();
+
+    /* DualShock 4 publishes only its public stereo PipeWire sink. Discover
+     * its four-channel ALSA PCM after releasing the physical-device lock so
+     * an existing DualSense effects stream can move to the newly added pad. */
+    if (!dualsense_haptic_target && find_dualsense_haptic_alsa)
+        dualsense_haptic_alsa_path = find_dualsense_haptic_alsa_path();
+
+    if (dualsense_mono_target || dualsense_haptic_target || dualsense_haptic_alsa_path)
+    {
+        pulse_lock();
+        if (dualsense_mono_target)
+            pulse_retarget_dualsense_mono_streams(dualsense_mono_target);
+        if (dualsense_haptic_target)
+            pulse_retarget_dualsense_haptic_streams(dualsense_haptic_target);
+        else if (dualsense_haptic_alsa_path)
+            pulse_retarget_dualsense_haptic_streams_to_alsa(dualsense_haptic_alsa_path);
+        pulse_unlock();
+        free(dualsense_mono_target);
+        free(dualsense_haptic_target);
+        free(dualsense_haptic_alsa_path);
+    }
 
     if (needed > params->size) {
         params->size = needed;
         params->result = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
-    } else
+    } else {
+        params->delta = TRUE;
         params->result = S_OK;
-    return STATUS_SUCCESS;
-}
-
-static void pulse_contextcallback(pa_context *c, void *userdata)
-{
-    switch (pa_context_get_state(c)) {
-        default:
-            FIXME("Unhandled state: %i\n", pa_context_get_state(c));
-            return;
-
-        case PA_CONTEXT_CONNECTING:
-        case PA_CONTEXT_UNCONNECTED:
-        case PA_CONTEXT_AUTHORIZING:
-        case PA_CONTEXT_SETTING_NAME:
-        case PA_CONTEXT_TERMINATED:
-            TRACE("State change to %i\n", pa_context_get_state(c));
-            return;
-
-        case PA_CONTEXT_READY:
-            TRACE("Ready\n");
-            break;
-
-        case PA_CONTEXT_FAILED:
-            WARN("Context failed: %s\n", pa_strerror(pa_context_errno(c)));
-            break;
     }
-    pulse_broadcast();
+    TRACE("returning flow %d, result %#x, added %u, removed %u, more_data %d, event_mask %#x.\n",
+            (int)params->flow, (unsigned int)params->result, params->num, params->num_removed,
+            params->more_data, g_phys_event_mask);
+    return STATUS_SUCCESS;
 }
 
 static void pulse_stream_state(pa_stream *s, void *user)
 {
+    struct pulse_stream *stream = user;
     pa_stream_state_t state = pa_stream_get_state(s);
     TRACE("%p: Stream state changed to %i\n", user, state);
+    if (stream && stream->dataflow == eRender && state == PA_STREAM_READY)
+    {
+        const pa_buffer_attr *attr = pa_stream_get_buffer_attr(s);
+        pa_operation *op;
+
+        if (attr)
+            stream->attr = *attr;
+        if (stream->started)
+        {
+            pulse_write(stream);
+            if (pa_stream_is_corked(s) && (op = pa_stream_cork(s, 0, NULL, NULL)))
+                pa_operation_unref(op);
+        }
+    }
+    pulse_broadcast();
+}
+
+static void pulse_split_speaker_state(pa_stream *s, void *user)
+{
+    TRACE("%p: Split speaker stream state changed to %i\n", user, pa_stream_get_state(s));
     pulse_broadcast();
 }
 
 static void pulse_attr_update(pa_stream *s, void *user) {
+    struct pulse_stream *stream = user;
     const pa_buffer_attr *attr = pa_stream_get_buffer_attr(s);
     TRACE("%p: New attributes or device moved:\n", user);
+    if (stream && attr)
+        stream->attr = *attr;
     dump_attr(attr);
 }
 
@@ -419,6 +1137,15 @@ static void pulse_underflow_callback(pa_stream *s, void *userdata)
     struct pulse_stream *stream = userdata;
     WARN("%p: Underflow\n", userdata);
     stream->just_underran = TRUE;
+    stream->pa_started = FALSE;
+    stream->timeline_start_period_time = 0;
+    stream->timeline_start_stream_time = 0;
+
+    if (stream->period && stream->period->timer_stream == stream)
+    {
+        stream->period->timer_stream = NULL;
+        stream->period->adjust = 0;
+    }
 }
 
 static void pulse_started_callback(pa_stream *s, void *userdata)
@@ -436,6 +1163,13 @@ static void pulse_op_cb(pa_stream *s, int success, void *user)
     pulse_broadcast();
 }
 
+static void pulse_context_op_cb(pa_context *c, int success, void *user)
+{
+    TRACE("Success: %i\n", success);
+    *(int*)user = success;
+    pulse_broadcast();
+}
+
 static void silence_buffer(pa_sample_format_t format, BYTE *buffer, UINT32 bytes)
 {
     memset(buffer, format == PA_SAMPLE_U8 ? 0x80 : 0, bytes);
@@ -443,12 +1177,102 @@ static void silence_buffer(pa_sample_format_t format, BYTE *buffer, UINT32 bytes
 
 static BOOL pulse_stream_valid(struct pulse_stream *stream)
 {
+    pa_stream_state_t state;
+
+    if (stream->dualsense_mono_registered)
+        return TRUE;
+
+    if (use_pipewire_dualsense_haptic_target() && !stream->stream &&
+            stream->dualsense_haptic_registered)
+        return stream->dataflow == eRender;
+
+    if (!stream->stream)
+        return stream->dataflow == eRender && stream->haptic_pcm && stream->haptic_alsa_path
+                && stream->haptic_alsa_path[0];
+
+    state = pa_stream_get_state(stream->stream);
+
+    return state == PA_STREAM_READY || (stream->dataflow == eRender && state == PA_STREAM_CREATING);
+}
+
+static BOOL pulse_stream_ready(struct pulse_stream *stream)
+{
+    if (!stream->stream)
+        return FALSE;
+
     return pa_stream_get_state(stream->stream) == PA_STREAM_READY;
+}
+
+static BOOL pulse_stream_haptic(struct pulse_stream *stream)
+{
+    return stream->dataflow == eRender && stream->haptic_alsa_path;
+}
+
+static void pulse_probe_settings(pa_mainloop *ml, pa_context *ctx, int render, const char *pulse_name,
+                                 WAVEFORMATEXTENSIBLE *fmt, REFERENCE_TIME *def_period, REFERENCE_TIME *min_period);
+
+static void pulse_contextcallback(pa_context *c, void *userdata)
+{
+    switch (pa_context_get_state(c))
+    {
+    default:
+        FIXME("Unhandled state: %i\n", pa_context_get_state(c));
+        break;
+    case PA_CONTEXT_CONNECTING:
+    case PA_CONTEXT_UNCONNECTED:
+    case PA_CONTEXT_AUTHORIZING:
+    case PA_CONTEXT_SETTING_NAME:
+    case PA_CONTEXT_TERMINATED:
+        TRACE("State change to %i\n", pa_context_get_state(c));
+        break;
+    case PA_CONTEXT_READY:
+        TRACE("Ready\n");
+        break;
+    case PA_CONTEXT_FAILED:
+        WARN("Context failed: %s\n", pa_strerror(pa_context_errno(c)));
+        break;
+    }
+    pulse_broadcast();
+}
+
+static void pulse_subscribe_callback(pa_context *c, pa_subscription_event_type_t type, uint32_t index, void *userdata)
+{
+    pa_subscription_event_type_t facility = type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK;
+    pa_subscription_event_type_t event = type & PA_SUBSCRIPTION_EVENT_TYPE_MASK;
+    unsigned int event_mask = 0;
+
+    if (event != PA_SUBSCRIPTION_EVENT_NEW && event != PA_SUBSCRIPTION_EVENT_REMOVE)
+        return;
+
+    if (facility == PA_SUBSCRIPTION_EVENT_SINK)
+        event_mask = PHYS_EVENT_RENDER;
+    else if (facility == PA_SUBSCRIPTION_EVENT_SOURCE)
+        event_mask = PHYS_EVENT_CAPTURE;
+    else if (facility == PA_SUBSCRIPTION_EVENT_CARD)
+        event_mask = PHYS_EVENT_RENDER | PHYS_EVENT_CAPTURE;
+    else
+        return;
+
+    TRACE("PulseAudio endpoint event facility %#x event %#x index %u.\n", facility, event, index);
+
+    g_phys_lock();
+    if (event_mask & PHYS_EVENT_RENDER)
+    {
+        ++g_haptic_hotplug_generation;
+        g_phys_event_stale_render = 0;
+    }
+    if (event_mask & PHYS_EVENT_CAPTURE)
+        g_phys_event_stale_capture = 0;
+    g_phys_event_mask |= event_mask;
+    pthread_cond_broadcast(&g_phys_cond);
+    g_phys_unlock();
 }
 
 static HRESULT pulse_connect(const char *name)
 {
     pa_context_state_t state;
+    pa_operation *op;
+    int success = 0;
 
     if (pulse_ctx && PA_CONTEXT_IS_GOOD(pa_context_get_state(pulse_ctx)))
         return S_OK;
@@ -463,6 +1287,7 @@ static HRESULT pulse_connect(const char *name)
     }
 
     pa_context_set_state_callback(pulse_ctx, pulse_contextcallback, NULL);
+    pa_context_set_subscribe_callback(pulse_ctx, pulse_subscribe_callback, NULL);
 
     TRACE("libpulse protocol version: %u. API Version %u\n", pa_context_get_protocol_version(pulse_ctx), PA_API_VERSION);
     if (pa_context_connect(pulse_ctx, NULL, 0, NULL) < 0)
@@ -479,6 +1304,16 @@ static HRESULT pulse_connect(const char *name)
     TRACE("Connected to server %s with protocol version: %i.\n",
         pa_context_get_server(pulse_ctx),
         pa_context_get_server_protocol_version(pulse_ctx));
+
+    if ((op = pa_context_subscribe(pulse_ctx, PA_SUBSCRIPTION_MASK_SINK | PA_SUBSCRIPTION_MASK_SOURCE
+            | PA_SUBSCRIPTION_MASK_CARD,
+            pulse_context_op_cb, &success)))
+    {
+        wait_pa_operation_complete(op);
+        if (!success)
+            WARN("Failed to subscribe to PulseAudio endpoint events.\n");
+    }
+
     return S_OK;
 
 fail:
@@ -651,10 +1486,10 @@ static GUID get_container_id(const char *sysfs_path)
     create_usb_dev_container_id(init_time, vid, pid, bus_num, dev_num, &tmp_guid);
 
 exit:
-    if (udev)
-        udev_unref(udev);
     if (audio_dev)
         udev_device_unref(audio_dev);
+    if (udev)
+        udev_unref(udev);
 
     TRACE("Returning %s.\n", debugstr_guid(&tmp_guid));
     return tmp_guid;
@@ -675,6 +1510,7 @@ static void fill_device_info(PhysDevice *dev, pa_proplist *p)
     dev->bus_type = phys_device_bus_invalid;
     dev->vendor_id = 0;
     dev->product_id = 0;
+    dev->alsa_card = -1;
     memset(&dev->container_id, 0, sizeof(dev->container_id));
 
     if (!p)
@@ -693,11 +1529,391 @@ static void fill_device_info(PhysDevice *dev, pa_proplist *p)
     if ((buffer = pa_proplist_gets(p, PA_PROP_DEVICE_PRODUCT_ID)))
         dev->product_id = strtol(buffer, NULL, 16);
 
+    if ((buffer = pa_proplist_gets(p, "alsa.card")) ||
+            (buffer = pa_proplist_gets(p, "api.alsa.card")))
+        dev->alsa_card = strtol(buffer, NULL, 10);
+
     if ((buffer = pa_proplist_gets(p, "sysfs.path")))
         dev->container_id = get_container_id(buffer);
 }
 
-static void pulse_add_device(struct list *list, pa_proplist *proplist, int index, EndpointFormFactor form,
+static BOOL is_dualsense_audio_device(const PhysDevice *dev)
+{
+    return dev->bus_type == phys_device_bus_usb && dev->vendor_id == 0x054c
+            && (dev->product_id == 0x05c4 || dev->product_id == 0x09cc ||
+                dev->product_id == 0x0ce6 || dev->product_id == 0x0df2);
+}
+
+static BOOL is_dualshock_audio_device(const PhysDevice *dev)
+{
+    return dev->bus_type == phys_device_bus_usb && dev->vendor_id == 0x054c
+            && (dev->product_id == 0x05c4 || dev->product_id == 0x09cc);
+}
+
+static BOOL is_dualshock_speaker_sink(const PhysDevice *dev)
+{
+    return dev->flow == eRender && is_dualshock_audio_device(dev) &&
+            (strstr(dev->pulse_name, "Speaker__sink") || strstr(dev->pulse_name, "analog-stereo"));
+}
+
+static BOOL is_dualsense_speaker_sink(const PhysDevice *dev)
+{
+    return is_dualshock_speaker_sink(dev) ||
+            (dev->flow == eRender && strstr(dev->pulse_name, "Speaker__sink")
+            && (is_dualsense_audio_device(dev)
+                || (strstr(dev->pulse_name, "alsa_output.usb-Sony_Interactive_Entertainment_")
+                    && strstr(dev->pulse_name, "Wireless_Controller"))));
+}
+
+static BOOL use_death_stranding_controller_effects(void)
+{
+    const char *env = getenv("PROTON_DEATH_STRANDING_CONTROLLER_EFFECTS");
+
+    return env && env[0] == '1' && !env[1];
+}
+
+static BOOL use_windows_sony_controller_names(void)
+{
+    const char *env = getenv("PROTON_SONY_WINDOWS_DEVICE_NAMES");
+
+    return (env && env[0] == '1' && !env[1]) ||
+            use_death_stranding_controller_effects() ||
+            InterlockedCompareExchange(&g_sony_windows_audio_mode, 0, 0);
+}
+
+static BOOL use_pipewire_dualsense_haptic_target(void)
+{
+    const char *env = getenv("PROTON_DUALSENSE_HAPTICS_PREFER_NON_EVENT");
+
+    return (env && env[0] == '1' && !env[1]) ||
+            use_death_stranding_controller_effects() ||
+            InterlockedCompareExchange(&g_sony_windows_audio_mode, 0, 0);
+}
+
+static BOOL use_dualsense_split_audio(void)
+{
+    const char *env = getenv("PROTON_DUALSENSE_SPLIT_AUDIO");
+
+    return (env && env[0] == '1' && !env[1]) || use_death_stranding_controller_effects();
+}
+
+static char *make_pipewire_dualsense_haptic_path(const char *target)
+{
+    static const char prefix[] = "pipewire:NODE=";
+    char *path;
+    size_t len;
+
+    if (!target || !target[0])
+        return NULL;
+
+    len = strlen(target) + sizeof(prefix);
+    if ((path = malloc(len)))
+        snprintf(path, len, "%s%s", prefix, target);
+    return path;
+}
+
+static void apply_windows_sony_audio_format(PhysDevice *dev)
+{
+    WAVEFORMATEX *wfx = &dev->fmt.Format;
+
+    if (!use_windows_sony_controller_names() || !is_dualsense_speaker_sink(dev))
+        return;
+
+    /* DS4 USB audio is stereo, not a split DualSense haptic endpoint. */
+    if (is_dualshock_audio_device(dev))
+        return;
+
+    /* Windows exposes the DualSense USB audio function as a four-channel
+     * endpoint. PipeWire's UCM profile splits out the controller speaker as a
+     * mono sink, but games still use this endpoint for channels 3 and 4 of the
+     * raw haptic stream. Keep the probed sample representation and restore the
+     * Windows channel layout advertised to applications. */
+    wfx->wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    wfx->nChannels = 4;
+    wfx->nSamplesPerSec = 48000;
+    wfx->nBlockAlign = wfx->nChannels * wfx->wBitsPerSample / 8;
+    wfx->nAvgBytesPerSec = wfx->nSamplesPerSec * wfx->nBlockAlign;
+    wfx->cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+    dev->fmt.dwChannelMask = KSAUDIO_SPEAKER_QUAD;
+}
+
+static BOOL pulse_name_looks_like_dualsense_speaker_sink(const char *name)
+{
+    return name && strstr(name, "alsa_output.usb-Sony_Interactive_Entertainment_")
+            && strstr(name, "Wireless_Controller") &&
+            (strstr(name, "Speaker__sink") || strstr(name, "analog-stereo"));
+}
+
+static BOOL pulse_name_is_dualsense_speaker_sink(const char *name)
+{
+    PhysDevice *dev;
+    BOOL ret = FALSE;
+
+    if (!name)
+        return FALSE;
+
+    g_phys_lock();
+    LIST_FOR_EACH_ENTRY(dev, &g_phys_speakers, PhysDevice, entry)
+    {
+        if (!pulse_device_matches(dev, name))
+            continue;
+
+        ret = is_dualsense_speaker_sink(dev);
+        break;
+    }
+    g_phys_unlock();
+
+    return ret || pulse_name_looks_like_dualsense_speaker_sink(name);
+}
+
+static BOOL is_dualsense_haptic_format(const struct pulse_stream *stream)
+{
+    return stream->dataflow == eRender && stream->ss.rate == 48000 && stream->ss.channels == 4 &&
+            (stream->ss.format == PA_SAMPLE_FLOAT32LE || stream->ss.format == PA_SAMPLE_S16LE);
+}
+
+static BOOL string_contains_dualsense_name(const char *name)
+{
+    return name && (strstr(name, "DualSense") || strstr(name, "Wireless_Controller")
+            || strstr(name, "Wireless Controller") || strstr(name, "Sony_Interactive_Entertainment"));
+}
+
+static BOOL pulse_stream_dualsense_mono_format(const struct pulse_stream *stream)
+{
+    return stream->dataflow == eRender && stream->ss.channels == 1;
+}
+
+#define DUALSENSE_MONO_ENDPOINT_ID \
+    "alsa_output.usb-Sony_Interactive_Entertainment_Wireless_Controller-00.HiFi__Speaker__sink"
+#define DUALSENSE_EDGE_MONO_ENDPOINT_ID \
+    "alsa_output.usb-Sony_Interactive_Entertainment_DualSense_Edge_Wireless_Controller-00.Default__Speaker__sink"
+
+static const char *sony_render_endpoint_base(const PhysDevice *dev)
+{
+    if (dev->flow != eRender || !is_dualsense_audio_device(dev))
+        return NULL;
+
+    if (dev->product_id == 0x0df2 ||
+            strstr(dev->pulse_name, "DualSense_Edge_Wireless_Controller"))
+        return DUALSENSE_EDGE_MONO_ENDPOINT_ID;
+
+    return DUALSENSE_MONO_ENDPOINT_ID;
+}
+
+static BOOL sony_render_device_is_same_physical(const PhysDevice *a, const PhysDevice *b)
+{
+    if (!IsEqualGUID(&a->container_id, &GUID_NULL) &&
+            !IsEqualGUID(&b->container_id, &GUID_NULL))
+        return IsEqualGUID(&a->container_id, &b->container_id);
+
+    return !strcmp(a->pulse_name, b->pulse_name);
+}
+
+static const char *find_sony_endpoint_for_physical_in_list(const PhysDevice *dev,
+        const char *base, struct list *devices)
+{
+    PhysDevice *other;
+
+    LIST_FOR_EACH_ENTRY(other, devices, PhysDevice, entry)
+    {
+        const char *other_base = sony_render_endpoint_base(other);
+
+        if (other_base && !strcmp(other_base, base) && other->endpoint_id &&
+                sony_render_device_is_same_physical(dev, other))
+            return other->endpoint_id;
+    }
+
+    return NULL;
+}
+
+static BOOL sony_endpoint_conflicts_in_list(const PhysDevice *dev, const char *base,
+        struct list *devices)
+{
+    PhysDevice *other;
+
+    LIST_FOR_EACH_ENTRY(other, devices, PhysDevice, entry)
+    {
+        const char *other_base = sony_render_endpoint_base(other);
+
+        if (other_base && !strcmp(other_base, base) &&
+                !sony_render_device_is_same_physical(dev, other))
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+static char *find_existing_sony_physical_endpoint(const PhysDevice *dev,
+        const char *base, struct list *current)
+{
+    const char *endpoint;
+    char *ret = NULL;
+
+    if ((endpoint = find_sony_endpoint_for_physical_in_list(dev, base, current)))
+        return strdup(endpoint);
+
+    g_phys_lock();
+    if (current != &g_phys_speakers &&
+            (endpoint = find_sony_endpoint_for_physical_in_list(dev, base,
+            &g_phys_speakers)))
+        ret = strdup(endpoint);
+    if (!ret && current != &g_phys_speakers_added &&
+            (endpoint = find_sony_endpoint_for_physical_in_list(dev, base,
+            &g_phys_speakers_added)))
+        ret = strdup(endpoint);
+    g_phys_unlock();
+
+    return ret;
+}
+
+static BOOL sony_endpoint_has_physical_conflict(const PhysDevice *dev,
+        const char *base, struct list *current)
+{
+    BOOL conflict;
+
+    if (sony_endpoint_conflicts_in_list(dev, base, current))
+        return TRUE;
+
+    g_phys_lock();
+    conflict = (current != &g_phys_speakers &&
+            sony_endpoint_conflicts_in_list(dev, base, &g_phys_speakers)) ||
+            (current != &g_phys_speakers_added &&
+            sony_endpoint_conflicts_in_list(dev, base, &g_phys_speakers_added));
+    g_phys_unlock();
+
+    return conflict;
+}
+
+static char *make_physical_sony_endpoint_id(const PhysDevice *dev, const char *base)
+{
+    char *endpoint_id;
+    size_t len;
+
+    if (IsEqualGUID(&dev->container_id, &GUID_NULL))
+        return strdup(dev->pulse_name);
+
+    len = strlen(base) + sizeof("#wine-sony-physical-") + 36;
+    if (!(endpoint_id = malloc(len)))
+        return NULL;
+
+    snprintf(endpoint_id, len,
+            "%s#wine-sony-physical-%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+            base, (unsigned int)dev->container_id.Data1,
+            (unsigned int)dev->container_id.Data2,
+            (unsigned int)dev->container_id.Data3,
+            (unsigned int)dev->container_id.Data4[0],
+            (unsigned int)dev->container_id.Data4[1],
+            (unsigned int)dev->container_id.Data4[2],
+            (unsigned int)dev->container_id.Data4[3],
+            (unsigned int)dev->container_id.Data4[4],
+            (unsigned int)dev->container_id.Data4[5],
+            (unsigned int)dev->container_id.Data4[6],
+            (unsigned int)dev->container_id.Data4[7]);
+    return endpoint_id;
+}
+
+static PhysDevice *find_canonical_sony_endpoint_in_list(const PhysDevice *dev,
+        const char *base, struct list *devices)
+{
+    PhysDevice *other;
+
+    LIST_FOR_EACH_ENTRY(other, devices, PhysDevice, entry)
+    {
+        const char *other_base = sony_render_endpoint_base(other);
+
+        if (other_base && !strcmp(other_base, base) && other->endpoint_id &&
+                !strcmp(other->endpoint_id, base) &&
+                !sony_render_device_is_same_physical(dev, other))
+            return other;
+    }
+
+    return NULL;
+}
+
+static BOOL sony_audio_device_precedes(const PhysDevice *dev, const PhysDevice *other)
+{
+    return dev->alsa_card >= 0 &&
+            (other->alsa_card < 0 || dev->alsa_card < other->alsa_card);
+}
+
+static BOOL pulse_set_endpoint_id(PhysDevice *dev, struct list *current)
+{
+    PhysDevice *canonical;
+    const char *sony_base;
+    char *existing;
+    unsigned int generation;
+    size_t len;
+
+    if ((sony_base = sony_render_endpoint_base(dev)))
+    {
+        if ((existing = find_existing_sony_physical_endpoint(dev, sony_base, current)))
+        {
+            dev->endpoint_id = existing;
+            return TRUE;
+        }
+
+        if (is_dualsense_speaker_sink(dev))
+        {
+            if ((canonical = find_canonical_sony_endpoint_in_list(dev, sony_base, current)) &&
+                    sony_audio_device_precedes(dev, canonical))
+            {
+                char *canonical_id = strdup(sony_base);
+                char *physical_id = make_physical_sony_endpoint_id(canonical, sony_base);
+
+                if (!canonical_id || !physical_id)
+                {
+                    free(canonical_id);
+                    free(physical_id);
+                    return FALSE;
+                }
+
+                TRACE("Assigning canonical Sony endpoint %s to ALSA card %d instead of card %d.\n",
+                        debugstr_a(sony_base), dev->alsa_card, canonical->alsa_card);
+                free(canonical->endpoint_id);
+                canonical->endpoint_id = physical_id;
+                dev->endpoint_id = canonical_id;
+                return TRUE;
+            }
+
+            if (sony_endpoint_has_physical_conflict(dev, sony_base, current))
+                return !!(dev->endpoint_id = make_physical_sony_endpoint_id(dev, sony_base));
+
+            return !!(dev->endpoint_id = strdup(sony_base));
+        }
+    }
+
+    if (!is_dualsense_audio_device(dev) || (dev->flow == eRender && !dev->raw_haptic_target
+            && strstr(dev->pulse_name, "Speaker__sink")))
+        return !!(dev->endpoint_id = strdup(dev->pulse_name));
+
+    if (!use_windows_sony_controller_names())
+    {
+        generation = ++g_dualsense_endpoint_generation;
+        len = strlen(dev->pulse_name) + sizeof("#wine-dualsense-hotplug-") + 10;
+        if (!(dev->endpoint_id = malloc(len)))
+            return FALSE;
+
+        snprintf(dev->endpoint_id, len, "%s#wine-dualsense-hotplug-%u",
+                dev->pulse_name, generation);
+        return TRUE;
+    }
+
+    len = strlen(dev->pulse_name) + sizeof("#wine-sony-hotplug-") + 36;
+    if (!(dev->endpoint_id = malloc(len)))
+        return FALSE;
+
+    snprintf(dev->endpoint_id, len,
+            "%s#wine-sony-hotplug-%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+            dev->pulse_name, (unsigned int)dev->container_id.Data1,
+            (unsigned int)dev->container_id.Data2, (unsigned int)dev->container_id.Data3,
+            (unsigned int)dev->container_id.Data4[0], (unsigned int)dev->container_id.Data4[1],
+            (unsigned int)dev->container_id.Data4[2], (unsigned int)dev->container_id.Data4[3],
+            (unsigned int)dev->container_id.Data4[4], (unsigned int)dev->container_id.Data4[5],
+            (unsigned int)dev->container_id.Data4[6], (unsigned int)dev->container_id.Data4[7]);
+    return TRUE;
+}
+
+static void pulse_add_device(struct list *list, EDataFlow flow, pa_proplist *proplist, int index, EndpointFormFactor form,
                              UINT channel_mask, const char *pulse_name, const char *desc)
 {
     size_t len = strlen(pulse_name);
@@ -710,17 +1926,95 @@ static void pulse_add_device(struct list *list, pa_proplist *proplist, int index
         free(dev);
         return;
     }
+    dev->flow = flow;
     dev->form = form;
     dev->index = index;
     dev->channel_mask = channel_mask;
     dev->def_period = 0;
     dev->min_period = 0;
+    dev->raw_haptic_target = NULL;
+    dev->raw_haptic_alsa_path = NULL;
+    dev->endpoint_id = NULL;
+    dev->ready = TRUE;
+    dev->length = 0;
+    dev->probe_status = -1;
+    pthread_mutex_init(&dev->ready_mutex, NULL);
+    pthread_cond_init(&dev->ready_cond, NULL);
     fill_device_info(dev, proplist);
+    if (dev->flow == eRender && is_dualsense_audio_device(dev) && proplist)
+    {
+        const char *target = pa_proplist_gets(proplist, "api.alsa.split.name");
+        const char *alsa_path = pa_proplist_gets(proplist, "api.alsa.path");
+
+        if (target && target[0])
+        {
+            size_t target_len = strlen(target) + 1;
+
+            if ((dev->raw_haptic_target = malloc(target_len)))
+                memcpy(dev->raw_haptic_target, target, target_len);
+        }
+        else if (strstr(pulse_name, "Direct__Direct__sink") &&
+                (channel_mask & KSAUDIO_SPEAKER_QUAD) == KSAUDIO_SPEAKER_QUAD)
+        {
+            size_t target_len = strlen(pulse_name) + 1;
+
+            /* The Direct profile exposes the physical four-channel PCM as
+             * this public PipeWire node rather than as a hidden split parent.
+             * Use the real Pulse name, not Wine's generated endpoint id. */
+            if ((dev->raw_haptic_target = malloc(target_len)))
+                memcpy(dev->raw_haptic_target, pulse_name, target_len);
+        }
+        if (alsa_path && alsa_path[0])
+        {
+            size_t alsa_path_len = strlen(alsa_path) + 1;
+
+            if ((dev->raw_haptic_alsa_path = malloc(alsa_path_len)))
+                memcpy(dev->raw_haptic_alsa_path, alsa_path, alsa_path_len);
+        }
+    }
     memcpy(dev->pulse_name, pulse_name, len + 1);
+    if (!pulse_set_endpoint_id(dev, list))
+    {
+        pulse_dev_free(dev);
+        return;
+    }
 
     list_add_tail(list, &dev->entry);
 
     TRACE("%s\n", debugstr_w(dev->name));
+}
+
+static void pulse_resolve_dualsense_split_targets(struct list *devices)
+{
+    PhysDevice *quad, *dev;
+    char *parent, *target;
+
+    LIST_FOR_EACH_ENTRY(quad, devices, PhysDevice, entry)
+    {
+        if (!is_dualsense_audio_device(quad) || !quad->raw_haptic_target ||
+                (quad->channel_mask & KSAUDIO_SPEAKER_QUAD) != KSAUDIO_SPEAKER_QUAD ||
+                !strcmp(quad->raw_haptic_target, quad->pulse_name))
+            continue;
+        if (!(parent = strdup(quad->raw_haptic_target)))
+            continue;
+
+        /* UCM split parents may be Audio/Sink/Internal. Prefer the public
+         * quad sink for every endpoint of this exact split group, but leave
+         * profiles without a quad sink on their existing raw path. */
+        LIST_FOR_EACH_ENTRY(dev, devices, PhysDevice, entry)
+        {
+            if (!is_dualsense_audio_device(dev) || !dev->raw_haptic_target ||
+                    strcmp(dev->raw_haptic_target, parent))
+                continue;
+            if (!(target = strdup(quad->pulse_name)))
+                continue;
+            TRACE("Routing Sony split endpoint %s through public quad sink %s instead of %s.\n",
+                    debugstr_a(dev->pulse_name), debugstr_a(target), debugstr_a(parent));
+            free(dev->raw_haptic_target);
+            dev->raw_haptic_target = target;
+        }
+        free(parent);
+    }
 }
 
 static void pulse_phys_speakers_cb(pa_context *c, const pa_sink_info *i, int eol, void *userdata)
@@ -728,25 +2022,316 @@ static void pulse_phys_speakers_cb(pa_context *c, const pa_sink_info *i, int eol
     struct list *speaker;
     UINT channel_mask;
 
+    if (eol > 0)
+    {
+        pulse_resolve_dualsense_split_targets(userdata ? userdata : &g_phys_speakers);
+        return;
+    }
     if (!i || !i->name || !i->name[0])
         return;
     channel_mask = pulse_channel_map_to_channel_mask(&i->channel_map);
 
     /* For default PulseAudio render device, OR together all of the
      * PKEY_AudioEndpoint_PhysicalSpeakers values of the sinks. */
-    speaker = list_head(&g_phys_speakers);
+    speaker = list_head(userdata ? userdata : &g_phys_speakers);
     if (speaker)
         LIST_ENTRY(speaker, PhysDevice, entry)->channel_mask |= channel_mask;
 
-    pulse_add_device(&g_phys_speakers, i->proplist, i->index, Speakers, channel_mask, i->name, i->description);
+    pulse_add_device(userdata ? userdata : &g_phys_speakers, eRender, i->proplist, i->index, Speakers, channel_mask,
+            i->name, i->description);
 }
 
 static void pulse_phys_sources_cb(pa_context *c, const pa_source_info *i, int eol, void *userdata)
 {
     if (!i || !i->name || !i->name[0])
         return;
-    pulse_add_device(&g_phys_sources, i->proplist, i->index,
+    pulse_add_device(userdata ? userdata : &g_phys_sources, eCapture, i->proplist, i->index,
         (i->monitor_of_sink == PA_INVALID_INDEX) ? Microphone : LineLevel, 0, i->name, i->description);
+}
+
+static PhysDevice *pulse_find_device(struct list *list, const char *pulse_name)
+{
+    PhysDevice *dev;
+
+    LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry)
+        if (!strcmp(dev->pulse_name, pulse_name))
+            return dev;
+
+    return NULL;
+}
+
+static char *pulse_resolve_device_name(const char *device)
+{
+    static struct list *const lists[] =
+    {
+        &g_phys_speakers_added,
+        &g_phys_speakers,
+        &g_phys_sources_added,
+        &g_phys_sources,
+        NULL
+    };
+    struct list *const *list;
+    PhysDevice *dev;
+    char *ret = NULL;
+
+    if (!device || !device[0])
+        return NULL;
+
+    g_phys_lock();
+    for (list = lists; *list; ++list)
+    {
+        LIST_FOR_EACH_ENTRY(dev, *list, PhysDevice, entry)
+        {
+            if (!pulse_device_matches(dev, device))
+                continue;
+            ret = strdup(dev->pulse_name);
+            break;
+        }
+        if (ret)
+            break;
+    }
+    g_phys_unlock();
+    return ret;
+}
+
+static void pulse_probe_device_list(pa_mainloop *ml, pa_context *ctx, struct list *list, BOOL render)
+{
+    PhysDevice *dev;
+
+    LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry)
+    {
+        pulse_probe_settings(ml, ctx, render, dev->pulse_name, &dev->fmt, &dev->def_period, &dev->min_period);
+        apply_windows_sony_audio_format(dev);
+    }
+}
+
+static BOOL pulse_context_wait_ready(pa_mainloop *ml, pa_context *ctx, const char *what)
+{
+    pa_usec_t deadline = pa_rtclock_now() + DUALSENSE_HAPTIC_REFRESH_USEC;
+    int ret;
+
+    while (pa_rtclock_now() < deadline)
+    {
+        pa_context_state_t state = pa_context_get_state(ctx);
+
+        if (state == PA_CONTEXT_FAILED || state == PA_CONTEXT_TERMINATED)
+            return FALSE;
+        if (state == PA_CONTEXT_READY)
+            return TRUE;
+
+        if (pa_mainloop_iterate(ml, 0, &ret) < 0)
+            return FALSE;
+        poll(NULL, 0, 10);
+    }
+
+    TRACE("Timed out waiting for PulseAudio %s.\n", what);
+    return FALSE;
+}
+
+static BOOL pulse_operation_wait_done(pa_mainloop *ml, pa_operation *op, const char *what)
+{
+    pa_usec_t deadline = pa_rtclock_now() + DUALSENSE_HAPTIC_REFRESH_USEC;
+    int ret;
+
+    while (pa_operation_get_state(op) == PA_OPERATION_RUNNING && pa_rtclock_now() < deadline)
+    {
+        if (pa_mainloop_iterate(ml, 0, &ret) < 0)
+            return FALSE;
+        poll(NULL, 0, 10);
+    }
+
+    if (pa_operation_get_state(op) == PA_OPERATION_RUNNING)
+    {
+        TRACE("Timed out waiting for PulseAudio %s.\n", what);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static BOOL pulse_stream_wait_until_not(pa_mainloop *ml, pa_stream *stream, pa_stream_state_t wait_state, const char *what)
+{
+    pa_usec_t deadline = pa_rtclock_now() + DUALSENSE_HAPTIC_REFRESH_USEC;
+    int ret;
+
+    while (pa_stream_get_state(stream) == wait_state && pa_rtclock_now() < deadline)
+    {
+        if (pa_mainloop_iterate(ml, 0, &ret) < 0)
+            return FALSE;
+        poll(NULL, 0, 10);
+    }
+
+    if (pa_stream_get_state(stream) == wait_state)
+    {
+        TRACE("Timed out waiting for PulseAudio %s.\n", what);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static BOOL pulse_refresh_devices(EDataFlow flow)
+{
+    struct list current = LIST_INIT(current);
+    struct list *active = flow == eRender ? &g_phys_speakers : &g_phys_sources;
+    struct list *added = flow == eRender ? &g_phys_speakers_added : &g_phys_sources_added;
+    struct list *removed = flow == eRender ? &g_phys_speakers_removed : &g_phys_sources_removed;
+    PhysDevice *dev, *next, *existing;
+    pa_mainloop *ml;
+    pa_context *ctx;
+    pa_operation *o;
+    BOOL find_dualsense_haptic_alsa = FALSE;
+    BOOL retarget_haptic = flow == eRender && use_pipewire_dualsense_haptic_target();
+    char *dualsense_mono_target = NULL;
+    char *dualsense_haptic_target = NULL;
+    char *dualsense_haptic_alsa_path = NULL;
+
+    if (!(ml = pa_mainloop_new()))
+        return FALSE;
+
+    if (!(ctx = pa_context_new(pa_mainloop_get_api(ml), "winepulse device refresh")))
+    {
+        pa_mainloop_free(ml);
+        return FALSE;
+    }
+
+    pa_context_set_state_callback(ctx, pulse_contextcallback, NULL);
+    if (pa_context_connect(ctx, NULL, 0, NULL) < 0)
+        goto fail;
+
+    if (!pulse_context_wait_ready(ml, ctx, "device refresh context"))
+        goto fail;
+
+    if (flow == eRender)
+        pulse_add_device(&current, eRender, NULL, 0, Speakers, 0, "", "PulseAudio Output");
+    else
+        pulse_add_device(&current, eCapture, NULL, 0, Microphone, 0, "", "PulseAudio Input");
+
+    if (flow == eRender)
+        o = pa_context_get_sink_info_list(ctx, pulse_phys_speakers_cb, &current);
+    else
+        o = pa_context_get_source_info_list(ctx, pulse_phys_sources_cb, &current);
+
+    if (o)
+    {
+        if (!pulse_operation_wait_done(ml, o, "device list"))
+        {
+            pa_operation_unref(o);
+            goto fail;
+        }
+        pa_operation_unref(o);
+    }
+
+    pulse_probe_device_list(ml, ctx, &current, flow == eRender);
+
+    g_phys_lock();
+
+    LIST_FOR_EACH_ENTRY_SAFE(dev, next, active, PhysDevice, entry)
+    {
+        if (pulse_find_device(&current, dev->pulse_name))
+            continue;
+        TRACE("PulseAudio endpoint %s was removed.\n", debugstr_a(dev->pulse_name));
+        if (flow == eRender && (is_dualsense_audio_device(dev) || is_dualsense_speaker_sink(dev)))
+        {
+            ++g_haptic_hotplug_generation;
+            if (is_dualsense_speaker_sink(dev))
+            {
+                ++g_dualsense_mono_speaker_add_generation;
+            }
+        }
+        list_remove(&dev->entry);
+        list_add_tail(removed, &dev->entry);
+    }
+
+    LIST_FOR_EACH_ENTRY_SAFE(dev, next, &current, PhysDevice, entry)
+    {
+        if ((existing = pulse_find_device(active, dev->pulse_name)) ||
+                (existing = pulse_find_device(added, dev->pulse_name)))
+        {
+            /* A public quad sink can appear after its mono sibling without
+             * changing that sibling's endpoint name or identity. */
+            if (flow == eRender && is_dualsense_audio_device(dev))
+            {
+                free(existing->raw_haptic_target);
+                free(existing->raw_haptic_alsa_path);
+                existing->raw_haptic_target = dev->raw_haptic_target;
+                existing->raw_haptic_alsa_path = dev->raw_haptic_alsa_path;
+                dev->raw_haptic_target = NULL;
+                dev->raw_haptic_alsa_path = NULL;
+            }
+            list_remove(&dev->entry);
+            pulse_dev_free(dev);
+            continue;
+        }
+
+        TRACE("PulseAudio endpoint %s was added.\n", debugstr_a(dev->pulse_name));
+        if (flow == eRender && (is_dualsense_audio_device(dev) || is_dualsense_speaker_sink(dev)))
+        {
+            ++g_haptic_hotplug_generation;
+            if (is_dualsense_speaker_sink(dev))
+            {
+                char *target = strdup(dev->pulse_name);
+
+                ++g_dualsense_mono_speaker_add_generation;
+                if (target)
+                {
+                    free(dualsense_mono_target);
+                    dualsense_mono_target = target;
+                }
+            }
+            if (retarget_haptic && dev->raw_haptic_target)
+            {
+                char *target = strdup(dev->raw_haptic_target);
+
+                if (target)
+                {
+                    free(dualsense_haptic_target);
+                    dualsense_haptic_target = target;
+                }
+            }
+            else if (retarget_haptic && is_dualsense_speaker_sink(dev))
+                find_dualsense_haptic_alsa = TRUE;
+        }
+        list_remove(&dev->entry);
+        list_add_tail(added, &dev->entry);
+    }
+
+    g_phys_unlock();
+
+    if (!dualsense_haptic_target && find_dualsense_haptic_alsa)
+        dualsense_haptic_alsa_path = find_dualsense_haptic_alsa_path();
+
+    if (dualsense_mono_target || dualsense_haptic_target || dualsense_haptic_alsa_path)
+    {
+        pulse_lock();
+        if (dualsense_mono_target)
+            pulse_retarget_dualsense_mono_streams(dualsense_mono_target);
+        if (dualsense_haptic_target)
+            pulse_retarget_dualsense_haptic_streams(dualsense_haptic_target);
+        else if (dualsense_haptic_alsa_path)
+            pulse_retarget_dualsense_haptic_streams_to_alsa(dualsense_haptic_alsa_path);
+        pulse_unlock();
+        free(dualsense_mono_target);
+        free(dualsense_haptic_target);
+        free(dualsense_haptic_alsa_path);
+    }
+
+    pa_context_unref(ctx);
+    pa_mainloop_free(ml);
+
+    LIST_FOR_EACH_ENTRY_SAFE(dev, next, &current, PhysDevice, entry)
+        pulse_dev_free(dev);
+
+    pthread_cond_broadcast(&g_phys_cond);
+    return TRUE;
+
+fail:
+    free(dualsense_mono_target);
+    free(dualsense_haptic_target);
+    free(dualsense_haptic_alsa_path);
+    pa_context_unref(ctx);
+    pa_mainloop_free(ml);
+    LIST_FOR_EACH_ENTRY_SAFE(dev, next, &current, PhysDevice, entry)
+        pulse_dev_free(dev);
+    return FALSE;
 }
 
 /* For most hardware on Windows, users must choose a configuration with an even
@@ -867,9 +2452,7 @@ static void pulse_probe_settings(pa_mainloop *ml, pa_context *ctx, int render, c
     else
         ret = pa_stream_connect_record(stream, pulse_name, &attr, PA_STREAM_START_CORKED|PA_STREAM_FIX_RATE|PA_STREAM_FIX_CHANNELS|PA_STREAM_EARLY_REQUESTS);
     if (ret >= 0) {
-        while (pa_mainloop_iterate(ml, 1, &ret) >= 0 &&
-                pa_stream_get_state(stream) == PA_STREAM_CREATING)
-        {}
+        pulse_stream_wait_until_not(ml, stream, PA_STREAM_CREATING, "format probe stream");
         if (pa_stream_get_state(stream) == PA_STREAM_READY) {
             ss = *pa_stream_get_sample_spec(stream);
             map = *pa_stream_get_channel_map(stream);
@@ -878,10 +2461,10 @@ static void pulse_probe_settings(pa_mainloop *ml, pa_context *ctx, int render, c
             else
                 length = pa_stream_get_buffer_attr(stream)->fragsize;
             pa_stream_disconnect(stream);
-            while (pa_mainloop_iterate(ml, 1, &ret) >= 0 &&
-                    pa_stream_get_state(stream) == PA_STREAM_READY)
-            {}
+            pulse_stream_wait_until_not(ml, stream, PA_STREAM_READY, "format probe disconnect");
         }
+        else if (pa_stream_get_state(stream) == PA_STREAM_CREATING)
+            pa_stream_disconnect(stream);
     }
 
     if (stream)
@@ -967,8 +2550,8 @@ static NTSTATUS pulse_test_connect(void *args)
     list_init(&g_phys_sources);
 
     /* Burnout Paradise Remastered expects device name to have a space. */
-    pulse_add_device(&g_phys_speakers, NULL, 0, Speakers, 0, "", "PulseAudio Output");
-    pulse_add_device(&g_phys_sources, NULL, 0, Microphone, 0, "", "PulseAudio Input");
+    pulse_add_device(&g_phys_speakers, eRender, NULL, 0, Speakers, 0, "", "PulseAudio Output");
+    pulse_add_device(&g_phys_sources, eCapture, NULL, 0, Microphone, 0, "", "PulseAudio Input");
 
     o = pa_context_get_sink_info_list(ctx, &pulse_phys_speakers_cb, NULL);
     if (o) {
@@ -988,6 +2571,7 @@ static NTSTATUS pulse_test_connect(void *args)
 
     LIST_FOR_EACH_ENTRY(dev, &g_phys_speakers, PhysDevice, entry) {
         pulse_probe_settings(ml, ctx, 1, dev->pulse_name, &dev->fmt, &dev->def_period, &dev->min_period);
+        apply_windows_sony_audio_format(dev);
     }
 
     LIST_FOR_EACH_ENTRY(dev, &g_phys_sources, PhysDevice, entry) {
@@ -1169,9 +2753,11 @@ static HRESULT pulse_spec_from_waveformat(struct pulse_stream *stream, const WAV
     return S_OK;
 }
 
-static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pulse_name, UINT32 period_bytes)
+static HRESULT pulse_stream_connect_timeout(struct pulse_stream *stream, const char *pulse_name, const char *target_object,
+        UINT32 period_bytes, unsigned int timeout_ms, BOOL allow_local_render_fallback)
 {
     pa_stream_flags_t flags = PA_STREAM_START_CORKED | PA_STREAM_START_UNMUTED | PA_STREAM_ADJUST_LATENCY;
+    pa_proplist *proplist = NULL;
     int ret;
     char buffer[64];
     static LONG number;
@@ -1179,7 +2765,24 @@ static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pul
 
     ret = InterlockedIncrement(&number);
     sprintf(buffer, "audio stream #%i", ret);
-    stream->stream = pa_stream_new(pulse_ctx, buffer, &stream->ss, &stream->map);
+
+    if (target_object && target_object[0])
+    {
+        if ((proplist = pa_proplist_new()))
+        {
+            pa_proplist_sets(proplist, "target.object", target_object);
+            pa_proplist_sets(proplist, "node.target", target_object);
+            pa_proplist_sets(proplist, "media.class", "Stream/Output/Audio/Internal");
+            pa_proplist_sets(proplist, "node.dont-fallback", "true");
+            pa_proplist_sets(proplist, "stream.dont-remix", "true");
+        }
+    }
+
+    stream->stream = proplist
+            ? pa_stream_new_with_proplist(pulse_ctx, buffer, &stream->ss, &stream->map, proplist)
+            : pa_stream_new(pulse_ctx, buffer, &stream->ss, &stream->map);
+    if (proplist)
+        pa_proplist_free(proplist);
 
     if (!stream->stream) {
         WARN("pa_stream_new returned error %i\n", pa_context_errno(pulse_ctx));
@@ -1195,10 +2798,13 @@ static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pul
     attr.tlength = period_bytes * 3;
     attr.maxlength = stream->bufsize_frames * pa_frame_size(&stream->ss);
     attr.prebuf = 0;
+    stream->attr = attr;
     dump_attr(&attr);
 
-    /* If specific device was requested, use it exactly */
-    if (pulse_name[0])
+    /* If specific device was requested, use it exactly. For PipeWire raw
+     * haptic targets, keep the public DualSense sink as the Pulse device and
+     * let target.object select the hidden split ALSA node. */
+    if (pulse_name && pulse_name[0])
         flags |= PA_STREAM_DONT_MOVE;
     else
         pulse_name = NULL;  /* use default */
@@ -1211,16 +2817,190 @@ static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pul
         WARN("Returns %i\n", ret);
         return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
     }
-    while (pa_stream_get_state(stream->stream) == PA_STREAM_CREATING)
-        pulse_cond_wait();
-    if (pa_stream_get_state(stream->stream) != PA_STREAM_READY)
+    while (stream->stream && pa_stream_get_state(stream->stream) == PA_STREAM_CREATING)
+    {
+        if (pulse_cond_timedwait_ms(timeout_ms) == ETIMEDOUT)
+            break;
+    }
+    if (!stream->stream)
         return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+    if (pa_stream_get_state(stream->stream) != PA_STREAM_READY)
+    {
+        if (allow_local_render_fallback && stream->dataflow == eRender
+                && pa_stream_get_state(stream->stream) == PA_STREAM_CREATING &&
+                !(target_object && target_object[0]))
+        {
+            WARN("Render stream still creating; disconnecting Pulse stream and continuing locally.\n");
+            pa_stream_disconnect(stream->stream);
+            pa_stream_unref(stream->stream);
+            stream->stream = NULL;
+            return S_OK;
+        }
+        WARN("Stream failed to become ready, state %i\n", pa_stream_get_state(stream->stream));
+        return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+    }
 
     if (stream->dataflow == eRender) {
         pa_stream_set_underflow_callback(stream->stream, pulse_underflow_callback, stream);
         pa_stream_set_started_callback(stream->stream, pulse_started_callback, stream);
     }
     return S_OK;
+}
+
+static HRESULT pulse_stream_connect(struct pulse_stream *stream, const char *pulse_name, const char *target_object,
+        UINT32 period_bytes)
+{
+    return pulse_stream_connect_timeout(stream, pulse_name, target_object, period_bytes,
+            target_object && target_object[0] ? 5000 : 500, TRUE);
+}
+
+static HRESULT pulse_stream_connect_dualsense_speaker(struct pulse_stream *stream, const char *pulse_name,
+        UINT32 period_bytes)
+{
+    return pulse_stream_connect_timeout(stream, pulse_name, NULL, period_bytes, 5000, FALSE);
+}
+
+static BOOL pulse_split_speaker_ready(const struct pulse_stream *stream)
+{
+    return stream->speaker_stream && pa_stream_get_state(stream->speaker_stream) == PA_STREAM_READY;
+}
+
+static void pulse_split_speaker_drain(struct pulse_stream *stream)
+{
+    SIZE_T bytes, sample_size, writable;
+
+    if (!pulse_split_speaker_ready(stream) || !stream->speaker_buffer_held)
+        return;
+
+    sample_size = pa_sample_size_of_format(stream->ss.format);
+    writable = pa_stream_writable_size(stream->speaker_stream);
+    if (!sample_size || writable == (SIZE_T)-1)
+        return;
+
+    bytes = min(stream->speaker_buffer_held, writable);
+    bytes -= bytes % sample_size;
+    if (!bytes)
+        return;
+
+    if (pa_stream_write(stream->speaker_stream, stream->speaker_buffer, bytes,
+            NULL, 0, PA_SEEK_RELATIVE) < 0)
+    {
+        WARN("Failed to write queued split DualSense speaker audio: %d.\n",
+                pa_context_errno(pulse_ctx));
+        return;
+    }
+
+    stream->speaker_buffer_held -= bytes;
+    if (stream->speaker_buffer_held)
+        memmove(stream->speaker_buffer, stream->speaker_buffer + bytes,
+                stream->speaker_buffer_held);
+}
+
+static void pulse_split_speaker_write_callback(pa_stream *s, size_t bytes, void *user)
+{
+    struct pulse_stream *stream = user;
+
+    if (stream && s == stream->speaker_stream && bytes)
+        pulse_split_speaker_drain(stream);
+}
+
+static void pulse_split_speaker_disconnect(struct pulse_stream *stream)
+{
+    stream->speaker_buffer_held = 0;
+    stream->speaker_dropped_bytes = 0;
+    stream->speaker_peak = 0.0f;
+    stream->speaker_trace_time = 0;
+    stream->speaker_route_selected = FALSE;
+
+    if (!stream->speaker_stream)
+        return;
+
+    if (PA_STREAM_IS_GOOD(pa_stream_get_state(stream->speaker_stream)))
+        pa_stream_disconnect(stream->speaker_stream);
+    pa_stream_unref(stream->speaker_stream);
+    stream->speaker_stream = NULL;
+}
+
+static HRESULT pulse_split_speaker_connect(struct pulse_stream *stream, const char *pulse_name)
+{
+    pa_stream_flags_t flags = PA_STREAM_START_CORKED | PA_STREAM_START_UNMUTED |
+            PA_STREAM_ADJUST_LATENCY | PA_STREAM_DONT_MOVE;
+    pa_sample_spec ss = stream->ss;
+    pa_channel_map map;
+    pa_cvolume volume;
+    pa_buffer_attr attr;
+    UINT32 source_frame_size, speaker_frame_size, period_frames;
+    char name[64];
+    static LONG number;
+    char *device;
+    int ret;
+
+    if (!pulse_name || !pulse_name[0])
+        return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+
+    source_frame_size = pa_frame_size(&stream->ss);
+    ss.channels = 1;
+    pa_channel_map_init_mono(&map);
+    speaker_frame_size = pa_frame_size(&ss);
+    if (!source_frame_size || !speaker_frame_size)
+        return AUDCLNT_E_UNSUPPORTED_FORMAT;
+
+    period_frames = stream->period_bytes / source_frame_size;
+    attr.minreq = attr.fragsize = period_frames * speaker_frame_size;
+    attr.tlength = attr.minreq * 3;
+    attr.maxlength = stream->bufsize_frames * speaker_frame_size;
+    attr.prebuf = 0;
+
+    if (!(device = strdup(pulse_name)))
+        return E_OUTOFMEMORY;
+
+    pulse_split_speaker_disconnect(stream);
+    snprintf(name, sizeof(name), "DualSense speaker #%d", InterlockedIncrement(&number));
+    if (!(stream->speaker_stream = pa_stream_new(pulse_ctx, name, &ss, &map)))
+    {
+        free(device);
+        return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+    }
+
+    pa_stream_set_state_callback(stream->speaker_stream, pulse_split_speaker_state, stream);
+    pa_stream_set_write_callback(stream->speaker_stream,
+            pulse_split_speaker_write_callback, stream);
+    pa_cvolume_set(&volume, ss.channels, PA_VOLUME_NORM);
+    ret = pa_stream_connect_playback(stream->speaker_stream, pulse_name, &attr, flags, &volume, NULL);
+    if (ret < 0)
+        goto failed;
+
+    while (pa_stream_get_state(stream->speaker_stream) == PA_STREAM_CREATING)
+    {
+        if (pulse_cond_timedwait_ms(5000) == ETIMEDOUT)
+            break;
+    }
+    if (!pulse_split_speaker_ready(stream))
+        goto failed;
+
+    free(stream->speaker_device);
+    stream->speaker_device = device;
+    TRACE("Connected split DualSense speaker stream %p to %s.\n",
+            stream, debugstr_a(stream->speaker_device));
+    return S_OK;
+
+failed:
+    WARN("Failed to connect split DualSense speaker stream to %s: %d.\n",
+            debugstr_a(pulse_name), pa_context_errno(pulse_ctx));
+    pulse_split_speaker_disconnect(stream);
+    free(device);
+    return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+}
+
+static void pulse_split_speaker_set_corked(struct pulse_stream *stream, BOOL corked)
+{
+    pa_operation *op;
+
+    if (!pulse_split_speaker_ready(stream) || pa_stream_is_corked(stream->speaker_stream) == corked)
+        return;
+
+    if ((op = pa_stream_cork(stream->speaker_stream, corked, NULL, NULL)))
+        pa_operation_unref(op);
 }
 
 static HRESULT get_device_period_helper(EDataFlow flow, const char *pulse_name, REFERENCE_TIME *def, REFERENCE_TIME *min)
@@ -1232,27 +3012,1424 @@ static HRESULT get_device_period_helper(EDataFlow flow, const char *pulse_name, 
         return E_POINTER;
     }
 
+    g_phys_lock();
     LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry) {
-        if (strcmp(pulse_name, dev->pulse_name))
+        if (!pulse_device_matches(dev, pulse_name))
             continue;
 
         if (def)
             *def = dev->def_period;
         if (min)
             *min = dev->min_period;
+
+        g_phys_unlock();
         return S_OK;
     }
+    g_phys_unlock();
 
     return E_FAIL;
 }
 
+static char *get_dualsense_haptic_target(const char *pulse_name, const struct pulse_stream *stream)
+{
+    PhysDevice *dev;
+
+    if (stream->dataflow != eRender || (stream->ss.format != PA_SAMPLE_FLOAT32LE
+            && (!use_dualsense_split_audio() || stream->ss.format != PA_SAMPLE_S16LE))
+            || stream->ss.rate != 48000 || stream->ss.channels != 4 || !pulse_name || !pulse_name[0])
+        return NULL;
+
+    g_phys_lock();
+    LIST_FOR_EACH_ENTRY(dev, &g_phys_speakers, PhysDevice, entry)
+    {
+        if (!pulse_device_matches(dev, pulse_name))
+            continue;
+
+        if (dev->raw_haptic_target)
+        {
+            size_t len = strlen(dev->raw_haptic_target) + 1;
+            char *target = malloc(len);
+
+            if (target)
+                memcpy(target, dev->raw_haptic_target, len);
+
+            g_phys_unlock();
+            return target;
+        }
+        break;
+    }
+    g_phys_unlock();
+    return NULL;
+}
+
+static BOOL dualsense_haptic_pcm_path_works(const char *path);
+
+static char *get_dualsense_haptic_alsa_path(const char *pulse_name, const struct pulse_stream *stream)
+{
+    PhysDevice *dev, *fallback = NULL;
+    char *path = NULL;
+
+    if (stream->dataflow != eRender || stream->ss.format != PA_SAMPLE_FLOAT32LE
+            || stream->ss.rate != 48000 || stream->ss.channels != 4 || !pulse_name || !pulse_name[0])
+        return NULL;
+
+    g_phys_lock();
+    LIST_FOR_EACH_ENTRY(dev, &g_phys_speakers, PhysDevice, entry)
+    {
+        if (!pulse_device_matches(dev, pulse_name))
+        {
+            if (!fallback && is_dualsense_audio_device(dev) && dev->raw_haptic_alsa_path)
+                fallback = dev;
+            continue;
+        }
+
+        if (dev->raw_haptic_alsa_path && dualsense_haptic_pcm_path_works(dev->raw_haptic_alsa_path))
+        {
+            size_t len = strlen(dev->raw_haptic_alsa_path) + 1;
+
+            if (path)
+                free(path);
+            if ((path = malloc(len)))
+                memcpy(path, dev->raw_haptic_alsa_path, len);
+        }
+        break;
+    }
+    if (!path && fallback && dualsense_haptic_pcm_path_works(fallback->raw_haptic_alsa_path))
+    {
+        size_t len = strlen(fallback->raw_haptic_alsa_path) + 1;
+
+        if ((path = malloc(len)))
+            memcpy(path, fallback->raw_haptic_alsa_path, len);
+    }
+    g_phys_unlock();
+    return path;
+}
+
+static char *get_dualsense_speaker_sink(const char *preferred, BOOL require_speaker)
+{
+    static struct list *const lists[] = { &g_phys_speakers_added, &g_phys_speakers, NULL };
+    struct list *const *list;
+    PhysDevice *dev;
+    char *fallback = NULL, *direct_fallback = NULL;
+
+    g_phys_lock();
+    for (list = lists; *list; ++list)
+    {
+        LIST_FOR_EACH_ENTRY(dev, *list, PhysDevice, entry)
+        {
+            BOOL direct, speaker;
+
+            speaker = is_dualsense_speaker_sink(dev);
+            if (!speaker && !is_dualsense_audio_device(dev))
+                continue;
+
+            direct = strstr(dev->pulse_name, "Direct__Direct__sink") || (dev->raw_haptic_target && !speaker);
+            if (require_speaker && !speaker)
+                continue;
+
+            if (preferred && pulse_device_matches(dev, preferred) && !direct)
+            {
+                char *ret = strdup(dev->pulse_name);
+
+                g_phys_unlock();
+                free(fallback);
+                free(direct_fallback);
+                return ret;
+            }
+
+            if (!direct && (!fallback || speaker))
+            {
+                free(fallback);
+                fallback = strdup(dev->pulse_name);
+            }
+            else if (!require_speaker && direct && !direct_fallback)
+                direct_fallback = strdup(dev->pulse_name);
+        }
+    }
+    g_phys_unlock();
+    if (preferred)
+    {
+        free(fallback);
+        free(direct_fallback);
+        return NULL;
+    }
+    if (fallback)
+    {
+        free(direct_fallback);
+        return fallback;
+    }
+    return direct_fallback;
+}
+
+static char *pulse_find_shared_sony_speaker_survivor(const PhysDevice *removed,
+        struct list *active, struct list *added)
+{
+    struct list *const lists[] = { added, active, NULL };
+    struct list *const *list;
+    PhysDevice *dev;
+
+    if (!is_dualsense_speaker_sink(removed) ||
+            IsEqualGUID(&removed->container_id, &GUID_NULL))
+        return NULL;
+
+    for (list = lists; *list; ++list)
+    {
+        LIST_FOR_EACH_ENTRY(dev, *list, PhysDevice, entry)
+        {
+            if (!is_dualsense_speaker_sink(dev) ||
+                    IsEqualGUID(&dev->container_id, &GUID_NULL) ||
+                    IsEqualGUID(&dev->container_id, &removed->container_id) ||
+                    strcmp(pulse_endpoint_id(dev), pulse_endpoint_id(removed)))
+                continue;
+
+            return strdup(dev->pulse_name);
+        }
+    }
+
+    return NULL;
+}
+
+static BOOL pulse_stream_dualsense_mono(const struct pulse_stream *stream)
+{
+    return pulse_stream_dualsense_mono_format(stream) && string_contains_dualsense_name(stream->device);
+}
+
+static void pulse_stream_disconnect(struct pulse_stream *stream)
+{
+    if (!stream->stream)
+        return;
+
+    if (PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream)))
+        pa_stream_disconnect(stream->stream);
+    pa_stream_unref(stream->stream);
+    stream->stream = NULL;
+    stream->pa_started = FALSE;
+    stream->update_timing_info_pending = FALSE;
+}
+
+static void pulse_set_dualsense_mono_preferred_sink(const char *preferred)
+{
+    char *copy;
+
+    if (!preferred)
+    {
+        free(g_dualsense_mono_preferred_sink);
+        g_dualsense_mono_preferred_sink = NULL;
+        return;
+    }
+
+    if (!(copy = strdup(preferred)))
+    {
+        WARN("Failed to remember preferred Sony controller speaker sink %s.\n", debugstr_a(preferred));
+        return;
+    }
+
+    free(g_dualsense_mono_preferred_sink);
+    g_dualsense_mono_preferred_sink = copy;
+}
+
+static HRESULT pulse_retarget_dualsense_mono_stream(struct pulse_stream *stream, const char *preferred)
+{
+    GUID target_container_id;
+    char *dualsense_speaker;
+    const pa_buffer_attr *attr;
+    BOOL target_container_valid;
+    HRESULT hr;
+    int success;
+
+    if (!stream->dualsense_mono_registered && !pulse_stream_dualsense_mono(stream))
+        return S_FALSE;
+
+    if (!(dualsense_speaker = get_dualsense_speaker_sink(preferred, TRUE)))
+        if (!(dualsense_speaker = get_dualsense_speaker_sink(NULL, TRUE)))
+            return E_FAIL;
+
+    target_container_valid = pulse_get_device_container_id(dualsense_speaker,
+            &target_container_id);
+
+    pulse_set_dualsense_mono_preferred_sink(dualsense_speaker);
+
+    if (target_container_valid && stream->sony_controller_container_valid &&
+            !IsEqualGUID(&stream->sony_controller_container_id, &target_container_id) &&
+            pulse_container_is_present(&stream->sony_controller_container_id))
+    {
+        TRACE("Keeping Sony controller mono stream %p on live container %s instead of %s.\n",
+                stream, debugstr_guid(&stream->sony_controller_container_id),
+                debugstr_guid(&target_container_id));
+        stream->dualsense_mono_hotplug_generation = g_dualsense_mono_speaker_add_generation;
+        stream->haptic_hotplug_generation = g_haptic_hotplug_generation;
+        free(dualsense_speaker);
+        return S_FALSE;
+    }
+
+    if (stream->device && !strcmp(stream->device, dualsense_speaker) && pulse_stream_ready(stream))
+    {
+        if (target_container_valid)
+        {
+            stream->sony_controller_container_id = target_container_id;
+            stream->sony_controller_container_valid = TRUE;
+        }
+        stream->dualsense_mono_hotplug_generation = g_dualsense_mono_speaker_add_generation;
+        stream->haptic_hotplug_generation = g_haptic_hotplug_generation;
+        free(dualsense_speaker);
+        return S_FALSE;
+    }
+
+    TRACE("Retargeting Sony controller mono stream %p from %s to %s.\n",
+            stream, debugstr_a(stream->device), debugstr_a(dualsense_speaker));
+
+    pulse_stream_disconnect(stream);
+    free(stream->device);
+    stream->device = dualsense_speaker;
+    stream->timeline_start_period_time = 0;
+    stream->timeline_start_stream_time = 0;
+    stream->update_timing_info_pending = FALSE;
+
+    hr = pulse_stream_connect_dualsense_speaker(stream, stream->device, stream->period_bytes);
+    if (FAILED(hr))
+    {
+        WARN("Failed to retarget Sony controller mono stream %p to %s: %#x.\n",
+                stream, debugstr_a(stream->device), (unsigned int)hr);
+        return hr;
+    }
+
+    if ((attr = pa_stream_get_buffer_attr(stream->stream)))
+        stream->attr = *attr;
+
+    if (target_container_valid)
+    {
+        stream->sony_controller_container_id = target_container_id;
+        stream->sony_controller_container_valid = TRUE;
+    }
+
+    stream->dualsense_mono_hotplug_generation = g_dualsense_mono_speaker_add_generation;
+    stream->haptic_hotplug_generation = g_haptic_hotplug_generation;
+    stream->just_underran = TRUE;
+
+    if (!stream->period)
+        pulse_add_stream_to_period(stream);
+    if (stream->started && pulse_stream_ready(stream) && pa_stream_is_corked(stream->stream))
+    {
+        success = 0;
+        if (!wait_pa_operation_complete(pa_stream_cork(stream->stream, 0, pulse_op_cb, &success)))
+            success = 0;
+        if (!success)
+            hr = E_FAIL;
+    }
+
+    return hr;
+}
+
+static void pulse_retarget_dualsense_mono_streams(const char *preferred)
+{
+    struct pulse_stream *stream, *next;
+    BOOL found = FALSE;
+
+    if (preferred)
+    {
+        TRACE("New Sony controller speaker sink %s is preferred for live mono streams.\n",
+                debugstr_a(preferred));
+        pulse_set_dualsense_mono_preferred_sink(preferred);
+    }
+
+    LIST_FOR_EACH_ENTRY_SAFE(stream, next, &dualsense_mono_streams, struct pulse_stream, dualsense_mono_entry)
+    {
+        found = TRUE;
+        if (!preferred && stream->dualsense_mono_hotplug_generation == g_dualsense_mono_speaker_add_generation
+                && stream->haptic_hotplug_generation == g_haptic_hotplug_generation
+                && pulse_stream_ready(stream))
+            continue;
+
+        pulse_retarget_dualsense_mono_stream(stream, preferred);
+    }
+
+    if (preferred && !found)
+        TRACE("No live Sony controller mono streams were registered for preferred speaker %s.\n",
+                debugstr_a(preferred));
+}
+
+static char *find_dualsense_haptic_alsa_path(void)
+{
+    snd_pcm_info_t *info;
+    char *card_name = NULL, *card_longname = NULL, *path = NULL;
+    void **hints = NULL, **hint;
+    int card = -1, err;
+
+    if (snd_device_name_hint(-1, "pcm", &hints) >= 0)
+    {
+        for (hint = hints; *hint; ++hint)
+        {
+            char *name = snd_device_name_get_hint(*hint, "NAME");
+            char *desc = snd_device_name_get_hint(*hint, "DESC");
+            char *ioid = snd_device_name_get_hint(*hint, "IOID");
+
+            if (name && (!ioid || strcmp(ioid, "Input")) &&
+                    (string_contains_dualsense_name(name) || string_contains_dualsense_name(desc)))
+            {
+                TRACE("Checking DualSense haptic PCM hint %s: %s\n", debugstr_a(name), debugstr_a(desc));
+                if (dualsense_haptic_pcm_path_works(name))
+                {
+                    path = strdup(name);
+                    TRACE("Selected DualSense haptic PCM hint %s.\n", debugstr_a(path));
+                }
+            }
+
+            free(name);
+            free(desc);
+            free(ioid);
+            if (path) break;
+        }
+        snd_device_name_free_hint(hints);
+        if (path) return path;
+    }
+
+    snd_pcm_info_alloca(&info);
+    while ((err = snd_card_next(&card)) >= 0 && card >= 0)
+    {
+        char card_path[32];
+        snd_ctl_t *ctl;
+        int device = -1;
+        BOOL card_match;
+
+        free(card_name);
+        free(card_longname);
+        card_name = card_longname = NULL;
+        snd_card_get_name(card, &card_name);
+        snd_card_get_longname(card, &card_longname);
+        card_match = string_contains_dualsense_name(card_name) || string_contains_dualsense_name(card_longname);
+
+        TRACE("Checking ALSA card %d for DualSense haptics: %s / %s\n",
+                card, debugstr_a(card_name), debugstr_a(card_longname));
+
+        snprintf(card_path, sizeof(card_path), "hw:%d", card);
+        if ((err = snd_ctl_open(&ctl, card_path, 0)) < 0)
+        {
+            TRACE("Unable to open ALSA control %s while finding DualSense haptics: %d (%s)\n",
+                    card_path, err, snd_strerror(err));
+            continue;
+        }
+
+        while ((err = snd_ctl_pcm_next_device(ctl, &device)) >= 0 && device >= 0)
+        {
+            const char *pcm_name;
+
+            snd_pcm_info_set_device(info, device);
+            snd_pcm_info_set_subdevice(info, 0);
+            snd_pcm_info_set_stream(info, SND_PCM_STREAM_PLAYBACK);
+            if (snd_ctl_pcm_info(ctl, info) < 0)
+                continue;
+
+            pcm_name = snd_pcm_info_get_name(info);
+            if (!card_match && !string_contains_dualsense_name(pcm_name))
+                continue;
+
+            if ((path = malloc(32)))
+            {
+                snprintf(path, 32, "hw:%d,%d", card, device);
+                TRACE("Checking DualSense haptic PCM candidate %s: %s\n",
+                        debugstr_a(path), debugstr_a(pcm_name));
+                if (dualsense_haptic_pcm_path_works(path))
+                {
+                    TRACE("Selected DualSense haptic PCM candidate %s.\n", debugstr_a(path));
+                    break;
+                }
+                free(path);
+                path = NULL;
+            }
+        }
+        snd_ctl_close(ctl);
+        if (path)
+            break;
+    }
+
+    free(card_name);
+    free(card_longname);
+    return path;
+}
+
+static BOOL dualsense_haptic_pcm_path_works(const char *path)
+{
+    snd_pcm_hw_params_t *hw_params;
+    snd_pcm_t *pcm;
+    unsigned int rate = 48000;
+    int err;
+
+    if ((err = snd_pcm_open(&pcm, path, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK)) < 0)
+    {
+        TRACE("DualSense haptic PCM candidate %s rejected: open failed %d (%s)\n",
+                debugstr_a(path), err, snd_strerror(err));
+        return FALSE;
+    }
+
+    hw_params = malloc(snd_pcm_hw_params_sizeof());
+    if (!hw_params)
+    {
+        snd_pcm_close(pcm);
+        return FALSE;
+    }
+
+    err = snd_pcm_hw_params_any(pcm, hw_params);
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_access(pcm, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED);
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_format(pcm, hw_params, SND_PCM_FORMAT_S16_LE);
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_rate_near(pcm, hw_params, &rate, NULL);
+    if (err >= 0 && rate != 48000)
+        err = -EINVAL;
+    if (err >= 0)
+        err = snd_pcm_hw_params_set_channels(pcm, hw_params, 4);
+
+    free(hw_params);
+    snd_pcm_close(pcm);
+    if (err < 0)
+        TRACE("DualSense haptic PCM candidate %s rejected: unsupported 48 kHz S16 4-channel playback (%d: %s)\n",
+                debugstr_a(path), err, snd_strerror(err));
+    return err >= 0;
+}
+
+static int alsa_config_add_compound(snd_config_t *parent, const char *name, snd_config_t **node)
+{
+    int err;
+
+    if ((err = snd_config_make_compound(node, name, 0)) < 0)
+        return err;
+    if ((err = snd_config_add(parent, *node)) < 0)
+    {
+        snd_config_delete(*node);
+        *node = NULL;
+    }
+    return err;
+}
+
+static int alsa_config_add_string(snd_config_t *parent, const char *name, const char *value)
+{
+    snd_config_t *node;
+    int err;
+
+    if ((err = snd_config_imake_string(&node, name, value)) < 0)
+        return err;
+    if ((err = snd_config_add(parent, node)) < 0)
+        snd_config_delete(node);
+    return err;
+}
+
+static int alsa_config_add_integer(snd_config_t *parent, const char *name, long value)
+{
+    snd_config_t *node;
+    int err;
+
+    if ((err = snd_config_imake_integer(&node, name, value)) < 0)
+        return err;
+    if ((err = snd_config_add(parent, node)) < 0)
+        snd_config_delete(node);
+    return err;
+}
+
+static int open_dualsense_haptic_pcm(snd_pcm_t **pcm, const char *alsa_path)
+{
+    static const char pipewire_prefix[] = "pipewire:NODE=";
+    snd_config_t *config = NULL, *pcm_types, *pipewire_type, *pcms, *dualsense;
+    const char *plugin, *node;
+    int err;
+
+    if (strncmp(alsa_path, pipewire_prefix, sizeof(pipewire_prefix) - 1))
+        return snd_pcm_open(pcm, alsa_path, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+
+    node = alsa_path + sizeof(pipewire_prefix) - 1;
+    plugin = getenv("PROTON_PIPEWIRE_ALSA_PLUGIN");
+    if (!plugin || !plugin[0] || !node[0])
+        return -ENOENT;
+
+    if ((err = snd_config_top(&config)) < 0 ||
+            (err = alsa_config_add_compound(config, "pcm_type", &pcm_types)) < 0 ||
+            (err = alsa_config_add_compound(pcm_types, "pipewire", &pipewire_type)) < 0 ||
+            (err = alsa_config_add_string(pipewire_type, "lib", plugin)) < 0 ||
+            (err = alsa_config_add_compound(config, "pcm", &pcms)) < 0 ||
+            (err = alsa_config_add_compound(pcms, "ge_dualsense", &dualsense)) < 0 ||
+            (err = alsa_config_add_string(dualsense, "type", "pipewire")) < 0 ||
+            (err = alsa_config_add_string(dualsense, "playback_node", node)) < 0 ||
+            (err = alsa_config_add_integer(dualsense, "aux_channels", 1)) < 0)
+        goto done;
+
+    err = snd_pcm_open_lconf(pcm, "ge_dualsense", SND_PCM_STREAM_PLAYBACK,
+            SND_PCM_NONBLOCK, config);
+
+done:
+    if (config)
+        snd_config_delete(config);
+    return err;
+}
+
+static BOOL pulse_select_dualsense_usb_speaker(void)
+{
+#ifdef HAVE_LINUX_HIDRAW_H
+    static const BYTE report[63] =
+    {
+        [0] = 0x02, /* USB output report. */
+        [1] = 0xa0, /* Speaker volume and audio routing are valid. */
+        [2] = 0x80, /* Speaker pre-gain is valid. */
+        [6] = 0x64, /* Speaker volume. */
+        [8] = 0x30, /* Route audio to the internal speaker. */
+        [38] = 0x02, /* Speaker pre-gain. */
+    };
+    struct hidraw_devinfo info;
+    char path[32];
+    ssize_t written;
+    unsigned int i;
+    BOOL found = FALSE, selected = FALSE;
+    int fd;
+
+    if (!use_pipewire_dualsense_haptic_target())
+        return FALSE;
+
+    for (i = 0; i < 64; ++i)
+    {
+        snprintf(path, sizeof(path), "/dev/hidraw%u", i);
+        if ((fd = open(path, O_RDWR)) == -1)
+        {
+            if (errno != ENOENT && errno != ENODEV)
+                WARN("Unable to open %s while selecting the DualSense USB speaker: %d (%s).\n",
+                        path, errno, strerror(errno));
+            continue;
+        }
+
+        fcntl(fd, F_SETFD, FD_CLOEXEC);
+        memset(&info, 0, sizeof(info));
+        if (ioctl(fd, HIDIOCGRAWINFO, &info) == -1 || info.bustype != 0x03 ||
+                info.vendor != 0x054c || (info.product != 0x0ce6 && info.product != 0x0df2))
+        {
+            close(fd);
+            continue;
+        }
+
+        found = TRUE;
+        written = write(fd, report, sizeof(report));
+        if (written == sizeof(report))
+        {
+            TRACE("Selected the USB internal speaker on Sony controller %04x:%04x at %s.\n",
+                    (unsigned int)(unsigned short)info.vendor,
+                    (unsigned int)(unsigned short)info.product, path);
+            selected = TRUE;
+        }
+        else
+            WARN("Failed to select the USB internal speaker on Sony controller %04x:%04x at %s: "
+                    "wrote %ld of %u bytes, errno %d (%s).\n",
+                    (unsigned int)(unsigned short)info.vendor,
+                    (unsigned int)(unsigned short)info.product, path,
+                    (long)written, (unsigned int)sizeof(report), errno, strerror(errno));
+        close(fd);
+    }
+
+    if (!found)
+        WARN("No writable USB DualSense hidraw device was found while selecting the internal speaker.\n");
+    return selected;
+#else
+    return FALSE;
+#endif
+}
+
+static HRESULT pulse_haptic_stream_connect(struct pulse_stream *stream, const char *alsa_path)
+{
+    snd_pcm_hw_params_t *hw_params;
+    snd_pcm_sw_params_t *sw_params;
+    snd_pcm_uframes_t buffer_frames;
+    snd_pcm_uframes_t period_frames;
+    unsigned int rate = stream->ss.rate;
+    int err;
+
+    stream->attr.minreq = stream->period_bytes;
+    stream->attr.fragsize = stream->period_bytes;
+    stream->attr.tlength = stream->period_bytes * 3;
+    stream->attr.maxlength = stream->bufsize_frames * pa_frame_size(&stream->ss);
+    stream->attr.prebuf = 0;
+
+    if ((err = open_dualsense_haptic_pcm(&stream->haptic_pcm, alsa_path)) < 0)
+    {
+        WARN("Unable to open DualSense haptic PCM \"%s\": %d (%s)\n", alsa_path, err, snd_strerror(err));
+        return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+    }
+
+    hw_params = malloc(snd_pcm_hw_params_sizeof());
+    sw_params = malloc(snd_pcm_sw_params_sizeof());
+    if (!hw_params || !sw_params)
+    {
+        free(hw_params);
+        free(sw_params);
+        snd_pcm_close(stream->haptic_pcm);
+        stream->haptic_pcm = NULL;
+        return E_OUTOFMEMORY;
+    }
+
+    if ((err = snd_pcm_hw_params_any(stream->haptic_pcm, hw_params)) < 0 ||
+            (err = snd_pcm_hw_params_set_access(stream->haptic_pcm, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0 ||
+            (err = snd_pcm_hw_params_set_format(stream->haptic_pcm, hw_params, SND_PCM_FORMAT_S16_LE)) < 0 ||
+            (err = snd_pcm_hw_params_set_rate_near(stream->haptic_pcm, hw_params, &rate, NULL)) < 0 ||
+            (err = snd_pcm_hw_params_set_channels(stream->haptic_pcm, hw_params, 4)) < 0)
+    {
+        WARN("Unable to configure DualSense haptic PCM \"%s\": %d (%s)\n", alsa_path, err, snd_strerror(err));
+        goto failed;
+    }
+
+    period_frames = stream->period_bytes / pa_frame_size(&stream->ss);
+    if ((err = snd_pcm_hw_params_set_period_size_near(stream->haptic_pcm, hw_params, &period_frames, NULL)) < 0)
+        WARN("Unable to set DualSense haptic period to %lu frames: %d (%s)\n",
+                period_frames, err, snd_strerror(err));
+
+    buffer_frames = stream->bufsize_frames > period_frames * 4 ? stream->bufsize_frames : period_frames * 4;
+    if ((err = snd_pcm_hw_params_set_buffer_size_near(stream->haptic_pcm, hw_params, &buffer_frames)) < 0)
+        WARN("Unable to set DualSense haptic buffer to %lu frames: %d (%s)\n",
+                buffer_frames, err, snd_strerror(err));
+
+    if ((err = snd_pcm_hw_params(stream->haptic_pcm, hw_params)) < 0)
+    {
+        WARN("Unable to apply DualSense haptic hw params: %d (%s)\n", err, snd_strerror(err));
+        goto failed;
+    }
+
+    if ((err = snd_pcm_sw_params_current(stream->haptic_pcm, sw_params)) < 0 ||
+            (err = snd_pcm_sw_params_set_start_threshold(stream->haptic_pcm, sw_params, 1)) < 0 ||
+            (err = snd_pcm_sw_params_set_stop_threshold(stream->haptic_pcm, sw_params, buffer_frames)) < 0 ||
+            (err = snd_pcm_sw_params(stream->haptic_pcm, sw_params)) < 0)
+    {
+        WARN("Unable to apply DualSense haptic sw params: %d (%s)\n", err, snd_strerror(err));
+        goto failed;
+    }
+
+    if ((err = snd_pcm_prepare(stream->haptic_pcm)) < 0)
+    {
+        WARN("Unable to prepare DualSense haptic PCM: %d (%s)\n", err, snd_strerror(err));
+        goto failed;
+    }
+
+    free(hw_params);
+    free(sw_params);
+    TRACE("Opened DualSense haptic PCM \"%s\" at %u Hz, %u channels.\n", alsa_path, rate, stream->ss.channels);
+    stream->haptic_hotplug_generation = g_haptic_hotplug_generation;
+    pulse_select_dualsense_usb_speaker();
+    return S_OK;
+
+failed:
+    free(hw_params);
+    free(sw_params);
+    snd_pcm_close(stream->haptic_pcm);
+    stream->haptic_pcm = NULL;
+    return AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+}
+
+static void pulse_haptic_drop_held(struct pulse_stream *stream)
+{
+    TRACE("Dropping %lu bytes of pending DualSense haptic data.\n", (unsigned long)stream->held_bytes);
+    stream->pa_offs_bytes += stream->held_bytes;
+    stream->pa_offs_bytes %= stream->real_bufsize_bytes;
+    stream->lcl_offs_bytes += stream->held_bytes;
+    stream->lcl_offs_bytes %= stream->real_bufsize_bytes;
+    stream->pa_held_bytes = 0;
+    stream->held_bytes = 0;
+}
+
+static HRESULT pulse_retarget_dualsense_haptic_stream_path_internal(struct pulse_stream *stream,
+        const char *target, BOOL drop_held)
+{
+    snd_pcm_t *old_pcm;
+    snd_pcm_state_t state;
+    char *old_path, *path;
+    HRESULT hr;
+    BOOL target_changed;
+
+    if (!stream->dualsense_haptic_registered)
+        return S_FALSE;
+    target_changed = !stream->haptic_alsa_path || strcmp(stream->haptic_alsa_path, target);
+    if (stream->haptic_pcm &&
+            (state = snd_pcm_state(stream->haptic_pcm)) != SND_PCM_STATE_DISCONNECTED &&
+            !target_changed)
+    {
+        TRACE("Keeping connected Sony controller haptic stream %p on %s during endpoint churn "
+                "(PCM state %s).\n", stream, debugstr_a(stream->haptic_alsa_path),
+                snd_pcm_state_name(state));
+        return S_FALSE;
+    }
+    if (!(path = strdup(target)))
+        return E_OUTOFMEMORY;
+
+    TRACE("Retargeting Sony controller haptic stream %p from %s to %s.\n",
+            stream, debugstr_a(stream->haptic_alsa_path), debugstr_a(path));
+
+    /* Input-directed routing happens while processing the block which caused
+     * the switch. Keep the current PCM alive until its replacement is ready;
+     * otherwise a transient busy target leaves the write path with NULL. */
+    if (!drop_held)
+    {
+        old_pcm = stream->haptic_pcm;
+        old_path = stream->haptic_alsa_path;
+        stream->haptic_pcm = NULL;
+        stream->haptic_alsa_path = path;
+
+        if (FAILED(hr = pulse_haptic_stream_connect(stream, stream->haptic_alsa_path)))
+        {
+            if (stream->haptic_pcm)
+            {
+                snd_pcm_close(stream->haptic_pcm);
+                stream->haptic_pcm = NULL;
+            }
+            free(stream->haptic_alsa_path);
+            stream->haptic_pcm = old_pcm;
+            stream->haptic_alsa_path = old_path;
+            WARN("Failed to retarget Sony controller haptic stream %p to %s: %#x.\n",
+                    stream, debugstr_a(target), (unsigned int)hr);
+            return hr;
+        }
+
+        pulse_stream_disconnect(stream);
+        if (old_pcm)
+        {
+            snd_pcm_drop(old_pcm);
+            snd_pcm_close(old_pcm);
+        }
+        free(old_path);
+        stream->haptic_reconnect_time = 0;
+        stream->haptic_path_check_time = 0;
+        stream->just_underran = TRUE;
+        stream->timeline_start_period_time = 0;
+        stream->timeline_start_stream_time = 0;
+        return S_OK;
+    }
+
+    /* DS4 does not expose the hidden PipeWire split node used by DualSense,
+     * so its effects stream may currently be routed through Pulse. Drop that
+     * backend before converting the live Windows stream to the new device's
+     * raw PipeWire target. */
+    pulse_stream_disconnect(stream);
+    if (stream->haptic_pcm)
+    {
+        snd_pcm_drop(stream->haptic_pcm);
+        snd_pcm_close(stream->haptic_pcm);
+        stream->haptic_pcm = NULL;
+    }
+    free(stream->haptic_alsa_path);
+    stream->haptic_alsa_path = path;
+    stream->haptic_reconnect_time = 0;
+    stream->haptic_path_check_time = 0;
+    if (drop_held)
+        pulse_haptic_drop_held(stream);
+
+    if (FAILED(hr = pulse_haptic_stream_connect(stream, stream->haptic_alsa_path)))
+    {
+        if (!drop_held)
+            pulse_haptic_drop_held(stream);
+        stream->haptic_reconnect_time = pa_rtclock_now() + 250000;
+        WARN("Failed to retarget Sony controller haptic stream %p to %s: %#x.\n",
+                stream, debugstr_a(stream->haptic_alsa_path), (unsigned int)hr);
+        return hr;
+    }
+
+    stream->just_underran = TRUE;
+    stream->timeline_start_period_time = 0;
+    stream->timeline_start_stream_time = 0;
+    return S_OK;
+}
+
+static HRESULT pulse_retarget_dualsense_haptic_stream_path(struct pulse_stream *stream,
+        const char *target)
+{
+    return pulse_retarget_dualsense_haptic_stream_path_internal(stream, target, TRUE);
+}
+
+static BOOL pulse_route_sony_effect_to_active_controller(struct pulse_stream *stream,
+        BOOL *ready)
+{
+    GUID container_id;
+    HRESULT hr = S_FALSE;
+    char *path;
+
+    *ready = FALSE;
+    if (!pulse_get_active_sony_controller(&container_id) ||
+            !(path = pulse_get_haptic_path_for_container(&container_id)))
+        return FALSE;
+
+    if (!stream->haptic_alsa_path || strcmp(stream->haptic_alsa_path, path))
+    {
+        TRACE("Routing active Sony effect stream %p from %s to input container %s on %s.\n",
+                stream, debugstr_a(stream->haptic_alsa_path), debugstr_guid(&container_id),
+                debugstr_a(path));
+        hr = pulse_retarget_dualsense_haptic_stream_path_internal(stream, path, FALSE);
+    }
+
+    if (SUCCEEDED(hr) && stream->haptic_pcm)
+    {
+        stream->sony_controller_container_id = container_id;
+        stream->sony_controller_container_valid = TRUE;
+        *ready = TRUE;
+    }
+    free(path);
+
+    /* A physical HID match is authoritative even when the PCM was already
+     * correct. Do not let the content-correlation fallback undo it. */
+    return TRUE;
+}
+
+static BOOL pulse_sony_effect_signals_correlate(pa_usec_t first, pa_usec_t second)
+{
+    pa_usec_t delta;
+
+    if (!first || !second)
+        return FALSE;
+
+    delta = first > second ? first - second : second - first;
+    return delta <= 500000;
+}
+
+static void pulse_bind_sony_effect_stream(struct pulse_stream *stream,
+        const struct pulse_stream *source)
+{
+    stream->sony_controller_container_valid = source->sony_controller_container_valid;
+    if (source->sony_controller_container_valid)
+        stream->sony_controller_container_id = source->sony_controller_container_id;
+}
+
+static BOOL pulse_align_sony_controller_stream(struct pulse_stream *stream,
+        const int16_t *samples, UINT32 frames)
+{
+    struct pulse_stream *active = NULL, *other, *next;
+    unsigned int speaker_peak = 0, actuator_peak = 0;
+    BOOL speaker_signal = FALSE, actuator_signal = FALSE;
+    BOOL speaker_only_signal = FALSE, actuator_only_signal = FALSE, route_ready;
+    pa_usec_t now;
+    UINT32 frame;
+
+    if (stream->ss.channels < 4 || !stream->dualsense_haptic_registered)
+        return FALSE;
+
+    for (frame = 0; frame < frames; ++frame)
+    {
+        int speaker = samples[frame * stream->ss.channels + 1];
+        int left = samples[frame * stream->ss.channels + 2];
+        int right = samples[frame * stream->ss.channels + 3];
+        unsigned int speaker_amplitude = speaker < 0 ? -speaker : speaker;
+        unsigned int left_amplitude = left < 0 ? -left : left;
+        unsigned int right_amplitude = right < 0 ? -right : right;
+
+        speaker_peak = max(speaker_peak, speaker_amplitude);
+        actuator_peak = max(actuator_peak, max(left_amplitude, right_amplitude));
+    }
+
+    now = pa_rtclock_now();
+    speaker_signal = speaker_peak >= 128;
+    actuator_signal = actuator_peak >= 512;
+    if (speaker_signal && speaker_peak > actuator_peak * 2)
+    {
+        stream->sony_speaker_source = TRUE;
+        stream->sony_speaker_signal_time = now;
+        speaker_only_signal = TRUE;
+    }
+    if (actuator_signal && actuator_peak > speaker_peak * 2)
+    {
+        stream->sony_actuator_source = TRUE;
+        stream->sony_actuator_signal_time = now;
+        actuator_only_signal = TRUE;
+    }
+
+    if ((speaker_signal || actuator_signal) &&
+            pulse_route_sony_effect_to_active_controller(stream, &route_ready))
+        return !route_ready;
+
+    if (speaker_only_signal && stream->sony_speaker_source && !stream->sony_actuator_source)
+    {
+        LIST_FOR_EACH_ENTRY(other, &dualsense_haptic_streams,
+                struct pulse_stream, dualsense_haptic_entry)
+        {
+            if (!other->sony_actuator_source || other->sony_speaker_source ||
+                    !other->haptic_alsa_path || !other->haptic_alsa_path[0] ||
+                    !pulse_sony_effect_signals_correlate(
+                            stream->sony_speaker_signal_time,
+                            other->sony_actuator_signal_time))
+                continue;
+
+            if (!active || other->sony_actuator_signal_time > active->sony_actuator_signal_time)
+                active = other;
+        }
+
+        if (active && (!stream->haptic_alsa_path ||
+                strcmp(stream->haptic_alsa_path, active->haptic_alsa_path)))
+        {
+            TRACE("Pairing Sony speaker stream %p with active actuator stream %p on %s.\n",
+                    stream, active, debugstr_a(active->haptic_alsa_path));
+            if (pulse_retarget_dualsense_haptic_stream_path(stream,
+                    active->haptic_alsa_path) == S_OK)
+            {
+                pulse_bind_sony_effect_stream(stream, active);
+                return TRUE;
+            }
+        }
+    }
+
+    if (actuator_only_signal && stream->sony_actuator_source &&
+            !stream->sony_speaker_source && stream->haptic_alsa_path &&
+            stream->haptic_alsa_path[0])
+    {
+        LIST_FOR_EACH_ENTRY_SAFE(other, next, &dualsense_haptic_streams,
+                struct pulse_stream, dualsense_haptic_entry)
+        {
+            if (other == stream || !other->sony_speaker_source ||
+                    other->sony_actuator_source ||
+                    !pulse_sony_effect_signals_correlate(
+                            stream->sony_actuator_signal_time,
+                            other->sony_speaker_signal_time) ||
+                    (other->haptic_alsa_path &&
+                     !strcmp(other->haptic_alsa_path, stream->haptic_alsa_path)))
+                continue;
+
+            TRACE("Pairing Sony speaker stream %p with active actuator stream %p on %s.\n",
+                    other, stream, debugstr_a(stream->haptic_alsa_path));
+            if (pulse_retarget_dualsense_haptic_stream_path(other,
+                    stream->haptic_alsa_path) == S_OK)
+                pulse_bind_sony_effect_stream(other, stream);
+        }
+    }
+
+    return FALSE;
+}
+
+static void pulse_retarget_dualsense_haptic_streams(const char *target)
+{
+    struct pulse_stream *stream, *next;
+    GUID target_container_id;
+    BOOL target_container_valid;
+    char *path;
+
+    target_container_valid = pulse_get_haptic_target_container_id(target, FALSE, &target_container_id);
+    if (!(path = make_pipewire_dualsense_haptic_path(target)))
+        return;
+
+    LIST_FOR_EACH_ENTRY_SAFE(stream, next, &dualsense_haptic_streams,
+            struct pulse_stream, dualsense_haptic_entry)
+    {
+        HRESULT hr;
+
+        if (target_container_valid && stream->sony_controller_container_valid &&
+                !IsEqualGUID(&stream->sony_controller_container_id, &target_container_id) &&
+                pulse_container_is_present(&stream->sony_controller_container_id))
+        {
+            TRACE("Keeping Sony controller stream %p on container %s while adding target for %s.\n",
+                    stream, debugstr_guid(&stream->sony_controller_container_id),
+                    debugstr_guid(&target_container_id));
+            continue;
+        }
+
+        hr = pulse_retarget_dualsense_haptic_stream_path(stream, path);
+        if (target_container_valid && SUCCEEDED(hr))
+        {
+            stream->sony_controller_container_id = target_container_id;
+            stream->sony_controller_container_valid = TRUE;
+        }
+    }
+    free(path);
+}
+
+static void pulse_retarget_dualsense_haptic_streams_to_alsa(const char *path)
+{
+    struct pulse_stream *stream, *next;
+    GUID target_container_id;
+    BOOL target_container_valid;
+
+    TRACE("Retargeting live Sony controller effect streams to ALSA PCM %s.\n", debugstr_a(path));
+    target_container_valid = pulse_get_haptic_target_container_id(path, TRUE, &target_container_id);
+    LIST_FOR_EACH_ENTRY_SAFE(stream, next, &dualsense_haptic_streams,
+            struct pulse_stream, dualsense_haptic_entry)
+    {
+        HRESULT hr;
+
+        if (target_container_valid && stream->sony_controller_container_valid &&
+                !IsEqualGUID(&stream->sony_controller_container_id, &target_container_id) &&
+                pulse_container_is_present(&stream->sony_controller_container_id))
+        {
+            TRACE("Keeping Sony controller stream %p on container %s while adding ALSA target for %s.\n",
+                    stream, debugstr_guid(&stream->sony_controller_container_id),
+                    debugstr_guid(&target_container_id));
+            continue;
+        }
+
+        hr = pulse_retarget_dualsense_haptic_stream_path(stream, path);
+        if (target_container_valid && SUCCEEDED(hr))
+        {
+            stream->sony_controller_container_id = target_container_id;
+            stream->sony_controller_container_valid = TRUE;
+        }
+    }
+}
+
+static void pulse_haptic_invalidate(struct pulse_stream *stream, const char *reason)
+{
+    TRACE("Invalidating DualSense haptic PCM after %s.\n", reason);
+    if (stream->haptic_pcm)
+    {
+        snd_pcm_close(stream->haptic_pcm);
+        stream->haptic_pcm = NULL;
+    }
+    /* The unplugged controller is gone. Keep the old stream invalid instead of
+     * retargeting it to a later controller that may be a different device. */
+    if (stream->haptic_alsa_path)
+        stream->haptic_alsa_path[0] = 0;
+    stream->haptic_reconnect_time = 0;
+    stream->haptic_path_check_time = 0;
+    stream->haptic_hotplug_generation = g_haptic_hotplug_generation;
+    pulse_haptic_drop_held(stream);
+}
+
+static BOOL pulse_haptic_refresh_path(struct pulse_stream *stream)
+{
+    if (!use_pipewire_dualsense_haptic_target())
+    {
+        if (stream->haptic_pcm && stream->haptic_hotplug_generation == g_haptic_hotplug_generation)
+            return TRUE;
+        TRACE("DualSense haptic stream no longer matches the current device generation.\n");
+        return FALSE;
+    }
+
+    if (!stream->haptic_pcm)
+    {
+        pa_usec_t now;
+
+        if (stream->dualsense_haptic_registered && stream->haptic_alsa_path &&
+                stream->haptic_alsa_path[0])
+        {
+            now = pa_rtclock_now();
+            if (now >= stream->haptic_reconnect_time)
+            {
+                if (SUCCEEDED(pulse_haptic_stream_connect(stream, stream->haptic_alsa_path)))
+                    return TRUE;
+                stream->haptic_reconnect_time = now + 250000;
+            }
+        }
+        TRACE("DualSense haptic stream has no open raw PCM.\n");
+        return FALSE;
+    }
+
+    if (stream->haptic_hotplug_generation != g_haptic_hotplug_generation)
+    {
+        TRACE("Keeping open DualSense haptic PCM across device generation %u -> %u.\n",
+                stream->haptic_hotplug_generation, g_haptic_hotplug_generation);
+        stream->haptic_hotplug_generation = g_haptic_hotplug_generation;
+    }
+    return TRUE;
+}
+
+static void pulse_haptic_advance(struct pulse_stream *stream, UINT32 frames, UINT32 frame_size)
+{
+    SIZE_T bytes = (SIZE_T)frames * frame_size;
+
+    stream->pa_offs_bytes += bytes;
+    stream->pa_offs_bytes %= stream->real_bufsize_bytes;
+    stream->pa_held_bytes -= min(stream->pa_held_bytes, bytes);
+    if (pulse_split_speaker_ready(stream))
+        return;
+
+    stream->lcl_offs_bytes += bytes;
+    stream->lcl_offs_bytes %= stream->real_bufsize_bytes;
+    stream->held_bytes -= min(stream->held_bytes, bytes);
+}
+
+static void pulse_haptic_trace_channels(struct pulse_stream *stream, const int16_t *samples,
+        UINT32 frames)
+{
+    pa_usec_t now;
+    UINT32 frame, channel;
+
+    if (!TRACE_ON(pulse))
+        return;
+
+    for (frame = 0; frame < frames; ++frame)
+    {
+        for (channel = 0; channel < ARRAY_SIZE(stream->haptic_channel_peak); ++channel)
+        {
+            int value = samples[frame * stream->ss.channels + channel];
+            unsigned int amplitude = value < 0 ? -value : value;
+
+            stream->haptic_channel_peak[channel] =
+                    max(stream->haptic_channel_peak[channel], amplitude);
+        }
+    }
+
+    now = pa_rtclock_now();
+    if (!stream->haptic_channel_trace_time)
+    {
+        stream->haptic_channel_trace_time = now + 1000000;
+        return;
+    }
+    if (now < stream->haptic_channel_trace_time)
+        return;
+
+    TRACE("DualSense raw PCM channel peaks: %u, %u, %u, %u.\n",
+            stream->haptic_channel_peak[0], stream->haptic_channel_peak[1],
+            stream->haptic_channel_peak[2], stream->haptic_channel_peak[3]);
+    memset(stream->haptic_channel_peak, 0, sizeof(stream->haptic_channel_peak));
+    stream->haptic_channel_trace_time = now + 1000000;
+}
+
+static void pulse_split_speaker_write(struct pulse_stream *stream, const BYTE *src, UINT32 frames)
+{
+    SIZE_T sample_size, bytes, max_queue, required, source_offset = 0;
+    BOOL has_signal = FALSE;
+    pa_usec_t now;
+    UINT32 frame;
+
+    if (!pulse_split_speaker_ready(stream))
+        return;
+
+    sample_size = pa_sample_size_of_format(stream->ss.format);
+    if (!sample_size || stream->ss.channels < 2)
+        return;
+
+    bytes = (SIZE_T)frames * sample_size;
+    if (!bytes)
+        return;
+
+    pulse_split_speaker_drain(stream);
+
+    /* Keep at most 250 ms locally. If the server stops consuming, retain
+     * current effects rather than replaying stale controller audio later. */
+    max_queue = max((SIZE_T)stream->ss.rate * sample_size / 4,
+            (SIZE_T)stream->period_bytes / stream->ss.channels * 3);
+    if (bytes > max_queue)
+    {
+        source_offset = bytes - max_queue;
+        source_offset -= source_offset % sample_size;
+        stream->speaker_dropped_bytes += source_offset;
+        bytes -= source_offset;
+        frames = bytes / sample_size;
+    }
+
+    if (stream->speaker_buffer_held + bytes > max_queue)
+    {
+        SIZE_T drop = min(stream->speaker_buffer_held,
+                stream->speaker_buffer_held + bytes - max_queue);
+
+        drop -= drop % sample_size;
+        stream->speaker_buffer_held -= drop;
+        stream->speaker_dropped_bytes += drop;
+        if (stream->speaker_buffer_held)
+            memmove(stream->speaker_buffer, stream->speaker_buffer + drop,
+                    stream->speaker_buffer_held);
+    }
+
+    required = stream->speaker_buffer_held + bytes;
+    if (required > stream->speaker_buffer_bytes)
+    {
+        SIZE_T capacity = max(required, min(max_queue,
+                max(stream->speaker_buffer_bytes * 2, (SIZE_T)4096)));
+        BYTE *buffer = realloc(stream->speaker_buffer, capacity);
+
+        if (!buffer)
+            return;
+        stream->speaker_buffer = buffer;
+        stream->speaker_buffer_bytes = capacity;
+    }
+
+    /* The DualSense UCM speaker split is hardware channel 1. Preserve that
+     * Windows endpoint layout instead of applying a software downmix. */
+    for (frame = 0; frame < frames; ++frame)
+    {
+        const BYTE *sample = src + source_offset * stream->ss.channels +
+                (frame * stream->ss.channels + 1) * sample_size;
+        SIZE_T byte;
+
+        memcpy(stream->speaker_buffer + stream->speaker_buffer_held +
+                frame * sample_size, sample, sample_size);
+        if (!stream->speaker_route_selected)
+            for (byte = 0; byte < sample_size; ++byte)
+                has_signal |= sample[byte] != 0;
+        if (TRACE_ON(pulse) && stream->ss.format == PA_SAMPLE_FLOAT32LE)
+        {
+            float value;
+
+            memcpy(&value, sample, sizeof(value));
+            if (value < 0.0f) value = -value;
+            if (value > stream->speaker_peak) stream->speaker_peak = value;
+        }
+    }
+    stream->speaker_buffer_held += bytes;
+
+    if (!stream->speaker_route_selected && has_signal)
+        stream->speaker_route_selected = pulse_select_dualsense_usb_speaker();
+
+    pulse_split_speaker_drain(stream);
+
+    if (!TRACE_ON(pulse))
+        return;
+    now = pa_rtclock_now();
+    if (!stream->speaker_trace_time)
+        stream->speaker_trace_time = now + 1000000;
+    else if (now >= stream->speaker_trace_time)
+    {
+        TRACE("%p split speaker peak %.9g, pending %zu bytes, dropped %zu bytes, corked %d.\n",
+                stream, stream->speaker_peak, (size_t)stream->speaker_buffer_held,
+                (size_t)stream->speaker_dropped_bytes, pa_stream_is_corked(stream->speaker_stream));
+        stream->speaker_peak = 0.0f;
+        stream->speaker_dropped_bytes = 0;
+        stream->speaker_trace_time = now + 1000000;
+    }
+}
+
+static void pulse_haptic_write(struct pulse_stream *stream)
+{
+    snd_pcm_state_t state;
+    snd_pcm_sframes_t avail, written;
+    UINT32 frame_size = pa_frame_size(&stream->ss);
+    UINT32 held_frames = stream->held_bytes / frame_size;
+    UINT32 frames, contiguous_frames, i, c;
+    const BYTE *src;
+    const void *write_data;
+    BOOL raw_speaker, split_speaker;
+    int err;
+
+    if (!pulse_stream_haptic(stream) || !held_frames)
+        return;
+    if (!pulse_haptic_refresh_path(stream))
+        return;
+    if (!stream->haptic_pcm)
+        return;
+
+    state = snd_pcm_state(stream->haptic_pcm);
+    if (state == SND_PCM_STATE_DISCONNECTED)
+    {
+        WARN("DualSense haptic PCM disconnected; invalidating stream.\n");
+        pulse_haptic_invalidate(stream, "disconnect");
+        return;
+    }
+    else if (state == SND_PCM_STATE_XRUN || state == SND_PCM_STATE_SUSPENDED)
+    {
+        if ((err = snd_pcm_recover(stream->haptic_pcm, state == SND_PCM_STATE_XRUN ? -EPIPE : -ESTRPIPE, 1)) < 0)
+        {
+            WARN("DualSense haptic PCM state recover failed from %s: %d (%s)\n",
+                    snd_pcm_state_name(state), err, snd_strerror(err));
+            pulse_haptic_invalidate(stream, "state recovery failure");
+            return;
+        }
+    }
+
+    avail = snd_pcm_avail_update(stream->haptic_pcm);
+    if (avail < 0)
+    {
+        if ((err = snd_pcm_recover(stream->haptic_pcm, avail, 1)) < 0)
+        {
+            WARN("DualSense haptic PCM recover failed: %d (%s)\n", err, snd_strerror(err));
+            pulse_haptic_invalidate(stream, "availability recovery failure");
+            return;
+        }
+        avail = snd_pcm_avail_update(stream->haptic_pcm);
+    }
+    if (avail <= 0)
+        return;
+
+    contiguous_frames = (stream->real_bufsize_bytes - stream->pa_offs_bytes) / frame_size;
+    frames = min(min((UINT32)avail, held_frames), contiguous_frames);
+    if (!frames)
+        return;
+    src = stream->local_buffer + stream->pa_offs_bytes;
+    split_speaker = use_dualsense_split_audio() && pulse_split_speaker_ready(stream);
+    /* Automatic mode can be selected after winebus initialized the HID, so
+     * retain and route AUX1 here when no private speaker stream owns it. */
+    raw_speaker = use_pipewire_dualsense_haptic_target() && !split_speaker &&
+            stream->ss.channels >= 2;
+    if (stream->ss.format == PA_SAMPLE_FLOAT32LE)
+    {
+        const float *float_src = (const float *)src;
+
+        if (frames > stream->haptic_buffer_frames)
+        {
+            int16_t *buffer = realloc(stream->haptic_buffer,
+                    frames * stream->ss.channels * sizeof(*buffer));
+
+            if (!buffer)
+                return;
+            stream->haptic_buffer = buffer;
+            stream->haptic_buffer_frames = frames;
+        }
+
+        for (i = 0; i < frames; ++i)
+            for (c = 0; c < stream->ss.channels; ++c)
+                stream->haptic_buffer[i * stream->ss.channels + c] =
+                        float_to_s16(float_src[i * stream->ss.channels + c]);
+        write_data = stream->haptic_buffer;
+    }
+    else if (split_speaker || raw_speaker)
+    {
+        if (frames > stream->haptic_buffer_frames)
+        {
+            int16_t *buffer = realloc(stream->haptic_buffer,
+                    frames * stream->ss.channels * sizeof(*buffer));
+
+            if (!buffer)
+                return;
+            stream->haptic_buffer = buffer;
+            stream->haptic_buffer_frames = frames;
+        }
+        memcpy(stream->haptic_buffer, src,
+                frames * stream->ss.channels * sizeof(*stream->haptic_buffer));
+        write_data = stream->haptic_buffer;
+    }
+    else
+        write_data = src;
+
+    if (split_speaker || raw_speaker)
+    {
+        int16_t *samples = stream->haptic_buffer;
+        BOOL has_speaker_signal = FALSE;
+
+        for (i = 0; i < frames; ++i)
+        {
+            samples[i * stream->ss.channels] = 0;
+            if (raw_speaker)
+                has_speaker_signal |= samples[i * stream->ss.channels + 1] != 0;
+            else
+                samples[i * stream->ss.channels + 1] = 0;
+        }
+
+        if (raw_speaker && has_speaker_signal && !stream->speaker_route_selected)
+            stream->speaker_route_selected = pulse_select_dualsense_usb_speaker();
+    }
+
+    if (pulse_align_sony_controller_stream(stream, write_data, frames))
+        return;
+
+    pulse_haptic_trace_channels(stream, write_data, frames);
+
+    written = snd_pcm_writei(stream->haptic_pcm, write_data, frames);
+    if (written < 0)
+    {
+        if ((err = snd_pcm_recover(stream->haptic_pcm, written, 1)) < 0)
+        {
+            WARN("DualSense haptic PCM write failed: %ld/%d (%s)\n", written, err, snd_strerror(err));
+            pulse_haptic_invalidate(stream, "write recovery failure");
+            return;
+        }
+        written = snd_pcm_writei(stream->haptic_pcm, write_data, frames);
+        if (written < 0)
+        {
+            WARN("DualSense haptic PCM write failed after recover: %ld (%s)\n",
+                    written, snd_strerror(written));
+            pulse_haptic_invalidate(stream, "write failure");
+            return;
+        }
+    }
+
+    pulse_haptic_advance(stream, written, frame_size);
+}
 static NTSTATUS pulse_create_stream(void *args)
 {
     struct create_stream_params *params = args;
     struct pulse_stream *stream;
     unsigned int i, bufsize_bytes;
     HRESULT hr;
-    char *name;
+    char *name, *haptic_target = NULL, *haptic_alsa_path = NULL, *dualsense_speaker = NULL;
+    char *split_speaker = NULL;
+    char *resolved_device = NULL;
+    const char *connect_device;
+    BOOL haptic_candidate, dualsense_mono_candidate, dualsense_pulse_haptic_candidate = FALSE;
+
+    if (params->sony_windows_audio_mode &&
+            !InterlockedExchange(&g_sony_windows_audio_mode, 1))
+        TRACE("Selected Windows Sony audio mode from stream initialization.\n");
 
     if (params->share == AUDCLNT_SHAREMODE_EXCLUSIVE) {
         params->result = AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED;
@@ -1279,6 +4456,8 @@ static NTSTATUS pulse_create_stream(void *args)
     }
 
     stream->dataflow = params->flow;
+    list_init(&stream->dualsense_mono_entry);
+    list_init(&stream->dualsense_haptic_entry);
     for (i = 0; i < ARRAY_SIZE(stream->vol); ++i)
         stream->vol[i] = 1.f;
 
@@ -1287,6 +4466,53 @@ static NTSTATUS pulse_create_stream(void *args)
 
     if (FAILED(hr))
         goto exit;
+
+    haptic_candidate = is_dualsense_haptic_format(stream)
+            && (string_contains_dualsense_name(params->device)
+                    || (haptic_target = get_dualsense_haptic_target(params->device, stream)));
+    /* A Sony endpoint name satisfies the first side of the expression above,
+     * so retrieve its hidden PipeWire parent separately instead of losing it
+     * to short-circuit evaluation. */
+    if (use_pipewire_dualsense_haptic_target() && haptic_candidate && !haptic_target)
+        haptic_target = get_dualsense_haptic_target(params->device, stream);
+    if (haptic_candidate && pulse_get_device_container_id(params->device,
+            &stream->sony_controller_container_id))
+    {
+        stream->sony_controller_container_valid = TRUE;
+        TRACE("Bound Sony controller stream %p to container %s.\n", stream,
+                debugstr_guid(&stream->sony_controller_container_id));
+    }
+    dualsense_mono_candidate = !haptic_candidate && pulse_stream_dualsense_mono_format(stream)
+            && string_contains_dualsense_name(params->device);
+    if (haptic_candidate)
+    {
+        stream->map.map[0] = PA_CHANNEL_POSITION_AUX0;
+        stream->map.map[1] = PA_CHANNEL_POSITION_AUX1;
+        stream->map.map[2] = PA_CHANNEL_POSITION_AUX2;
+        stream->map.map[3] = PA_CHANNEL_POSITION_AUX3;
+        if (use_pipewire_dualsense_haptic_target() && haptic_target)
+        {
+            haptic_alsa_path = make_pipewire_dualsense_haptic_path(haptic_target);
+            TRACE("Routing DualSense stream from %s through ALSA PipeWire target %s.\n",
+                    params->device, haptic_alsa_path ? haptic_alsa_path : haptic_target);
+        }
+        else if (!use_dualsense_split_audio())
+        {
+            haptic_alsa_path = get_dualsense_haptic_alsa_path(params->device, stream);
+            if (!haptic_alsa_path)
+                haptic_alsa_path = find_dualsense_haptic_alsa_path();
+            TRACE("Routing DualSense haptic stream from %s through %s%s.\n",
+                    params->device, haptic_alsa_path ? "raw ALSA PCM " : "Pulse device ",
+                    haptic_alsa_path ? haptic_alsa_path : params->device);
+        }
+        else
+            WARN("No PipeWire parent was found for the DualSense haptic stream from %s.\n",
+                    params->device);
+
+        if (use_dualsense_split_audio() && !use_death_stranding_controller_effects() &&
+                stream->ss.format == PA_SAMPLE_FLOAT32LE)
+            split_speaker = get_dualsense_speaker_sink(params->device, TRUE);
+    }
 
     stream->def_period = params->period;
     stream->duration = params->duration;
@@ -1301,10 +4527,65 @@ static NTSTATUS pulse_create_stream(void *args)
 
     stream->share = params->share;
     stream->flags = params->flags;
-    hr = pulse_stream_connect(stream, params->device, stream->period_bytes);
+    connect_device = params->device;
+    if (dualsense_mono_candidate)
+    {
+        dualsense_speaker = get_dualsense_speaker_sink(params->device, TRUE);
+        if (!dualsense_speaker && g_dualsense_mono_preferred_sink &&
+                strcmp(g_dualsense_mono_preferred_sink, params->device))
+            dualsense_speaker = get_dualsense_speaker_sink(g_dualsense_mono_preferred_sink, TRUE);
+        if (!dualsense_speaker)
+            dualsense_speaker = get_dualsense_speaker_sink(NULL, TRUE);
+        if (dualsense_speaker)
+            connect_device = dualsense_speaker;
+    }
+    else if ((resolved_device = pulse_resolve_device_name(connect_device)))
+        connect_device = resolved_device;
+
+    if (!dualsense_mono_candidate && !haptic_candidate && pulse_name_is_dualsense_speaker_sink(connect_device))
+    {
+        TRACE("Tracking DualSense speaker stream for selected sink %s, channels %u.\n",
+                debugstr_a(connect_device), stream->ss.channels);
+        dualsense_mono_candidate = TRUE;
+    }
+
+    if (haptic_candidate)
+    {
+        stream->haptic_alsa_path = strdup(haptic_alsa_path ? haptic_alsa_path : "");
+        if (stream->haptic_alsa_path)
+        {
+            if (stream->haptic_alsa_path[0])
+                hr = pulse_haptic_stream_connect(stream, stream->haptic_alsa_path);
+            else
+                hr = AUDCLNT_E_ENDPOINT_CREATE_FAILED;
+            if (FAILED(hr))
+            {
+                TRACE("Falling back to Pulse routing for DualSense haptic stream.\n");
+                free(stream->haptic_alsa_path);
+                stream->haptic_alsa_path = NULL;
+                if ((dualsense_speaker = get_dualsense_speaker_sink(connect_device, FALSE)))
+                    connect_device = dualsense_speaker;
+                /* The hidden haptic target is only for the raw ALSA split path. If raw
+                 * access is busy, connect directly to the controller speaker sink so controller
+                 * speaker/effect audio works before any hotplug reconnect happens. */
+                hr = pulse_stream_connect_dualsense_speaker(stream, connect_device, stream->period_bytes);
+            }
+        }
+        else
+            hr = E_OUTOFMEMORY;
+        if (SUCCEEDED(hr) && !stream->haptic_alsa_path)
+            dualsense_pulse_haptic_candidate = TRUE;
+    }
+    else
+    {
+        if (dualsense_mono_candidate)
+            hr = pulse_stream_connect_dualsense_speaker(stream, connect_device, stream->period_bytes);
+        else
+            hr = pulse_stream_connect(stream, connect_device, haptic_target, stream->period_bytes);
+    }
     if (SUCCEEDED(hr)) {
         UINT32 unalign;
-        const pa_buffer_attr *attr = pa_stream_get_buffer_attr(stream->stream);
+        const pa_buffer_attr *attr = pulse_stream_ready(stream) ? pa_stream_get_buffer_attr(stream->stream) : &stream->attr;
         SIZE_T size;
 
         stream->attr = *attr;
@@ -1343,7 +4624,41 @@ static NTSTATUS pulse_create_stream(void *args)
                 }
             }
         }
-        stream->device = strdup(params->device);
+        stream->device = strdup(connect_device);
+        if (haptic_candidate && use_dualsense_split_audio() &&
+                !use_death_stranding_controller_effects() && haptic_alsa_path &&
+                stream->ss.format == PA_SAMPLE_FLOAT32LE)
+        {
+            if (!split_speaker)
+                WARN("No public DualSense speaker sink was found for split stream %s.\n",
+                        debugstr_a(params->device));
+            else if (FAILED(pulse_split_speaker_connect(stream, split_speaker)))
+                WARN("Could not create split speaker stream for %s; retaining raw channel routing.\n",
+                        debugstr_a(split_speaker));
+        }
+        if (dualsense_pulse_haptic_candidate || dualsense_mono_candidate)
+            stream->haptic_hotplug_generation = g_haptic_hotplug_generation;
+        if (dualsense_mono_candidate)
+        {
+            if (pulse_get_device_container_id(connect_device,
+                    &stream->sony_controller_container_id))
+            {
+                stream->sony_controller_container_valid = TRUE;
+                TRACE("Bound Sony controller mono stream %p to container %s.\n", stream,
+                        debugstr_guid(&stream->sony_controller_container_id));
+            }
+            pulse_set_dualsense_mono_preferred_sink(connect_device);
+
+            stream->dualsense_mono_hotplug_generation = g_dualsense_mono_speaker_add_generation;
+            list_add_tail(&dualsense_mono_streams, &stream->dualsense_mono_entry);
+            stream->dualsense_mono_registered = TRUE;
+        }
+        if (SUCCEEDED(hr) && haptic_candidate &&
+                use_pipewire_dualsense_haptic_target())
+        {
+            list_add_tail(&dualsense_haptic_streams, &stream->dualsense_haptic_entry);
+            stream->dualsense_haptic_registered = TRUE;
+        }
     }
 
     *params->channel_count = stream->ss.channels;
@@ -1357,16 +4672,27 @@ exit:
             pa_stream_unref(stream->stream);
         }
         free(stream->device);
+        free(stream->haptic_alsa_path);
+        pulse_split_speaker_disconnect(stream);
+        free(stream->speaker_device);
+        free(stream->speaker_buffer);
         free(stream);
     }
 
+    free(haptic_target);
+    free(haptic_alsa_path);
+    free(dualsense_speaker);
+    free(split_speaker);
+    free(resolved_device);
     pulse_unlock();
     return STATUS_SUCCESS;
 }
 
-static int write_buffer(const struct pulse_stream *stream, BYTE *buffer, UINT32 bytes)
+static int write_buffer(struct pulse_stream *stream, BYTE *buffer, UINT32 bytes)
 {
     const float *vol = stream->vol;
+    pa_seek_mode_t seek;
+    int ret;
     UINT32 i, channels, mute = 0;
     BOOL adjust = FALSE;
     BYTE *end;
@@ -1500,15 +4826,31 @@ static int write_buffer(const struct pulse_stream *stream, BYTE *buffer, UINT32 
     }
 
 write:
-    return pa_stream_write(stream->stream, buffer, bytes, NULL, 0, PA_SEEK_RELATIVE);
+    if (!bytes)
+        return 0;
+
+    seek = stream->rebase_write_index ? PA_SEEK_RELATIVE_ON_READ : PA_SEEK_RELATIVE;
+    ret = pa_stream_write(stream->stream, buffer, bytes, NULL, 0, seek);
+    if (!ret && stream->rebase_write_index)
+    {
+        TRACE("Rebased stream %p write index on Pulse read index.\n", stream);
+        stream->rebase_write_index = FALSE;
+    }
+    return ret;
 }
 
 static void pulse_write_index_catchup(struct pulse_stream *stream)
 {
-    const pa_timing_info *ti = pa_stream_get_timing_info(stream->stream);
-    UINT32 frame_size, to_write;
-    int64_t write_index;
+    const pa_timing_info *ti;
+    size_t writable;
+    UINT32 frame_size, to_write, max_write;
+    uint64_t gap_delta, max_gap, sane_gap;
+    int64_t gap, write_index;
 
+    if (!pulse_stream_ready(stream))
+        return;
+
+    ti = pa_stream_get_timing_info(stream->stream);
     if (!ti || ti->read_index <= ti->write_index) return;
     if (ti->read_index_corrupt || ti->write_index_corrupt)
     {
@@ -1518,15 +4860,65 @@ static void pulse_write_index_catchup(struct pulse_stream *stream)
 
     if (!silence_buf) silence_buf = calloc(1, silence_buf_size);
     frame_size = pa_frame_size(&stream->ss);
+    if (!frame_size) return;
 
     while (ti && ti->read_index > ti->write_index)
     {
         write_index = ti->write_index;
-        TRACE("stream %p, runnind %d, read is ahead of write %lld bytes.\n", stream, stream->started,
-              (long long)(ti->read_index - write_index));
+        gap = ti->read_index - write_index;
+        TRACE("stream %p, running %d, read is ahead of write %lld bytes.\n", stream, stream->started,
+              (long long)gap);
 
-        to_write = min(ti->read_index - write_index, silence_buf_size) / frame_size * frame_size;
+        max_gap = max(stream->period_bytes * 8, stream->real_bufsize_bytes);
+        if (stream->attr.maxlength != (uint32_t)-1)
+            max_gap = max(max_gap, (uint64_t)stream->attr.maxlength);
+        if (!max_gap)
+            max_gap = silence_buf_size;
+        sane_gap = max(max_gap, (uint64_t)stream->ss.rate * frame_size * 300);
+        if (gap <= 0)
+            break;
+
+        if ((uint64_t)gap > max_gap)
+        {
+            writable = pa_stream_writable_size(stream->stream);
+            gap_delta = (uint64_t)-1;
+            if (writable != (size_t)-1)
+                gap_delta = (uint64_t)gap > (uint64_t)writable
+                        ? (uint64_t)gap - (uint64_t)writable
+                        : (uint64_t)writable - (uint64_t)gap;
+
+            if (gap_delta <= max_gap || (uint64_t)gap <= sane_gap)
+            {
+                WARN("Recovering Pulse stream %p from %lld-byte starvation gap "
+                        "(writable %zu, tolerance %llu, sane limit %llu).\n", stream,
+                        (long long)gap, writable, (unsigned long long)max_gap,
+                        (unsigned long long)sane_gap);
+                stream->rebase_write_index = TRUE;
+                stream->just_underran = FALSE;
+                stream->pa_started = FALSE;
+                stream->timeline_start_period_time = 0;
+                stream->timeline_start_stream_time = 0;
+                if (stream->period && stream->period->timer_stream == stream)
+                {
+                    stream->period->timer_stream = NULL;
+                    stream->period->adjust = 0;
+                }
+                break;
+            }
+
+            WARN("Ignoring implausible Pulse timing gap %lld bytes, limit %llu.\n",
+                    (long long)gap, (unsigned long long)max_gap);
+            break;
+        }
+
+        max_write = min(stream->period_bytes, silence_buf_size);
+        to_write = min((uint64_t)gap, (uint64_t)max_write) / frame_size * frame_size;
+        if (!to_write) break;
+        if (!pulse_stream_ready(stream))
+            break;
         pa_stream_write(stream->stream, silence_buf, to_write, NULL, 0, PA_SEEK_RELATIVE);
+        if (!pulse_stream_ready(stream))
+            break;
         ti = pa_stream_get_timing_info(stream->stream);
         if (ti && ti->write_index <= write_index)
         {
@@ -1541,12 +4933,31 @@ static void pulse_write(struct pulse_stream *stream)
     /* write as much data to PA as we can */
     UINT32 to_write;
     BYTE *buf = stream->local_buffer + stream->pa_offs_bytes;
-    UINT32 bytes = pa_stream_writable_size(stream->stream);
+    UINT32 bytes;
+
+    if (pulse_stream_haptic(stream))
+    {
+        pulse_haptic_write(stream);
+        return;
+    }
+
+    if (stream->dualsense_mono_registered
+            && (stream->dualsense_mono_hotplug_generation != g_dualsense_mono_speaker_add_generation
+                || stream->haptic_hotplug_generation != g_haptic_hotplug_generation
+                || !pulse_stream_ready(stream))
+            && FAILED(pulse_retarget_dualsense_mono_stream(stream, g_dualsense_mono_preferred_sink)))
+        return;
+
+    if (pulse_stream_dualsense_mono(stream) && !pulse_stream_ready(stream))
+        return;
+
+    bytes = pa_stream_writable_size(stream->stream);
 
     if (stream->just_underran)
     {
-        /* prebuffer with silence if needed */
-        if(stream->pa_held_bytes < bytes){
+        /* Do not fill an accumulated starvation request before rebasing it. */
+        if (!stream->rebase_write_index && stream->pa_held_bytes < bytes)
+        {
             to_write = bytes - stream->pa_held_bytes;
             TRACE("prebuffering %u frames of silence\n",
                     (int)(to_write / pa_frame_size(&stream->ss)));
@@ -1751,7 +5162,7 @@ static void pulse_update_timing_cb(pa_stream *s, int success, void *user)
         TRACE("stream %p, peropd diff %lld, stream diff %lld.\n", stream,
               (long long)(period_stream_time - stream->timeline_start_period_time),
               (long long)(stream_time - stream->timeline_start_stream_time));
-        if (period->adjust < -5 * period->period && period->adjust > 5 * period->period)
+        if (period->adjust < -(int64_t)(5 * period->period) || period->adjust > (int64_t)(5 * period->period))
         {
             WARN("stream %p, resetting period timing (adjust %lld).\n", stream, (long long)period->adjust);
             period->adjust = 0;
@@ -1767,7 +5178,7 @@ static void pulse_update_timing_cb(pa_stream *s, int success, void *user)
 static void pa_streams_timer_cb(pa_mainloop_api *api, pa_time_event *e, const struct timeval *tv, void *userdata)
 {
     struct pulse_period *period = userdata;
-    struct pulse_stream *stream;
+    struct pulse_stream *stream, *next;
     BOOL reset_timeline = FALSE;
     pa_usec_t next_timer;
     int64_t adjust = 0;
@@ -1785,7 +5196,7 @@ static void pa_streams_timer_cb(pa_mainloop_api *api, pa_time_event *e, const st
         reset_timeline = TRUE;
     }
 
-    LIST_FOR_EACH_ENTRY(stream, &period->streams, struct pulse_stream, period_entry)
+    LIST_FOR_EACH_ENTRY_SAFE(stream, next, &period->streams, struct pulse_stream, period_entry)
     {
         if (stream->started)
         {
@@ -1794,16 +5205,18 @@ static void pa_streams_timer_cb(pa_mainloop_api *api, pa_time_event *e, const st
                 stream->timeline_start_period_time = 0;
                 stream->timeline_start_stream_time = 0;
             }
-            if (!stream->update_timing_info_pending && (o = pa_stream_update_timing_info(stream->stream, pulse_update_timing_cb, stream)))
+            if (!pulse_stream_haptic(stream) && !pulse_stream_ready(stream))
+                continue;
+            if (!pulse_stream_haptic(stream) && !stream->update_timing_info_pending && (o = pa_stream_update_timing_info(stream->stream, pulse_update_timing_cb, stream)))
             {
                 pa_operation_unref(o);
                 stream->update_timing_info_pending = TRUE;
             }
-            else if (stream->update_timing_info_pending)
+            else if (!pulse_stream_haptic(stream) && stream->update_timing_info_pending)
             {
                 TRACE("pa_stream_update_timing_info is still pending.\n");
             }
-            else
+            else if (!pulse_stream_haptic(stream))
             {
                 ERR("pa_stream_update_timing_info err %d.\n", pa_context_errno(pulse_ctx));
             }
@@ -1811,11 +5224,14 @@ static void pa_streams_timer_cb(pa_mainloop_api *api, pa_time_event *e, const st
             {
                 pulse_write(stream);
 
-                /* regardless of what PA does, advance one per`iod */
-                adv_bytes = min(stream->period_bytes, stream->held_bytes);
-                stream->lcl_offs_bytes += adv_bytes;
-                stream->lcl_offs_bytes %= stream->real_bufsize_bytes;
-                stream->held_bytes -= adv_bytes;
+                if (!pulse_stream_haptic(stream) || pulse_split_speaker_ready(stream))
+                {
+                    /* Pace normal Pulse and split speaker streams by one logical period. */
+                    adv_bytes = min(stream->period_bytes, stream->held_bytes);
+                    stream->lcl_offs_bytes += adv_bytes;
+                    stream->lcl_offs_bytes %= stream->real_bufsize_bytes;
+                    stream->held_bytes -= adv_bytes;
+                }
             }
             else if (stream->dataflow == eCapture)
             {
@@ -1928,12 +5344,31 @@ static NTSTATUS pulse_release_stream(void *args)
 
     pulse_lock();
     remove_stream_from_period(stream);
-    if (PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream))) {
-        pa_stream_disconnect(stream->stream);
-        while (pulse_ml && PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream)))
-            pulse_cond_wait();
+    if (stream->dualsense_mono_registered)
+    {
+        list_remove(&stream->dualsense_mono_entry);
+        stream->dualsense_mono_registered = FALSE;
     }
-    pa_stream_unref(stream->stream);
+    if (stream->dualsense_haptic_registered)
+    {
+        list_remove(&stream->dualsense_haptic_entry);
+        stream->dualsense_haptic_registered = FALSE;
+    }
+    if (stream->stream)
+    {
+        if (PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream))) {
+            pa_stream_disconnect(stream->stream);
+            while (pulse_ml && PA_STREAM_IS_GOOD(pa_stream_get_state(stream->stream)))
+                pulse_cond_wait();
+        }
+        pa_stream_unref(stream->stream);
+    }
+    pulse_split_speaker_disconnect(stream);
+    if (stream->haptic_pcm)
+    {
+        snd_pcm_drop(stream->haptic_pcm);
+        snd_pcm_close(stream->haptic_pcm);
+    }
     pulse_unlock();
 
     if (stream->tmp_buffer) {
@@ -1947,7 +5382,11 @@ static NTSTATUS pulse_release_stream(void *args)
                             &size, MEM_RELEASE);
     }
     free(stream->peek_buffer);
+    free(stream->haptic_buffer);
+    free(stream->speaker_buffer);
     free(stream->device);
+    free(stream->speaker_device);
+    free(stream->haptic_alsa_path);
     free(stream);
     return STATUS_SUCCESS;
 }
@@ -1981,14 +5420,32 @@ static NTSTATUS pulse_start(void *args)
         return STATUS_SUCCESS;
     }
 
-    pulse_write(stream);
-
-    if (pa_stream_is_corked(stream->stream))
+    if (pulse_stream_haptic(stream))
     {
-        if (!wait_pa_operation_complete(pa_stream_cork(stream->stream, 0, pulse_op_cb, &success)))
-            success = 0;
-        if (!success)
-            params->result = E_FAIL;
+        if (pulse_haptic_refresh_path(stream))
+        {
+            snd_pcm_prepare(stream->haptic_pcm);
+            pulse_write(stream);
+        }
+        else
+            params->result = AUDCLNT_E_DEVICE_INVALIDATED;
+        if (SUCCEEDED(params->result))
+            pulse_split_speaker_set_corked(stream, FALSE);
+    }
+    else
+    {
+        if (pulse_stream_ready(stream))
+        {
+            pulse_write(stream);
+
+            if (pa_stream_is_corked(stream->stream))
+            {
+                if (!wait_pa_operation_complete(pa_stream_cork(stream->stream, 0, pulse_op_cb, &success)))
+                    success = 0;
+                if (!success)
+                    params->result = E_FAIL;
+            }
+        }
     }
 
     if (SUCCEEDED(params->result))
@@ -2022,7 +5479,16 @@ static NTSTATUS pulse_stop(void *args)
     }
 
     params->result = S_OK;
-    if (stream->dataflow == eRender)
+    if (pulse_stream_haptic(stream))
+    {
+        if (stream->haptic_pcm)
+        {
+            snd_pcm_drop(stream->haptic_pcm);
+            snd_pcm_prepare(stream->haptic_pcm);
+        }
+        pulse_split_speaker_set_corked(stream, TRUE);
+    }
+    else if (stream->dataflow == eRender && pulse_stream_ready(stream))
     {
         if (!wait_pa_operation_complete(pa_stream_cork(stream->stream, 1, pulse_op_cb, &success)))
             success = 0;
@@ -2071,7 +5537,23 @@ static NTSTATUS pulse_reset(void *args)
     {
         /* If there is still data in the render buffer it needs to be removed from the server */
         int success = 0;
-        if (stream->held_bytes)
+        if ((stream->held_bytes || stream->speaker_buffer_held) && pulse_stream_haptic(stream))
+        {
+            if (stream->haptic_pcm)
+            {
+                snd_pcm_drop(stream->haptic_pcm);
+                snd_pcm_prepare(stream->haptic_pcm);
+            }
+            if (pulse_split_speaker_ready(stream))
+            {
+                int speaker_success = 0;
+
+                wait_pa_operation_complete(pa_stream_flush(stream->speaker_stream,
+                        pulse_op_cb, &speaker_success));
+            }
+            success = 1;
+        }
+        else if (stream->held_bytes && pulse_stream_ready(stream))
             wait_pa_operation_complete(pa_stream_flush(stream->stream, pulse_op_cb, &success));
 
         if (success || !stream->held_bytes)
@@ -2079,6 +5561,7 @@ static NTSTATUS pulse_reset(void *args)
             stream->clock_lastpos = stream->clock_written = 0;
             stream->pa_offs_bytes = stream->lcl_offs_bytes = 0;
             stream->held_bytes = stream->pa_held_bytes = 0;
+            stream->speaker_buffer_held = 0;
         }
     }
     else
@@ -2251,6 +5734,12 @@ static NTSTATUS pulse_release_render_buffer(void *args)
     if (params->flags & AUDCLNT_BUFFERFLAGS_SILENT)
         silence_buffer(stream->ss.format, buffer, written_bytes);
 
+    /* Keep controller-speaker delivery on the application's render cadence.
+     * The raw actuator PCM may temporarily report no writable frames, but it
+     * must not stall or burst the independent mono speaker stream. */
+    if (pulse_split_speaker_ready(stream))
+        pulse_split_speaker_write(stream, buffer, params->written_frames);
+
     if (stream->locked < 0)
         pulse_wrap_buffer(stream, buffer, written_bytes);
 
@@ -2366,11 +5855,17 @@ static NTSTATUS pulse_is_format_supported(void *args)
 {
     struct is_format_supported_params *params = args;
 
+    if (params->sony_windows_audio_mode &&
+            !InterlockedExchange(&g_sony_windows_audio_mode, 1))
+        TRACE("Selected automatically detected Windows Sony audio mode.\n");
+
     /* This driver does not support exclusive mode. */
-    if (params->share == AUDCLNT_SHAREMODE_EXCLUSIVE)
+    if (params->share == AUDCLNT_SHAREMODE_EXCLUSIVE) {
+        WARN("Exclusive mode requested but winepulse.drv does not support exclusive mode.\n");
         params->result = AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED;
-    else
+    } else {
         params->result = S_OK;
+    }
 
     return STATUS_SUCCESS;
 }
@@ -2420,6 +5915,7 @@ static NTSTATUS pulse_get_loopback_capture_device(void *args)
     uint32_t current_device_index = PA_INVALID_INDEX;
     struct find_monitor_of_sink_cb_param p;
     const char *device_name;
+    char *resolved_device = NULL;
     char *name;
 
     pulse_lock();
@@ -2444,6 +5940,8 @@ static NTSTATUS pulse_get_loopback_capture_device(void *args)
 
     device_name = params->device;
     if (device_name && !device_name[0]) device_name = NULL;
+    if ((resolved_device = pulse_resolve_device_name(device_name)))
+        device_name = resolved_device;
 
     params->result = E_FAIL;
     wait_pa_operation_complete(pa_context_get_sink_info_by_name(pulse_ctx, device_name, &sink_name_info_cb, &current_device_index));
@@ -2455,6 +5953,7 @@ static NTSTATUS pulse_get_loopback_capture_device(void *args)
     }
 
     pulse_unlock();
+    free(resolved_device);
     return STATUS_SUCCESS;
 }
 
@@ -2464,15 +5963,22 @@ static NTSTATUS pulse_get_mix_format(void *args)
     struct list *list = (params->flow == eRender) ? &g_phys_speakers : &g_phys_sources;
     PhysDevice *dev;
 
+    if (params->sony_windows_audio_mode &&
+            !InterlockedExchange(&g_sony_windows_audio_mode, 1))
+        TRACE("Selected Windows Sony audio mode before returning the mix format.\n");
+
+    g_phys_lock();
     LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry) {
-        if (strcmp(params->device, dev->pulse_name))
+        if (!pulse_device_matches(dev, params->device))
             continue;
 
+        apply_windows_sony_audio_format(dev);
         *params->fmt = dev->fmt;
+        g_phys_unlock();
         params->result = S_OK;
-
         return STATUS_SUCCESS;
     }
+    g_phys_unlock();
 
     params->result = E_FAIL;
     return STATUS_SUCCESS;
@@ -2516,7 +6022,7 @@ static NTSTATUS pulse_get_latency(void *args)
         params->result = AUDCLNT_E_DEVICE_INVALIDATED;
         return STATUS_SUCCESS;
     }
-    attr = pa_stream_get_buffer_attr(stream->stream);
+    attr = pulse_stream_ready(stream) ? pa_stream_get_buffer_attr(stream->stream) : &stream->attr;
     if (stream->dataflow == eRender)
         lat = attr->minreq / pa_frame_size(&stream->ss);
     else
@@ -2683,15 +6189,18 @@ static NTSTATUS pulse_set_sample_rate(void *args)
     new_ss = stream->ss;
     new_ss.rate = params->rate;
 
-    if (!wait_pa_operation_complete(pa_stream_update_sample_rate(stream->stream, params->rate, pulse_op_cb, &success)))
-        success = 0;
+    if (pulse_stream_ready(stream))
+    {
+        if (!wait_pa_operation_complete(pa_stream_update_sample_rate(stream->stream, params->rate, pulse_op_cb, &success)))
+            success = 0;
 
-    if (!success) {
-        hr = E_OUTOFMEMORY;
-        goto exit;
+        if (!success) {
+            hr = E_OUTOFMEMORY;
+            goto exit;
+        }
     }
 
-    if (stream->held_bytes)
+    if (stream->held_bytes && pulse_stream_ready(stream))
         wait_pa_operation_complete(pa_stream_flush(stream->stream, pulse_op_cb, &success));
 
     stream->clock_lastpos = stream->clock_written = 0;
@@ -2774,17 +6283,22 @@ static NTSTATUS pulse_get_prop_value(void *args)
     struct list *list = (params->flow == eRender) ? &g_phys_speakers : &g_phys_sources;
     PhysDevice *dev;
 
+    g_phys_lock();
     LIST_FOR_EACH_ENTRY(dev, list, PhysDevice, entry) {
-        if (strcmp(params->device, dev->pulse_name))
+        if (!pulse_device_matches(dev, params->device))
             continue;
         if (IsEqualPropertyKey(*params->prop, devicepath_key)) {
             get_device_path(dev, params);
+
+            g_phys_unlock();
             return STATUS_SUCCESS;
         } else if (IsEqualGUID(&params->prop->fmtid, &PKEY_AudioEndpoint_GUID)) {
             switch (params->prop->pid) {
             case 0:   /* FormFactor */
                 params->value->vt = VT_UI4;
                 params->value->ulVal = dev->form;
+
+                g_phys_unlock();
                 params->result = S_OK;
                 return STATUS_SUCCESS;
             case 3:   /* PhysicalSpeakers */
@@ -2792,6 +6306,8 @@ static NTSTATUS pulse_get_prop_value(void *args)
                     goto fail;
                 params->value->vt = VT_UI4;
                 params->value->ulVal = dev->channel_mask;
+
+                g_phys_unlock();
                 params->result = S_OK;
                 return STATUS_SUCCESS;
             }
@@ -2806,14 +6322,17 @@ static NTSTATUS pulse_get_prop_value(void *args)
                 params->result = S_OK;
             }
 
+            g_phys_unlock();
             return STATUS_SUCCESS;
         }
 
+        g_phys_unlock();
         params->result = E_NOTIMPL;
         return STATUS_SUCCESS;
     }
 
 fail:
+    g_phys_unlock();
     params->result = E_FAIL;
     return STATUS_SUCCESS;
 }
@@ -2926,6 +6445,7 @@ static NTSTATUS pulse_wow64_create_stream(void *args)
         HRESULT result;
         PTR32 channel_count;
         PTR32 stream;
+        BOOL sony_windows_audio_mode;
     } *params32 = args;
     struct create_stream_params params =
     {
@@ -2938,7 +6458,8 @@ static NTSTATUS pulse_wow64_create_stream(void *args)
         .period = params32->period,
         .fmt = ULongToPtr(params32->fmt),
         .channel_count = ULongToPtr(params32->channel_count),
-        .stream = ULongToPtr(params32->stream)
+        .stream = ULongToPtr(params32->stream),
+        .sony_windows_audio_mode = params32->sony_windows_audio_mode,
     };
     pulse_create_stream(&params);
     params32->result = params.result;
@@ -3022,6 +6543,7 @@ static NTSTATUS pulse_wow64_is_format_supported(void *args)
         AUDCLNT_SHAREMODE share;
         PTR32 fmt_in;
         HRESULT result;
+        BOOL sony_windows_audio_mode;
     } *params32 = args;
     struct is_format_supported_params params =
     {
@@ -3029,6 +6551,7 @@ static NTSTATUS pulse_wow64_is_format_supported(void *args)
         .flow = params32->flow,
         .share = params32->share,
         .fmt_in = ULongToPtr(params32->fmt_in),
+        .sony_windows_audio_mode = params32->sony_windows_audio_mode,
     };
     pulse_is_format_supported(&params);
     params32->result = params.result;
@@ -3068,12 +6591,14 @@ static NTSTATUS pulse_wow64_get_mix_format(void *args)
         EDataFlow flow;
         PTR32 fmt;
         HRESULT result;
+        BOOL sony_windows_audio_mode;
     } *params32 = args;
     struct get_mix_format_params params =
     {
         .device = ULongToPtr(params32->device),
         .flow = params32->flow,
         .fmt = ULongToPtr(params32->fmt),
+        .sony_windows_audio_mode = params32->sony_windows_audio_mode,
     };
     pulse_get_mix_format(&params);
     params32->result = params.result;

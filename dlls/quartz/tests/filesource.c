@@ -341,7 +341,7 @@ static void test_file_source_filter(void)
                 wine_dbgstr_w(path), wine_dbgstr_w(olepath));
         ok(IsEqualGUID(&file_mt.majortype, &MEDIATYPE_Stream), "Got major type %s.\n",
                 wine_dbgstr_guid(&file_mt.majortype));
-        /* winegstreamer hijacks format type detection. */
+        /* winedmo overrides format type detection for recognised media types. */
         if (!IsEqualGUID(tests[i].subtype, &MEDIASUBTYPE_NULL))
             ok(IsEqualGUID(&file_mt.subtype, tests[i].subtype), "Expected subtype %s, got %s.\n",
                 wine_dbgstr_guid(tests[i].subtype), wine_dbgstr_guid(&file_mt.subtype));

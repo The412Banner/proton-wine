@@ -471,41 +471,41 @@ static void synth_reset_default_values(struct synth *This)
     {
         fluid_synth_program_select(This->fluid_synth, chan, fluid_sfont_get_id(This->fluid_sfont), 0, 0);
 
-        fluid_synth_cc(This->fluid_synth, chan | 0xe0 /* PITCH_BEND */, 0, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xd0 /* CHANNEL_PRESSURE */, 0, 0);
+        fluid_synth_pitch_bend(This->fluid_synth, chan, 0x2000);
+        fluid_synth_channel_pressure(This->fluid_synth, chan, 0);
 
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x01 /* MODULATION_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x21 /* MODULATION_LSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x07 /* VOLUME_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x27 /* VOLUME_LSB */, 100);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x0a /* PAN_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x0a /* PAN_LSB */, 64);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x0b /* EXPRESSION_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x2b /* EXPRESSION_LSB */, 127);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x40 /* SUSTAIN_SWITCH */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x5b /* EFFECTS_DEPTH1 / Reverb Send */, 40);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x5d /* EFFECTS_DEPTH3 / Chorus Send */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x01 /* MODULATION_MSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x21 /* MODULATION_LSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x07 /* VOLUME_MSB */, 100);
+        fluid_synth_cc(This->fluid_synth, chan, 0x27 /* VOLUME_LSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x0a /* PAN_MSB */, 64);
+        fluid_synth_cc(This->fluid_synth, chan, 0x2a /* PAN_LSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x0b /* EXPRESSION_MSB */, 127);
+        fluid_synth_cc(This->fluid_synth, chan, 0x2b /* EXPRESSION_LSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x40 /* SUSTAIN_SWITCH */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x5b /* EFFECTS_DEPTH1 / Reverb Send */, 40);
+        fluid_synth_cc(This->fluid_synth, chan, 0x5d /* EFFECTS_DEPTH3 / Chorus Send */, 0);
 
         /* RPN0 Pitch Bend Range */
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x64 /* RPN_LSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x65 /* RPN_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x06 /* DATA_ENTRY_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x26 /* DATA_ENTRY_LSB */, 2);
+        fluid_synth_cc(This->fluid_synth, chan, 0x64 /* RPN_LSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x65 /* RPN_MSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x06 /* DATA_ENTRY_MSB */, 2);
+        fluid_synth_cc(This->fluid_synth, chan, 0x26 /* DATA_ENTRY_LSB */, 0);
 
         /* RPN1 Fine Tuning */
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x64 /* RPN_LSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x65 /* RPN_MSB */, 1);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x06 /* DATA_ENTRY_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x26 /* DATA_ENTRY_LSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x64 /* RPN_LSB */, 1);
+        fluid_synth_cc(This->fluid_synth, chan, 0x65 /* RPN_MSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x06 /* DATA_ENTRY_MSB */, 0x40);
+        fluid_synth_cc(This->fluid_synth, chan, 0x26 /* DATA_ENTRY_LSB */, 0);
 
         /* RPN2 Coarse Tuning */
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x64 /* RPN_LSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x65 /* RPN_MSB */, 1);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x06 /* DATA_ENTRY_MSB */, 0);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x26 /* DATA_ENTRY_LSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x64 /* RPN_LSB */, 2);
+        fluid_synth_cc(This->fluid_synth, chan, 0x65 /* RPN_MSB */, 0);
+        fluid_synth_cc(This->fluid_synth, chan, 0x06 /* DATA_ENTRY_MSB */, 0x40);
+        fluid_synth_cc(This->fluid_synth, chan, 0x26 /* DATA_ENTRY_LSB */, 0);
 
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x64 /* RPN_LSB */, 127);
-        fluid_synth_cc(This->fluid_synth, chan | 0xb0 /* CONTROL_CHANGE */, 0x65 /* RPN_MSB */, 127);
+        fluid_synth_cc(This->fluid_synth, chan, 0x64 /* RPN_LSB */, 127);
+        fluid_synth_cc(This->fluid_synth, chan, 0x65 /* RPN_MSB */, 127);
 
         update_channel_volume(This, chan);
     }
@@ -1011,6 +1011,9 @@ static HRESULT WINAPI synth_PlayBuffer(IDirectMusicSynth8 *iface,
             memcpy(event->midi, data, head->cbEvent);
             event->time = time + head->rtDelta;
             event->position = position;
+            TRACE("queue midi %#x %#x %#x at %s sample %I64d\n",
+                    event->midi[0], event->midi[1], event->midi[2],
+                    wine_dbgstr_longlong(event->time), event->position);
 
             EnterCriticalSection(&This->cs);
             LIST_FOR_EACH_ENTRY(next_event, &This->events, struct event, entry)

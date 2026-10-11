@@ -796,7 +796,7 @@ BOOL WINAPI WTSUnRegisterSessionNotification(HWND hWnd)
 BOOL WINAPI WTSUnRegisterSessionNotificationEx(HANDLE hServer, HWND hWnd)
 {
     FIXME("Stub %p %p\n", hServer, hWnd);
-    return FALSE;
+    return TRUE;
 }
 
 

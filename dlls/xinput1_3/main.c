@@ -24,6 +24,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
 #include "windef.h"
 #include "winbase.h"
 #include "winerror.h"
@@ -34,20 +36,43 @@
 #include "winternl.h"
 
 #include "dbt.h"
-#include "setupapi.h"
+#include "cfgmgr32.h"
 #include "devpkey.h"
 #include "hidusage.h"
+#include "winioctl.h"
+#include "ddk/hidclass.h"
 #include "ddk/hidsdi.h"
 #include "initguid.h"
 #include "devguid.h"
 #include "xinput.h"
 
 #include "wine/debug.h"
+#include "wine/hid.h"
 
 DEFINE_GUID(GUID_DEVINTERFACE_WINEXINPUT,0x6c53d5fd,0x6480,0x440f,0xb6,0x18,0x47,0x67,0x50,0xc5,0xe1,0xa6);
 
 /* Not defined in the headers, used only by XInputGetStateEx */
 #define XINPUT_GAMEPAD_GUIDE 0x0400
+
+#define SONY_VENDOR_ID 0x054c
+#define SONY_DUALSHOCK4_PRODUCT_ID 0x05c4
+#define SONY_DUALSHOCK4_V2_PRODUCT_ID 0x09cc
+#define SONY_DUALSENSE_PRODUCT_ID 0x0ce6
+#define SONY_DUALSENSE_EDGE_PRODUCT_ID 0x0df2
+
+#define SONY_DUALSHOCK4_USB_REPORT_ID 0x05
+#define SONY_DUALSHOCK4_USB_REPORT_SIZE 32
+#define SONY_DUALSHOCK4_BT_REPORT_ID 0x11
+#define SONY_DUALSHOCK4_BT_REPORT_SIZE 78
+#define SONY_DUALSHOCK4_BT_HW_CONTROL 0xc4
+
+#define SONY_DUALSENSE_USB_REPORT_ID 0x02
+#define SONY_DUALSENSE_USB_REPORT_SIZE_VALID(size) ((size) == 48 || (size) == 64)
+#define SONY_DUALSENSE_BT_REPORT_ID 0x31
+#define SONY_DUALSENSE_BT_REPORT_SIZE 78
+#define SONY_DUALSENSE_BT_TAG 0x10
+
+#define SONY_OUTPUT_CRC32_SEED 0xa2
 
 WINE_DEFAULT_DEBUG_CHANNEL(xinput);
 
@@ -59,17 +84,22 @@ struct xinput_controller
     WCHAR device_path[MAX_PATH];
     HANDLE read_event;
     BOOL enabled;
+    HANDLE native_input_event;
 
     struct
     {
         PHIDP_PREPARSED_DATA preparsed;
         HIDP_CAPS caps;
+        BOOL is_sony_gamepad;
+        USHORT sony_product_id;
+        BYTE sony_output_seq;
         HIDP_VALUE_CAPS lx_caps;
         HIDP_VALUE_CAPS ly_caps;
         HIDP_VALUE_CAPS lt_caps;
         HIDP_VALUE_CAPS rx_caps;
         HIDP_VALUE_CAPS ry_caps;
         HIDP_VALUE_CAPS rt_caps;
+        HIDP_VALUE_CAPS hatswitch_caps;
 
         OVERLAPPED read_ovl;
 
@@ -97,13 +127,69 @@ static HMODULE xinput_instance;
 static HANDLE start_event;
 static HANDLE update_event;
 static HANDLE steam_overlay_event;
+static HANDLE steam_input_event;
+static BOOL auto_sony_xinput;
+static LONG steam_virtual_present;
 
 static SRWLOCK state_lock = SRWLOCK_INIT;
 static XINPUT_STATE current_state[XUSER_MAX_COUNT];
+static HANDLE current_native_input_event[XUSER_MAX_COUNT];
+static BOOL persistent_player1;
+static XINPUT_STATE persistent_state;
+
+DWORD WINAPI __wine_XInputGetDeviceVidPid(DWORD index, WORD *vendor_id, WORD *product_id);
+DWORD WINAPI __wine_XInputGetSonyProductId(DWORD index, WORD *product_id);
+BOOL WINAPI __wine_XInputIsSonyFallback(const WCHAR *device_path);
+static USHORT sony_gamepad_product_id(const WCHAR *path);
+
+static BOOL automatic_sony_enabled(void)
+{
+    static const char * const overrides[] =
+    {
+        "PROTON_SONY_HIDRAW_XINPUT",
+        "PROTON_SONY_DUALSENSE_AS_DUALSHOCK4", "PROTON_SONY_DUALSHOCK4_V2_AS_V1",
+        "PROTON_SONY_DUALSENSE_EDGE_AS_DUALSENSE",
+    };
+    const char *value = getenv("PROTON_SONY_AUTO_XINPUT");
+    unsigned int i;
+
+    if (!value || strcmp(value, "1")) return FALSE;
+    for (i = 0; i < ARRAY_SIZE(overrides); ++i)
+        if (getenv(overrides[i])) return FALSE;
+    if ((value = getenv("PROTON_EMULATE_STEAMINPUT")) && atoi(value)) return FALSE;
+    /* Steam exports discovery hints even with per-game Steam Input disabled.
+     * Live virtual devices and the native-session event arbitrate ownership. */
+    return TRUE;
+}
+
+/* Only the automatic slot is withdrawn; native HID and other XInput pads stay live. */
+static BOOL controller_available(const struct xinput_controller *controller)
+{
+    if (!controller->device) return FALSE;
+    if (!controller->native_input_event) return TRUE;
+    return !steam_virtual_present && WaitForSingleObject(steam_input_event, 0) != WAIT_OBJECT_0 &&
+            WaitForSingleObject(controller->native_input_event, 0) == WAIT_TIMEOUT;
+}
+
+static BOOL steam_virtual_path(const WCHAR *path)
+{
+    unsigned int vendor, product;
+
+    return ((swscanf(path, L"\\\\?\\hid#vid_%04x&pid_%04x", &vendor, &product) == 2 ||
+             swscanf(path, L"\\\\?\\HID#VID_%04x&PID_%04x", &vendor, &product) == 2) &&
+            vendor == 0x28de && product == 0x11ff);
+}
+
+static BOOL automatic_sony_path(const WCHAR *path)
+{
+    return auto_sony_xinput && sony_gamepad_product_id(path) &&
+            !wcsstr(path, L"&IG_") && !wcsstr(path, L"&ig_");
+}
 
 static void set_current_state(UINT index, const XINPUT_STATE *state)
 {
     AcquireSRWLockExclusive(&state_lock);
+    current_native_input_event[index] = state ? controllers[index].native_input_event : NULL;
     if (!state) memset(current_state + index, 0, sizeof(*state));
     else
     {
@@ -115,11 +201,37 @@ static void set_current_state(UINT index, const XINPUT_STATE *state)
 
 static BOOL get_current_state(UINT index, XINPUT_STATE *state)
 {
+    BOOL available = TRUE;
+
     AcquireSRWLockShared(&state_lock);
     memcpy(state, current_state + index, sizeof(*state));
+    if (current_native_input_event[index])
+        available = !InterlockedCompareExchange(&steam_virtual_present, 0, 0) &&
+                WaitForSingleObject(steam_input_event, 0) != WAIT_OBJECT_0 &&
+                WaitForSingleObject(current_native_input_event[index], 0) == WAIT_TIMEOUT;
     ReleaseSRWLockShared(&state_lock);
 
-    return state->dwPacketNumber;
+    return available && state->dwPacketNumber;
+}
+
+static BOOL is_persistent_player1(DWORD index)
+{
+    return persistent_player1 && !index;
+}
+
+static void get_persistent_state(XINPUT_STATE *state, BOOL suppress_input)
+{
+    XINPUT_GAMEPAD gamepad = {0};
+
+    AcquireSRWLockExclusive(&state_lock);
+    if (!suppress_input) gamepad = state->Gamepad;
+    if (!persistent_state.dwPacketNumber || memcmp(&persistent_state.Gamepad, &gamepad, sizeof(gamepad)))
+    {
+        persistent_state.Gamepad = gamepad;
+        if (!++persistent_state.dwPacketNumber) ++persistent_state.dwPacketNumber;
+    }
+    *state = persistent_state;
+    ReleaseSRWLockExclusive(&state_lock);
 }
 
 static void check_value_caps(struct xinput_controller *controller, USHORT usage, HIDP_VALUE_CAPS *caps)
@@ -132,6 +244,7 @@ static void check_value_caps(struct xinput_controller *controller, USHORT usage,
     case HID_USAGE_GENERIC_RX: controller->hid.rx_caps = *caps; break;
     case HID_USAGE_GENERIC_RY: controller->hid.ry_caps = *caps; break;
     case HID_USAGE_GENERIC_RZ: controller->hid.rt_caps = *caps; break;
+    case HID_USAGE_GENERIC_HATSWITCH: controller->hid.hatswitch_caps = *caps; break;
     }
 }
 
@@ -259,6 +372,103 @@ static BOOL controller_check_caps(struct xinput_controller *controller, HANDLE d
     return TRUE;
 }
 
+static void sony_set_output_report_crc(BYTE *report, ULONG report_len)
+{
+    const BYTE seed = SONY_OUTPUT_CRC32_SEED;
+    DWORD crc;
+
+    crc = RtlComputeCrc32(0, &seed, sizeof(seed));
+    crc = RtlComputeCrc32(crc, report, report_len - sizeof(crc));
+    report[report_len - 4] = crc;
+    report[report_len - 3] = crc >> 8;
+    report[report_len - 2] = crc >> 16;
+    report[report_len - 1] = crc >> 24;
+}
+
+static DWORD sony_HID_set_state(struct xinput_controller *controller, XINPUT_VIBRATION *state)
+{
+    ULONG report_len = controller->hid.caps.OutputReportByteLength;
+    BYTE *report = (BYTE *)controller->hid.output_report_buf;
+    BOOL ret, update_left, update_right;
+    BYTE motor_left, motor_right;
+
+    update_left = controller->vibration.wLeftMotorSpeed != state->wLeftMotorSpeed;
+    update_right = controller->vibration.wRightMotorSpeed != state->wRightMotorSpeed;
+    controller->vibration = *state;
+
+    if (!controller->enabled || (!update_left && !update_right)) return ERROR_SUCCESS;
+
+    motor_left = state->wLeftMotorSpeed >> 8;
+    motor_right = state->wRightMotorSpeed >> 8;
+    memset(report, 0, report_len);
+
+    switch (controller->hid.sony_product_id)
+    {
+    case SONY_DUALSHOCK4_PRODUCT_ID:
+    case SONY_DUALSHOCK4_V2_PRODUCT_ID:
+        if (report_len == SONY_DUALSHOCK4_USB_REPORT_SIZE)
+        {
+            report[0] = SONY_DUALSHOCK4_USB_REPORT_ID;
+            report[1] = 0x01; /* motor update valid */
+            report[4] = motor_right;
+            report[5] = motor_left;
+        }
+        else if (report_len == SONY_DUALSHOCK4_BT_REPORT_SIZE)
+        {
+            report[0] = SONY_DUALSHOCK4_BT_REPORT_ID;
+            report[1] = SONY_DUALSHOCK4_BT_HW_CONTROL;
+            report[3] = 0x01; /* motor update valid */
+            report[6] = motor_right;
+            report[7] = motor_left;
+            sony_set_output_report_crc(report, report_len);
+        }
+        else
+        {
+            WARN("Unsupported DualShock 4 output report length %lu.\n", report_len);
+            return ERROR_SUCCESS;
+        }
+        break;
+
+    case SONY_DUALSENSE_PRODUCT_ID:
+    case SONY_DUALSENSE_EDGE_PRODUCT_ID:
+        if (SONY_DUALSENSE_USB_REPORT_SIZE_VALID(report_len))
+        {
+            report[0] = SONY_DUALSENSE_USB_REPORT_ID;
+            report[1] = 0x03; /* compatible vibration and haptics selection */
+            report[3] = motor_right;
+            report[4] = motor_left;
+            report[39] = 0x04; /* compatible vibration v2 */
+        }
+        else if (report_len == SONY_DUALSENSE_BT_REPORT_SIZE)
+        {
+            report[0] = SONY_DUALSENSE_BT_REPORT_ID;
+            report[1] = (controller->hid.sony_output_seq++ & 0x0f) << 4;
+            report[2] = SONY_DUALSENSE_BT_TAG;
+            report[3] = 0x03; /* compatible vibration and haptics selection */
+            report[5] = motor_right;
+            report[6] = motor_left;
+            report[41] = 0x04; /* compatible vibration v2 */
+            sony_set_output_report_crc(report, report_len);
+        }
+        else
+        {
+            WARN("Unsupported DualSense output report length %lu.\n", report_len);
+            return ERROR_SUCCESS;
+        }
+        break;
+
+    default:
+        return ERROR_SUCCESS;
+    }
+
+    ret = HidD_SetOutputReport(controller->device, report, report_len);
+    if (!ret) WARN("Failed to send Sony XInput rumble report, error %lu.\n", GetLastError());
+    else TRACE("Sent Sony XInput rumble report %#x/%lu, motors %u/%u.\n",
+               report[0], report_len, motor_left, motor_right);
+
+    return ERROR_SUCCESS;
+}
+
 static DWORD HID_set_state(struct xinput_controller *controller, XINPUT_VIBRATION *state)
 {
     ULONG report_len = controller->hid.caps.OutputReportByteLength;
@@ -268,6 +478,8 @@ static DWORD HID_set_state(struct xinput_controller *controller, XINPUT_VIBRATIO
     USHORT collection;
     NTSTATUS status;
     BYTE report_id;
+
+    if (controller->hid.is_sony_gamepad) return sony_HID_set_state(controller, state);
 
     if (!controller->hid.haptics_rumble_caps.UsagePage && !controller->hid.haptics_buzz_caps.UsagePage) return ERROR_SUCCESS;
 
@@ -305,7 +517,7 @@ static void controller_disable(struct xinput_controller *controller)
     XINPUT_VIBRATION state = {0};
 
     if (!controller->enabled) return;
-    HID_set_state(controller, &state);
+    if (controller_available(controller)) HID_set_state(controller, &state);
     controller->enabled = FALSE;
 
     if (CancelIoEx(controller->device, &controller->hid.read_ovl))
@@ -327,6 +539,8 @@ static void controller_destroy(struct xinput_controller *controller, BOOL alread
 
         CloseHandle(controller->device);
         controller->device = NULL;
+        if (controller->native_input_event) CloseHandle(controller->native_input_event);
+        controller->native_input_event = NULL;
 
         free(controller->hid.input_report_buf);
         free(controller->hid.output_report_buf);
@@ -345,7 +559,7 @@ static BOOL controller_enable(struct xinput_controller *controller)
     BOOL ret;
 
     if (controller->enabled) return TRUE;
-    HID_set_state(controller, &state);
+    if (!controller->native_input_event) HID_set_state(controller, &state);
 
     memset(&controller->hid.read_ovl, 0, sizeof(controller->hid.read_ovl));
     controller->hid.read_ovl.hEvent = controller->read_event;
@@ -364,6 +578,9 @@ static BOOL controller_init(struct xinput_controller *controller, PHIDP_PREPARSE
     XINPUT_STATE state = {0};
 
     controller->hid.caps = *caps;
+    controller->hid.sony_product_id = sony_gamepad_product_id(device_path);
+    controller->hid.is_sony_gamepad = !!controller->hid.sony_product_id;
+    controller->hid.sony_output_seq = 0;
     if (!(controller->hid.feature_report_buf = calloc(1, controller->hid.caps.FeatureReportByteLength))) goto failed;
     if (!controller_check_caps(controller, device, preparsed)) goto failed;
 
@@ -439,19 +656,38 @@ static BOOL device_is_overridden(HANDLE device)
 }
 
 /* open a device with the given path at the given index, xinput_cs must be held */
-static BOOL open_device_at_index(const WCHAR *device_path, int index)
+static BOOL open_device_at_index(const WCHAR *device_path, int index, BOOL automatic)
 {
-    SP_DEVICE_INTERFACE_DATA iface = {sizeof(iface)};
+    struct hid_xinput_fallback_registration registration;
+    OVERLAPPED overlapped = {0};
     PHIDP_PREPARSED_DATA preparsed;
     HIDP_CAPS caps;
     NTSTATUS status;
     HANDLE device;
+    DWORD size;
+    BOOL ret;
 
     device = CreateFileW(device_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                          NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING, NULL);
     if (device == INVALID_HANDLE_VALUE) return TRUE;
 
     preparsed = NULL;
+    if (automatic)
+    {
+        if (!(controllers[index].native_input_event = CreateEventW(NULL, TRUE, FALSE, NULL))) goto failed;
+        if (!(overlapped.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL))) goto failed;
+        registration.takeover_event = (ULONG_PTR)controllers[index].native_input_event;
+        ret = DeviceIoControl(device, IOCTL_HID_WINE_REGISTER_XINPUT_FALLBACK, &registration,
+                sizeof(registration), NULL, 0, &size, &overlapped);
+        if (!ret && GetLastError() == ERROR_IO_PENDING)
+            ret = GetOverlappedResult(device, &overlapped, &size, TRUE);
+        CloseHandle(overlapped.hEvent);
+        if (!ret)
+        {
+            WARN("Failed to register Sony fallback for %s, error %lu\n", debugstr_w(device_path), GetLastError());
+            goto failed;
+        }
+    }
     if (!HidD_GetPreparsedData(device, &preparsed))
         WARN("ignoring HID device, HidD_GetPreparsedData failed with error %lu\n", GetLastError());
     else if ((status = HidP_GetCaps(preparsed, &caps)) != HIDP_STATUS_SUCCESS)
@@ -467,10 +703,13 @@ static BOOL open_device_at_index(const WCHAR *device_path, int index)
         WARN("ignoring HID device, failed to initialize\n");
     else
     {
-        TRACE("opened device %s at index %u\n", debugstr_w(device_path), index);
+        TRACE("opened device %s at index %u, automatic Sony fallback %u\n", debugstr_w(device_path), index, automatic);
         return TRUE;
     }
 
+failed:
+    if (controllers[index].native_input_event) CloseHandle(controllers[index].native_input_event);
+    controllers[index].native_input_event = NULL;
     CloseHandle(device);
     HidD_FreePreparsedData(preparsed);
     return TRUE;
@@ -496,8 +735,9 @@ static BOOL find_opened_device(const WCHAR *device_path, int *slot)
          swscanf(device_path, L"\\\\?\\HID#VID_28DE&PID_11FF&XI_%02u#", &i) == 1) &&
         i < XUSER_MAX_COUNT && *slot != i)
     {
+        BOOL automatic = !!controllers[i].native_input_event;
         controller_destroy(&controllers[i], FALSE);
-        if (*slot != XUSER_MAX_COUNT) open_device_at_index(controllers[i].device_path, *slot);
+        if (*slot != XUSER_MAX_COUNT) open_device_at_index(controllers[i].device_path, *slot, automatic);
         *slot = i;
     }
 
@@ -505,14 +745,20 @@ static BOOL find_opened_device(const WCHAR *device_path, int *slot)
 }
 
 /* try opening a new controller device from the given path, xinput_cs must be held */
-static BOOL try_add_device(const WCHAR *device_path)
+static BOOL try_add_device(const WCHAR *device_path, BOOL automatic)
 {
-    SP_DEVICE_INTERFACE_DATA iface = {sizeof(iface)};
     int i;
 
     if (find_opened_device(device_path, &i)) return TRUE; /* already opened */
+    if (i == XUSER_MAX_COUNT && !automatic)
+    {
+        for (i = XUSER_MAX_COUNT - 1; i >= 0; --i)
+            if (controllers[i].native_input_event) break;
+        if (i < 0) return FALSE;
+        controller_destroy(&controllers[i], FALSE);
+    }
     if (i == XUSER_MAX_COUNT) return FALSE; /* no more slots */
-    return open_device_at_index(device_path, i);
+    return open_device_at_index(device_path, i, automatic);
 }
 
 /* try closing an open controller device with the given path, xinput_cs must be held */
@@ -524,31 +770,67 @@ static void try_remove_device(const WCHAR *device_path)
         controller_destroy(&controllers[i], FALSE);
 }
 
+static WCHAR *get_device_interfaces(GUID *guid)
+{
+    CONFIGRET ret;
+    WCHAR *paths;
+    ULONG size;
+
+    /* XInput needs only interface paths, not SetupAPI's native Sony speaker
+     * ordering. Waiting for audio here holds up all controller report reads. */
+    for (;;)
+    {
+        ret = CM_Get_Device_Interface_List_SizeW(&size, guid, NULL, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+        /* A fresh prefix may not have any WINEXINPUT interfaces yet. */
+        if (ret == CR_NO_SUCH_REGISTRY_KEY) return calloc(2, sizeof(*paths));
+        if (ret != CR_SUCCESS) break;
+        if (!(paths = calloc(max(size, 2), sizeof(*paths)))) return NULL;
+        ret = CM_Get_Device_Interface_ListW(guid, NULL, paths, size, CM_GET_DEVICE_INTERFACE_LIST_PRESENT);
+        if (ret == CR_SUCCESS) return paths;
+        free(paths);
+        if (ret == CR_NO_SUCH_REGISTRY_KEY) return calloc(2, sizeof(*paths));
+        if (ret != CR_BUFFER_SMALL) break;
+    }
+
+    WARN("Failed to enumerate interfaces for %s, status %#lx\n", debugstr_guid(guid), ret);
+    return NULL;
+}
+
 static void update_controller_list(void)
 {
-    char buffer[sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W) + MAX_PATH * sizeof(WCHAR)];
-    SP_DEVICE_INTERFACE_DETAIL_DATA_W *detail = (SP_DEVICE_INTERFACE_DETAIL_DATA_W *)buffer;
-    SP_DEVICE_INTERFACE_DATA iface = {sizeof(iface)};
     GUID guid = GUID_DEVINTERFACE_WINEXINPUT;
-    HDEVINFO set;
-    DWORD idx;
+    WCHAR *paths, *path;
+    BOOL native_present = FALSE;
 
     EnterCriticalSection(&xinput_cs);
 
-    set = SetupDiGetClassDevsW(&guid, NULL, NULL, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
-    detail->cbSize = sizeof(*detail);
-
-    idx = 0;
-    while (SetupDiEnumDeviceInterfaces(set, NULL, &guid, idx++, &iface))
+    if (!(paths = get_device_interfaces(&guid))) goto done;
+    for (path = paths; *path; path += wcslen(path) + 1)
     {
-        if (!SetupDiGetDeviceInterfaceDetailW(set, &iface, detail, sizeof(buffer), NULL, NULL))
-            continue;
-        if (!try_add_device(detail->DevicePath))
-            break;
+        if (steam_virtual_path(path))
+        {
+            native_present = TRUE;
+            InterlockedExchange(&steam_virtual_present, TRUE);
+        }
+        try_add_device(path, FALSE);
     }
 
-    SetupDiDestroyDeviceInfoList(set);
+    free(paths);
+    InterlockedExchange(&steam_virtual_present, native_present);
 
+    if (auto_sony_xinput && !steam_virtual_present)
+    {
+        HidD_GetHidGuid(&guid);
+        if (!(paths = get_device_interfaces(&guid))) goto done;
+        for (path = paths; *path; path += wcslen(path) + 1)
+        {
+            if (!automatic_sony_path(path)) continue;
+            if (!try_add_device(path, TRUE)) break;
+        }
+        free(paths);
+    }
+
+done:
     LeaveCriticalSection(&xinput_cs);
 }
 
@@ -567,6 +849,48 @@ static LONG scale_value(ULONG value, const HIDP_VALUE_CAPS *caps, LONG min, LONG
     return min + MulDiv(tmp - caps->LogicalMin, max - min, caps->LogicalMax - caps->LogicalMin);
 }
 
+static WORD hatswitch_to_xinput_buttons(ULONG value, const HIDP_VALUE_CAPS *caps)
+{
+    LONG hat;
+
+    if (!caps->UsagePage) return 0;
+    hat = sign_extend(value, caps);
+    if (hat < caps->LogicalMin || hat > caps->LogicalMax) return 0;
+    if (caps->LogicalMax - caps->LogicalMin != 7)
+    {
+        WARN("Unsupported hatswitch logical range %ld..%ld.\n", caps->LogicalMin, caps->LogicalMax);
+        return 0;
+    }
+
+    switch (hat - caps->LogicalMin)
+    {
+    case 0: return XINPUT_GAMEPAD_DPAD_UP;
+    case 1: return XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_RIGHT;
+    case 2: return XINPUT_GAMEPAD_DPAD_RIGHT;
+    case 3: return XINPUT_GAMEPAD_DPAD_RIGHT | XINPUT_GAMEPAD_DPAD_DOWN;
+    case 4: return XINPUT_GAMEPAD_DPAD_DOWN;
+    case 5: return XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_LEFT;
+    case 6: return XINPUT_GAMEPAD_DPAD_LEFT;
+    case 7: return XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_UP;
+    default: return 0;
+    }
+}
+
+static USHORT sony_gamepad_product_id(const WCHAR *path)
+{
+    UINT vid, pid;
+
+    if (swscanf(path, L"\\\\?\\HID#VID_%04x&PID_%04x", &vid, &pid) != 2 &&
+        swscanf(path, L"\\\\?\\hid#vid_%04x&pid_%04x", &vid, &pid) != 2)
+        return 0;
+
+    if (vid != SONY_VENDOR_ID) return 0;
+    if (pid == SONY_DUALSHOCK4_PRODUCT_ID || pid == SONY_DUALSHOCK4_V2_PRODUCT_ID ||
+        pid == SONY_DUALSENSE_PRODUCT_ID || pid == SONY_DUALSENSE_EDGE_PRODUCT_ID)
+        return pid;
+    return 0;
+}
+
 /* read the controller state from the HID device, xinput_cs must be held */
 static void read_controller_state(struct xinput_controller *controller)
 {
@@ -574,7 +898,7 @@ static void read_controller_state(struct xinput_controller *controller)
     char *report_buf = controller->hid.input_report_buf;
     XINPUT_STATE state;
     NTSTATUS status;
-    USAGE buttons[11];
+    USAGE buttons[32];
     ULONG i, button_length, value;
     BOOL ret;
 
@@ -599,6 +923,25 @@ static void read_controller_state(struct xinput_controller *controller)
     state.Gamepad.wButtons = 0;
     for (i = 0; i < button_length; i++)
     {
+        if (controller->hid.is_sony_gamepad)
+        {
+            switch (buttons[i])
+            {
+            case 1: state.Gamepad.wButtons |= XINPUT_GAMEPAD_X; break; /* Square */
+            case 2: state.Gamepad.wButtons |= XINPUT_GAMEPAD_A; break; /* Cross */
+            case 3: state.Gamepad.wButtons |= XINPUT_GAMEPAD_B; break; /* Circle */
+            case 4: state.Gamepad.wButtons |= XINPUT_GAMEPAD_Y; break; /* Triangle */
+            case 5: state.Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER; break;
+            case 6: state.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER; break;
+            case 9: state.Gamepad.wButtons |= XINPUT_GAMEPAD_BACK; break; /* Create/Share */
+            case 10: state.Gamepad.wButtons |= XINPUT_GAMEPAD_START; break; /* Options */
+            case 11: state.Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_THUMB; break;
+            case 12: state.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_THUMB; break;
+            case 13: state.Gamepad.wButtons |= XINPUT_GAMEPAD_GUIDE; break;
+            }
+            continue;
+        }
+
         switch (buttons[i])
         {
         case 1: state.Gamepad.wButtons |= XINPUT_GAMEPAD_A; break;
@@ -621,21 +964,7 @@ static void read_controller_state(struct xinput_controller *controller)
 
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_HATSWITCH, &value, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue HID_USAGE_PAGE_GENERIC / HID_USAGE_GENERIC_HATSWITCH returned %#lx\n", status);
-    else switch (value)
-    {
-    /* 8 1 2
-     * 7 0 3
-     * 6 5 4 */
-    case 0: break;
-    case 1: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP; break;
-    case 2: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_RIGHT; break;
-    case 3: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT; break;
-    case 4: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_RIGHT | XINPUT_GAMEPAD_DPAD_DOWN; break;
-    case 5: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN; break;
-    case 6: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_DOWN | XINPUT_GAMEPAD_DPAD_LEFT; break;
-    case 7: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT; break;
-    case 8: state.Gamepad.wButtons |= XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_UP; break;
-    }
+    else state.Gamepad.wButtons |= hatswitch_to_xinput_buttons(value, &controller->hid.hatswitch_caps);
 
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_X, &value, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue HID_USAGE_PAGE_GENERIC / HID_USAGE_GENERIC_X returned %#lx\n", status);
@@ -643,22 +972,32 @@ static void read_controller_state(struct xinput_controller *controller)
 
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_Y, &value, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue HID_USAGE_PAGE_GENERIC / HID_USAGE_GENERIC_Y returned %#lx\n", status);
+    else if (controller->hid.is_sony_gamepad)
+        state.Gamepad.sThumbLY = scale_value(value, &controller->hid.ly_caps, 32767, -32768);
     else state.Gamepad.sThumbLY = scale_value(value, &controller->hid.ly_caps, -32768, 32767);
 
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_RX, &value, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue HID_USAGE_PAGE_GENERIC / HID_USAGE_GENERIC_RX returned %#lx\n", status);
+    else if (controller->hid.is_sony_gamepad)
+        state.Gamepad.bLeftTrigger = scale_value(value, &controller->hid.rx_caps, 0, 255);
     else state.Gamepad.sThumbRX = scale_value(value, &controller->hid.rx_caps, -32768, 32767);
 
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_RY, &value, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue HID_USAGE_PAGE_GENERIC / HID_USAGE_GENERIC_RY returned %#lx\n", status);
+    else if (controller->hid.is_sony_gamepad)
+        state.Gamepad.bRightTrigger = scale_value(value, &controller->hid.ry_caps, 0, 255);
     else state.Gamepad.sThumbRY = scale_value(value, &controller->hid.ry_caps, -32768, 32767);
 
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_RZ, &value, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue HID_USAGE_PAGE_GENERIC / HID_USAGE_GENERIC_RZ returned %#lx\n", status);
+    else if (controller->hid.is_sony_gamepad)
+        state.Gamepad.sThumbRY = scale_value(value, &controller->hid.rt_caps, 32767, -32768);
     else state.Gamepad.bRightTrigger = scale_value(value, &controller->hid.rt_caps, 0, 255);
 
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_Z, &value, controller->hid.preparsed, report_buf, report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue HID_USAGE_PAGE_GENERIC / HID_USAGE_GENERIC_Z returned %#lx\n", status);
+    else if (controller->hid.is_sony_gamepad)
+        state.Gamepad.sThumbRX = scale_value(value, &controller->hid.lt_caps, -32768, 32767);
     else state.Gamepad.bLeftTrigger = scale_value(value, &controller->hid.lt_caps, 0, 255);
 
     if (controller->enabled)
@@ -677,9 +1016,22 @@ static LRESULT CALLBACK xinput_devnotify_wndproc(HWND hwnd, UINT msg, WPARAM wpa
     {
         DEV_BROADCAST_DEVICEINTERFACE_W *iface = (DEV_BROADCAST_DEVICEINTERFACE_W *)lparam;
 
+        if (!iface || iface->dbcc_devicetype != DBT_DEVTYP_DEVICEINTERFACE) return 0;
         EnterCriticalSection(&xinput_cs);
-        if (wparam == DBT_DEVICEARRIVAL) try_add_device(iface->dbcc_name);
-        if (wparam == DBT_DEVICEREMOVECOMPLETE) try_remove_device(iface->dbcc_name);
+        if (wparam == DBT_DEVICEARRIVAL)
+        {
+            if (IsEqualGUID(&iface->dbcc_classguid, &GUID_DEVINTERFACE_WINEXINPUT))
+            {
+                if (steam_virtual_path(iface->dbcc_name)) InterlockedExchange(&steam_virtual_present, TRUE);
+                try_add_device(iface->dbcc_name, FALSE);
+            }
+            else if (automatic_sony_path(iface->dbcc_name)) try_add_device(iface->dbcc_name, TRUE);
+        }
+        if (wparam == DBT_DEVICEREMOVECOMPLETE)
+        {
+            try_remove_device(iface->dbcc_name);
+            update_controller_list();
+        }
         LeaveCriticalSection(&xinput_cs);
     }
 
@@ -704,7 +1056,7 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
         .lpszClassName = L"__wine_xinput_devnotify",
         .lpfnWndProc = xinput_devnotify_wndproc,
     };
-    HDEVNOTIFY notif;
+    HDEVNOTIFY notif, hid_notif = NULL;
     HWND hwnd;
     MSG msg;
 
@@ -714,6 +1066,11 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
     hwnd = CreateWindowExW(0, cls.lpszClassName, NULL, 0, 0, 0, 0, 0,
                            HWND_MESSAGE, NULL, NULL, NULL);
     notif = RegisterDeviceNotificationW(hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE);
+    if (auto_sony_xinput)
+    {
+        HidD_GetHidGuid(&filter.dbcc_classguid);
+        hid_notif = RegisterDeviceNotificationW(hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE);
+    }
 
     update_controller_list();
     SetEvent(start_event);
@@ -743,6 +1100,7 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
     ERR("wait failed in the update thread, ret %lu, error %lu\n", ret, GetLastError());
 
     UnregisterDeviceNotification(notif);
+    if (hid_notif) UnregisterDeviceNotification(hid_notif);
     DestroyWindow(hwnd);
     UnregisterClassW(cls.lpszClassName, xinput_instance);
 
@@ -751,6 +1109,7 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
 
 static BOOL WINAPI start_update_thread_once( INIT_ONCE *once, void *param, void **context )
 {
+    WCHAR name[64];
     HANDLE thread;
     HMODULE module;
     int i;
@@ -759,6 +1118,8 @@ static BOOL WINAPI start_update_thread_once( INIT_ONCE *once, void *param, void 
         WARN("Failed to increase module's reference count, error: %lu\n", GetLastError());
 
     steam_overlay_event = CreateEventA(NULL, TRUE, FALSE, "__wine_steamclient_GameOverlayActivated");
+    swprintf(name, ARRAY_SIZE(name), L"Local\\__wine_xinput_steam_input_%08lx", GetCurrentProcessId());
+    steam_input_event = CreateEventW(NULL, TRUE, FALSE, name);
 
     start_event = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (!start_event) ERR("failed to create start event, error %lu\n", GetLastError());
@@ -788,12 +1149,18 @@ static void start_update_thread(void)
 
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
 {
+    char value[2];
+
     TRACE("inst %p, reason %lu, reserved %p.\n", inst, reason, reserved);
 
     switch (reason)
     {
     case DLL_PROCESS_ATTACH:
         xinput_instance = inst;
+        auto_sony_xinput = automatic_sony_enabled();
+        persistent_player1 = GetEnvironmentVariableA("PROTON_XINPUT_PERSISTENT_PLAYER1", value, sizeof(value)) == 1 &&
+                             value[0] == '1';
+        if (persistent_player1) TRACE("Keeping XInput player 1 connected across hotplug.\n");
         DisableThreadLibraryCalls(inst);
         break;
     }
@@ -834,8 +1201,8 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputSetState(DWORD index, XINPUT_VIBRATION *vib
 
     EnterCriticalSection(&xinput_cs);
     if (!controllers[index].device) update_controller_list();
-    if (!controllers[index].device)
-        ret = ERROR_DEVICE_NOT_CONNECTED;
+    if (!controller_available(&controllers[index]))
+        ret = is_persistent_player1(index) ? ERROR_SUCCESS : ERROR_DEVICE_NOT_CONNECTED;
     else if (WaitForSingleObject(steam_overlay_event, 0) == WAIT_OBJECT_0)
         ret = ERROR_SUCCESS;
     else
@@ -864,11 +1231,19 @@ static DWORD xinput_get_state(DWORD index, XINPUT_STATE *state)
     if (sgi && !strcmp(sgi, "298110")) goto done;
 
     EnterCriticalSection(&xinput_cs);
-    update_controller_list();
+    if (!controllers[index].device) update_controller_list();
     ret = get_current_state(index, state) ? ERROR_SUCCESS : ERROR_DEVICE_NOT_CONNECTED;
     LeaveCriticalSection(&xinput_cs);
 
 done:
+    if (is_persistent_player1(index))
+    {
+        /* Keep the logical state separate: a placeholder must not hide device
+         * removal from discovery or reset its packet number on reconnection. */
+        get_persistent_state(state, ret != ERROR_SUCCESS ||
+                WaitForSingleObject(steam_overlay_event, 0) == WAIT_OBJECT_0);
+        return ERROR_SUCCESS;
+    }
     if (ret == ERROR_SUCCESS && WaitForSingleObject(steam_overlay_event, 0) == WAIT_OBJECT_0)
         memset(state, 0, sizeof(*state));
     return ret;
@@ -1123,6 +1498,72 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetCapabilities(DWORD index, DWORD flags, X
     return ret;
 }
 
+/* Metadata probes use the initial scan and hotplug-maintained controller list.
+ * Rescanning empty slots here makes Steam's per-frame enumeration block on HID
+ * discovery. Public XInput calls retain their synchronous hotplug rescans. */
+BOOL WINAPI __wine_XInputIsSonyFallback(const WCHAR *device_path)
+{
+    BOOL available = FALSE;
+    int index;
+
+    if (!device_path || !automatic_sony_path(device_path)) return FALSE;
+    start_update_thread();
+
+    EnterCriticalSection(&xinput_cs);
+    if (find_opened_device(device_path, &index) && controllers[index].native_input_event)
+        available = controller_available(&controllers[index]);
+    LeaveCriticalSection(&xinput_cs);
+
+    return available;
+}
+
+DWORD WINAPI __wine_XInputGetSonyProductId(DWORD index, WORD *product_id)
+{
+    DWORD ret = ERROR_SUCCESS;
+
+    TRACE("index %lu, product_id %p.\n", index, product_id);
+
+    if (index >= XUSER_MAX_COUNT || !product_id) return ERROR_BAD_ARGUMENTS;
+
+    start_update_thread();
+
+    EnterCriticalSection(&xinput_cs);
+    if (!controller_available(&controllers[index]))
+        ret = ERROR_DEVICE_NOT_CONNECTED;
+    else
+        *product_id = controllers[index].hid.sony_product_id;
+    LeaveCriticalSection(&xinput_cs);
+
+    return ret;
+}
+
+DWORD WINAPI __wine_XInputGetDeviceVidPid(DWORD index, WORD *vendor_id, WORD *product_id)
+{
+    UINT vid, pid;
+    DWORD ret = ERROR_SUCCESS;
+
+    TRACE("index %lu, vendor_id %p, product_id %p.\n", index, vendor_id, product_id);
+
+    if (index >= XUSER_MAX_COUNT || !vendor_id || !product_id) return ERROR_BAD_ARGUMENTS;
+
+    start_update_thread();
+
+    EnterCriticalSection(&xinput_cs);
+    if (!controller_available(&controllers[index]))
+        ret = ERROR_DEVICE_NOT_CONNECTED;
+    else if (swscanf(controllers[index].device_path, L"\\\\?\\HID#VID_%04x&PID_%04x", &vid, &pid) != 2 &&
+            swscanf(controllers[index].device_path, L"\\\\?\\hid#vid_%04x&pid_%04x", &vid, &pid) != 2)
+        ret = ERROR_INVALID_DATA;
+    else
+    {
+        *vendor_id = vid;
+        *product_id = pid;
+    }
+    LeaveCriticalSection(&xinput_cs);
+
+    return ret;
+}
+
 DWORD WINAPI DECLSPEC_HOTPATCH XInputGetDSoundAudioDeviceGuids(DWORD index, GUID *render_guid, GUID *capture_guid)
 {
     DWORD ret;
@@ -1133,7 +1574,7 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetDSoundAudioDeviceGuids(DWORD index, GUID
     if (index >= XUSER_MAX_COUNT || !render_guid || !capture_guid) return ERROR_BAD_ARGUMENTS;
 
     EnterCriticalSection(&xinput_cs);
-    ret = controllers[index].device ? ERROR_NOT_SUPPORTED : ERROR_DEVICE_NOT_CONNECTED;
+    ret = controller_available(&controllers[index]) || is_persistent_player1(index) ? ERROR_NOT_SUPPORTED : ERROR_DEVICE_NOT_CONNECTED;
     LeaveCriticalSection(&xinput_cs);
 
     return ret;
@@ -1149,7 +1590,7 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetBatteryInformation(DWORD index, BYTE typ
     if (index >= XUSER_MAX_COUNT) return ERROR_BAD_ARGUMENTS;
 
     EnterCriticalSection(&xinput_cs);
-    ret = controllers[index].device ? ERROR_NOT_SUPPORTED : ERROR_DEVICE_NOT_CONNECTED;
+    ret = controller_available(&controllers[index]) || is_persistent_player1(index) ? ERROR_NOT_SUPPORTED : ERROR_DEVICE_NOT_CONNECTED;
     LeaveCriticalSection(&xinput_cs);
 
     return ret;
@@ -1172,11 +1613,17 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetCapabilitiesEx(DWORD unk, DWORD index, D
 
     EnterCriticalSection(&xinput_cs);
     if (!controllers[index].device) update_controller_list();
-    if (!controllers[index].device)
+    if (!controllers[index].device && is_persistent_player1(index))
+    {
+        memset(&attr, 0, sizeof(attr));
+        attr.VendorID = 0x045e;
+        attr.ProductID = 0x028e;
+        attr.VersionNumber = 0x0114;
+    }
+    else if (!controller_available(&controllers[index]) || !HidD_GetAttributes(controllers[index].device, &attr))
         ret = ERROR_DEVICE_NOT_CONNECTED;
-    else if (!HidD_GetAttributes(controllers[index].device, &attr))
-        ret = ERROR_DEVICE_NOT_CONNECTED;
-    else
+
+    if (ret == ERROR_SUCCESS)
     {
         memset(caps, 0, sizeof(*caps));
 
@@ -1190,6 +1637,11 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetCapabilitiesEx(DWORD unk, DWORD index, D
 #if XINPUT_VER >= 3
         caps->Capabilities.Flags |= XINPUT_CAPS_VOICE_SUPPORTED;
 #endif
+        if (!controllers[index].device)
+        {
+            caps->Capabilities.Type = XINPUT_DEVTYPE_GAMEPAD;
+            caps->Capabilities.Flags = XINPUT_CAPS_FFB_SUPPORTED;
+        }
 
         caps->Capabilities.Gamepad.wButtons = XINPUT_BUTTONS_ALL;
         caps->Capabilities.Gamepad.bLeftTrigger = 0xff;
@@ -1201,9 +1653,19 @@ DWORD WINAPI DECLSPEC_HOTPATCH XInputGetCapabilitiesEx(DWORD unk, DWORD index, D
         caps->Capabilities.Vibration.wLeftMotorSpeed = 0xff;
         caps->Capabilities.Vibration.wRightMotorSpeed = 0xff;
 
-        caps->VendorId = attr.VendorID;
-        caps->ProductId = attr.ProductID;
         caps->VersionNumber = attr.VersionNumber;
+        if (controllers[index].hid.is_sony_gamepad)
+        {
+            caps->Capabilities.Type = XINPUT_DEVTYPE_GAMEPAD;
+            caps->VendorId = 0x045e;
+            caps->ProductId = 0x028e;
+            TRACE("reporting Sony XInput fallback as Xbox 360 controller.\n");
+        }
+        else
+        {
+            caps->VendorId = attr.VendorID;
+            caps->ProductId = attr.ProductID;
+        }
 
         /* CW-Bug-Id: #23185 Emulate Steam Input native hooks for native SDL */
         if (attr.VendorID == 0x28de && attr.ProductID == 0x11ff)

@@ -899,6 +899,7 @@ struct testfilter
 
     IAMFilterMiscFlags IAMFilterMiscFlags_iface;
     ULONG misc_flags;
+    BOOL notify_window_destroyed;
 
     IMediaSeeking IMediaSeeking_iface;
     IMediaPosition IMediaPosition_iface;
@@ -1574,7 +1575,22 @@ static HRESULT WINAPI testfilter_QueryFilterInfo(IBaseFilter *iface, FILTER_INFO
 static HRESULT WINAPI testfilter_JoinFilterGraph(IBaseFilter *iface, IFilterGraph *graph, const WCHAR *name)
 {
     struct testfilter *filter = impl_from_IBaseFilter(iface);
+    IMediaEventSink *sink;
+    HRESULT hr;
+
     if (winetest_debug > 1) trace("%p->JoinFilterGraph(%p, %s)\n", filter, graph, wine_dbgstr_w(name));
+
+    if (!graph && filter->graph && filter->notify_window_destroyed)
+    {
+        hr = IFilterGraph_QueryInterface(filter->graph, &IID_IMediaEventSink, (void **)&sink);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            hr = IMediaEventSink_Notify(sink, EC_WINDOW_DESTROYED, (LONG_PTR)iface, 0);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+            IMediaEventSink_Release(sink);
+        }
+    }
 
     filter->graph = graph;
     free(filter->name);
@@ -3089,6 +3105,66 @@ static void test_add_remove_filter(void)
     ok(!filter.name, "Got name %s.\n", wine_dbgstr_w(filter.name));
     ok(!filter.clock, "Got clock %p.\n", filter.clock);
     ok(filter.ref == 1, "Got outstanding refcount %ld.\n", filter.ref);
+}
+
+static void test_exact_filter_names(BOOL reader_first)
+{
+    static const WCHAR *names[] = {L"Reader", L"WMVideo Decoder DMO"};
+    IFilterGraph2 *graph = create_graph();
+    struct testfilter filters[3];
+    IBaseFilter *ret_filter;
+    unsigned int i, index;
+    HRESULT hr;
+    ULONG ref;
+
+    winetest_push_context("reader_first %u", reader_first);
+    for (i = 0; i < ARRAY_SIZE(filters); ++i)
+        testfilter_init(&filters[i], NULL, 0);
+
+    for (i = 0; i < ARRAY_SIZE(names); ++i)
+    {
+        index = reader_first ? i : 1 - i;
+        hr = IFilterGraph2_AddFilter(graph, &filters[index].IBaseFilter_iface, names[index]);
+        ok(hr == S_OK, "Got hr %#lx for %s.\n", hr, wine_dbgstr_w(names[index]));
+        ok(filters[index].name && !wcscmp(filters[index].name, names[index]),
+                "Got name %s.\n", wine_dbgstr_w(filters[index].name));
+    }
+
+    /* A real duplicate is renamed, without hiding the original decoder. */
+    hr = IFilterGraph2_AddFilter(graph, &filters[2].IBaseFilter_iface, names[1]);
+    ok(hr == VFW_S_DUPLICATE_NAME, "Got hr %#lx.\n", hr);
+    ok(filters[2].name && wcscmp(filters[2].name, names[1]),
+            "Got name %s.\n", wine_dbgstr_w(filters[2].name));
+
+    for (i = 0; i < ARRAY_SIZE(filters); ++i)
+    {
+        const WCHAR *name = i < ARRAY_SIZE(names) ? names[i] : filters[i].name;
+
+        if (!name)
+            continue;
+        ret_filter = NULL;
+        hr = IFilterGraph2_FindFilterByName(graph, name, &ret_filter);
+        ok(hr == S_OK, "Got hr %#lx for %s.\n", hr, wine_dbgstr_w(name));
+        ok(ret_filter == &filters[i].IBaseFilter_iface, "Got filter %p, expected %p.\n",
+                ret_filter, &filters[i].IBaseFilter_iface);
+        if (ret_filter)
+            IBaseFilter_Release(ret_filter);
+    }
+
+    hr = IFilterGraph2_RemoveFilter(graph, &filters[0].IBaseFilter_iface);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ret_filter = NULL;
+    hr = IFilterGraph2_FindFilterByName(graph, names[1], &ret_filter);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(ret_filter == &filters[1].IBaseFilter_iface, "Got filter %p.\n", ret_filter);
+    if (ret_filter)
+        IBaseFilter_Release(ret_filter);
+
+    ref = IFilterGraph2_Release(graph);
+    ok(!ref, "Got outstanding refcount %lu.\n", ref);
+    for (i = 0; i < ARRAY_SIZE(filters); ++i)
+        ok(filters[i].ref == 1, "Filter %u has outstanding refcount %ld.\n", i, filters[i].ref);
+    winetest_pop_context();
 }
 
 static HRESULT WINAPI test_connect_direct_Connect(IPin *iface, IPin *peer, const AM_MEDIA_TYPE *mt)
@@ -4688,7 +4764,7 @@ static void test_graph_seeking(void)
     ok(!current, "Got time %s.\n", wine_dbgstr_longlong(time));
 
     hr = IMediaSeeking_GetAvailable(seeking, &earliest, &latest);
-    todo_wine ok(hr == E_NOTIMPL, "Got hr %#lx.\n", hr);
+    ok(hr == E_NOTIMPL, "Got hr %#lx.\n", hr);
 
     hr = IMediaSeeking_SetRate(seeking, 1.0);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
@@ -4895,6 +4971,14 @@ static void test_graph_seeking(void)
     hr = IMediaSeeking_GetDuration(seeking, &time);
     ok(hr == E_NOTIMPL, "Got hr %#lx.\n", hr);
     filter1.seek_hr = filter2.seek_hr = S_OK;
+
+    hr = IMediaSeeking_GetAvailable(seeking, NULL, NULL);
+    ok(hr == E_POINTER, "Got hr %#lx.\n", hr);
+    earliest = latest = 0xdeadbeef;
+    hr = IMediaSeeking_GetAvailable(seeking, &earliest, &latest);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(!earliest, "Got earliest %s.\n", wine_dbgstr_longlong(earliest));
+    ok(latest == 0x23456, "Got latest %s.\n", wine_dbgstr_longlong(latest));
 
     flush_cached_seeking(graph, &filter1);
     flush_cached_seeking(graph, &filter2);
@@ -5643,6 +5727,110 @@ static void test_autoplug_uyvy(void)
     ok(!ref, "Got outstanding refcount %ld.\n", ref);
     ok(source.ref == 1, "Got outstanding refcount %ld.\n", source.ref);
     ok(source_pin.ref == 1, "Got outstanding refcount %ld.\n", source_pin.ref);
+}
+
+static void test_ec_window_destroyed(void)
+{
+    IFilterGraph2 *graph = create_graph();
+    IMediaEventSink *sink;
+    IMediaEventEx *events;
+    struct testfilter filter;
+    LONG_PTR param1, param2;
+    unsigned int i;
+    HANDLE event;
+    HWND window;
+    HRESULT hr;
+    ULONG ref;
+    LONG code;
+    MSG msg;
+
+    window = CreateWindowA("static", NULL, WS_OVERLAPPEDWINDOW,
+            50, 50, 150, 150, NULL, NULL, NULL, NULL);
+    ok(!!window, "Failed to create window.\n");
+
+    hr = IFilterGraph2_QueryInterface(graph, &IID_IMediaEventEx, (void **)&events);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IFilterGraph2_QueryInterface(graph, &IID_IMediaEventSink, (void **)&sink);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IMediaEventEx_GetEventHandle(events, (OAEVENT *)&event);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IMediaEventEx_SetNotifyWindow(events, (OAHWND)window, WM_APP + 1, 0x1234);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    testfilter_init(&filter, NULL, 0);
+    filter.notify_window_destroyed = TRUE;
+
+    for (i = 0; i < 3; ++i)
+    {
+        winetest_push_context("handling %u", i);
+        if (i == 1)
+        {
+            hr = IMediaEventEx_CancelDefaultHandling(events, EC_WINDOW_DESTROYED);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        }
+        else if (i == 2)
+        {
+            hr = IMediaEventEx_RestoreDefaultHandling(events, EC_WINDOW_DESTROYED);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        }
+
+        hr = IFilterGraph2_AddFilter(graph, &filter.IBaseFilter_iface, L"renderer");
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        hr = IFilterGraph2_RemoveFilter(graph, &filter.IBaseFilter_iface);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        ok(WaitForSingleObject(event, 0) == (i == 1 ? WAIT_OBJECT_0 : WAIT_TIMEOUT),
+                "Unexpected event signal state.\n");
+        ok(!!PeekMessageA(&msg, window, WM_APP + 1, WM_APP + 1, PM_REMOVE) == (i == 1),
+                "Unexpected window notification.\n");
+
+        hr = IMediaEventEx_GetEvent(events, &code, &param1, &param2, 0);
+        ok(hr == (i == 1 ? S_OK : E_ABORT), "Got hr %#lx.\n", hr);
+        if (hr == S_OK)
+        {
+            ok(code == EC_WINDOW_DESTROYED, "Got code %#lx.\n", code);
+            ok(param1 == (LONG_PTR)&filter.IBaseFilter_iface, "Got param1 %#Ix.\n", param1);
+            ok(!param2, "Got param2 %#Ix.\n", param2);
+            hr = IMediaEventEx_FreeEventParams(events, code, param1, param2);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        }
+        hr = IMediaEventEx_GetEvent(events, &code, &param1, &param2, 0);
+        ok(hr == E_ABORT, "Got hr %#lx.\n", hr);
+
+        /* Suppressing renderer removal must not suppress application events. */
+        hr = IMediaEventSink_Notify(sink, EC_USER, 123, 456);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        ok(WaitForSingleObject(event, 0) == WAIT_OBJECT_0, "Event should be signaled.\n");
+        if (PeekMessageA(&msg, window, WM_APP + 1, WM_APP + 1, PM_REMOVE))
+        {
+            ok(!msg.wParam, "Got wparam %#Ix.\n", msg.wParam);
+            ok(msg.lParam == 0x1234, "Got lparam %#Ix.\n", msg.lParam);
+        }
+        else
+            ok(0, "Missing window notification.\n");
+        hr = IMediaEventEx_GetEvent(events, &code, &param1, &param2, 0);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        ok(code == EC_USER, "Got code %#lx.\n", code);
+        ok(param1 == 123, "Got param1 %#Ix.\n", param1);
+        ok(param2 == 456, "Got param2 %#Ix.\n", param2);
+        hr = IMediaEventEx_FreeEventParams(events, code, param1, param2);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        hr = IMediaEventEx_GetEvent(events, &code, &param1, &param2, 0);
+        ok(hr == E_ABORT, "Got hr %#lx.\n", hr);
+        winetest_pop_context();
+    }
+
+    /* Graph destruction also detaches renderers, after the application releases
+     * its event interface. No stale callback may be posted at this point. */
+    hr = IFilterGraph2_AddFilter(graph, &filter.IBaseFilter_iface, L"renderer");
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    IMediaEventSink_Release(sink);
+    IMediaEventEx_Release(events);
+    ref = IFilterGraph2_Release(graph);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    ok(filter.ref == 1, "Got outstanding refcount %ld.\n", filter.ref);
+    ok(!PeekMessageA(&msg, window, WM_APP + 1, WM_APP + 1, PM_REMOVE),
+            "Renderer removal posted a callback after graph destruction.\n");
+    DestroyWindow(window);
 }
 
 static void test_set_notify_flags(void)
@@ -7390,6 +7578,8 @@ START_TEST(filtergraph)
     test_aggregation();
     test_control_delegation();
     test_add_remove_filter();
+    test_exact_filter_names(TRUE);
+    test_exact_filter_names(FALSE);
     test_connect_direct();
     test_sync_source();
     test_filter_state();
@@ -7401,6 +7591,7 @@ START_TEST(filtergraph)
     test_add_source_filter();
     test_window_threading();
     test_autoplug_uyvy();
+    test_ec_window_destroyed();
     test_set_notify_flags();
     test_events();
     test_event_dispatch();

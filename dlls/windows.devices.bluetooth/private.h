@@ -26,25 +26,69 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winstring.h"
+#include "bthledef.h"
 
 #include "activation.h"
+#include "bthdef.h"
+#include "bthsdpdef.h"
+#include "bluetoothapis.h"
 
 #define WIDL_using_Windows_Foundation
 #define WIDL_using_Windows_Foundation_Collections
+#define WIDL_using_Windows_Storage_Streams
+#define WIDL_using_Windows_Devices_Enumeration
 #include "windows.foundation.h"
+#include "windows.storage.streams.h"
+#include "windows.devices.enumeration.h"
 #define WIDL_using_Windows_Networking
 #include "windows.networking.connectivity.h"
 #include "windows.networking.h"
+#define WIDL_using_Windows_Devices_Radios
+#include "windows.devices.radios.h"
 #define WIDL_using_Windows_Devices_Bluetooth
+#define WIDL_using_Windows_Devices_Bluetooth_GenericAttributeProfile
+#include "windows.devices.bluetooth.genericattributeprofile.h"
 #include "windows.devices.bluetooth.rfcomm.h"
 #include "windows.devices.bluetooth.h"
 #define WIDL_using_Windows_Devices_Bluetooth_Advertisement
 #include "windows.devices.bluetooth.advertisement.h"
 
+#include "async_private.h"
+
 extern IActivationFactory *bluetoothadapter_factory;
 extern IActivationFactory *bluetoothdevice_statics_factory;
 extern IActivationFactory *bluetoothledevice_statics_factory;
 extern IActivationFactory *advertisement_watcher_factory;
+
+HRESULT async_operation_inspectable_create( const GUID *iid, IUnknown *invoker, IUnknown *param,
+                                            async_operation_callback callback, IAsyncOperation_IInspectable **out );
+
+struct vector_iids
+{
+    const GUID *iterable;
+    const GUID *iterator;
+    const GUID *vector;
+    const GUID *view;
+};
+HRESULT vector_create( const struct vector_iids *iids, void **out );
+
+HRESULT async_operation_uint32_create( const GUID *iid, IUnknown *invoker, IUnknown *param,
+                                       async_operation_callback callback, IAsyncOperation_IInspectable **out );
+
+HRESULT buffer_create( const BYTE *data, UINT32 size, IBuffer **out );
+HRESULT buffer_get_data( IBuffer *buffer, BYTE **data, UINT32 *size );
+HRESULT class_name_string( const WCHAR *name, HSTRING *out );
+
+HRESULT gatt_service_create( const BTH_LE_GATT_SERVICE *svc, HANDLE device, UINT64 addr, IBluetoothLEDevice *ble_device,
+                             IGattDeviceService **service );
+HRESULT gatt_session_create( IBluetoothDeviceId *id, IGattSession **session );
+HRESULT bluetoothdeviceid_create( HSTRING id, IBluetoothDeviceId **out );
+HRESULT gatt_device_services_result_create( IVector_IInspectable *services, IGattDeviceServicesResult **out );
+HRESULT ble_device_get_services_vector( IBluetoothLEDevice *device, const GUID *uuid, IVector_IInspectable **vector );
+
+extern IActivationFactory *gattsession_statics_factory;
+extern IActivationFactory *bluetoothdeviceid_statics_factory;
+extern IActivationFactory *bluetoothuuidhelper_statics_factory;
 
 #define DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from, iface_mem, expr )             \
     static inline impl_type *impl_from( iface_type *iface )                                        \
@@ -83,5 +127,6 @@ extern IActivationFactory *advertisement_watcher_factory;
     }
 #define DEFINE_IINSPECTABLE( pfx, iface_type, impl_type, base_iface )                              \
     DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from_##iface_type, iface_type##_iface, &impl->base_iface )
-
+#define DEFINE_IINSPECTABLE_OUTER( pfx, iface_type, impl_type, outer_iface )                       \
+    DEFINE_IINSPECTABLE_( pfx, iface_type, impl_type, impl_from_##iface_type, iface_type##_iface, impl->outer_iface )
 #endif

@@ -36,6 +36,7 @@ DEFINE_GUID(DMOVideoFormat_RGB24,D3DFMT_R8G8B8,0x524f,0x11ce,0x9f,0x53,0x00,0x20
 DEFINE_GUID(DMOVideoFormat_RGB565,D3DFMT_R5G6B5,0x524f,0x11ce,0x9f,0x53,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 DEFINE_GUID(DMOVideoFormat_RGB555,D3DFMT_X1R5G5B5,0x524f,0x11ce,0x9f,0x53,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 DEFINE_GUID(DMOVideoFormat_RGB8,D3DFMT_P8,0x524f,0x11ce,0x9f,0x53,0x00,0x20,0xaf,0x0b,0xa7,0x70);
+DEFINE_MEDIATYPE_GUID(MFVideoFormat_mp43,MAKEFOURCC('m','p','4','3'));
 
 /***********************************************************************
  *              DllGetClassObject (wmvdecod.@)
@@ -69,6 +70,8 @@ HRESULT WINAPI DllRegisterServer(void)
         {MFMediaType_Video, MFVideoFormat_theora},
         {MFMediaType_Video, MFVideoFormat_AV1},
         {MFMediaType_Video, MFVideoFormat_VP90},
+        {MFMediaType_Video, MFVideoFormat_MP43},
+        {MFMediaType_Video, MFVideoFormat_mp43},
     };
     MFT_REGISTER_TYPE_INFO wmv_decoder_mft_outputs[] =
     {
@@ -111,6 +114,8 @@ HRESULT WINAPI DllRegisterServer(void)
         {.type = MEDIATYPE_Video, .subtype = MFVideoFormat_theora},
         {.type = MEDIATYPE_Video, .subtype = MFVideoFormat_AV1},
         {.type = MEDIATYPE_Video, .subtype = MFVideoFormat_VP90},
+        {.type = MEDIATYPE_Video, .subtype = MFVideoFormat_MP43},
+        {.type = MEDIATYPE_Video, .subtype = MFVideoFormat_mp43},
     };
     HRESULT hr;
 

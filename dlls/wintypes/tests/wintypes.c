@@ -537,9 +537,7 @@ static void test_IApiInformationStatics(void)
 
     ret = TRUE;
     hr = IApiInformationStatics_IsMethodPresent(statics, str, NULL, &ret);
-    todo_wine
     ok(hr == S_OK, "IsMethodPresent failed, hr %#lx.\n", hr);
-    todo_wine
     ok(ret == FALSE, "IsMethodPresent returned TRUE.\n");
 
     if (0) /* Crash on Windows */
@@ -550,7 +548,6 @@ static void test_IApiInformationStatics(void)
 
     ret = FALSE;
     hr = IApiInformationStatics_IsMethodPresent(statics, str, str2, &ret);
-    todo_wine
     ok(hr == S_OK, "IsMethodPresent failed, hr %#lx.\n", hr);
     todo_wine
     ok(ret == TRUE, "IsMethodPresent returned FALSE.\n");

@@ -62,6 +62,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(hid);
 
 static pthread_mutex_t sdl_cs = PTHREAD_MUTEX_INITIALIZER;
 static const struct bus_options *options;
+static BOOL steam_input_enabled;
 
 static void *sdl_handle = NULL;
 static UINT quit_event = -1;
@@ -950,6 +951,26 @@ static BOOL is_emulating_steaminput(void)
     return env && atoi(env);
 }
 
+static BOOL is_steam_input_enabled(void)
+{
+    static const char * const names[] =
+    {
+        "SteamVirtualGamepadInfo",
+        "SteamVirtualGamepadInfo_Proton",
+        "SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD",
+    };
+    const char *env = getenv("PROTON_NO_STEAMINPUT");
+    unsigned int i;
+
+    if (env && atoi(env)) return FALSE;
+    for (i = 0; i < ARRAY_SIZE(names); ++i)
+    {
+        env = getenv(names[i]);
+        if (env && *env && strcmp(env, "0")) return TRUE;
+    }
+    return FALSE;
+}
+
 static void fixup_steaminput_vidpid( struct device_desc *desc )
 {
     static int cached = -1;
@@ -1021,6 +1042,15 @@ static void sdl_add_device(unsigned int index)
         pSDL_JoystickClose(joystick);
         return;
     }
+    if (is_dualsense_gamepad(desc.vid, desc.pid) ||
+            is_dualshock4_gamepad(desc.vid, desc.pid))
+    {
+        TRACE("ignoring SDL Sony controller %s; hidraw handles native reports.\n",
+                debugstr_device_desc(&desc));
+        if (controller) pSDL_GameControllerClose(controller);
+        pSDL_JoystickClose(joystick);
+        return;
+    }
 
     if (is_emulating_steaminput())
     {
@@ -1038,6 +1068,11 @@ static void sdl_add_device(unsigned int index)
     if (controller)
     {
         desc.is_gamepad = TRUE;
+        /* These are translated reports, not the Nintendo HID protocol. Keep the
+         * physical IDs for backend selection, but advertise an XInput identity. */
+        desc.use_xbox_identity = !steam_input_enabled && desc.vid == 0x057e && desc.pid == 0x2009;
+        if (desc.use_xbox_identity)
+            TRACE("exposing mapped Switch Pro controller %04x:%04x as Xbox 360.\n", desc.vid, desc.pid);
         axis_count = 6;
     }
     else
@@ -1210,6 +1245,7 @@ NTSTATUS sdl_bus_init(void *args)
 
     /* CW-Bug-Id: #23185: Disable SDL 2.30 new behavior, we need the steam virtual
      * controller name to figure which slot number it represents. */
+    steam_input_enabled = is_steam_input_enabled();
     pSDL_SetHintWithPriority("SteamVirtualGamepadInfo", "", SDL_HINT_OVERRIDE);
     unsetenv("SteamVirtualGamepadInfo");
 

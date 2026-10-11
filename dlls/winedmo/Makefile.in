@@ -1,19 +1,37 @@
 MODULE    = winedmo.dll
 UNIXLIB   = winedmo.so
 IMPORTLIB = winedmo
-IMPORTS   = mfuuid
+IMPORTS   = strmbase ole32 oleaut32 msdmo msvcrt user32 mfuuid urlmon
+DELAYIMPORTS = mfplat mf
 UNIX_CFLAGS  = $(FFMPEG_CFLAGS)
-UNIX_LIBS    = $(FFMPEG_LIBS) $(PTHREAD_LIBS)
-PARENTSRC = ../winegstreamer
+UNIX_LIBS    = $(FFMPEG_LIBS) -lswscale -lswresample $(PTHREAD_LIBS)
 EXTRADEFS = -D_WINEDMO
 
 SOURCES = \
+	audio_decoder.c \
+	color_convert.c \
+	libavcodec/pcm_byte_order_reverse_bsf.c \
 	main.c \
 	media-converter/fossilize.c \
-	media-converter/murmur3.c \
 	media-converter/lib.c \
-	libavcodec/pcm_byte_order_reverse_bsf.c \
+	media-converter/murmur3.c \
+	media_sink.c \
+	media_source.c \
+	mfplat.c \
+	quartz_parser.c \
+	quartz_transform.c \
+	resampler.c \
+	rsrc.rc \
 	unix_demuxer.c \
 	unix_demuxer_mediaconv.c \
 	unix_media_type.c \
-	unixlib.c
+	unix_muxer.c \
+	unix_transform.c \
+	unixlib.c \
+	video_decoder.c \
+	video_encoder.c \
+	video_processor.c \
+	winedmo_classes.idl \
+	winedmo_quartz_parser.c \
+	wm_reader.c \
+	wma_decoder.c

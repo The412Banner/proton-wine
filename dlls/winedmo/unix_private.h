@@ -25,11 +25,15 @@
 #ifdef HAVE_FFMPEG
 #include <libavutil/avutil.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
+#include <libavutil/samplefmt.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #ifdef HAVE_LIBAVCODEC_BSF_H
 # include <libavcodec/bsf.h>
 #endif
+#include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 #else
 typedef struct AVFormatContext AVFormatContext;
 typedef struct AVCodecParameters AVCodecParameters;
@@ -46,7 +50,20 @@ extern int mediaconv_demuxer_open( AVFormatContext **ctx, struct stream_context 
 
 /* libavcodec/pcm_byte_order_reverse.c */
 #ifdef HAVE_FFMPEG
-extern const AVBitStreamFilter ff_pcm_byte_order_reverse_bsf;
+#ifndef WINE_FF_BSF_DEFINED
+#define WINE_FF_BSF_DEFINED
+/* WineFFBitStreamFilter mirrors FFmpeg's internal FFBitStreamFilter layout. */
+typedef struct WineFFBitStreamFilter
+{
+    AVBitStreamFilter p;
+    int  priv_data_size;
+    int  (*init)(AVBSFContext *ctx);
+    int  (*filter)(AVBSFContext *ctx, AVPacket *pkt);
+    void (*close)(AVBSFContext *ctx);
+    void (*flush)(AVBSFContext *ctx);
+} WineFFBitStreamFilter;
+#endif /* WINE_FF_BSF_DEFINED */
+extern const WineFFBitStreamFilter ff_pcm_byte_order_reverse_bsf;
 #endif
 
 /* unixlib.c */
@@ -66,3 +83,22 @@ extern NTSTATUS demuxer_stream_type( void * );
 /* unix_media_type.c */
 extern NTSTATUS media_type_from_codec_params( const AVCodecParameters *params, const AVRational *sar, const AVRational *fps,
                                               UINT32 align, struct media_type *media_type );
+
+/* unix_muxer.c */
+extern NTSTATUS muxer_create( void * );
+extern NTSTATUS muxer_destroy( void * );
+extern NTSTATUS muxer_add_stream( void * );
+extern NTSTATUS muxer_start( void * );
+extern NTSTATUS muxer_push_sample( void * );
+extern NTSTATUS muxer_read_data( void * );
+extern NTSTATUS muxer_finalize( void * );
+
+/* unix_transform.c */
+extern NTSTATUS transform_create( void * );
+extern NTSTATUS transform_destroy( void * );
+extern NTSTATUS transform_push_input( void * );
+extern NTSTATUS transform_get_output( void * );
+extern NTSTATUS transform_drain( void * );
+extern NTSTATUS transform_flush( void * );
+extern NTSTATUS transform_get_output_format( void * );
+extern NTSTATUS transform_set_output_format( void * );

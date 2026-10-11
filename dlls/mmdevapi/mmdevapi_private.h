@@ -82,6 +82,7 @@ struct audio_client {
 
     struct list entry;
     char *device_name;
+    unsigned int sony_format_probe_count;
 };
 
 extern HRESULT MMDevEnum_Create(REFIID riid, void **ppv);
@@ -110,6 +111,9 @@ typedef struct MMDevice {
     DWORD state;
     GUID devguid;
     WCHAR *drv_id;
+    BOOL removed;
+    BOOL hide_from_collection;
+    LONG dualsense_mono_activation_serial;
 
     struct list entry;
 } MMDevice;
@@ -128,8 +132,16 @@ extern HRESULT SpatialAudioClient_Create(IMMDevice *device, ISpatialAudioClient 
 extern BOOL get_device_name_from_guid( const GUID *guid, char **name, EDataFlow *flow );
 extern HRESULT load_devices_from_reg(void);
 extern HRESULT load_driver_devices(EDataFlow flow);
+extern BOOL auto_select_sony_audio_mode(IMMDevice *device, AUDCLNT_SHAREMODE mode,
+        const WAVEFORMATEX *format, unsigned int *probe_count);
+extern BOOL sony_windows_audio_mode_selected(void);
+extern BOOL select_sony_audio_mode_for_stream(IMMDevice *device, AUDCLNT_SHAREMODE mode,
+        const WAVEFORMATEX *format);
+extern void death_stranding_controller_endpoint_seen(const WCHAR *id);
+extern BOOL death_stranding_controller_output_hook_active(void);
 
 extern void main_loop_stop(void);
+extern void stop_update_thread(void);
 
 extern const WCHAR drv_keyW[];
 

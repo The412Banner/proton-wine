@@ -1906,12 +1906,13 @@ static void test_streaming(void)
     ok(ret, "Failed to delete file, error %lu.\n", GetLastError());
 }
 
-static void test_large_file(void)
+static void test_mp3_duration(unsigned int blocks, BOOL tagged)
 {
     static const BYTE frame[96] = {0xff, 0xfb, 0x14, 0xc4};
+    static const BYTE id3[2124] = {'I', 'D', '3', 2, 0, 0, 0, 0, 0x10, 0x42};
     IBaseFilter *filter = create_mpeg_splitter();
     static WCHAR path[MAX_PATH];
-    REFERENCE_TIME duration;
+    REFERENCE_TIME duration, stop, earliest, latest;
     IMediaSeeking *seeking;
     IFilterGraph2 *graph;
     unsigned int i;
@@ -1923,14 +1924,18 @@ static void test_large_file(void)
     FILE *f;
 
     GetTempPathW(ARRAY_SIZE(path), path);
-    wcscat(path, L"big_test.mp3");
+    wcscat(path, L"duration_test.mp3");
 
+    /* Constant-bitrate MPEG audio with no Xing/VBRI duration header. Each
+     * block contains 24 seconds at 32 kbit/s and 48 kHz. */
     /* allocate a larger buffer so I/O is faster on the testbot */
     buffer = malloc(1000 * sizeof(frame));
     for (i = 0; i < 1000; ++i)
         memcpy(buffer + i * 96, frame, sizeof(frame));
-    f = _wfopen(path, L"w");
-    for (i = 0; i < 100; ++i)
+    f = _wfopen(path, L"wb");
+    if (tagged)
+        fwrite(id3, sizeof(id3), 1, f);
+    for (i = 0; i < blocks; ++i)
         fwrite(buffer, 1000 * sizeof(frame), 1, f);
     fclose(f);
     free(buffer);
@@ -1942,7 +1947,18 @@ static void test_large_file(void)
     duration = 0xdeadbeef;
     hr = IMediaSeeking_GetDuration(seeking, &duration);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
-    ok(duration == 2400 * 10000000ull, "Got duration %I64d.\n", duration);
+    ok(duration == blocks * 24 * 10000000ull, "Got duration %I64d.\n", duration);
+
+    stop = 0xdeadbeef;
+    hr = IMediaSeeking_GetStopPosition(seeking, &stop);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(stop == duration, "Expected stop %I64d, got %I64d.\n", duration, stop);
+
+    earliest = latest = 0xdeadbeef;
+    hr = IMediaSeeking_GetAvailable(seeking, &earliest, &latest);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(!earliest, "Got earliest %I64d.\n", earliest);
+    ok(latest == duration, "Expected latest %I64d, got %I64d.\n", duration, latest);
 
     IMediaSeeking_Release(seeking);
     IPin_Release(source);
@@ -2108,6 +2124,78 @@ static void test_video_file(void)
     ok(ret, "Failed to delete file, error %lu.\n", GetLastError());
 }
 
+static void test_mpeg_audio_connection(const WCHAR *resource)
+{
+    const WCHAR *filename = load_resource(resource);
+    IBaseFilter *filter = create_mpeg_splitter(), *decoder = NULL;
+    IFilterGraph2 *graph = connect_input(filter, filename);
+    IPin *source = NULL, *sink = NULL;
+    IEnumMediaTypes *enum_types;
+    const MPEG1WAVEFORMAT *format;
+    AM_MEDIA_TYPE *mt;
+    HRESULT hr;
+    BOOL ret;
+
+    winetest_push_context("%s", wine_dbgstr_w(resource));
+
+    hr = IBaseFilter_FindPin(filter, L"Audio", &source);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = IPin_EnumMediaTypes(source, &enum_types);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = IEnumMediaTypes_Next(enum_types, 1, &mt, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    IEnumMediaTypes_Release(enum_types);
+    if (hr != S_OK) goto done;
+
+    ok(IsEqualGUID(&mt->majortype, &MEDIATYPE_Audio), "Unexpected major type %s.\n",
+            wine_dbgstr_guid(&mt->majortype));
+    ok(IsEqualGUID(&mt->subtype, &MEDIASUBTYPE_MPEG1AudioPayload), "Unexpected subtype %s.\n",
+            wine_dbgstr_guid(&mt->subtype));
+    ok(IsEqualGUID(&mt->formattype, &FORMAT_WaveFormatEx), "Unexpected format type %s.\n",
+            wine_dbgstr_guid(&mt->formattype));
+    ok(mt->cbFormat == sizeof(*format), "Got format size %lu.\n", mt->cbFormat);
+    if (mt->cbFormat >= sizeof(*format))
+    {
+        format = (const MPEG1WAVEFORMAT *)mt->pbFormat;
+        ok(format->wfx.wFormatTag == WAVE_FORMAT_MPEG, "Got format tag %#x.\n", format->wfx.wFormatTag);
+        ok(format->wfx.cbSize == sizeof(*format) - sizeof(WAVEFORMATEX),
+                "Got extra size %u.\n", format->wfx.cbSize);
+        ok(format->fwHeadLayer == ACM_MPEG_LAYER2, "Got layer %#x.\n", format->fwHeadLayer);
+    }
+
+    hr = CoCreateInstance(&CLSID_CMpegAudioCodec, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IBaseFilter, (void **)&decoder);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (SUCCEEDED(hr))
+    {
+        hr = IFilterGraph2_AddFilter(graph, decoder, L"MPEG Audio Decoder");
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        hr = IBaseFilter_FindPin(decoder, L"XForm In", &sink);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            hr = IPin_QueryAccept(sink, mt);
+            ok(hr == S_OK, "Decoder rejected the splitter's audio format, hr %#lx.\n", hr);
+            hr = IFilterGraph2_ConnectDirect(graph, source, sink, NULL);
+            ok(hr == S_OK, "Failed to connect MPEG audio, hr %#lx.\n", hr);
+        }
+    }
+    DeleteMediaType(mt);
+
+done:
+    if (sink) IPin_Release(sink);
+    if (source) IPin_Release(source);
+    if (decoder) IBaseFilter_Release(decoder);
+    IFilterGraph2_Release(graph);
+    IBaseFilter_Release(filter);
+    ret = DeleteFileW(filename);
+    ok(ret, "Failed to delete file, error %lu.\n", GetLastError());
+    winetest_pop_context();
+}
+
 static void test_no_acceptable_type(void)
 {
     const WCHAR *filename = load_resource(L"test.wav");
@@ -2220,8 +2308,12 @@ START_TEST(mpegsplit)
     test_connect_pin();
     test_seeking();
     test_streaming();
-    test_large_file();
+    test_mp3_duration(1, FALSE);
+    test_mp3_duration(1, TRUE);
+    test_mp3_duration(100, FALSE);
     test_video_file();
+    test_mpeg_audio_connection(L"test.mpg");
+    test_mpeg_audio_connection(L"test2.mpg");
     test_no_acceptable_type();
     test_video_read_position();
 

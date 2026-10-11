@@ -27,6 +27,7 @@
 #include "ddk/hidsdi.h"
 #include "ddk/hidtypes.h"
 #include "ddk/wdm.h"
+#include "ddk/ntifs.h"
 
 #include "wine/debug.h"
 #include "wine/list.h"
@@ -132,7 +133,79 @@ void hid_queue_destroy( struct hid_queue *queue )
     hid_queue_remove_pending_irps( queue );
     while (queue->length--) hid_report_decref( queue->reports[queue->length] );
     list_remove( &queue->entry );
+    if (queue->takeover_event) CloseHandle( queue->takeover_event );
     free( queue );
+}
+
+/* pdo->lock protects both the consumer list and the fallback event state. */
+static void update_xinput_takeover( struct phys_device *pdo, HANDLE process_id )
+{
+    struct hid_queue *queue;
+    BOOL native = FALSE;
+
+    LIST_FOR_EACH_ENTRY( queue, &pdo->queues, struct hid_queue, entry )
+        if (queue->process_id == process_id && !queue->takeover_event &&
+            !queue->dinput_reader && queue->native_reads >= 2)
+            native = TRUE;
+
+    LIST_FOR_EACH_ENTRY( queue, &pdo->queues, struct hid_queue, entry )
+    {
+        if (queue->process_id != process_id || !queue->takeover_event ||
+                queue->takeover_signalled == native) continue;
+        if (native) SetEvent( queue->takeover_event );
+        else ResetEvent( queue->takeover_event );
+        queue->takeover_signalled = native;
+        TRACE( "Sony native takeover %u for process %p, device %p.\n", native, process_id, pdo );
+    }
+}
+
+static BOOL is_sony_controller( struct phys_device *pdo )
+{
+    HID_COLLECTION_INFORMATION *info = &pdo->information;
+    HIDP_COLLECTION_DESC *desc = pdo->collection_desc;
+
+    return info->VendorID == 0x054c && (info->ProductID == 0x05c4 || info->ProductID == 0x09cc ||
+            info->ProductID == 0x0ce6 || info->ProductID == 0x0df2) &&
+            desc->UsagePage == HID_USAGE_PAGE_GENERIC && desc->Usage == HID_USAGE_GENERIC_GAMEPAD;
+}
+
+static void record_native_read( struct phys_device *pdo, struct hid_queue *queue )
+{
+    if (!queue || queue->takeover_event || queue->dinput_reader ||
+        queue->native_reads >= 2 || !is_sony_controller( pdo )) return;
+    if (++queue->native_reads == 2) update_xinput_takeover( pdo, queue->process_id );
+}
+
+static NTSTATUS register_xinput_fallback( struct phys_device *pdo, IRP *irp )
+{
+    struct hid_xinput_fallback_registration *registration = irp->AssociatedIrp.SystemBuffer;
+    struct hid_queue *queue = irp->Tail.Overlay.OriginalFileObject->FsContext;
+    HANDLE event, process;
+    BOOL ret;
+    KIRQL irql;
+
+    if (!queue || !is_sony_controller( pdo )) return STATUS_NOT_SUPPORTED;
+    if (!(process = OpenProcess( PROCESS_DUP_HANDLE, FALSE,
+                                HandleToUlong( PsGetProcessId( IoGetRequestorProcess( irp ) ) ) )))
+        return STATUS_ACCESS_DENIED;
+    ret = DuplicateHandle( process, ULongToHandle( registration->takeover_event ), GetCurrentProcess(),
+                           &event, EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, 0 );
+    CloseHandle( process );
+    if (!ret) return STATUS_INVALID_HANDLE;
+    if (!ResetEvent( event ))
+    {
+        CloseHandle( event );
+        return STATUS_OBJECT_TYPE_MISMATCH;
+    }
+
+    KeAcquireSpinLock( &pdo->lock, &irql );
+    if (queue->takeover_event) CloseHandle( queue->takeover_event );
+    queue->takeover_event = event;
+    queue->takeover_signalled = FALSE;
+    queue->native_reads = 0;
+    update_xinput_takeover( pdo, queue->process_id );
+    KeReleaseSpinLock( &pdo->lock, irql );
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS hid_queue_resize( struct hid_queue *queue, ULONG length )
@@ -283,6 +356,8 @@ static void hid_device_queue_input( struct phys_device *pdo, HID_XFER_PACKET *pa
             irp->IoStatus.Status = STATUS_SUCCESS;
             hid_report_decref( report );
 
+            record_native_read( pdo, queue );
+
             InsertTailList( &completed, &irp->Tail.Overlay.ListEntry );
         }
         while (polled);
@@ -401,9 +476,24 @@ static const struct device_strings device_strings[] =
     { .id = L"VID_054C&PID_05C4", .product = L"Wireless Controller" },
     { .id = L"VID_054C&PID_09CC", .product = L"Wireless Controller" },
     { .id = L"VID_054C&PID_0BA0", .product = L"Wireless Controller" },
-    { .id = L"VID_054C&PID_0CE6", .product = L"Wireless Controller" },
-    { .id = L"VID_054C&PID_0DF2", .product = L"Wireless Controller" },
+    { .id = L"VID_054C&PID_0CE6", .product = L"DualSense Wireless Controller" },
+    { .id = L"VID_054C&PID_0DF2", .product = L"DualSense Edge Wireless Controller" },
 };
+
+static BOOL use_windows_sony_controller_names(void)
+{
+    static const WCHAR name[] = L"PROTON_SONY_WINDOWS_DEVICE_NAMES";
+    static const WCHAR death_stranding[] = L"PROTON_DEATH_STRANDING_CONTROLLER_EFFECTS";
+    WCHAR value[2];
+    SIZE_T len;
+
+    if (!RtlQueryEnvironmentVariable(NULL, name, ARRAY_SIZE(name) - 1,
+            value, ARRAY_SIZE(value) - 1, &len) && len == 1 && value[0] == '1')
+        return TRUE;
+
+    return !RtlQueryEnvironmentVariable(NULL, death_stranding, ARRAY_SIZE(death_stranding) - 1,
+            value, ARRAY_SIZE(value) - 1, &len) && len == 1 && value[0] == '1';
+}
 
 static const WCHAR *find_device_string( const WCHAR *device_id, ULONG index )
 {
@@ -413,8 +503,16 @@ static const WCHAR *find_device_string( const WCHAR *device_id, ULONG index )
     if (index != HID_STRING_ID_IPRODUCT) return NULL;
 
     for (i = 0; i < ARRAY_SIZE(device_strings); ++i)
+    {
         if (!wcsnicmp( device_strings[i].id, match_id, 17 ))
+        {
+            if (use_windows_sony_controller_names() &&
+                    (!wcsicmp(device_strings[i].id, L"VID_054C&PID_0CE6") ||
+                    !wcsicmp(device_strings[i].id, L"VID_054C&PID_0DF2")))
+                return L"Wireless Controller";
             return device_strings[i].product;
+        }
+    }
 
     return NULL;
 }
@@ -424,17 +522,25 @@ struct completion_params
     HID_XFER_PACKET packet;
     ULONG padding;
     IRP *irp;
+    struct phys_device *input_pdo;
 };
 
 static NTSTATUS CALLBACK xfer_completion( DEVICE_OBJECT *device, IRP *irp, void *context )
 {
     struct completion_params *params = context;
     IRP *orig_irp = params->irp;
+    KIRQL irql;
 
     TRACE( "device %p, irp %p, context %p\n", device, irp, context );
 
     orig_irp->IoStatus = irp->IoStatus;
     orig_irp->IoStatus.Information -= params->padding;
+    if (params->input_pdo && orig_irp->IoStatus.Status == STATUS_SUCCESS && orig_irp->IoStatus.Information)
+    {
+        KeAcquireSpinLock( &params->input_pdo->lock, &irql );
+        record_native_read( params->input_pdo, orig_irp->Tail.Overlay.OriginalFileObject->FsContext );
+        KeReleaseSpinLock( &params->input_pdo->lock, irql );
+    }
     IoCompleteRequest( orig_irp, IO_NO_INCREMENT );
 
     free( params );
@@ -494,6 +600,7 @@ static NTSTATUS hid_device_xfer_report( struct phys_device *pdo, ULONG code, IRP
     params->packet.reportId = report->ReportID;
     params->packet.reportBuffer = buffer + offset;
     params->irp = irp;
+    if (code == IOCTL_HID_GET_INPUT_REPORT) params->input_pdo = pdo;
 
     switch (code)
     {
@@ -665,6 +772,51 @@ NTSTATUS WINAPI pdo_ioctl( DEVICE_OBJECT *device, IRP *irp )
             status = hid_device_xfer_report( pdo, code, irp );
             break;
 
+        case IOCTL_HID_WINE_REGISTER_XINPUT_FALLBACK:
+            if (irpsp->Parameters.DeviceIoControl.InputBufferLength != sizeof(struct hid_xinput_fallback_registration))
+                status = STATUS_INVALID_PARAMETER;
+            else status = register_xinput_fallback( pdo, irp );
+            break;
+
+        case IOCTL_HID_WINE_MARK_DINPUT_READER:
+        {
+            struct hid_queue *queue = irp->Tail.Overlay.OriginalFileObject->FsContext;
+
+            if (irpsp->Parameters.DeviceIoControl.InputBufferLength ||
+                irpsp->Parameters.DeviceIoControl.OutputBufferLength)
+                status = STATUS_INVALID_PARAMETER;
+            else if (!queue || !is_sony_controller( pdo )) status = STATUS_NOT_SUPPORTED;
+            else
+            {
+                /* DirectInput's generic transport is not a native Sony handler. */
+                KeAcquireSpinLock( &pdo->lock, &irql );
+                queue->dinput_reader = TRUE;
+                queue->native_reads = 0;
+                update_xinput_takeover( pdo, queue->process_id );
+                KeReleaseSpinLock( &pdo->lock, irql );
+                status = STATUS_SUCCESS;
+            }
+            break;
+        }
+
+        case IOCTL_HID_WINE_NATIVE_INPUT_ACTIVITY:
+            if (irpsp->Parameters.DeviceIoControl.InputBufferLength != sizeof(BOOL))
+                status = STATUS_INVALID_PARAMETER;
+            else
+            {
+                struct hid_queue *queue = irp->Tail.Overlay.OriginalFileObject->FsContext;
+                KeAcquireSpinLock( &pdo->lock, &irql );
+                if (*(BOOL *)irp->AssociatedIrp.SystemBuffer) record_native_read( pdo, queue );
+                else if (queue)
+                {
+                    queue->native_reads = 0;
+                    update_xinput_takeover( pdo, queue->process_id );
+                }
+                KeReleaseSpinLock( &pdo->lock, irql );
+                status = STATUS_SUCCESS;
+            }
+            break;
+
         case IOCTL_HID_GET_WINE_RAWINPUT_HANDLE:
             if (irpsp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(ULONG))
                 status = STATUS_BUFFER_OVERFLOW;
@@ -730,6 +882,9 @@ NTSTATUS WINAPI pdo_read( DEVICE_OBJECT *device, IRP *irp )
         irp->IoStatus.Status = STATUS_SUCCESS;
         hid_report_decref( report );
 
+        KeAcquireSpinLock( &pdo->lock, &irql );
+        record_native_read( pdo, queue );
+        KeReleaseSpinLock( &pdo->lock, irql );
         IoCompleteRequest( irp, IO_NO_INCREMENT );
         return STATUS_SUCCESS;
     }
@@ -773,6 +928,7 @@ NTSTATUS WINAPI pdo_create( DEVICE_OBJECT *device, IRP *irp )
     if (!(queue = hid_queue_create())) irp->IoStatus.Status = STATUS_NO_MEMORY;
     else
     {
+        queue->process_id = PsGetProcessId( IoGetRequestorProcess( irp ) );
         KeAcquireSpinLock( &pdo->lock, &irql );
         list_add_tail( &pdo->queues, &queue->entry );
         KeReleaseSpinLock( &pdo->lock, irql );
@@ -809,6 +965,8 @@ NTSTATUS WINAPI pdo_close( DEVICE_OBJECT *device, IRP *irp )
     {
         KeAcquireSpinLock( &pdo->lock, &irql );
         list_remove( &queue->entry );
+        list_init( &queue->entry );
+        update_xinput_takeover( pdo, queue->process_id );
         KeReleaseSpinLock( &pdo->lock, irql );
         hid_queue_destroy( queue );
     }
