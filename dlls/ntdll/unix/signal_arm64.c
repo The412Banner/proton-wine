@@ -218,8 +218,9 @@ C_ASSERT( sizeof( struct syscall_frame ) == 0x330 );
 
 /* Preserve all CPSR bits not covered by user context in signal handlers.
  * Additionally, preserve the host SSBS bit, which is allowed to be set on
- * Windows, but is volatile and restored on kernel transition anyway. */
-static const ULONG cpsr_host_mask = ~cpsr_user_mask | 0x1000;
+ * Windows, but is volatile and restored on kernel transition anyway.
+ * WINE_FORCE_SSBS=0 drops the SSBS bit from the preserved host bits. */
+static ULONG cpsr_host_mask = ~cpsr_user_mask | 0x1000;
 
 /***********************************************************************
  *           context_init_empty_xstate
@@ -1557,6 +1558,10 @@ void signal_init_process(void)
     void *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
 
     thread_data->syscall_frame = (struct syscall_frame *)kernel_stack - 1;
+    {
+        const char *env = getenv( "WINE_FORCE_SSBS" );
+        if (env && env[0] == '0') cpsr_host_mask &= ~0x1000;
+    }
 
     signal_alloc_thread( NtCurrentTeb() );
 
