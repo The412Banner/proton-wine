@@ -72,6 +72,7 @@
 #include "wine/debug.h"
 #include "unix_private.h"
 
+#include "esync.h"
 #include "fsync.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(sync);
@@ -542,9 +543,10 @@ struct inproc_sync
     unsigned int   access;    /* handle access rights */
     unsigned short type;      /* enum inproc_sync_type as short to save space */
     unsigned short closed;    /* fd has been closed but sync is still referenced */
+    unsigned int   shm_idx;
 };
 
-#define INPROC_SYNC_CACHE_BLOCK_SIZE  (65536 / sizeof(struct inproc_sync))
+#define INPROC_SYNC_CACHE_BLOCK_SIZE  4096
 #define INPROC_SYNC_CACHE_ENTRIES     128
 
 static struct inproc_sync *inproc_sync_cache[INPROC_SYNC_CACHE_ENTRIES];
@@ -582,7 +584,8 @@ static struct inproc_sync *cache_inproc_sync( HANDLE handle, struct inproc_sync 
         if (!entry) inproc_sync_cache[0] = inproc_sync_cache_initial_block;
         else
         {
-            static const size_t size = INPROC_SYNC_CACHE_BLOCK_SIZE * sizeof(struct inproc_sync);
+            size_t page = sysconf( _SC_PAGESIZE );
+            size_t size = (INPROC_SYNC_CACHE_BLOCK_SIZE * sizeof(struct inproc_sync) + page - 1) & ~(page - 1);
             void *ptr = anon_mmap_alloc( size, PROT_READ | PROT_WRITE );
             if (ptr == MAP_FAILED) return sync;
             inproc_sync_cache[entry] = ptr;
@@ -604,6 +607,7 @@ static struct inproc_sync *cache_inproc_sync( HANDLE handle, struct inproc_sync 
     cache->access = sync->access;
     cache->type = sync->type;
     cache->closed = sync->closed;
+    cache->shm_idx = sync->shm_idx;
     /* Make sure we set the other members before the refcount; this store needs
      * release semantics [paired with the load in get_cached_inproc_sync()].
      * Set the refcount to 2 (one for the handle, one for the caller). */
@@ -633,10 +637,13 @@ static void release_inproc_sync( struct inproc_sync *sync )
     /* save the fd now; as soon as the refcount hits 0 we cannot
      * access the cache anymore */
     int fd = sync->fd;
+    unsigned int shm_idx = sync->shm_idx;
     LONG ref = InterlockedDecrement( &sync->refcount );
 
     assert( ref >= 0 );
-    if (!ref) close( fd );
+    if (ref) return;
+    if (fd >= 0) close( fd );
+    if (shm_idx) esync_release( shm_idx );
 }
 
 static struct inproc_sync *get_cached_inproc_sync( HANDLE handle )
@@ -682,10 +689,19 @@ static NTSTATUS get_server_inproc_sync( HANDLE handle, struct inproc_sync *sync 
             sync->access = reply->access;
             sync->type = reply->type;
             sync->closed = 0;
+            sync->shm_idx = do_esync() ? reply->fsync_shm_idx : 0;
         }
     }
     SERVER_END_REQ;
 
+    if (!ret && do_esync() && (sync->fd < 0 || !sync->shm_idx))
+    {
+        ERR( "droiddeck-esync: cannot receive fd for handle %p, out of file descriptors?\n", handle );
+        if (sync->fd >= 0) close( sync->fd );
+        esync_release( sync->shm_idx );
+        memset( sync, 0, sizeof(*sync) );
+        ret = STATUS_TOO_MANY_OPENED_FILES;
+    }
     return ret;
 }
 
@@ -789,7 +805,8 @@ static NTSTATUS inproc_release_semaphore( HANDLE handle, ULONG count, ULONG *pre
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_SEMAPHORE, SEMAPHORE_MODIFY_STATE, &stack, &sync ))) return ret;
-    ret = linux_release_semaphore_obj( sync->fd, count, prev_count );
+    if (do_esync()) ret = esync_release_semaphore( sync->fd, sync->shm_idx, count, prev_count );
+    else ret = linux_release_semaphore_obj( sync->fd, count, prev_count );
     release_inproc_sync( sync );
     return ret;
 }
@@ -803,7 +820,8 @@ static NTSTATUS inproc_query_semaphore( HANDLE handle, SEMAPHORE_BASIC_INFORMATI
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_SEMAPHORE, SEMAPHORE_QUERY_STATE, &stack, &sync ))) return ret;
-    ret = linux_query_semaphore_obj( sync->fd, info );
+    if (do_esync()) ret = esync_query_semaphore( sync->fd, sync->shm_idx, info );
+    else ret = linux_query_semaphore_obj( sync->fd, info );
     release_inproc_sync( sync );
     return ret;
 }
@@ -817,7 +835,8 @@ static NTSTATUS inproc_set_event( HANDLE handle, LONG *prev_state )
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
-    ret = linux_set_event_obj( sync->fd, prev_state );
+    if (do_esync()) ret = esync_set_event( sync->fd, sync->shm_idx, prev_state );
+    else ret = linux_set_event_obj( sync->fd, prev_state );
     release_inproc_sync( sync );
     return ret;
 }
@@ -831,7 +850,8 @@ static NTSTATUS inproc_reset_event( HANDLE handle, LONG *prev_state )
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
-    ret = linux_reset_event_obj( sync->fd, prev_state );
+    if (do_esync()) ret = esync_reset_event( sync->fd, sync->shm_idx, prev_state );
+    else ret = linux_reset_event_obj( sync->fd, prev_state );
     release_inproc_sync( sync );
     return ret;
 }
@@ -845,7 +865,8 @@ static NTSTATUS inproc_pulse_event( HANDLE handle, LONG *prev_state )
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_MODIFY_STATE, &stack, &sync ))) return ret;
-    ret = linux_pulse_event_obj( sync->fd, prev_state );
+    if (do_esync()) ret = esync_pulse_event( sync->fd, sync->shm_idx, prev_state );
+    else ret = linux_pulse_event_obj( sync->fd, prev_state );
     release_inproc_sync( sync );
     return ret;
 }
@@ -859,7 +880,8 @@ static NTSTATUS inproc_query_event( HANDLE handle, EVENT_BASIC_INFORMATION *info
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_EVENT, EVENT_QUERY_STATE, &stack, &sync ))) return ret;
-    ret = linux_query_event_obj( sync->fd, info );
+    if (do_esync()) ret = esync_query_event( sync->fd, sync->shm_idx, info );
+    else ret = linux_query_event_obj( sync->fd, info );
     release_inproc_sync( sync );
     return ret;
 }
@@ -873,7 +895,8 @@ static NTSTATUS inproc_release_mutex( HANDLE handle, LONG *prev_count )
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_MUTEX, 0, &stack, &sync ))) return ret;
-    ret = linux_release_mutex_obj( sync->fd, prev_count );
+    if (do_esync()) ret = esync_release_mutex( sync->fd, sync->shm_idx, prev_count );
+    else ret = linux_release_mutex_obj( sync->fd, prev_count );
     release_inproc_sync( sync );
     return ret;
 }
@@ -887,7 +910,8 @@ static NTSTATUS inproc_query_mutex( HANDLE handle, MUTANT_BASIC_INFORMATION *inf
 
     if (inproc_device_fd < 0) return STATUS_NOT_IMPLEMENTED;
     if ((ret = get_inproc_sync( handle, INPROC_SYNC_MUTEX, MUTANT_QUERY_STATE, &stack, &sync ))) return ret;
-    ret = linux_query_mutex_obj( sync->fd, info );
+    if (do_esync()) ret = esync_query_mutex( sync->fd, sync->shm_idx, info );
+    else ret = linux_query_mutex_obj( sync->fd, info );
     release_inproc_sync( sync );
     return ret;
 }
@@ -928,6 +952,8 @@ static NTSTATUS inproc_wait( DWORD count, const HANDLE *handles, WAIT_TYPE type,
 {
     struct inproc_sync *syncs[64], stack[ARRAY_SIZE(syncs)];
     int objs[ARRAY_SIZE(syncs)], alert_fd = 0;
+    unsigned int shm_idxs[ARRAY_SIZE(syncs)];
+    unsigned short types[ARRAY_SIZE(syncs)];
     NTSTATUS ret;
 
     if (do_fsync()) return fsync_wait_objects( count, handles, type != WaitAll, alertable, timeout );
@@ -944,6 +970,17 @@ static NTSTATUS inproc_wait( DWORD count, const HANDLE *handles, WAIT_TYPE type,
             return ret;
         }
         objs[i] = syncs[i]->fd;
+        shm_idxs[i] = syncs[i]->shm_idx;
+        types[i] = syncs[i]->type;
+    }
+
+    if (do_esync())
+    {
+        alert_fd = alertable ? get_inproc_alert_fd() : -1;
+        if (alertable && alert_fd < 0) ret = STATUS_TOO_MANY_OPENED_FILES;
+        else ret = esync_wait( count, objs, shm_idxs, types, type, alert_fd, timeout );
+        while (count--) release_inproc_sync( syncs[count] );
+        return ret;
     }
 
     if (alertable) alert_fd = get_inproc_alert_fd();
@@ -968,6 +1005,25 @@ static NTSTATUS inproc_signal_and_wait( HANDLE signal, HANDLE wait,
     if ((ret = check_signal_access( signal_sync ))) goto done;
 
     if ((ret = get_inproc_sync( wait, INPROC_SYNC_UNKNOWN, SYNCHRONIZE, &stack_wait, &wait_sync ))) goto done;
+
+    if (do_esync())
+    {
+        switch (signal_sync->type)
+        {
+        case INPROC_SYNC_EVENT:     ret = esync_set_event( signal_sync->fd, signal_sync->shm_idx, NULL ); break;
+        case INPROC_SYNC_MUTEX:     ret = esync_release_mutex( signal_sync->fd, signal_sync->shm_idx, NULL ); break;
+        case INPROC_SYNC_SEMAPHORE: ret = esync_release_semaphore( signal_sync->fd, signal_sync->shm_idx, 1, NULL ); break;
+        default: assert( 0 ); break;
+        }
+        if (!ret)
+        {
+            alert_fd = alertable ? get_inproc_alert_fd() : -1;
+            if (alertable && alert_fd < 0) ret = STATUS_TOO_MANY_OPENED_FILES;
+            else ret = esync_wait( 1, &wait_sync->fd, &wait_sync->shm_idx, &wait_sync->type, WaitAny, alert_fd, timeout );
+        }
+        release_inproc_sync( wait_sync );
+        goto done;
+    }
 
     switch (signal_sync->type)
     {
@@ -2460,6 +2516,20 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
             NTSTATUS ret = fsync_wait_objects( 0, NULL, TRUE, TRUE, timeout );
             if (ret != STATUS_NOT_IMPLEMENTED)
                 return ret;
+        }
+        else if (do_esync())
+        {
+            int alert_fd = get_inproc_alert_fd();
+
+            if (alert_fd >= 0)
+            {
+                if ((status = esync_wait( 0, NULL, NULL, NULL, WaitAny, alert_fd, timeout )) == STATUS_TIMEOUT)
+                {
+                    NtYieldExecution();
+                    status = STATUS_SUCCESS;
+                }
+                return status;
+            }
         }
         /* Since server_wait will result in an unconditional implicit yield,
            we never return STATUS_NO_YIELD_PERFORMED */
