@@ -2829,6 +2829,7 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 #if defined(__APPLE__) || defined(__linux__)
 
 static BOOL use_eos_syscall_hack;
+static BOOL use_nascar25_hack;
 
 /**********************************************************************
  *		sigsys_handler
@@ -2839,6 +2840,7 @@ static BOOL use_eos_syscall_hack;
 static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 {
     extern const void *__wine_syscall_dispatcher_prolog_end_ptr;
+    static int n25_repaired;
     ucontext_t *ucontext = init_handler( sigcontext );
     struct syscall_frame *frame = get_syscall_frame();
 
@@ -2879,6 +2881,41 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         return;
     }
 #endif
+
+    /* NASCAR 25's protected loader corrupts its VM state before its first direct
+     * NtProtectVirtualMemory syscall under Wine. Restore the known-good state once. */
+    if (use_nascar25_hack && !n25_repaired && RAX_sig(ucontext) == 0x50 &&
+        (*(ULONG64 *)R8_sig(ucontext) >> 48) == 0xf63c &&
+        RIP_sig(ucontext) - *(ULONG64 *)(RSP_sig(ucontext) + 0x60) == 0x66ddf28)
+    {
+        const ULONG64 key0 = 0xf63c941b3c2d1603ULL;
+        const ULONG64 key1 = 0xd400941204241403ULL;
+        const ULONG64 key2 = 0x4400141204000401ULL;
+        const ULONG64 key3 = 0x223c000938090200ULL;
+        ULONG64 image_base = RIP_sig(ucontext) - 0x7373b87;
+
+        *(ULONG64 *)RDX_sig(ucontext) = image_base + 0x1000;
+        *(ULONG64 *)R8_sig(ucontext) ^= key0;
+        *(ULONG64 *)(RBP_sig(ucontext) - 0x11c0) = image_base + 0x1000;
+        *(ULONG64 *)(RBP_sig(ucontext) - 0x1120) ^= key0;
+        *(ULONG64 *)(RBP_sig(ucontext) - 0x1100) ^= key0;
+        *(ULONG64 *)(RBP_sig(ucontext) - 0x08) ^= key3;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0x48) ^= key1;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0x70) ^= key2;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0x78) ^= key2;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0x98) ^= key3;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0xa8) ^= key1;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0xb0) ^= key3;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0xc0) ^= key1;
+        *(ULONG64 *)(RBP_sig(ucontext) + 0xc8) ^= key3;
+        RBX_sig(ucontext) ^= key1;
+        RSI_sig(ucontext) ^= key0;
+        RDI_sig(ucontext) ^= 0x1400100000240001ULL;
+        R13_sig(ucontext) ^= key2;
+        R14_sig(ucontext) ^= key2;
+        R15_sig(ucontext) ^= 0x101000000001ULL;
+        n25_repaired = 1;
+    }
 
     frame->rip = RIP_sig(ucontext) + 0xb;
     frame->rcx = RIP_sig(ucontext);
@@ -3116,6 +3153,7 @@ void signal_init_process(void)
             /* We don't unset the env since child processes also need to inherit the same syscall hack */
             use_eos_syscall_hack = (env = getenv("PROTON_SYSCALL_HACK")) && !strcmp(env, "1");
             if (use_eos_syscall_hack) ERR_(seh)("Using EAC bootstrapper (EOS) syscall workaround!\n");
+            use_nascar25_hack = (env = getenv("SteamGameId")) && !strcmp(env, "3873970");
         }
     }
 #endif

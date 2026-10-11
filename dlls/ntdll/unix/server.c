@@ -1639,6 +1639,31 @@ void process_exit_wrapper( int status )
 }
 
 
+char eac_wine_pid[32] = {0};
+
+void delete_eac_wine_pid(void)
+{
+    if (!eac_wine_pid[0]) return;
+    unlink( eac_wine_pid );
+    eac_wine_pid[0] = 0;
+}
+
+void create_eac_wine_pid( DWORD wine_pid )
+{
+    if (!getenv("EAC_LAUNCHERDIR")) return;
+    if (snprintf( eac_wine_pid, sizeof(eac_wine_pid), "/tmp/eac_wine_pid_%X", getpid() ) != -1)
+    {
+        int fd = open( eac_wine_pid, O_CREAT|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH );
+        if (fd != -1)
+        {
+            write( fd, &wine_pid, sizeof(wine_pid) );
+            close( fd );
+            atexit( delete_eac_wine_pid );
+        }
+    }
+}
+
+
 /***********************************************************************
  *           server_init_process
  *
@@ -1782,6 +1807,8 @@ size_t server_init_process(void)
     }
 
     set_thread_id( NtCurrentTeb(), pid, tid );
+
+    create_eac_wine_pid( pid );
 
     for (i = 0; i < supported_machines_count; i++)
         if (supported_machines[i] == current_machine) return info_size;
