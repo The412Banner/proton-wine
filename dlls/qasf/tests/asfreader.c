@@ -23,6 +23,7 @@
 
 #include <stdbool.h>
 #include "dshow.h"
+#include "dmodshow.h"
 #include "mediaobj.h"
 #include "propsys.h"
 #include "dvdmedia.h"
@@ -30,6 +31,7 @@
 #include "wine/test.h"
 
 #include "initguid.h"
+#include "dmoreg.h"
 #include "wmsdk.h"
 #include "wmcodecdsp.h"
 
@@ -250,7 +252,7 @@ static void check_pin(IPin *pin, IBaseFilter *expect_filter, PIN_DIRECTION expec
         FreeMediaType(mt);
         CoTaskMemFree(mt);
     }
-    todo_wine_if(IsEqualGUID(&expect_mt[0].majortype, &MEDIATYPE_Video))
+    todo_wine
     ok(i == expect_mt_count, "Got %u types.\n", i);
     ok(hr == S_FALSE, "Got hr %#lx.\n", hr);
     IEnumMediaTypes_Release(enum_mt);
@@ -648,6 +650,7 @@ struct test_sink
     HANDLE receive_event;
     BOOL receive_can_block;
     IMemAllocator *allocator;
+    BOOL check_samples;
 };
 
 static inline struct test_sink *impl_from_IMemInputPin(IMemInputPin *iface)
@@ -702,12 +705,26 @@ static HRESULT WINAPI test_mem_input_pin_Receive(IMemInputPin *iface,
         IMediaSample *sample)
 {
     struct test_sink *pin = impl_from_IMemInputPin(iface);
+    REFERENCE_TIME start, stop;
+    HRESULT hr;
 
     pin->receive_tid = GetCurrentThreadId();
-    SetEvent(pin->receive_event);
 
-    todo_wine
-    ok(0, "Unexpected call.\n");
+    if (pin->check_samples)
+    {
+        ok(IMediaSample_GetActualDataLength(sample) > 0, "Got empty sample.\n");
+        hr = IMediaSample_GetTime(sample, &start, &stop);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (hr == S_OK)
+            ok(stop >= start, "Invalid sample times %s, %s.\n",
+                    wine_dbgstr_longlong(start), wine_dbgstr_longlong(stop));
+    }
+    else
+    {
+        todo_wine
+        ok(0, "Unexpected call.\n");
+    }
+    SetEvent(pin->receive_event);
 
     return S_OK;
 }
@@ -716,6 +733,15 @@ static HRESULT WINAPI test_mem_input_pin_ReceiveMultiple(IMemInputPin *iface,
         IMediaSample **samples, LONG count, LONG *processed)
 {
     struct test_sink *pin = impl_from_IMemInputPin(iface);
+    LONG i;
+
+    if (pin->check_samples)
+    {
+        for (i = 0; i < count; ++i)
+            test_mem_input_pin_Receive(iface, samples[i]);
+        *processed = count;
+        return S_OK;
+    }
 
     pin->receive_tid = GetCurrentThreadId();
     SetEvent(pin->receive_event);
@@ -1016,6 +1042,158 @@ static void test_threading(BOOL receive_can_block)
     winetest_pop_context();
 }
 
+static void test_compressed_output(void)
+{
+    static const WCHAR *names[] = {L"Raw Video 0", L"Raw Audio 1"};
+    const GUID *subtypes[] = {&WMMEDIASUBTYPE_WMV1, &MEDIASUBTYPE_MSAUDIO1};
+    const CLSID *decoders[] = {&CLSID_CWMVDecMediaObject, &CLSID_CWMADecMediaObject};
+    const GUID *categories[] = {&DMOCATEGORY_VIDEO_DECODER, &DMOCATEGORY_AUDIO_DECODER};
+    const WCHAR *filename = load_resource(L"test.wmv");
+    IBaseFilter *filter = create_asf_reader(), *decoder;
+    IFileSourceFilter *file_source;
+    struct test_filter test_sink;
+    IDMOWrapperFilter *wrapper;
+    AM_MEDIA_TYPE *mt = NULL;
+    IEnumMediaTypes *types;
+    IFilterGraph2 *graph;
+    IPin *source, *sink;
+    unsigned int i, connected = 0;
+    HRESULT hr;
+    DWORD ret;
+    BOOL found;
+
+    test_filter_init(&test_sink);
+    test_sink.video.check_samples = test_sink.audio.check_samples = TRUE;
+    test_sink.video.receive_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    test_sink.audio.receive_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ok(!!test_sink.video.receive_event && !!test_sink.audio.receive_event, "Failed to create events.\n");
+
+    hr = IBaseFilter_QueryInterface(filter, &IID_IFileSourceFilter, (void **)&file_source);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IFileSourceFilter_Load(file_source, filename, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    IFileSourceFilter_Release(file_source);
+    if (FAILED(hr))
+        goto done;
+
+    hr = CoCreateInstance(&CLSID_FilterGraph, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IFilterGraph2, (void **)&graph);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    IFilterGraph2_AddFilter(graph, filter, NULL);
+
+    for (i = 0; i < ARRAY_SIZE(names); ++i)
+    {
+        winetest_push_context("stream %u", i);
+        hr = IBaseFilter_FindPin(filter, names[i], &source);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (FAILED(hr))
+        {
+            winetest_pop_context();
+            continue;
+        }
+        hr = IPin_EnumMediaTypes(source, &types);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (FAILED(hr))
+        {
+            IPin_Release(source);
+            winetest_pop_context();
+            continue;
+        }
+        found = FALSE;
+        while (IEnumMediaTypes_Next(types, 1, &mt, NULL) == S_OK)
+        {
+            if (IsEqualGUID(&mt->subtype, subtypes[i]))
+            {
+                found = TRUE;
+                break;
+            }
+            DeleteMediaType(mt);
+        }
+        IEnumMediaTypes_Release(types);
+        ok(found, "Compressed media type was not enumerated.\n");
+        if (!found)
+        {
+            IPin_Release(source);
+            winetest_pop_context();
+            continue;
+        }
+
+        hr = IPin_QueryAccept(source, mt);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        hr = CoCreateInstance(&CLSID_DMOWrapperFilter, NULL, CLSCTX_INPROC_SERVER,
+                &IID_IBaseFilter, (void **)&decoder);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (FAILED(hr))
+        {
+            DeleteMediaType(mt);
+            IPin_Release(source);
+            winetest_pop_context();
+            continue;
+        }
+        hr = IBaseFilter_QueryInterface(decoder, &IID_IDMOWrapperFilter, (void **)&wrapper);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            hr = IDMOWrapperFilter_Init(wrapper, decoders[i], categories[i]);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+            IDMOWrapperFilter_Release(wrapper);
+        }
+        if (SUCCEEDED(hr))
+        {
+            IFilterGraph2_AddFilter(graph, decoder, NULL);
+            hr = IBaseFilter_FindPin(decoder, L"in0", &sink);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+            if (SUCCEEDED(hr))
+            {
+                hr = IFilterGraph2_ConnectDirect(graph, source, sink, NULL);
+                ok(hr == S_OK, "Could not negotiate compressed decoder input, hr %#lx.\n", hr);
+                IPin_Disconnect(source);
+                IPin_Disconnect(sink);
+                IPin_Release(sink);
+            }
+            IFilterGraph2_RemoveFilter(graph, decoder);
+        }
+        IBaseFilter_Release(decoder);
+
+        sink = i ? &test_sink.audio.sink.pin.IPin_iface : &test_sink.video.sink.pin.IPin_iface;
+        hr = IPin_Connect(source, sink, mt);
+        ok(hr == S_OK, "Could not connect compressed sink, hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+            ++connected;
+        DeleteMediaType(mt);
+        IPin_Release(source);
+        winetest_pop_context();
+    }
+
+    if (connected == ARRAY_SIZE(names))
+    {
+        hr = IBaseFilter_Run(filter, 0);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            ret = WaitForSingleObject(test_sink.video.receive_event, 5000);
+            ok(ret == WAIT_OBJECT_0, "No compressed video sample, ret %#lx.\n", ret);
+            ret = WaitForSingleObject(test_sink.audio.receive_event, 5000);
+            ok(ret == WAIT_OBJECT_0, "No compressed audio sample, ret %#lx.\n", ret);
+        }
+        hr = IBaseFilter_Stop(filter);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    }
+    IPin_Disconnect(&test_sink.video.sink.pin.IPin_iface);
+    IPin_Disconnect(&test_sink.audio.sink.pin.IPin_iface);
+    IFilterGraph2_Release(graph);
+
+done:
+    IBaseFilter_Release(filter);
+    if (test_sink.video.allocator) IMemAllocator_Release(test_sink.video.allocator);
+    if (test_sink.audio.allocator) IMemAllocator_Release(test_sink.audio.allocator);
+    CloseHandle(test_sink.video.receive_event);
+    CloseHandle(test_sink.audio.receive_event);
+    IBaseFilter_Release(&test_sink.filter.IBaseFilter_iface);
+}
+
 START_TEST(asfreader)
 {
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
@@ -1024,6 +1202,7 @@ START_TEST(asfreader)
     test_aggregation();
     test_filesourcefilter();
     test_filter_state();
+    test_compressed_output();
     test_threading(FALSE);
     test_threading(TRUE);
 

@@ -180,3 +180,10 @@ coclass CMpegAudioCodec {}
     uuid(feb50740-7bef-11ce-9bd9-0000e202599c)
 ]
 coclass CMpegVideoCodec {}
+
+[
+    helpstring("Color Space Converter"),
+    threading(both),
+    uuid(1643e180-90f5-11ce-97d5-00aa0055595a)
+]
+coclass Colour {}

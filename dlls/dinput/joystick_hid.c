@@ -1067,6 +1067,27 @@ static void hid_joystick_destroy( IDirectInputDevice8W *iface )
     CloseHandle( impl->device );
 }
 
+static BOOL sony_auto_xinput_available( struct hid_joystick *impl )
+{
+    BOOL (WINAPI *is_fallback)( const WCHAR * );
+    BOOL available = FALSE;
+    HMODULE module;
+    WCHAR option[2];
+
+    if (impl->attrs.VendorID != 0x054c ||
+        (impl->attrs.ProductID != 0x05c4 && impl->attrs.ProductID != 0x09cc &&
+         impl->attrs.ProductID != 0x0ce6 && impl->attrs.ProductID != 0x0df2)) return FALSE;
+    if (GetEnvironmentVariableW( L"PROTON_SONY_AUTO_XINPUT", option, ARRAY_SIZE(option) ) != 1 ||
+        option[0] != '1') return FALSE;
+
+    /* Ask the slot owner so Steam Input and per-device native takeover retain priority. */
+    if (!(module = LoadLibraryExW( L"xinput1_3.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32 ))) return FALSE;
+    if ((is_fallback = (void *)GetProcAddress( module, "__wine_XInputIsSonyFallback" )))
+        available = is_fallback( impl->device_path );
+    FreeLibrary( module );
+    return available;
+}
+
 static HRESULT hid_joystick_get_property( IDirectInputDevice8W *iface, DWORD property,
                                           DIPROPHEADER *header, const DIDEVICEOBJECTINSTANCEW *instance )
 {
@@ -1089,8 +1110,27 @@ static HRESULT hid_joystick_get_property( IDirectInputDevice8W *iface, DWORD pro
     case (DWORD_PTR)DIPROP_VIDPID:
     {
         DIPROPDWORD *value = (DIPROPDWORD *)header;
+        WCHAR option[2];
+
         if (!impl->attrs.VendorID || !impl->attrs.ProductID) return DIERR_UNSUPPORTED;
         value->dwData = MAKELONG( impl->attrs.VendorID, impl->attrs.ProductID );
+
+        /* Some games choose their XInput handler using DirectInput's VID/PID. */
+        if (impl->attrs.VendorID == 0x054c &&
+            (impl->attrs.ProductID == 0x05c4 || impl->attrs.ProductID == 0x09cc ||
+             impl->attrs.ProductID == 0x0ce6 || impl->attrs.ProductID == 0x0df2) &&
+            (wcsstr( impl->device_path, L"&IG_" ) || wcsstr( impl->device_path, L"&ig_" )) &&
+            GetEnvironmentVariableW( L"PROTON_SONY_HIDRAW_XINPUT", option, ARRAY_SIZE(option) ) == 1 &&
+            option[0] == '1')
+        {
+            value->dwData = MAKELONG( 0x045e, 0x028e );
+            TRACE( "Reporting forced Sony XInput companion %s as Xbox 360.\n", debugstr_w(impl->device_path) );
+        }
+        else if (sony_auto_xinput_available( impl ))
+        {
+            value->dwData = MAKELONG( 0x045e, 0x028e );
+            TRACE( "Reporting automatic Sony XInput fallback %s as Xbox 360.\n", debugstr_w(impl->device_path) );
+        }
         return DI_OK;
     }
     case (DWORD_PTR)DIPROP_JOYSTICKID:
@@ -1194,6 +1234,20 @@ static HRESULT hid_joystick_acquire( IDirectInputDevice8W *iface )
         impl->device = CreateFileW( impl->device_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                     NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING, 0 );
         if (impl->device == INVALID_HANDLE_VALUE) return DIERR_UNPLUGGED;
+    }
+
+    if (impl->attrs.VendorID == 0x054c)
+    {
+        OVERLAPPED ovl = {.hEvent = impl->base.read_event};
+        DWORD count;
+
+        /* Mark before the first read: acquired devices read continuously even
+         * when the game intends to use XInput instead of DirectInput. */
+        ret = DeviceIoControl( impl->device, IOCTL_HID_WINE_MARK_DINPUT_READER,
+                               NULL, 0, NULL, 0, &count, &ovl );
+        if (!ret && GetLastError() == ERROR_IO_PENDING)
+            ret = GetOverlappedResult( impl->device, &ovl, &count, TRUE );
+        if (ret) TRACE( "Registered DirectInput transport reader for %s.\n", debugstr_w(impl->device_path) );
     }
 
     memset( &impl->read_ovl, 0, sizeof(impl->read_ovl) );

@@ -41,6 +41,10 @@ struct device_desc
     UINT bus_type;
     BOOL is_gamepad;
     BOOL is_hidraw;
+    BOOL spoof_dualshock4;
+    BOOL spoof_dualshock4_v1;
+    BOOL spoof_dualsense;
+    BOOL use_xbox_identity;
 
     WCHAR manufacturer[MAX_PATH];
     WCHAR product[MAX_PATH];
@@ -187,6 +191,11 @@ static inline BOOL is_xbox_gamepad(WORD vid, WORD pid)
     if (pid == 0x0b13) return TRUE; /* Xbox Series Wireless */
     if (pid == 0x0719) return TRUE; /* Xbox 360 Wireless Adapter */
     return FALSE;
+}
+
+static inline BOOL is_vitapad_gamepad(WORD vid, WORD pid)
+{
+    return vid == 0x054c && pid == 0x1337;
 }
 
 static inline BOOL is_dualshock4_gamepad(WORD vid, WORD pid)

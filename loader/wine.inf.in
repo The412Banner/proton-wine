@@ -621,6 +621,7 @@ HKLM,Software\Microsoft\DFS,,16
 HKLM,Software\Microsoft\Driver Signing,,16
 HKLM,Software\Microsoft\EnterpriseCertificates,,16
 HKLM,Software\Microsoft\EventSystem,,16
+HKLM,Software\Intel\Realistic Sound Experience\2.0,"Device Type",2,"wave"
 HKLM,Software\Microsoft\MediaPlayer,"Installation DirectoryLFN",2,"%16422%\Windows Media Player"
 HKLM,Software\Microsoft\MediaPlayer\PlayerUpgrade,"PlayerVersion",2,"12,0,7601,18840"
 HKLM,Software\Microsoft\MSMQ,,16
@@ -988,6 +989,7 @@ HKLM,SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86,"Version",2,"14.42.344
 
 [RegisterDllsSection]
 ;;some dlls have to be registered first
+;; GE: keep DirectShow filter registration refreshed for bundled media filters.
 11,,shell32.dll,1
 11,,quartz.dll,1
 
@@ -1010,10 +1012,11 @@ HKLM,SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86,"Version",2,"14.42.344
 11,,qcap.dll,1
 11,,qedit.dll,1
 11,,resampledmo.dll,1
+11,,rsx.dll,1
 11,,urlmon.dll,1
 11,,vidreszr.dll,1
 11,,windowscodecs.dll,1
-11,,winegstreamer.dll,1
+11,,winedmo.dll,1
 11,,wineopenxr.dll,1
 55,,wineps.drv,1
 11,,winevulkan.dll,1

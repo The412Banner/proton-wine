@@ -1623,6 +1623,92 @@ static void test_connect_pin(void)
     ok(!ref, "Got outstanding refcount %ld.\n", ref);
 }
 
+static void test_connect_rgb24(void)
+{
+    VIDEOINFOHEADER vih =
+    {
+        .bmiHeader.biSize = sizeof(BITMAPINFOHEADER),
+        .bmiHeader.biWidth = 32,
+        .bmiHeader.biHeight = 16,
+        .bmiHeader.biPlanes = 1,
+        .bmiHeader.biBitCount = 24,
+        .bmiHeader.biCompression = BI_RGB,
+        .bmiHeader.biSizeImage = 32 * 16 * 3,
+    };
+    AM_MEDIA_TYPE req_mt =
+    {
+        .majortype = MEDIATYPE_Video,
+        .subtype = MEDIASUBTYPE_RGB24,
+        .formattype = FORMAT_VideoInfo,
+        .cbFormat = sizeof(vih),
+        .pbFormat = (BYTE *)&vih,
+    };
+    ALLOCATOR_PROPERTIES req_props = {1, 32 * 16 * 3, 1, 0}, ret_props;
+    IBaseFilter *filter = create_vmr7(VMRMode_Windowed);
+    IFilterGraph2 *graph = create_graph();
+    struct testfilter source;
+    IMemAllocator *allocator;
+    IMediaControl *control;
+    OAFilterState state;
+    IMemInputPin *input;
+    HANDLE thread;
+    IPin *pin;
+    HRESULT hr;
+    ULONG ref;
+
+    testfilter_init(&source);
+    IFilterGraph2_AddFilter(graph, &source.filter.IBaseFilter_iface, NULL);
+    IFilterGraph2_AddFilter(graph, filter, NULL);
+    IFilterGraph2_QueryInterface(graph, &IID_IMediaControl, (void **)&control);
+    IBaseFilter_FindPin(filter, L"VMR Input0", &pin);
+
+    /* The default presenter does not allocate RGB24 surfaces, but the VMR
+     * accepts and renders RGB24 input. */
+    hr = IFilterGraph2_ConnectDirect(graph, &source.source.pin.IPin_iface, pin, &req_mt);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (hr != S_OK)
+        goto out;
+
+    IPin_QueryInterface(pin, &IID_IMemInputPin, (void **)&input);
+    if (IMemInputPin_GetAllocator(input, &allocator) != S_OK)
+    {
+        /* Wine's VMR7 has no allocator of its own. */
+        CoCreateInstance(&CLSID_MemoryAllocator, NULL, CLSCTX_INPROC_SERVER,
+                &IID_IMemAllocator, (void **)&allocator);
+        hr = IMemInputPin_NotifyAllocator(input, allocator, TRUE);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    }
+    hr = IMemAllocator_SetProperties(allocator, &req_props, &ret_props);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IMemAllocator_Commit(allocator);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    IMemAllocator_Release(allocator);
+
+    hr = IMediaControl_Pause(control);
+    ok(SUCCEEDED(hr), "Got hr %#lx.\n", hr);
+    thread = send_frame(input);
+    hr = IMediaControl_GetState(control, 1000, &state);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IMediaControl_Stop(control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = join_thread(thread);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    IMemInputPin_Release(input);
+    IFilterGraph2_Disconnect(graph, pin);
+    IFilterGraph2_Disconnect(graph, &source.source.pin.IPin_iface);
+
+out:
+    IPin_Release(pin);
+    IMediaControl_Release(control);
+    ref = IFilterGraph2_Release(graph);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    ref = IBaseFilter_Release(filter);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    ref = IBaseFilter_Release(&source.filter.IBaseFilter_iface);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+}
+
 static void test_overlay(void)
 {
     IBaseFilter *filter = create_vmr7(0);
@@ -3143,6 +3229,126 @@ out:
     DestroyWindow(window);
 }
 
+static void test_windowless_connection(BOOL late_window)
+{
+    ALLOCATOR_PROPERTIES req_props = {1, 32 * 16 * 4, 1, 0}, ret_props;
+    VIDEOINFOHEADER vih =
+    {
+        .bmiHeader.biSize = sizeof(BITMAPINFOHEADER),
+        .bmiHeader.biWidth = 32,
+        .bmiHeader.biHeight = 16,
+        .bmiHeader.biBitCount = 32,
+        .bmiHeader.biPlanes = 1,
+    };
+    AM_MEDIA_TYPE mt =
+    {
+        .majortype = MEDIATYPE_Video,
+        .subtype = MEDIASUBTYPE_RGB32,
+        .formattype = FORMAT_VideoInfo,
+        .cbFormat = sizeof(vih),
+        .pbFormat = (BYTE *)&vih,
+    };
+    IBaseFilter *filter = create_vmr7(VMRMode_Windowless);
+    IVMRWindowlessControl *windowless_control;
+    IFilterGraph2 *graph = create_graph();
+    IMemAllocator *allocator = NULL;
+    struct testfilter source;
+    IMediaControl *control;
+    IMemInputPin *input;
+    HWND window, other;
+    HRESULT hr;
+    ULONG ref;
+    RECT rect;
+    IPin *pin;
+
+    winetest_push_context("Late clipping window %u", late_window);
+    IBaseFilter_QueryInterface(filter, &IID_IVMRWindowlessControl, (void **)&windowless_control);
+    IBaseFilter_FindPin(filter, L"VMR Input0", &pin);
+    IPin_QueryInterface(pin, &IID_IMemInputPin, (void **)&input);
+    IFilterGraph2_QueryInterface(graph, &IID_IMediaControl, (void **)&control);
+    testfilter_init(&source);
+    IFilterGraph2_AddFilter(graph, &source.filter.IBaseFilter_iface, L"source");
+    IFilterGraph2_AddFilter(graph, filter, L"vmr7");
+    window = CreateWindowA("static", "quartz_test", WS_OVERLAPPEDWINDOW, 0, 0, 640, 480, 0, 0, 0, 0);
+    other = CreateWindowA("static", "quartz_test", WS_OVERLAPPEDWINDOW, 0, 0, 640, 480, 0, 0, 0, 0);
+
+    if (!late_window)
+    {
+        hr = IVMRWindowlessControl_SetVideoClippingWindow(windowless_control, window);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    }
+
+    hr = IFilterGraph2_ConnectDirect(graph, &source.source.pin.IPin_iface, pin, &mt);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto out;
+
+    /* SHUFFLE! supplies its first window only after connecting the graph. */
+    hr = IVMRWindowlessControl_SetVideoClippingWindow(windowless_control, window);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto out;
+
+    hr = IMemInputPin_GetAllocator(input, &allocator);
+    todo_wine ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+    {
+        test_allocator(input);
+        hr = IMemInputPin_GetAllocator(input, &allocator);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (FAILED(hr))
+            goto out;
+    }
+    hr = IMemAllocator_SetProperties(allocator, &req_props, &ret_props);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto out;
+    hr = IMemAllocator_Commit(allocator);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto out;
+
+    GetClientRect(window, &rect);
+    hr = IVMRWindowlessControl_SetVideoPosition(windowless_control, NULL, &rect);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = IMediaControl_Run(control);
+    ok(SUCCEEDED(hr), "Got hr %#lx.\n", hr);
+    hr = join_thread(send_frame(input));
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IVMRWindowlessControl_SetVideoClippingWindow(windowless_control, NULL);
+    ok(hr == E_INVALIDARG, "Got hr %#lx.\n", hr);
+    hr = join_thread(send_frame(input));
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = IVMRWindowlessControl_SetVideoClippingWindow(windowless_control, other);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = join_thread(send_frame(input));
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+out:
+    hr = IMediaControl_Stop(control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (allocator)
+    {
+        IMemAllocator_Decommit(allocator);
+        IMemAllocator_Release(allocator);
+    }
+    IMediaControl_Release(control);
+    ref = IFilterGraph2_Release(graph);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    IMemInputPin_Release(input);
+    IPin_Release(pin);
+    IVMRWindowlessControl_Release(windowless_control);
+    ref = IBaseFilter_Release(filter);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    ref = IBaseFilter_Release(&source.filter.IBaseFilter_iface);
+    ok(!ref, "Got outstanding refcount %ld.\n", ref);
+    DestroyWindow(other);
+    DestroyWindow(window);
+    winetest_pop_context();
+}
+
 static void test_unconnected_eos(void)
 {
     IFilterGraph2 *graph = create_graph();
@@ -4028,10 +4234,13 @@ START_TEST(vmr7)
     test_enum_media_types();
     test_unconnected_filter_state();
     test_connect_pin();
+    test_connect_rgb24();
     test_overlay();
     test_video_window();
     test_basic_video();
     test_windowless_size();
+    test_windowless_connection(FALSE);
+    test_windowless_connection(TRUE);
     test_unconnected_eos();
     test_default_presenter_allocate();
     test_default_presenter_window();

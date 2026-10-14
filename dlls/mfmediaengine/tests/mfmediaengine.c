@@ -2979,6 +2979,78 @@ done:
     IMFByteStream_Release(stream);
 }
 
+static void test_looped_playback(void)
+{
+    struct test_seek_notify *notify = create_seek_notify();
+    IMFMediaEngineEx *media_engine = NULL;
+    IMFByteStream *stream = NULL;
+    LONGLONG pts, last_pts = -1;
+    unsigned int loops = 0;
+    DWORD start, res;
+    HRESULT hr;
+    BSTR url = NULL;
+
+    hr = create_media_engine(&notify->IMFMediaEngineNotify_iface, NULL, FALSE, DXGI_FORMAT_B8G8R8X8_UNORM,
+            &IID_IMFMediaEngineEx, (void **)&media_engine);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    stream = load_resource(L"i420-64x64.avi", L"video/avi");
+    url = SysAllocString(L"i420-64x64.avi");
+    hr = IMFMediaEngineEx_SetLoop(media_engine, TRUE);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = IMFMediaEngineEx_SetSourceFromByteStream(media_engine, stream, url);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = IMFMediaEngineEx_Play(media_engine);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    res = WaitForSingleObject(notify->playing_event, 5000);
+    ok(res == WAIT_OBJECT_0, "Waiting for playback returned %#lx.\n", res);
+    if (res != WAIT_OBJECT_0 || FAILED(notify->error)) goto done;
+
+    /* Consuming the final samples must allow replay to start after the sink drains. */
+    start = GetTickCount();
+    while (loops < 2 && GetTickCount() - start < 5000)
+    {
+        hr = IMFMediaEngineEx_OnVideoStreamTick(media_engine, &pts);
+        ok(hr == S_OK || hr == S_FALSE, "Unexpected tick hr %#lx.\n", hr);
+        if (FAILED(hr)) break;
+        if (hr == S_OK)
+        {
+            if (last_pts >= 0 && pts < last_pts) ++loops;
+            last_pts = pts;
+        }
+        Sleep(1);
+    }
+    ok(loops == 2, "Video did not restart twice, observed %u loops.\n", loops);
+    ok(!IMFMediaEngineEx_IsEnded(media_engine), "Looping playback reported ended.\n");
+
+    /* Turning looping off must let the current iteration complete normally. */
+    hr = IMFMediaEngineEx_SetLoop(media_engine, FALSE);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    start = GetTickCount();
+    while (!IMFMediaEngineEx_IsEnded(media_engine) && GetTickCount() - start < 5000)
+    {
+        hr = IMFMediaEngineEx_OnVideoStreamTick(media_engine, &pts);
+        ok(hr == S_OK || hr == S_FALSE, "Unexpected tick hr %#lx.\n", hr);
+        if (FAILED(hr)) break;
+        Sleep(1);
+    }
+    ok(IMFMediaEngineEx_IsEnded(media_engine), "Playback did not end after disabling looping.\n");
+
+done:
+    if (media_engine)
+    {
+        hr = IMFMediaEngineEx_Shutdown(media_engine);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        IMFMediaEngineEx_Release(media_engine);
+    }
+    if (stream) IMFByteStream_Release(stream);
+    SysFreeString(url);
+    IMFMediaEngineNotify_Release(&notify->IMFMediaEngineNotify_iface);
+}
+
 START_TEST(mfmediaengine)
 {
     HRESULT hr;
@@ -3027,6 +3099,7 @@ START_TEST(mfmediaengine)
     test_GetSeekable(TRUE);
     test_media_extension();
     test_SetCurrentTime();
+    test_looped_playback();
 
     IMFMediaEngineClassFactory_Release(factory);
 

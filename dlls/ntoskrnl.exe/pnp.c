@@ -484,6 +484,24 @@ static void enumerate_new_device( DEVICE_OBJECT *device, HDEVINFO set, DEVICE_OB
     start_device( device, set, &sp_device );
 }
 
+/* Drop pending bus relation updates for a device that is going away. The queue holds bare
+ * pointers, so an update left behind would be handled after the driver deleted the device. */
+static void forget_invalidated_device( DEVICE_OBJECT *device )
+{
+    size_t i, j;
+
+    EnterCriticalSection( &invalidated_devices_cs );
+    for (i = j = 0; i < invalidated_devices_count; ++i)
+    {
+        if (invalidated_devices[i] != device)
+            invalidated_devices[j++] = invalidated_devices[i];
+    }
+    if (j != invalidated_devices_count)
+        TRACE( "Dropping %Iu pending relation updates for device %p.\n", invalidated_devices_count - j, device );
+    invalidated_devices_count = j;
+    LeaveCriticalSection( &invalidated_devices_cs );
+}
+
 static void send_remove_device_irp( DEVICE_OBJECT *device, UCHAR code )
 {
     struct wine_device *wine_device = CONTAINING_RECORD(device, struct wine_device, device_obj);
@@ -498,6 +516,11 @@ static void send_remove_device_irp( DEVICE_OBJECT *device, UCHAR code )
     }
 
     send_pnp_irp( device, code );
+
+    /* The driver may have deleted the device, and may have queued updates for it while removing it.
+     * Only the pointer value is compared from here on. */
+    if (code == IRP_MN_REMOVE_DEVICE)
+        forget_invalidated_device( device );
 }
 
 static void remove_device( DEVICE_OBJECT *device )

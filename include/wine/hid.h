@@ -242,5 +242,14 @@ struct hid_preparsed_data
 #define MAX_PID_AXES                               6
 
 #define IOCTL_HID_GET_WINE_RAWINPUT_HANDLE         HID_BUFFER_CTL_CODE(300)
+#define IOCTL_HID_WINE_REGISTER_XINPUT_FALLBACK    HID_BUFFER_CTL_CODE(301)
+#define IOCTL_HID_WINE_NATIVE_INPUT_ACTIVITY       HID_BUFFER_CTL_CODE(302)
+#define IOCTL_HID_WINE_MARK_DINPUT_READER          HID_BUFFER_CTL_CODE(303)
+
+/* Fixed-width handle for WOW64 callers. The driver duplicates the event. */
+struct hid_xinput_fallback_registration
+{
+    ULONGLONG takeover_event;
+};
 
 #endif /* __WINE_PARSE_H */
