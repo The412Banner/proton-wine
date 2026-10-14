@@ -1866,16 +1866,22 @@ static HRESULT WINAPI media_engine_GetBuffered(IMFMediaEngineEx *iface, IMFMedia
 static HRESULT WINAPI media_engine_Load(IMFMediaEngineEx *iface)
 {
     struct media_engine *engine = impl_from_IMFMediaEngineEx(iface);
-    HRESULT hr = E_NOTIMPL;
+    BOOL autoplay = FALSE;
+    HRESULT hr = S_OK;
 
-    FIXME("(%p): stub.\n", iface);
+    TRACE("(%p).\n", iface);
 
     EnterCriticalSection(&engine->cs);
 
     if (engine->flags & FLAGS_ENGINE_SHUT_DOWN)
         hr = MF_E_SHUTDOWN;
+    else
+        autoplay = !!(engine->flags & FLAGS_ENGINE_AUTO_PLAY);
 
     LeaveCriticalSection(&engine->cs);
+
+    if (autoplay)
+        hr = IMFMediaEngineEx_Play(iface);
 
     return hr;
 }
@@ -3159,6 +3165,21 @@ static HRESULT WINAPI media_engine_GetStreamAttribute(IMFMediaEngineEx *iface, D
                 stream_index, &selected, &sd)))
         {
             hr = IMFStreamDescriptor_GetItem(sd, attribute, value);
+            if (hr == MF_E_ATTRIBUTENOTFOUND)
+            {
+                IMFMediaTypeHandler *handler;
+                IMFMediaType *media_type;
+
+                if (SUCCEEDED(hr = IMFStreamDescriptor_GetMediaTypeHandler(sd, &handler)))
+                {
+                    if (SUCCEEDED(hr = IMFMediaTypeHandler_GetCurrentMediaType(handler, &media_type)))
+                    {
+                        hr = IMFMediaType_GetItem(media_type, attribute, value);
+                        IMFMediaType_Release(media_type);
+                    }
+                    IMFMediaTypeHandler_Release(handler);
+                }
+            }
             IMFStreamDescriptor_Release(sd);
         }
     }
@@ -3169,9 +3190,37 @@ static HRESULT WINAPI media_engine_GetStreamAttribute(IMFMediaEngineEx *iface, D
 
 static HRESULT WINAPI media_engine_GetStreamSelection(IMFMediaEngineEx *iface, DWORD stream_index, BOOL *enabled)
 {
-    FIXME("%p, %ld, %p stub.\n", iface, stream_index, enabled);
+    struct media_engine *engine = impl_from_IMFMediaEngineEx(iface);
+    IMFStreamDescriptor *sd;
+    BOOL selected = FALSE;
+    HRESULT hr = E_FAIL;
 
-    return E_NOTIMPL;
+    TRACE("%p, %lu, %p.\n", iface, stream_index, enabled);
+
+    if (!enabled)
+        return E_POINTER;
+
+    *enabled = FALSE;
+
+    EnterCriticalSection(&engine->cs);
+    if (engine->flags & FLAGS_ENGINE_SHUT_DOWN)
+        hr = MF_E_SHUTDOWN;
+    else if (engine->presentation.pd)
+    {
+        hr = IMFPresentationDescriptor_GetStreamDescriptorByIndex(engine->presentation.pd,
+                stream_index, &selected, &sd);
+        if (SUCCEEDED(hr))
+        {
+            *enabled = selected;
+            IMFStreamDescriptor_Release(sd);
+        }
+    }
+    if (isinf(engine->duration))
+        WARN("Live stream selection: stream %lu, selected %u, hr %#lx.\n",
+                stream_index, *enabled, hr);
+    LeaveCriticalSection(&engine->cs);
+
+    return hr;
 }
 
 static HRESULT WINAPI media_engine_SetStreamSelection(IMFMediaEngineEx *iface, DWORD stream_index, BOOL enabled)

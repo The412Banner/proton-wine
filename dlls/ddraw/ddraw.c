@@ -1586,6 +1586,15 @@ static HRESULT WINAPI ddraw7_GetCaps(IDirectDraw7 *iface, DDCAPS *DriverCaps, DD
     caps.dwCaps |= DDCAPS_ALIGNSTRIDE;
     caps.dwAlignStrideAlign = DDRAW_STRIDE_ALIGNMENT;
 
+    /* One emulated overlay, drawn over its destination when that is
+     * presented. Some games (e.g. CRI Sofdec movie players) only play their
+     * movies through a YUY2 overlay and check this cap first. */
+    caps.dwCaps |= DDCAPS_OVERLAY | DDCAPS_OVERLAYFOURCC | DDCAPS_OVERLAYSTRETCH;
+    caps.ddsCaps.dwCaps |= DDSCAPS_OVERLAY;
+    caps.dwMaxVisibleOverlays = 1;
+    caps.dwMinOverlayStretch = 1;
+    caps.dwMaxOverlayStretch = 20000;
+
     caps.ddsOldCaps.dwCaps = caps.ddsCaps.dwCaps;
 
     if(DriverCaps)

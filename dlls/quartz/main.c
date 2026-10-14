@@ -95,6 +95,7 @@ static const struct object_creation_info object_creation[] =
     { &CLSID_AviSplitter, avi_splitter_create },
     { &CLSID_CMpegAudioCodec, mpeg_audio_codec_create },
     { &CLSID_CMpegVideoCodec, mpeg_video_codec_create },
+    { &CLSID_Colour, colour_create },
     { &CLSID_DSoundRender, dsound_render_create },
     { &CLSID_FilterGraph, filter_graph_create },
     { &CLSID_FilterGraphNoThread, filter_graph_no_thread_create },
@@ -395,6 +396,27 @@ HRESULT WINAPI DllRegisterServer(void)
         .rgPins2 = mpeg_splitter_pins,
     };
 
+    static const REGPINTYPES colour_types[] =
+    {
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB32},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB24},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB565},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB555},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB8},
+    };
+    static const REGFILTERPINS2 colour_pins[] =
+    {
+        {.nMediaTypes = ARRAY_SIZE(colour_types), .lpMediaType = colour_types},
+        {.dwFlags = REG_PINFLAG_B_OUTPUT, .nMediaTypes = ARRAY_SIZE(colour_types), .lpMediaType = colour_types},
+    };
+    static const REGFILTER2 colour_reg =
+    {
+        .dwVersion = 2,
+        .dwMerit = MERIT_UNLIKELY,
+        .cPins2 = ARRAY_SIZE(colour_pins),
+        .rgPins2 = colour_pins,
+    };
+
     static const REGPINTYPES avi_splitter_inputs[] =
     {
         {&MEDIATYPE_Stream, &MEDIASUBTYPE_Avi},
@@ -557,6 +579,9 @@ HRESULT WINAPI DllRegisterServer(void)
     if (FAILED(hr = IFilterMapper2_RegisterFilter(mapper, &CLSID_CMpegVideoCodec, L"MPEG Video Decoder", NULL,
             NULL, NULL, &mpeg_video_codec_reg)))
         goto done;
+    if (FAILED(hr = IFilterMapper2_RegisterFilter(mapper, &CLSID_Colour, L"Color Space Converter", NULL,
+            &CLSID_LegacyAmFilterCategory, NULL, &colour_reg)))
+        goto done;
 
 done:
     IFilterMapper2_Release(mapper);
@@ -598,6 +623,8 @@ HRESULT WINAPI DllUnregisterServer(void)
     if (FAILED(hr = IFilterMapper2_UnregisterFilter(mapper, NULL, NULL, &CLSID_CMpegAudioCodec)))
         goto done;
     if (FAILED(hr = IFilterMapper2_UnregisterFilter(mapper, NULL, NULL, &CLSID_CMpegVideoCodec)))
+        goto done;
+    if (FAILED(hr = IFilterMapper2_UnregisterFilter(mapper, &CLSID_LegacyAmFilterCategory, NULL, &CLSID_Colour)))
         goto done;
 
 done:

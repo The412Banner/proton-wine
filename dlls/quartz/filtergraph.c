@@ -147,6 +147,7 @@ struct filter_graph
     int HandleEcComplete;
     int HandleEcRepaint;
     int HandleEcClockChanged;
+    int HandleEcWindowDestroyed;
     unsigned int media_events_disabled : 1;
 
     CRITICAL_SECTION cs;
@@ -534,22 +535,35 @@ static ULONG WINAPI FilterGraph2_Release(IFilterGraph2 *iface)
     return IUnknown_Release(graph->outer_unk);
 }
 
-static IBaseFilter *find_filter_by_name(struct filter_graph *graph, const WCHAR *name)
+static IBaseFilter *find_filter_by_exact_name(struct filter_graph *graph, const WCHAR *name)
 {
     struct filter *filter;
-
-    /* King of Fighters XIII requests the WMV decoder filter by name to
-     * connect it to a Sample Grabber filter, return our custom decoder
-     * filter instance instead.
-     */
-    if (!wcscmp(name, L"WMVideo Decoder DMO"))
-        name = L"Reader";
 
     LIST_FOR_EACH_ENTRY(filter, &graph->filters, struct filter, entry)
     {
         if (!wcscmp(filter->name, name))
             return filter->filter;
     }
+
+    return NULL;
+}
+
+static IBaseFilter *find_filter_by_name(struct filter_graph *graph, const WCHAR *name)
+{
+    IBaseFilter *filter;
+
+    if ((filter = find_filter_by_exact_name(graph, name)))
+        return filter;
+
+    /* King of Fighters XIII requests the WMV decoder filter by name to
+     * connect it to a Sample Grabber filter. When the file is rendered
+     * through the WM ASF Reader there is no separate decoder, return the
+     * reader instead, it outputs decoded video. A graph with a real
+     * "WMVideo Decoder DMO" (async reader + ASF splitter + DMO wrapper)
+     * must return that filter, not the file source also named "Reader".
+     */
+    if (!wcscmp(name, L"WMVideo Decoder DMO"))
+        return find_filter_by_exact_name(graph, L"Reader");
 
     return NULL;
 }
@@ -655,7 +669,7 @@ static HRESULT WINAPI FilterGraph2_AddFilter(IFilterGraph2 *iface,
         return E_OUTOFMEMORY;
     }
 
-    if (name && find_filter_by_name(graph, name))
+    if (name && find_filter_by_exact_name(graph, name))
         duplicate_name = TRUE;
 
     if (!name || duplicate_name)
@@ -669,7 +683,7 @@ static HRESULT WINAPI FilterGraph2_AddFilter(IFilterGraph2 *iface,
 
             graph->name_index = (graph->name_index + 1) % 10000;
 
-            if (!find_filter_by_name(graph, entry->name))
+            if (!find_filter_by_exact_name(graph, entry->name))
                 break;
         }
 
@@ -2053,7 +2067,7 @@ static void CALLBACK wait_pause_cb(TP_CALLBACK_INSTANCE *instance, void *context
     OAFilterState state;
     HRESULT hr;
 
-    if ((hr = IMediaControl_GetState(control, INFINITE, &state)) != S_OK)
+    if ((hr = IMediaControl_GetState(control, 100, &state)) != S_OK && hr != VFW_S_STATE_INTERMEDIATE)
         ERR("Failed to get paused state, hr %#lx.\n", hr);
 
     if (FAILED(hr = IMediaControl_Stop(control)))
@@ -2538,14 +2552,26 @@ static HRESULT WINAPI MediaSeeking_GetPositions(IMediaSeeking *iface,
     return hr;
 }
 
-static HRESULT WINAPI MediaSeeking_GetAvailable(IMediaSeeking *iface, LONGLONG *pEarliest,
-        LONGLONG *pLatest)
+static HRESULT WINAPI MediaSeeking_GetAvailable(IMediaSeeking *iface, LONGLONG *earliest,
+        LONGLONG *latest)
 {
-    struct filter_graph *This = impl_from_IMediaSeeking(iface);
+    struct filter_graph *graph = impl_from_IMediaSeeking(iface);
+    LONGLONG duration;
+    HRESULT hr;
 
-    FIXME("(%p/%p)->(%p, %p): stub !!!\n", This, iface, pEarliest, pLatest);
+    TRACE("graph %p, earliest %p, latest %p.\n", graph, earliest, latest);
 
-    return S_OK;
+    if (!earliest && !latest)
+        return E_POINTER;
+
+    /* The whole file is available: games seek to "earliest" to restart. */
+    hr = IMediaSeeking_GetDuration(iface, &duration);
+    if (earliest)
+        *earliest = 0;
+    if (latest)
+        *latest = SUCCEEDED(hr) ? duration : 0;
+
+    return hr;
 }
 
 static HRESULT WINAPI MediaSeeking_SetRate(IMediaSeeking *iface, double dRate)
@@ -5229,6 +5255,8 @@ static HRESULT WINAPI MediaEvent_CancelDefaultHandling(IMediaEventEx *iface, LON
 	This->HandleEcRepaint = FALSE;
     else if (lEvCode == EC_CLOCK_CHANGED)
         This->HandleEcClockChanged = FALSE;
+    else if (lEvCode == EC_WINDOW_DESTROYED)
+        This->HandleEcWindowDestroyed = FALSE;
     else
 	return S_FALSE;
 
@@ -5247,6 +5275,8 @@ static HRESULT WINAPI MediaEvent_RestoreDefaultHandling(IMediaEventEx *iface, LO
 	This->HandleEcRepaint = TRUE;
     else if (lEvCode == EC_CLOCK_CHANGED)
         This->HandleEcClockChanged = TRUE;
+    else if (lEvCode == EC_WINDOW_DESTROYED)
+        This->HandleEcWindowDestroyed = TRUE;
     else
 	return S_FALSE;
 
@@ -5722,6 +5752,11 @@ static HRESULT WINAPI MediaEventSink_Notify(IMediaEventSink *iface, LONG code,
     {
         FIXME("EC_REPAINT is not handled.\n");
     }
+    else if (code == EC_WINDOW_DESTROYED && graph->HandleEcWindowDestroyed)
+    {
+        /* Resource-manager notification, not an application event. */
+        TRACE("Renderer %p left the graph.\n", (void *)param1);
+    }
     else if (!graph->media_events_disabled)
     {
         queue_media_event(graph, code, param1, param2);
@@ -6043,6 +6078,7 @@ static HRESULT filter_graph_common_create(IUnknown *outer, IUnknown **out, BOOL 
     object->HandleEcClockChanged = TRUE;
     object->HandleEcComplete = TRUE;
     object->HandleEcRepaint = TRUE;
+    object->HandleEcWindowDestroyed = TRUE;
     object->hEventCompletion = CreateEventW(0, TRUE, FALSE, 0);
 
     object->name_index = 1;

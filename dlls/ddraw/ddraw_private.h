@@ -107,6 +107,10 @@ struct ddraw
 
     struct ddraw_surface *primary;
     RECT primary_lock;
+    /* The visible overlay, composited over its destination when the
+     * destination is presented. */
+    struct ddraw_surface *overlay, *overlay_dst;
+    RECT overlay_src_rect, overlay_dst_rect;
     struct wined3d_texture *gdi_surface;
     struct wined3d_swapchain *wined3d_swapchain;
     struct wined3d_swapchain_state_parent state_parent;

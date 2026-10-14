@@ -580,9 +580,6 @@ static HRESULT asf_reader_cleanup_stream(struct strmbase_filter *iface)
 
     TRACE("iface %p\n", iface);
 
-    if (FAILED(hr = asf_reader_stop_stream(filter)))
-        WARN("Failed to stop WMReader %p, hr %#lx\n", filter->reader, hr);
-
     for (i = 0; i < filter->stream_count; ++i)
     {
         struct asf_stream *stream = filter->streams + i;
@@ -596,6 +593,9 @@ static HRESULT asf_reader_cleanup_stream(struct strmbase_filter *iface)
             break;
         }
     }
+
+    if (FAILED(hr = asf_reader_stop_stream(filter)))
+        WARN("Failed to stop WMReader %p, hr %#lx\n", filter->reader, hr);
 
     return hr;
 }

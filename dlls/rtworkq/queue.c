@@ -455,6 +455,7 @@ static void CALLBACK serial_queue_finalization_callback(PTP_CALLBACK_INSTANCE in
     LeaveCriticalSection(&queue->cs);
 
     IUnknown_Release(&item->IUnknown_iface);
+    IUnknown_Release(&item->IUnknown_iface);
 }
 
 static HRESULT serial_queue_init(const struct queue_desc *desc, struct queue *queue)

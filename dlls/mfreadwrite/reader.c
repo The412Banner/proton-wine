@@ -580,7 +580,7 @@ static HRESULT WINAPI source_reader_source_events_callback_Invoke(IMFAsyncCallba
     source = (IMFMediaSource *)IMFAsyncResult_GetStateNoAddRef(result);
 
     if (FAILED(hr = IMFMediaSource_EndGetEvent(source, result, &event)))
-        return hr;
+        return hr == MF_E_SHUTDOWN ? S_OK : hr;
 
     IMFMediaEvent_GetType(event, &event_type);
 
@@ -613,13 +613,21 @@ static HRESULT WINAPI source_reader_source_events_callback_Invoke(IMFAsyncCallba
             ;
     }
 
-    if (FAILED(hr))
+    if (hr == MF_E_SHUTDOWN)
+        TRACE("Ignoring late event %lu from shutdown media source %p.\n", event_type, source);
+    else if (FAILED(hr))
         WARN("Failed while handling %ld event, hr %#lx.\n", event_type, hr);
 
     IMFMediaEvent_Release(event);
 
-    if (event_type != MESourceStopped)
-        IMFMediaSource_BeginGetEvent(source, iface, (IUnknown *)source);
+    if (event_type != MESourceStopped && hr != MF_E_SHUTDOWN)
+    {
+        HRESULT begin_hr;
+
+        if (FAILED(begin_hr = IMFMediaSource_BeginGetEvent(source, iface, (IUnknown *)source))
+                && begin_hr != MF_E_SHUTDOWN)
+            WARN("Failed to subscribe to source events, hr %#lx.\n", begin_hr);
+    }
 
     return S_OK;
 }
@@ -1152,7 +1160,7 @@ static HRESULT WINAPI source_reader_stream_events_callback_Invoke(IMFAsyncCallba
     stream = (IMFMediaStream *)IMFAsyncResult_GetStateNoAddRef(result);
 
     if (FAILED(hr = IMFMediaStream_EndGetEvent(stream, result, &event)))
-        return hr;
+        return hr == MF_E_SHUTDOWN ? S_OK : hr;
 
     IMFMediaEvent_GetType(event, &event_type);
 
@@ -1174,13 +1182,21 @@ static HRESULT WINAPI source_reader_stream_events_callback_Invoke(IMFAsyncCallba
             ;
     }
 
-    if (FAILED(hr))
+    if (hr == MF_E_SHUTDOWN)
+        TRACE("Ignoring late event %lu from shutdown stream %p.\n", event_type, stream);
+    else if (FAILED(hr))
         WARN("Failed while handling %ld event, hr %#lx.\n", event_type, hr);
 
     IMFMediaEvent_Release(event);
 
-    if (event_type != MEStreamStopped)
-        IMFMediaStream_BeginGetEvent(stream, iface, (IUnknown *)stream);
+    if (event_type != MEStreamStopped && hr != MF_E_SHUTDOWN)
+    {
+        HRESULT begin_hr;
+
+        if (FAILED(begin_hr = IMFMediaStream_BeginGetEvent(stream, iface, (IUnknown *)stream))
+                && begin_hr != MF_E_SHUTDOWN)
+            WARN("Failed to subscribe to stream events, hr %#lx.\n", begin_hr);
+    }
 
     return S_OK;
 }
