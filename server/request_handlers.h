@@ -97,6 +97,7 @@ DECL_HANDLER(create_key);
 DECL_HANDLER(open_key);
 DECL_HANDLER(delete_key);
 DECL_HANDLER(flush_key);
+DECL_HANDLER(flush_key_done);
 DECL_HANDLER(enum_key);
 DECL_HANDLER(set_key_value);
 DECL_HANDLER(get_key_value);
@@ -129,6 +130,7 @@ DECL_HANDLER(get_process_idle_event);
 DECL_HANDLER(send_message);
 DECL_HANDLER(post_quit_message);
 DECL_HANDLER(send_hardware_message);
+DECL_HANDLER(track_mouse_from_pointer);
 DECL_HANDLER(get_message);
 DECL_HANDLER(reply_message);
 DECL_HANDLER(accept_hardware_message);
@@ -161,6 +163,7 @@ DECL_HANDLER(get_window_parents);
 DECL_HANDLER(get_window_list);
 DECL_HANDLER(get_class_windows);
 DECL_HANDLER(get_window_children_from_point);
+DECL_HANDLER(get_window_from_point);
 DECL_HANDLER(get_window_tree);
 DECL_HANDLER(set_window_pos);
 DECL_HANDLER(get_window_rectangles);
@@ -190,13 +193,15 @@ DECL_HANDLER(open_input_desktop);
 DECL_HANDLER(set_input_desktop);
 DECL_HANDLER(close_desktop);
 DECL_HANDLER(get_thread_desktop);
+DECL_HANDLER(get_thread_layout);
+DECL_HANDLER(set_thread_layout);
 DECL_HANDLER(set_thread_desktop);
 DECL_HANDLER(set_user_object_info);
 DECL_HANDLER(register_hotkey);
 DECL_HANDLER(unregister_hotkey);
 DECL_HANDLER(attach_thread_input);
 DECL_HANDLER(get_thread_input);
-DECL_HANDLER(get_last_input_time);
+DECL_HANDLER(set_user_input_time);
 DECL_HANDLER(get_key_state);
 DECL_HANDLER(set_key_state);
 DECL_HANDLER(set_foreground_window);
@@ -249,6 +254,7 @@ DECL_HANDLER(set_mailslot_info);
 DECL_HANDLER(create_directory);
 DECL_HANDLER(open_directory);
 DECL_HANDLER(get_directory_entries);
+DECL_HANDLER(query_directory_file);
 DECL_HANDLER(create_symlink);
 DECL_HANDLER(open_symlink);
 DECL_HANDLER(query_symlink);
@@ -313,6 +319,13 @@ DECL_HANDLER(d3dkmt_share_objects);
 DECL_HANDLER(d3dkmt_object_open_name);
 DECL_HANDLER(d3dkmt_mutex_acquire);
 DECL_HANDLER(d3dkmt_mutex_release);
+DECL_HANDLER(fsync_free_shm_idx);
+DECL_HANDLER(hwnd_list_dmabuf_frames);
+DECL_HANDLER(hwnd_dmabuf_set_pending);
+DECL_HANDLER(hwnd_dmabuf_get_channel);
+DECL_HANDLER(hwnd_dmabuf_get_channel_exclusive);
+DECL_HANDLER(hwnd_dmabuf_claim_channel);
+DECL_HANDLER(hwnd_dmabuf_release_channel);
 
 typedef void (*req_handler)( const void *req, void *reply );
 static const req_handler req_handlers[REQ_NB_REQUESTS] =
@@ -407,6 +420,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_open_key,
     (req_handler)req_delete_key,
     (req_handler)req_flush_key,
+    (req_handler)req_flush_key_done,
     (req_handler)req_enum_key,
     (req_handler)req_set_key_value,
     (req_handler)req_get_key_value,
@@ -439,6 +453,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_send_message,
     (req_handler)req_post_quit_message,
     (req_handler)req_send_hardware_message,
+    (req_handler)req_track_mouse_from_pointer,
     (req_handler)req_get_message,
     (req_handler)req_reply_message,
     (req_handler)req_accept_hardware_message,
@@ -471,6 +486,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_get_window_list,
     (req_handler)req_get_class_windows,
     (req_handler)req_get_window_children_from_point,
+    (req_handler)req_get_window_from_point,
     (req_handler)req_get_window_tree,
     (req_handler)req_set_window_pos,
     (req_handler)req_get_window_rectangles,
@@ -500,13 +516,15 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_set_input_desktop,
     (req_handler)req_close_desktop,
     (req_handler)req_get_thread_desktop,
+    (req_handler)req_get_thread_layout,
+    (req_handler)req_set_thread_layout,
     (req_handler)req_set_thread_desktop,
     (req_handler)req_set_user_object_info,
     (req_handler)req_register_hotkey,
     (req_handler)req_unregister_hotkey,
     (req_handler)req_attach_thread_input,
     (req_handler)req_get_thread_input,
-    (req_handler)req_get_last_input_time,
+    (req_handler)req_set_user_input_time,
     (req_handler)req_get_key_state,
     (req_handler)req_set_key_state,
     (req_handler)req_set_foreground_window,
@@ -559,6 +577,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_create_directory,
     (req_handler)req_open_directory,
     (req_handler)req_get_directory_entries,
+    (req_handler)req_query_directory_file,
     (req_handler)req_create_symlink,
     (req_handler)req_open_symlink,
     (req_handler)req_query_symlink,
@@ -623,6 +642,13 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_d3dkmt_object_open_name,
     (req_handler)req_d3dkmt_mutex_acquire,
     (req_handler)req_d3dkmt_mutex_release,
+    (req_handler)req_fsync_free_shm_idx,
+    (req_handler)req_hwnd_list_dmabuf_frames,
+    (req_handler)req_hwnd_dmabuf_set_pending,
+    (req_handler)req_hwnd_dmabuf_get_channel,
+    (req_handler)req_hwnd_dmabuf_get_channel_exclusive,
+    (req_handler)req_hwnd_dmabuf_claim_channel,
+    (req_handler)req_hwnd_dmabuf_release_channel,
 };
 
 C_ASSERT( sizeof(abstime_t) == 8 );
@@ -648,7 +674,7 @@ C_ASSERT( sizeof(struct context_data) == 1720 );
 C_ASSERT( sizeof(struct cursor_pos) == 24 );
 C_ASSERT( sizeof(struct filesystem_event) == 12 );
 C_ASSERT( sizeof(struct generic_map) == 16 );
-C_ASSERT( sizeof(struct handle_info) == 20 );
+C_ASSERT( sizeof(struct handle_info) == 32 );
 C_ASSERT( sizeof(struct luid) == 8 );
 C_ASSERT( sizeof(struct luid_attr) == 12 );
 C_ASSERT( sizeof(struct obj_locator) == 16 );
@@ -702,6 +728,7 @@ C_ASSERT( offsetof(struct new_thread_request, process) == 12 );
 C_ASSERT( offsetof(struct new_thread_request, access) == 16 );
 C_ASSERT( offsetof(struct new_thread_request, flags) == 20 );
 C_ASSERT( offsetof(struct new_thread_request, request_fd) == 24 );
+C_ASSERT( offsetof(struct new_thread_request, is_system) == 28 );
 C_ASSERT( sizeof(struct new_thread_request) == 32 );
 C_ASSERT( offsetof(struct new_thread_reply, tid) == 8 );
 C_ASSERT( offsetof(struct new_thread_reply, handle) == 12 );
@@ -712,7 +739,8 @@ C_ASSERT( offsetof(struct get_startup_info_reply, machine) == 12 );
 C_ASSERT( sizeof(struct get_startup_info_reply) == 16 );
 C_ASSERT( offsetof(struct init_process_done_request, teb) == 16 );
 C_ASSERT( offsetof(struct init_process_done_request, peb) == 24 );
-C_ASSERT( sizeof(struct init_process_done_request) == 32 );
+C_ASSERT( offsetof(struct init_process_done_request, ldt_copy) == 32 );
+C_ASSERT( sizeof(struct init_process_done_request) == 40 );
 C_ASSERT( offsetof(struct init_process_done_reply, suspend) == 8 );
 C_ASSERT( sizeof(struct init_process_done_reply) == 16 );
 C_ASSERT( offsetof(struct init_first_thread_request, unix_pid) == 12 );
@@ -822,8 +850,10 @@ C_ASSERT( offsetof(struct set_thread_info_request, disable_boost) == 52 );
 C_ASSERT( offsetof(struct set_thread_info_request, mask) == 56 );
 C_ASSERT( sizeof(struct set_thread_info_request) == 64 );
 C_ASSERT( offsetof(struct suspend_thread_request, handle) == 12 );
-C_ASSERT( sizeof(struct suspend_thread_request) == 16 );
+C_ASSERT( offsetof(struct suspend_thread_request, waited_handle) == 16 );
+C_ASSERT( sizeof(struct suspend_thread_request) == 24 );
 C_ASSERT( offsetof(struct suspend_thread_reply, count) == 8 );
+C_ASSERT( offsetof(struct suspend_thread_reply, wait_handle) == 12 );
 C_ASSERT( sizeof(struct suspend_thread_reply) == 16 );
 C_ASSERT( offsetof(struct resume_thread_request, handle) == 12 );
 C_ASSERT( sizeof(struct resume_thread_request) == 16 );
@@ -1203,6 +1233,13 @@ C_ASSERT( offsetof(struct delete_key_request, hkey) == 12 );
 C_ASSERT( sizeof(struct delete_key_request) == 16 );
 C_ASSERT( offsetof(struct flush_key_request, hkey) == 12 );
 C_ASSERT( sizeof(struct flush_key_request) == 16 );
+C_ASSERT( offsetof(struct flush_key_reply, timestamp_counter) == 8 );
+C_ASSERT( offsetof(struct flush_key_reply, total) == 16 );
+C_ASSERT( offsetof(struct flush_key_reply, branch_count) == 20 );
+C_ASSERT( sizeof(struct flush_key_reply) == 24 );
+C_ASSERT( offsetof(struct flush_key_done_request, timestamp_counter) == 16 );
+C_ASSERT( offsetof(struct flush_key_done_request, branch) == 24 );
+C_ASSERT( sizeof(struct flush_key_done_request) == 32 );
 C_ASSERT( offsetof(struct enum_key_request, hkey) == 12 );
 C_ASSERT( offsetof(struct enum_key_request, index) == 16 );
 C_ASSERT( offsetof(struct enum_key_request, info_class) == 20 );
@@ -1242,8 +1279,9 @@ C_ASSERT( offsetof(struct unload_registry_request, parent) == 12 );
 C_ASSERT( offsetof(struct unload_registry_request, attributes) == 16 );
 C_ASSERT( sizeof(struct unload_registry_request) == 24 );
 C_ASSERT( offsetof(struct save_registry_request, hkey) == 12 );
-C_ASSERT( offsetof(struct save_registry_request, file) == 16 );
-C_ASSERT( sizeof(struct save_registry_request) == 24 );
+C_ASSERT( sizeof(struct save_registry_request) == 16 );
+C_ASSERT( offsetof(struct save_registry_reply, total) == 8 );
+C_ASSERT( sizeof(struct save_registry_reply) == 16 );
 C_ASSERT( offsetof(struct set_registry_notification_request, hkey) == 12 );
 C_ASSERT( offsetof(struct set_registry_notification_request, event) == 16 );
 C_ASSERT( offsetof(struct set_registry_notification_request, subtree) == 20 );
@@ -1360,6 +1398,12 @@ C_ASSERT( offsetof(struct send_hardware_message_reply, prev_y) == 16 );
 C_ASSERT( offsetof(struct send_hardware_message_reply, new_x) == 20 );
 C_ASSERT( offsetof(struct send_hardware_message_reply, new_y) == 24 );
 C_ASSERT( sizeof(struct send_hardware_message_reply) == 32 );
+C_ASSERT( offsetof(struct track_mouse_from_pointer_request, win) == 12 );
+C_ASSERT( offsetof(struct track_mouse_from_pointer_request, msg) == 16 );
+C_ASSERT( offsetof(struct track_mouse_from_pointer_request, pointer_id) == 20 );
+C_ASSERT( sizeof(struct track_mouse_from_pointer_request) == 24 );
+C_ASSERT( offsetof(struct track_mouse_from_pointer_reply, cursor_pos_updated) == 8 );
+C_ASSERT( sizeof(struct track_mouse_from_pointer_reply) == 16 );
 C_ASSERT( offsetof(struct get_message_request, flags) == 12 );
 C_ASSERT( offsetof(struct get_message_request, get_win) == 16 );
 C_ASSERT( offsetof(struct get_message_request, get_first) == 20 );
@@ -1554,6 +1598,14 @@ C_ASSERT( offsetof(struct get_window_children_from_point_request, dpi) == 24 );
 C_ASSERT( sizeof(struct get_window_children_from_point_request) == 32 );
 C_ASSERT( offsetof(struct get_window_children_from_point_reply, count) == 8 );
 C_ASSERT( sizeof(struct get_window_children_from_point_reply) == 16 );
+C_ASSERT( offsetof(struct get_window_from_point_request, parent) == 12 );
+C_ASSERT( offsetof(struct get_window_from_point_request, x) == 16 );
+C_ASSERT( offsetof(struct get_window_from_point_request, y) == 20 );
+C_ASSERT( offsetof(struct get_window_from_point_request, dpi) == 24 );
+C_ASSERT( sizeof(struct get_window_from_point_request) == 32 );
+C_ASSERT( offsetof(struct get_window_from_point_reply, handle) == 8 );
+C_ASSERT( offsetof(struct get_window_from_point_reply, style) == 12 );
+C_ASSERT( sizeof(struct get_window_from_point_reply) == 16 );
 C_ASSERT( offsetof(struct get_window_tree_request, handle) == 12 );
 C_ASSERT( sizeof(struct get_window_tree_request) == 16 );
 C_ASSERT( offsetof(struct get_window_tree_reply, parent) == 8 );
@@ -1583,7 +1635,8 @@ C_ASSERT( offsetof(struct get_window_rectangles_request, dpi) == 20 );
 C_ASSERT( sizeof(struct get_window_rectangles_request) == 24 );
 C_ASSERT( offsetof(struct get_window_rectangles_reply, window) == 8 );
 C_ASSERT( offsetof(struct get_window_rectangles_reply, client) == 24 );
-C_ASSERT( sizeof(struct get_window_rectangles_reply) == 40 );
+C_ASSERT( offsetof(struct get_window_rectangles_reply, style) == 40 );
+C_ASSERT( sizeof(struct get_window_rectangles_reply) == 48 );
 C_ASSERT( offsetof(struct get_window_text_request, handle) == 12 );
 C_ASSERT( sizeof(struct get_window_text_request) == 16 );
 C_ASSERT( offsetof(struct get_window_text_reply, length) == 8 );
@@ -1705,6 +1758,13 @@ C_ASSERT( sizeof(struct get_thread_desktop_request) == 16 );
 C_ASSERT( offsetof(struct get_thread_desktop_reply, locator) == 8 );
 C_ASSERT( offsetof(struct get_thread_desktop_reply, handle) == 24 );
 C_ASSERT( sizeof(struct get_thread_desktop_reply) == 32 );
+C_ASSERT( offsetof(struct get_thread_layout_request, tid) == 12 );
+C_ASSERT( sizeof(struct get_thread_layout_request) == 16 );
+C_ASSERT( offsetof(struct get_thread_layout_reply, layout) == 8 );
+C_ASSERT( sizeof(struct get_thread_layout_reply) == 16 );
+C_ASSERT( offsetof(struct set_thread_layout_request, tid) == 12 );
+C_ASSERT( offsetof(struct set_thread_layout_request, layout) == 16 );
+C_ASSERT( sizeof(struct set_thread_layout_request) == 24 );
 C_ASSERT( offsetof(struct set_thread_desktop_request, handle) == 12 );
 C_ASSERT( sizeof(struct set_thread_desktop_request) == 16 );
 C_ASSERT( offsetof(struct set_thread_desktop_reply, locator) == 8 );
@@ -1712,7 +1772,8 @@ C_ASSERT( sizeof(struct set_thread_desktop_reply) == 24 );
 C_ASSERT( offsetof(struct set_user_object_info_request, handle) == 12 );
 C_ASSERT( offsetof(struct set_user_object_info_request, flags) == 16 );
 C_ASSERT( offsetof(struct set_user_object_info_request, obj_flags) == 20 );
-C_ASSERT( sizeof(struct set_user_object_info_request) == 24 );
+C_ASSERT( offsetof(struct set_user_object_info_request, close_timeout) == 24 );
+C_ASSERT( sizeof(struct set_user_object_info_request) == 32 );
 C_ASSERT( offsetof(struct set_user_object_info_reply, is_desktop) == 8 );
 C_ASSERT( offsetof(struct set_user_object_info_reply, old_obj_flags) == 12 );
 C_ASSERT( sizeof(struct set_user_object_info_reply) == 16 );
@@ -1739,9 +1800,10 @@ C_ASSERT( offsetof(struct get_thread_input_request, tid) == 12 );
 C_ASSERT( sizeof(struct get_thread_input_request) == 16 );
 C_ASSERT( offsetof(struct get_thread_input_reply, locator) == 8 );
 C_ASSERT( sizeof(struct get_thread_input_reply) == 24 );
-C_ASSERT( sizeof(struct get_last_input_time_request) == 16 );
-C_ASSERT( offsetof(struct get_last_input_time_reply, time) == 8 );
-C_ASSERT( sizeof(struct get_last_input_time_reply) == 16 );
+C_ASSERT( offsetof(struct set_user_input_time_request, set) == 12 );
+C_ASSERT( sizeof(struct set_user_input_time_request) == 16 );
+C_ASSERT( offsetof(struct set_user_input_time_reply, time) == 8 );
+C_ASSERT( sizeof(struct set_user_input_time_reply) == 16 );
 C_ASSERT( offsetof(struct get_key_state_request, async) == 12 );
 C_ASSERT( offsetof(struct get_key_state_request, key) == 16 );
 C_ASSERT( sizeof(struct get_key_state_request) == 24 );
@@ -2049,6 +2111,11 @@ C_ASSERT( sizeof(struct get_directory_entries_request) == 24 );
 C_ASSERT( offsetof(struct get_directory_entries_reply, total_len) == 8 );
 C_ASSERT( offsetof(struct get_directory_entries_reply, count) == 12 );
 C_ASSERT( sizeof(struct get_directory_entries_reply) == 16 );
+C_ASSERT( offsetof(struct query_directory_file_request, handle) == 12 );
+C_ASSERT( offsetof(struct query_directory_file_request, restart_scan) == 16 );
+C_ASSERT( sizeof(struct query_directory_file_request) == 24 );
+C_ASSERT( offsetof(struct query_directory_file_reply, total_len) == 8 );
+C_ASSERT( sizeof(struct query_directory_file_reply) == 16 );
 C_ASSERT( offsetof(struct create_symlink_request, access) == 12 );
 C_ASSERT( sizeof(struct create_symlink_request) == 16 );
 C_ASSERT( offsetof(struct create_symlink_reply, handle) == 8 );
@@ -2130,7 +2197,8 @@ C_ASSERT( sizeof(struct get_kernel_object_handle_request) == 32 );
 C_ASSERT( offsetof(struct get_kernel_object_handle_reply, handle) == 8 );
 C_ASSERT( sizeof(struct get_kernel_object_handle_reply) == 16 );
 C_ASSERT( offsetof(struct make_process_system_request, handle) == 12 );
-C_ASSERT( sizeof(struct make_process_system_request) == 16 );
+C_ASSERT( offsetof(struct make_process_system_request, desktop_close_timeout) == 16 );
+C_ASSERT( sizeof(struct make_process_system_request) == 24 );
 C_ASSERT( offsetof(struct make_process_system_reply, event) == 8 );
 C_ASSERT( sizeof(struct make_process_system_reply) == 16 );
 C_ASSERT( offsetof(struct grant_process_admin_token_request, handle) == 12 );
@@ -2317,9 +2385,11 @@ C_ASSERT( offsetof(struct get_inproc_sync_fd_request, handle) == 12 );
 C_ASSERT( sizeof(struct get_inproc_sync_fd_request) == 16 );
 C_ASSERT( offsetof(struct get_inproc_sync_fd_reply, type) == 8 );
 C_ASSERT( offsetof(struct get_inproc_sync_fd_reply, access) == 12 );
-C_ASSERT( sizeof(struct get_inproc_sync_fd_reply) == 16 );
+C_ASSERT( offsetof(struct get_inproc_sync_fd_reply, fsync_shm_idx) == 16 );
+C_ASSERT( sizeof(struct get_inproc_sync_fd_reply) == 24 );
 C_ASSERT( sizeof(struct get_inproc_alert_fd_request) == 16 );
 C_ASSERT( offsetof(struct get_inproc_alert_fd_reply, handle) == 8 );
+C_ASSERT( offsetof(struct get_inproc_alert_fd_reply, fsync_shm_idx) == 12 );
 C_ASSERT( sizeof(struct get_inproc_alert_fd_reply) == 16 );
 C_ASSERT( offsetof(struct d3dkmt_object_create_request, type) == 12 );
 C_ASSERT( offsetof(struct d3dkmt_object_create_request, fd) == 16 );
@@ -2374,3 +2444,38 @@ C_ASSERT( offsetof(struct d3dkmt_mutex_release_request, key_value) == 20 );
 C_ASSERT( offsetof(struct d3dkmt_mutex_release_request, fence_value) == 24 );
 C_ASSERT( offsetof(struct d3dkmt_mutex_release_request, runtime_size) == 32 );
 C_ASSERT( sizeof(struct d3dkmt_mutex_release_request) == 40 );
+C_ASSERT( offsetof(struct fsync_free_shm_idx_request, shm_idx) == 12 );
+C_ASSERT( sizeof(struct fsync_free_shm_idx_request) == 16 );
+C_ASSERT( sizeof(struct fsync_free_shm_idx_reply) == 8 );
+C_ASSERT( offsetof(struct hwnd_list_dmabuf_frames_request, host_hwnd) == 12 );
+C_ASSERT( sizeof(struct hwnd_list_dmabuf_frames_request) == 16 );
+C_ASSERT( offsetof(struct hwnd_list_dmabuf_frames_reply, status) == 8 );
+C_ASSERT( offsetof(struct hwnd_list_dmabuf_frames_reply, count) == 12 );
+C_ASSERT( sizeof(struct hwnd_list_dmabuf_frames_reply) == 16 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_set_pending_request, hwnd) == 12 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_set_pending_request, pending) == 16 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_set_pending_request) == 24 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_set_pending_reply, status) == 8 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_set_pending_reply) == 16 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_get_channel_request, hwnd) == 12 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_get_channel_request, flags) == 16 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_get_channel_request) == 24 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_get_channel_reply, status) == 8 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_get_channel_reply, channel_handle) == 12 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_get_channel_reply) == 16 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_get_channel_exclusive_request, hwnd) == 12 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_get_channel_exclusive_request) == 16 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_get_channel_exclusive_reply, status) == 8 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_get_channel_exclusive_reply, channel_handle) == 12 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_get_channel_exclusive_reply) == 16 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_claim_channel_request, hwnd) == 12 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_claim_channel_request, flags) == 16 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_claim_channel_request) == 24 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_claim_channel_reply, status) == 8 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_claim_channel_reply, channel_handle) == 12 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_claim_channel_reply) == 16 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_release_channel_request, hwnd) == 12 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_release_channel_request, flags) == 16 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_release_channel_request) == 24 );
+C_ASSERT( offsetof(struct hwnd_dmabuf_release_channel_reply, status) == 8 );
+C_ASSERT( sizeof(struct hwnd_dmabuf_release_channel_reply) == 16 );

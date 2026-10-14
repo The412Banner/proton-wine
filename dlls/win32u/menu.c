@@ -4517,6 +4517,8 @@ BOOL WINAPI NtUserTrackPopupMenuEx( HMENU handle, UINT flags, INT x, INT y, HWND
         return FALSE;
     }
 
+    sni_adjust_menu_position( hwnd, &x, &y );
+
     if (init_popup( hwnd, handle, flags ))
     {
         init_tracking( hwnd, handle, TRUE, flags );

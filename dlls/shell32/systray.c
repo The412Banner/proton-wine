@@ -29,10 +29,52 @@
 #include "winuser.h"
 #include "shellapi.h"
 #include "shell32_main.h"
+#include "ntuser.h"
 
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
+
+/* Pump the in-process StatusNotifierItem D-Bus connection. */
+static LONG sni_pump_started;
+
+static DWORD WINAPI sni_dbus_thread( void *arg )
+{
+    for (;;)
+    {
+        NtUserMessageCall( 0, WINE_SYSTRAY_DBUS_RUN, 0, 0, NULL, NtUserSystemTrayCall, FALSE );
+        InterlockedExchange( &sni_pump_started, 0 );
+        if (!NtUserMessageCall( 0, WINE_SYSTRAY_DBUS_HAS_ICONS, 0, 0, NULL,
+                                NtUserSystemTrayCall, FALSE ))
+            break;
+        if (InterlockedExchange( &sni_pump_started, 1 )) break;
+    }
+    return 0;
+}
+
+static LRESULT notify_icon_sni( DWORD message, NOTIFYICONDATAW *nid )
+{
+    LRESULT ret;
+
+    ret = NtUserMessageCall( nid->hWnd, WINE_SYSTRAY_NOTIFY_ICON_SNI, message, 0,
+                             nid, NtUserSystemTrayCall, FALSE );
+    if ((ret != -1 || message == NIM_ADD) &&
+        NtUserMessageCall( 0, WINE_SYSTRAY_DBUS_HAS_ICONS, 0, 0, NULL,
+                           NtUserSystemTrayCall, FALSE ) &&
+        !InterlockedExchange( &sni_pump_started, 1 ))
+    {
+        HANDLE thread = CreateThread( NULL, 0, sni_dbus_thread, NULL, 0, NULL );
+        if (thread) CloseHandle( thread );
+        else InterlockedExchange( &sni_pump_started, 0 );
+    }
+    return ret;
+}
+
+static BOOL notify_balloon_sni( const NOTIFYICONDATAW *nid )
+{
+    return NtUserMessageCall( nid->hWnd, WINE_SYSTRAY_NOTIFY_BALLOON_SNI, 0, 0,
+                              (void *)nid, NtUserSystemTrayCall, FALSE );
+}
 
 struct notify_data_icon
 {
@@ -182,10 +224,11 @@ BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW nid)
     COPYDATASTRUCT cds;
     struct notify_data data_buffer;
     struct notify_data *data = &data_buffer;
+    NOTIFYICONDATAW native_nid;
     ICONINFO icon_info = { 0 }, balloon_icon_info = { 0 };
     BITMAP mask, color, balloon_mask, balloon_color;
     LONG mask_size = 0, color_size = 0, balloon_mask_size = 0, balloon_color_size = 0;
-    BOOL ret;
+    BOOL native_balloon = FALSE, ret;
 
     TRACE("dwMessage = %ld, nid->cbSize=%ld\n", dwMessage, nid->cbSize);
 
@@ -202,6 +245,35 @@ BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW nid)
         CopyMemory(&newNid, nid, NOTIFYICONDATAW_V1_SIZE);
         newNid.cbSize = NOTIFYICONDATAW_V1_SIZE;
         return Shell_NotifyIconW(dwMessage, &newNid);
+    }
+
+    /* Desktop notification placement belongs to the host notification daemon,
+     * independently of whether this icon is currently registered through SNI.
+     * If it accepts the balloon, remove NIF_INFO from any icon fallback so the
+     * explorer tray cannot also create a free-standing Wine tooltip window. */
+    if (dwMessage != NIM_DELETE && nid->cbSize >= NOTIFYICONDATAW_V2_SIZE &&
+        (nid->uFlags & NIF_INFO) && nid->szInfo[0] && notify_balloon_sni( nid ))
+    {
+        memset( &native_nid, 0, sizeof(native_nid) );
+        CopyMemory( &native_nid, nid, nid->cbSize );
+        native_nid.uFlags &= ~NIF_INFO;
+        nid = &native_nid;
+        native_balloon = TRUE;
+    }
+
+    {
+        LRESULT ret = notify_icon_sni( dwMessage, nid );
+        if (ret != -1)
+        {
+            SetLastError( ret ? ERROR_SUCCESS : ERROR_GEN_FAILURE );
+            return ret;
+        }
+    }
+
+    if (native_balloon && dwMessage == NIM_MODIFY && !nid->uFlags)
+    {
+        SetLastError( ERROR_SUCCESS );
+        return TRUE;
     }
 
     tray = FindWindowExW(0, NULL, L"Shell_TrayWnd", NULL);

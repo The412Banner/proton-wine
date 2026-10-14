@@ -83,7 +83,6 @@ struct desktop
     struct thread_input *foreground_input; /* thread input of foreground thread */
     process_id_t         foreground_pid;   /* id of the foreground process */
     unsigned int         users;            /* processes and threads using this desktop */
-    unsigned char        keystate[256];    /* asynchronous key state */
     unsigned char        alt_pressed;      /* last key press was Alt (used to determine msg on release) */
     struct key_repeat    key_repeat;       /* key auto-repeat */
     unsigned int         clip_flags;       /* last cursor clip flags */
@@ -131,6 +130,7 @@ extern void post_message( user_handle_t win, unsigned int message,
                           lparam_t wparam, lparam_t lparam );
 extern void send_notify_message( user_handle_t win, unsigned int message,
                                  lparam_t wparam, lparam_t lparam );
+extern void notify_abandoned_window( struct thread *owner, user_handle_t win );
 extern void post_win_event( struct thread *thread, unsigned int event,
                             user_handle_t win, unsigned int object_id,
                             unsigned int child_id, client_ptr_t proc,

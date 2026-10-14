@@ -1350,7 +1350,8 @@ static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 {
     ucontext_t *context = sigcontext;
 
-    if (!is_inside_syscall( SP_sig(context) )) user_mode_abort_thread( 0, get_syscall_frame() );
+    if (!ntdll_get_thread_data()->system_thread && !is_inside_syscall( SP_sig(context) ))
+        user_mode_abort_thread( 0, get_syscall_frame() );
     abort_thread(0);
 }
 
@@ -1395,6 +1396,12 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
     extern const ULONG_PTR __wine_syscall_dispatcher_user_stack;
     extern const ULONG_PTR __wine_unix_call_dispatcher_kernel_stack_ptr;
     extern const ULONG_PTR __wine_unix_call_dispatcher_user_stack;
+
+    if (ntdll_get_thread_data()->system_thread)
+    {
+        server_select( NULL, 0, SELECT_INTERRUPTIBLE, 0, NULL, NULL );
+        return;
+    }
 
     /* if we're in a syscall dispatcher, but not yet on the syscall stack, construct
      * the frame now from the signal context. */

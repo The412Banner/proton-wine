@@ -27,17 +27,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 
-static DWORD WINAPI wayland_read_events_thread(void *arg)
-{
-    WAYLANDDRV_UNIX_CALL(read_events, NULL);
-    /* This thread terminates only if an unrecoverable error occurred
-     * during event reading (e.g., the connection to the Wayland
-     * compositor is broken). */
-    ERR("Failed to read events from the compositor, terminating process\n");
-    TerminateProcess(GetCurrentProcess(), 1);
-    return 0;
-}
-
 static LRESULT CALLBACK clipboard_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg)
@@ -56,6 +45,7 @@ static LRESULT CALLBACK clipboard_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM
 
 static DWORD WINAPI clipboard_thread(void *arg)
 {
+    const THREAD_NAME_INFORMATION info = {RTL_CONSTANT_STRING(L"winewayland_clipboard")};
     static const WCHAR clipboard_classname[] = L"__winewayland_clipboard_manager";
     WNDCLASSW class;
     ATOM atom;
@@ -65,6 +55,8 @@ static DWORD WINAPI clipboard_thread(void *arg)
     memset(&class, 0, sizeof(class));
     class.lpfnWndProc = clipboard_wndproc;
     class.lpszClassName = clipboard_classname;
+
+    NtSetInformationThread(GetCurrentThread(), ThreadNameInformation, &info, sizeof(info));
 
     if (!(atom = RegisterClassW(&class)) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
     {
@@ -105,8 +97,6 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
     if (WAYLANDDRV_UNIX_CALL(init, NULL))
         return FALSE;
 
-    /* Read wayland events from a dedicated thread. */
-    CloseHandle(CreateThread(NULL, 0, wayland_read_events_thread, NULL, 0, &tid));
     /* Handle clipboard events in a dedicated thread, if needed. */
     if (!WAYLANDDRV_UNIX_CALL(init_clipboard, NULL))
         CloseHandle(CreateThread(NULL, 0, clipboard_thread, NULL, 0, &tid));

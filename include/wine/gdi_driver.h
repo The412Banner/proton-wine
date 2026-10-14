@@ -218,7 +218,7 @@ struct gdi_dc_funcs
 };
 
 /* increment this when you change the DC function table */
-#define WINE_GDI_DRIVER_VERSION 108
+#define WINE_GDI_DRIVER_VERSION 111
 
 #define GDI_PRIORITY_NULL_DRV        0  /* null driver */
 #define GDI_PRIORITY_FONT_DRV      100  /* any font driver */
@@ -254,6 +254,12 @@ struct client_surface_funcs
     void (*detach)( struct client_surface *surface );
     /* update the surface to match its window state */
     void (*update)( struct client_surface *surface );
+    /* return whether a new drawable may become this window's presenter */
+    BOOL (*is_presentation_candidate)( struct client_surface *surface );
+    /* activate a drawable and return the selected presentation surface */
+    struct client_surface *(*activate)( struct client_surface *surface );
+    /* deactivate a drawable */
+    void (*deactivate)( struct client_surface *surface );
     /* present the client surface if necessary, hdc != NULL when offscreen, called from render thread */
     void (*present)( struct client_surface *surface, HDC hdc );
 };
@@ -263,16 +269,28 @@ struct client_surface
     const struct client_surface_funcs *funcs;
     struct list                        entry;          /* entry in win32u managed list */
     LONG                               ref;            /* reference count */
+    LONG                               busy_ref;       /* count of drawables/swapchains referencing this surface */
+    LONG                               active_ref;     /* count of successfully created drawables/swapchains */
+    LONG                               native_ref;     /* active drawables/swapchains using host WSI */
+    LONG                               native_pending_ref; /* host WSI presenters being created */
+    LONG                               presentation_owner; /* selected renderer for the window */
     HWND                               hwnd;           /* window the surface was created for */
     LONG                               updated;        /* has been moved / resized / reparented */
     LONG                               offscreen;      /* client window is offscreen */
+    LONG                               presentation_generation; /* invalidates stale presentation waits */
 };
 
 W32KAPI void *client_surface_create( UINT size, const struct client_surface_funcs *funcs, HWND hwnd );
 W32KAPI void client_surface_add_ref( struct client_surface *surface );
 W32KAPI void client_surface_release( struct client_surface *surface );
+W32KAPI void client_surface_invalidate_presentation( struct client_surface *surface );
+W32KAPI BOOL client_surface_is_presentation_candidate( struct client_surface *surface );
+W32KAPI BOOL client_surface_activate( struct client_surface *surface, BOOL native,
+                                      struct client_surface **owner );
+W32KAPI void client_surface_deactivate( struct client_surface *surface, BOOL native );
 W32KAPI void client_surface_present( struct client_surface *surface );
 W32KAPI void client_surface_update( struct client_surface *surface );
+W32KAPI void update_client_surfaces( HWND hwnd );
 W32KAPI void detach_client_surfaces( HWND hwnd );
 
 static inline const char *debugstr_client_surface( struct client_surface *surface )
@@ -306,10 +324,15 @@ struct window_surface
     RECT                               bounds;       /* dirty area rectangle */
     HRGN                               clip_region;  /* visible region of the surface, fully visible if 0 */
     DWORD                              draw_start_ticks; /* start ticks of fresh draw */
+    HRGN                               app_painted_region; /* app-originated pixels in surface coordinates */
+    BOOL                               app_painted_full; /* app-originated pixels cover the whole surface */
     COLORREF                           color_key;    /* layered window surface color key, invalid if CLR_INVALID */
     UINT                               alpha_bits;   /* layered window global alpha bits, invalid if -1 */
     UINT                               alpha_mask;   /* layered window per-pixel alpha mask, invalid if 0 */
     HRGN                               shape_region; /* shape of the window surface, unshaped if 0 */
+    HRGN                               gdi_over_producer_region; /* GDI pixels that must appear over child producers */
+    HRGN                               gdi_over_paint_region; /* actual GDI paints to carry over child producers */
+    HRGN                               self_painted_region; /* GDI pixels newer than this window's native frame */
     HBITMAP                            shape_bitmap; /* bitmap for the surface shape (1bpp) */
     HBITMAP                            color_bitmap; /* bitmap for the surface colors */
     /* driver-specific fields here */
@@ -323,9 +346,11 @@ W32KAPI void window_surface_lock( struct window_surface *surface );
 W32KAPI void window_surface_unlock( struct window_surface *surface );
 W32KAPI void window_surface_set_layered( struct window_surface *surface, COLORREF color_key, UINT alpha_bits, UINT alpha_mask );
 W32KAPI void window_surface_flush( struct window_surface *surface );
+W32KAPI void window_surface_add_app_paint_rect( struct window_surface *surface, const RECT *rect );
+W32KAPI void window_surface_add_gdi_over_paint_rect( struct window_surface *surface, const RECT *rect );
 W32KAPI void window_surface_set_clip( struct window_surface *surface, HRGN clip_region );
 W32KAPI void window_surface_set_shape( struct window_surface *surface, HRGN shape_region );
-W32KAPI void window_surface_set_layered( struct window_surface *surface, COLORREF color_key, UINT alpha_bits, UINT alpha_mask );
+W32KAPI void window_surface_set_gdi_over_producer_region( struct window_surface *surface, HRGN region );
 W32KAPI struct window_surface *window_surface_get( HWND hwnd );
 
 /* display manager interface, used to initialize display device registry data */
@@ -338,12 +363,46 @@ struct pci_id
     UINT16 revision;
 };
 
+#define MONITOR_INFO_HAS_MONITOR_ID          0x00000001
+#define MONITOR_INFO_HAS_MONITOR_NAME        0x00000002
+#define MONITOR_INFO_HAS_PREFERRED_MODE      0x00000004
+#define MONITOR_INFO_HAS_PHYSICAL_DIMENSIONS 0x00000008
+#define MONITOR_INFO_HAS_SERIAL_NUMBER       0x00000010
+#define MONITOR_INFO_HAS_PRIMARIES           0x00000020
+#define MONITOR_INFO_HAS_CTA861_EXT          0x00000040
+
+struct edid_monitor_info
+{
+    unsigned int flags;
+    /* MONITOR_INFO_HAS_MONITOR_ID */
+    unsigned short manufacturer, product_code;
+    char monitor_id_string[8];
+    /* MONITOR_INFO_HAS_MONITOR_NAME */
+    WCHAR monitor_name[14];
+    /* MONITOR_INFO_HAS_PREFERRED_MODE */
+    unsigned int preferred_width, preferred_height;
+    double preferred_refresh;
+    /* MONITOR_INFO_HAS_SERIAL_NUMBER */
+    unsigned int serial_number;
+    /* MONITOR_INFO_HAS_PHYSICAL_DIMENSIONS */
+    unsigned int width_mm, height_mm;
+    /* MONITOR_INFO_HAS_PRIMARIES */
+    BOOL srgb;
+    unsigned int r_x, r_y;
+    unsigned int g_x, g_y;
+    unsigned int b_x, b_y;
+    unsigned int w_x, w_y;
+    /* MONITOR_INFO_HAS_CTA861_EXT */
+    float max_cll, max_fall;
+};
+
 struct gdi_monitor
 {
     RECT rc_monitor;      /* RcMonitor in MONITORINFO struct */
     RECT rc_work;         /* RcWork in MONITORINFO struct */
     unsigned char *edid;  /* Extended Device Identification Data */
     UINT edid_len;
+    struct edid_monitor_info edid_info; /* EDID info to generate an EDID */
     BOOL hdr_enabled;
 };
 
@@ -358,6 +417,10 @@ struct gdi_device_manager
 #define WINE_DM_UNSUPPORTED 0x80000000
 #define WINE_SWP_FULLSCREEN 0x80000000
 #define WINE_SWP_RESIZABLE  0x40000000
+#define WINE_SWP_TRAY_MENU  0x20000000
+
+/* CPU transports for GDI targeting a window owned by another process. */
+#define WINE_GDI_FOREIGN_SURFACE_SHM 0x00000001
 
 struct vulkan_driver_funcs;
 struct opengl_driver_funcs;
@@ -382,6 +445,7 @@ struct user_driver_funcs
     UINT    (*pImeProcessKey)(HIMC,UINT,UINT,const BYTE*);
     void    (*pNotifyIMEStatus)(HWND,UINT);
     BOOL    (*pSetIMECompositionRect)(HWND,RECT);
+    void    (*pEnableIMEContext)(HWND, BOOL);
     /* cursor/icon functions */
     void    (*pDestroyCursorIcon)(HCURSOR);
     void    (*pSetCursor)(HWND,HCURSOR);
@@ -428,9 +492,11 @@ struct user_driver_funcs
     BOOL    (*pWindowPosChanging)(HWND,UINT,BOOL,const struct window_rects *);
     BOOL    (*pGetWindowStyleMasks)(HWND,UINT,UINT,UINT*,UINT*);
     BOOL    (*pGetWindowStateUpdates)(HWND,UINT*,UINT*,RECT*,HWND*);
+    BOOL    (*pGetWindowMaxTrackSize)(HWND,SIZE*);
     BOOL    (*pCreateWindowSurface)(HWND,BOOL,const RECT *,struct window_surface**);
     void    (*pMoveWindowBits)(HWND,const struct window_rects *,const struct window_rects *,const RECT *);
     void    (*pWindowPosChanged)(HWND,HWND,HWND,UINT,const struct window_rects*,struct window_surface*);
+    UINT    (*pGetForeignGdiSurfaceCaps)(void);
     /* system parameters */
     BOOL    (*pSystemParametersInfo)(UINT,UINT,void*,UINT);
     /* wintab support */

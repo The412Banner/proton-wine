@@ -681,6 +681,23 @@ static void sync_env_var_to_unix( WCHAR *env, const char *name )
     } else __wine_set_unix_env( name, NULL );
 }
 
+static BOOL is_eos_eac_launcher( const WCHAR *path, const char *product_name )
+{
+    const WCHAR *name, *slash;
+
+    if (product_name && !strcmp( product_name, "Easy Anti-Cheat Bootstrapper (EOS)" ))
+        return TRUE;
+    if (!path) return FALSE;
+
+    name = wcsrchr( path, '\\' );
+    slash = wcsrchr( path, '/' );
+    if (!name || (slash && slash > name)) name = slash;
+    if (name) ++name;
+    else name = path;
+
+    return !wcsicmp( name, L"start_protected_game.exe" );
+}
+
 /**********************************************************************
  *           CreateProcessInternalW   (kernelbase.@)
  */
@@ -795,12 +812,15 @@ BOOL WINAPI DECLSPEC_HOTPATCH CreateProcessInternalW( HANDLE token, const WCHAR 
 
         RtlDestroyProcessParameters( params );
 
-        if (product_name && !strcmp( product_name, "Easy Anti-Cheat Bootstrapper (EOS)" ))
+        if (is_eos_eac_launcher( app_name, product_name ))
         {
             /* EOS EAC bootstrapper will start the game process directly without using WINAPI, so env vars set on the
              * PE side will be lost. Preserve some critical ones. */
             sync_env_var_to_unix( new_env, "UPLAY_ARGUMENTS" );
             sync_env_var_to_unix( new_env, "UPC_GAME_STARTER_RUNNING" );
+
+            /* HACK: tell the sigsys handler that this is the EAC (EOS) dispatcher */
+            __wine_set_unix_env("PROTON_SYSCALL_HACK", "1");
 
             p = app_name + wcslen( app_name );
             while (p != app_name && *p != '/' && *p != '\\') --p;
@@ -954,6 +974,11 @@ BOOL WINAPI DECLSPEC_HOTPATCH CreateProcessInternalW( HANDLE token, const WCHAR 
     }
 
  done:
+
+    /* clean up the syscall hack env now that we are done using it */
+    if (is_eos_eac_launcher( app_name, product_name ))
+        __wine_set_unix_env("PROTON_SYSCALL_HACK", NULL);
+
     RtlDestroyProcessParameters( params );
     if (tidy_cmdline != cmd_line) HeapFree( GetProcessHeap(), 0, tidy_cmdline );
     HeapFree( GetProcessHeap(), 0, product_name );
