@@ -12,7 +12,8 @@
 # "applied" nascar25-protector into a comment block and a different function, and
 # the per-patch marker still matched.)
 #
-# Not carried from GE-Proton11-7 patches/game-patches (all deliberate):
+# Tier = GE-Proton11-9 patches/game-patches (same 15 files as 11-7; only
+# return-to-krondor and vgsoh changed). Not carried (all deliberate):
 #   layered-overlay-wine, multi-process-launcher-x11-fallback -- skipped on every
 #     one of our GE layers (desktop compositor / Wayland launcher paths).
 #   nascar25-protector -- rewrites the x86_64 Linux SIGSYS handler that GE's
@@ -64,11 +65,13 @@ marker_for() {
     pso2_hack.patch)
       echo "dlls/ntdll/unix/file.c|WINE_NO_OPEN_FILE_SEARCH" ;;
     return-to-krondor-text-bitmap-readback.patch)
+      # GE-Proton11-9 version (rebased by GE onto the newer bleeding-edge, 18ec6165)
       echo "dlls/win32u/dib.c|use_krondor_bitmap_readback" ;;
     silence-starcitizen-unsupported-os.patch)
       echo "dlls/user32/msgbox.c|Star Citizen" ;;
     vgsoh.patch)
-      echo "dlls/kernelbase/file.c|218210" ;;
+      # GE-Proton11-9 version: matched on the executable name (610bc97b), not SteamGameId
+      echo "dlls/kernelbase/file.c|VGOEmuLauncher.exe" ;;
     *) echo "" ;;
   esac
 }
