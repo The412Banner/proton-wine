@@ -1,5 +1,5 @@
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
-index 05d0192cb9c..0d8166e349a 100644
+index 279aa6943aa..23d1a097fb6 100644
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
 @@ -277,7 +277,11 @@ static const char *get_pe_dir( WORD machine )
@@ -54,7 +54,7 @@ index 05d0192cb9c..0d8166e349a 100644
      for (i = 0; i < count; i++) dll_path_maxlen = max( dll_path_maxlen, strlen(dll_paths[i]) );
      dll_paths[count] = NULL;
  }
-@@ -1787,11 +1809,14 @@ NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret
+@@ -1788,11 +1810,14 @@ NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret
      {
          ptr = prepend( file + pos, so_dir, strlen(so_dir) );
          ptr = prepend( ptr, dll_paths[i], strlen(dll_paths[i]) );
@@ -69,7 +69,7 @@ index 05d0192cb9c..0d8166e349a 100644
  
   done:
      free( file );
-@@ -2471,7 +2496,9 @@ static void start_main_thread(void)
+@@ -2573,7 +2598,9 @@ static void start_main_thread(void)
      set_thread_teb( teb );
  #endif
  
@@ -78,9 +78,9 @@ index 05d0192cb9c..0d8166e349a 100644
 +    mallopt(M_PERTURB, 0xff);
 +#endif
      init_startup_info();
+     patch_redundant_packed_split_lock();
      *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
-     set_load_order_app_name( main_wargv[0] );
-@@ -2480,7 +2507,9 @@ static void start_main_thread(void)
+@@ -2583,7 +2610,9 @@ static void start_main_thread(void)
      load_ntdll();
      load_wow64_ntdll( main_image_info.Machine );
      load_apiset_dll();
