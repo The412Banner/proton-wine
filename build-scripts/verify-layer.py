@@ -248,6 +248,14 @@ def main():
                "i386 ntdll.dll: Max Payne CPUID leaf fix (GE 11-7, active under WoW64)")
         report(b"244210" in read(os.path.join(pe, "dwrite.dll")), "dwrite.dll: Assetto Corsa HUD (GE 11-7 dwrite rewrite)")
         report(u16("VGOEmuLauncher.exe") in read(os.path.join(pe, "kernelbase.dll")), "kernelbase.dll: Vanguard Saga of Heroes cwd fix (GE 11-9, exe-name gate)")
+        # GE-Proton11-9 wine-staging / wine-hotfixes / proton / video tiers (in-tree on proton_11.9-GE)
+        print("-- GE 11-9 extra tiers")
+        for f in ("win32k.sys", "dxgkrnl.sys", "dxgmms1.sys", "icuuc.dll", "icuin.dll"):
+            report(os.path.isfile(os.path.join(pe, f)), "%s present (staging default drivers / icu forwarders)" % f)
+        report(u16("PROTON_ENABLE_INT3_HACK") in read(os.path.join(pe, "kernel32.dll")), "kernel32.dll: KiUserApcDispatcher spoof (opt-in)")
+        report(u16("WINE_OPTISCALER_NAME") in read(os.path.join(pe, "ntdll.dll")), "ntdll.dll: OptiScaler injection hack")
+        report(b"WINE_FULLSCREEN_FSR" in w32so, "win32u.so: fullscreen-hack FSR")
+        report(b"WINE_NO_WM_DECORATION" in w32so, "win32u.so: WINE_NO_WM_DECORATION switch")
         if not arm64ec:
             # compiled only for x86_64 PE ntdll (#if __x86_64__ && !__arm64ec__); inert on arm64ec
             report(u16("AI-LIMIT.exe") in read(os.path.join(pe, "ntdll.dll")),
