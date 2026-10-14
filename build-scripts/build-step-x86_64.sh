@@ -249,14 +249,12 @@ do
       # Android bionic locale bring-up: force LC_ALL=C.UTF-8 before locale init
       # (bionic ships no locale data beyond C/C.UTF-8).
       "dlls_ntdll_unix_env.c.patch"
-	  "dlls_ntdll_unix_signal_x86_64.c.patch"
 
-      # unixlib load-by-name (MemoryWineLoadUnixLibByName) — defining patches
-      # required because the shared loader.c/virtual.c patches reference them
-      "dlls_ntdll_unix_unix_private.h.patch"
-      "dlls_wow64_virtual.c.patch"
-      "include_wine_unixlib.h.patch"
-      "include_winternl.h.patch"
+      # unixlib load-by-name (MemoryWineLoadUnixLibByName, FEX companion unixlib) is
+      # upstream in Valve 981e2f0b9007 (fb596168268, fbadeed3c8c, c24a38ac3d1): the old
+      # unix_private.h / wow64 virtual.c / unixlib.h / winternl.h patches are dropped;
+      # loader.c keeps only the PREFIX search dir + the load_unixlib_by_name traces.
+      # signal_x86_64.c "jmp *%rcx" is upstream too (e33ce1f2396): dropped.
 	  
 	  # opengl32
 	  "dlls_opengl32_unix_wgl.c.patch"
