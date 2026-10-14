@@ -1090,6 +1090,16 @@ BOOL WAYLAND_ClipCursor(const RECT *clip, BOOL reset)
                                       FALSE);
     pthread_mutex_unlock(&pointer->mutex);
 
+    /* Constraint state belongs to the parent surface, not the independently
+     * presented client. Flush alone does not apply double-buffered state.
+     * Keep the earlier hint commit before unlocking the pointer as well. */
+    if (wl_surface && (data = wayland_win_data_get(hwnd)))
+    {
+        if (data->wayland_surface && data->wayland_surface->wl_surface == wl_surface)
+            wl_surface_commit(wl_surface);
+        wayland_win_data_release(data);
+    }
+
     wl_display_flush(process_wayland.wl_display);
 
     return TRUE;

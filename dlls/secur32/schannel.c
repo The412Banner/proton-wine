@@ -1494,7 +1494,7 @@ static SECURITY_STATUS SEC_ENTRY schan_DecryptMessage(PCtxtHandle context_handle
     SecBuffer *buffer;
     SIZE_T data_size;
     char *data;
-    unsigned expected_size;
+    unsigned expected_size, remaining_size;
     ULONG received = 0;
     int idx;
     unsigned char *buf_ptr;
@@ -1519,13 +1519,13 @@ static SECURITY_STATUS SEC_ENTRY schan_DecryptMessage(PCtxtHandle context_handle
     {
         TRACE("Expected %u bytes, but buffer only contains %lu bytes\n", expected_size, buffer->cbBuffer);
         buffer->BufferType = SECBUFFER_MISSING;
-        buffer->cbBuffer = expected_size - buffer->cbBuffer;
+        buffer->cbBuffer = remaining_size = expected_size - buffer->cbBuffer;
 
         /* This is a bit weird, but windows does it too */
         idx = schan_find_sec_buffer_idx(message, 0, SECBUFFER_EMPTY);
         buffer = &message->pBuffers[idx];
         buffer->BufferType = SECBUFFER_MISSING;
-        buffer->cbBuffer = expected_size - buffer->cbBuffer;
+        buffer->cbBuffer = remaining_size;
 
         TRACE("Returning SEC_E_INCOMPLETE_MESSAGE\n");
         return SEC_E_INCOMPLETE_MESSAGE;

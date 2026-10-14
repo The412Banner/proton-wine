@@ -48,6 +48,7 @@ struct cursoricon_object
     BOOL                    is_shared;  /* whether this object is shared */
     BOOL                    is_icon;    /* whether icon or cursor */
     BOOL                    is_ani;     /* whether this object is a static cursor or an animated cursor */
+    HANDLE                  shared;     /* image data for a cursor selected by another process */
     UINT                    delay;      /* delay between this frame and the next (in jiffies) */
     union
     {
@@ -62,6 +63,63 @@ struct cursoricon_object
 };
 
 static struct list icon_cache = LIST_INIT( icon_cache );
+
+/* No pointers or GDI handles: the reader may have a different bitness. */
+struct shared_cursor_bitmap
+{
+    int width, height;
+    unsigned int bpp, size;
+};
+
+struct shared_cursor_data
+{
+    LONG ready;
+    unsigned int size, xhotspot, yhotspot;
+    unsigned int module_size, resname_size, resid;
+    struct shared_cursor_bitmap mask, color;
+    /* module, resource name, mask bits, then color bits */
+};
+
+#define MAX_SHARED_CURSOR_SIZE (64 * 1024 * 1024)
+
+static void share_cursor( HCURSOR cursor );
+
+static void get_cursor_section_name( HCURSOR cursor, UNICODE_STRING *name, WCHAR *buffer )
+{
+    char str[128];
+
+    snprintf( str, sizeof(str), "\\Sessions\\%u\\BaseNamedObjects\\__wine_cursor_%08x",
+              NtCurrentTeb()->Peb->SessionId, HandleToUlong( cursor ));
+    name->Buffer = buffer;
+    name->MaximumLength = asciiz_to_unicode( buffer, str );
+    name->Length = name->MaximumLength - sizeof(WCHAR);
+}
+
+static unsigned int shared_cursor_bitmap_size( const struct shared_cursor_bitmap *bitmap )
+{
+    UINT64 size;
+
+    if (bitmap->width <= 0 || bitmap->width > 0x7ffffff || bitmap->height <= 0) return 0;
+    switch (bitmap->bpp)
+    {
+    case 1: case 4: case 8: case 16: case 24: case 32: break;
+    default: return 0;
+    }
+    size = (((UINT64)bitmap->width * bitmap->bpp + 15) / 16) * 2 * bitmap->height;
+    return size <= MAX_SHARED_CURSOR_SIZE ? size : 0;
+}
+
+static BOOL describe_shared_cursor_bitmap( HBITMAP handle, struct shared_cursor_bitmap *bitmap )
+{
+    BITMAP bmp;
+
+    if (!handle) return TRUE;
+    if (!NtGdiExtGetObjectW( handle, sizeof(bmp), &bmp )) return FALSE;
+    bitmap->width = bmp.bmWidth;
+    bitmap->height = bmp.bmHeight;
+    bitmap->bpp = bmp.bmBitsPixel;
+    return (bitmap->size = shared_cursor_bitmap_size( bitmap )) != 0;
+}
 
 static struct cursoricon_object *get_icon_ptr( HICON handle )
 {
@@ -112,6 +170,9 @@ HCURSOR WINAPI NtUserSetCursor( HCURSOR cursor )
     BOOL ret;
 
     TRACE( "%p\n", cursor );
+
+    /* Publish before the server forwards this handle to the window owner. */
+    if (cursor) share_cursor( cursor );
 
     SERVER_START_REQ( set_cursor )
     {
@@ -175,6 +236,66 @@ static struct cursoricon_object *get_icon_frame_ptr( HICON handle, UINT step )
     return ret;
 }
 
+static void share_cursor( HCURSOR cursor )
+{
+    struct cursoricon_object *obj, *frame;
+    struct shared_cursor_data header = {0}, *data = NULL;
+    WCHAR buffer[128];
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES attr;
+    LARGE_INTEGER size;
+    SIZE_T view_size = 0;
+    HANDLE section;
+    char *bits;
+
+    obj = get_user_handle_ptr( cursor, NTUSER_OBJ_ICON );
+    if (!obj || obj == OBJ_OTHER_PROCESS) return;
+    if (obj->is_icon || obj->shared) goto done;
+    if (!(frame = get_icon_frame_ptr( cursor, 0 ))) goto done;
+    if (!frame->frame.mask || !describe_shared_cursor_bitmap( frame->frame.mask, &header.mask ) ||
+        !describe_shared_cursor_bitmap( frame->frame.color, &header.color )) goto done_frame;
+
+    header.xhotspot = frame->frame.hotspot.x;
+    header.yhotspot = frame->frame.hotspot.y;
+    header.module_size = obj->module.Length;
+    if (IS_INTRESOURCE( obj->resname )) header.resid = LOWORD(obj->resname);
+    else header.resname_size = lstrlenW( obj->resname ) * sizeof(WCHAR);
+    size.QuadPart = sizeof(header) + (UINT64)header.module_size + header.resname_size +
+                    header.mask.size + header.color.size;
+    if (size.QuadPart > MAX_SHARED_CURSOR_SIZE) goto done_frame;
+    header.size = size.QuadPart;
+
+    get_cursor_section_name( obj->handle, &name, buffer );
+    InitializeObjectAttributes( &attr, &name, 0, NULL, NULL );
+    if (NtCreateSection( &section, SECTION_MAP_READ | SECTION_MAP_WRITE, &attr, &size,
+                         PAGE_READWRITE, SEC_COMMIT, NULL )) goto done_frame;
+    if (NtMapViewOfSection( section, GetCurrentProcess(), (void **)&data, 0, 0, NULL,
+                           &view_size, ViewUnmap, 0, PAGE_READWRITE )) goto close;
+
+    *data = header;
+    bits = (char *)(data + 1);
+    if (header.module_size) memcpy( bits, obj->module.Buffer, header.module_size );
+    bits += header.module_size;
+    if (header.resname_size) memcpy( bits, obj->resname, header.resname_size );
+    bits += header.resname_size;
+    if (NtGdiGetBitmapBits( frame->frame.mask, header.mask.size, bits ) != header.mask.size) goto unmap;
+    bits += header.mask.size;
+    if (header.color.size && NtGdiGetBitmapBits( frame->frame.color, header.color.size, bits ) != header.color.size)
+        goto unmap;
+
+    InterlockedExchange( &data->ready, 1 );
+    obj->shared = section;
+    TRACE( "shared cursor %p, %u bytes\n", obj->handle, header.size );
+unmap:
+    NtUnmapViewOfSection( GetCurrentProcess(), data );
+close:
+    if (!obj->shared) NtClose( section );
+done_frame:
+    release_user_handle_ptr( frame );
+done:
+    release_user_handle_ptr( obj );
+}
+
 static BOOL free_icon_handle( HICON handle )
 {
     struct cursoricon_object *obj = free_user_handle( handle, NTUSER_OBJ_ICON );
@@ -216,6 +337,7 @@ static BOOL free_icon_handle( HICON handle )
         }
         if (!IS_INTRESOURCE( obj->resname )) free( obj->resname );
         if (obj->module.Length) free(obj->module.Buffer);
+        if (obj->shared) NtClose( obj->shared );
         free( obj );
         KeUserDispatchCallback( &params.dispatch, sizeof(params), &ret_ptr, &ret_len );
         user_driver->pDestroyCursorIcon( handle );
@@ -471,6 +593,81 @@ static HBITMAP copy_bitmap( HBITMAP bitmap )
     return new_bitmap;
 }
 
+static BOOL get_shared_cursor_info( HCURSOR cursor, ICONINFO *info, UNICODE_STRING *module,
+                                    UNICODE_STRING *res_name )
+{
+    struct shared_cursor_data *view = NULL, *data = NULL;
+    UNICODE_STRING name;
+    OBJECT_ATTRIBUTES attr;
+    WCHAR buffer[128];
+    SIZE_T view_size = 0;
+    HANDLE section;
+    const char *bits;
+    unsigned int size;
+    ICONINFO result = {0};
+    BOOL ret = FALSE;
+
+    get_cursor_section_name( cursor, &name, buffer );
+    InitializeObjectAttributes( &attr, &name, 0, NULL, NULL );
+    if (NtOpenSection( &section, SECTION_MAP_READ, &attr )) return FALSE;
+    if (NtMapViewOfSection( section, GetCurrentProcess(), (void **)&view, 0, 0, NULL,
+                           &view_size, ViewUnmap, 0, PAGE_READONLY )) goto done;
+    if (view_size < sizeof(*view) || !ReadAcquire( &view->ready )) goto done;
+    size = view->size;
+    if (size < sizeof(*view) || size > view_size || size > MAX_SHARED_CURSOR_SIZE) goto done;
+    if (!(data = malloc( size ))) goto done;
+    memcpy( data, view, size );
+    if (sizeof(*data) + (UINT64)data->module_size + data->resname_size + data->mask.size +
+        data->color.size != size || (data->module_size | data->resname_size) % sizeof(WCHAR) ||
+        !data->mask.size || data->mask.bpp != 1 ||
+        data->mask.size != shared_cursor_bitmap_size( &data->mask ) ||
+        (data->color.size && data->color.size != shared_cursor_bitmap_size( &data->color ))) goto done;
+
+    bits = (char *)(data + 1) + data->module_size + data->resname_size;
+    result.xHotspot = data->xhotspot;
+    result.yHotspot = data->yhotspot;
+    result.hbmMask = NtGdiCreateBitmap( data->mask.width, data->mask.height, 1, 1, bits );
+    if (!result.hbmMask) goto done;
+    if (data->color.size)
+    {
+        result.hbmColor = NtGdiCreateBitmap( data->color.width, data->color.height, 1,
+                                           data->color.bpp, bits + data->mask.size );
+        if (!result.hbmColor)
+        {
+            NtGdiDeleteObjectApp( result.hbmMask );
+            goto done;
+        }
+    }
+    *info = result;
+    if (module)
+    {
+        size = min( module->MaximumLength, data->module_size );
+        if (size) memcpy( module->Buffer, data + 1, size );
+        module->Length = size / sizeof(WCHAR);
+    }
+    if (res_name)
+    {
+        if (data->module_size && data->resname_size)
+        {
+            size = min( res_name->MaximumLength, data->resname_size );
+            if (size) memcpy( res_name->Buffer, (char *)(data + 1) + data->module_size, size );
+            res_name->Length = size / sizeof(WCHAR);
+        }
+        else
+        {
+            res_name->Buffer = data->module_size ? MAKEINTRESOURCEW( data->resid ) : NULL;
+            res_name->Length = 0;
+        }
+    }
+    TRACE( "read shared cursor %p, %dx%d\n", cursor, data->mask.width, data->mask.height );
+    ret = TRUE;
+done:
+    free( data );
+    if (view) NtUnmapViewOfSection( GetCurrentProcess(), view );
+    NtClose( section );
+    return ret;
+}
+
 /**********************************************************************
  *           NtUserGetIconInfo (win32u.@)
  */
@@ -480,7 +677,13 @@ BOOL WINAPI NtUserGetIconInfo( HICON icon, ICONINFO *info, UNICODE_STRING *modul
     struct cursoricon_object *obj, *frame_obj;
     BOOL ret = TRUE;
 
-    if (!(obj = get_icon_ptr( icon )))
+    obj = get_user_handle_ptr( icon, NTUSER_OBJ_ICON );
+    if (obj == OBJ_OTHER_PROCESS)
+    {
+        if (get_shared_cursor_info( icon, info, module, res_name )) return TRUE;
+        obj = NULL;
+    }
+    if (!obj)
     {
         RtlSetLastWin32Error( ERROR_INVALID_CURSOR_HANDLE );
         return FALSE;

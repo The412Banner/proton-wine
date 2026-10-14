@@ -1291,6 +1291,17 @@ static struct region *get_visible_region( struct window *win, unsigned int flags
         return region;
     }
 
+    /* Native window managers normally clip top-level windows, but may keep an
+     * unsupported minimize mapped. Do not paint its off-desktop iconic frame
+     * into the retained host window. On-screen minimized icons still paint. */
+    if ((win->style & WS_MINIMIZE) && is_desktop_window( win->parent ))
+    {
+        struct rectangle desktop = win->parent->client_rect;
+
+        map_dpi_rect( win, &desktop, get_window_dpi( win->parent ), get_window_dpi( win ) );
+        if (!intersect_rect( &desktop, &desktop, &win->visible_rect )) return region;
+    }
+
     /* create a region relative to the window itself */
 
     if ((flags & DCX_PARENTCLIP) && !is_desktop_window( win->parent ))

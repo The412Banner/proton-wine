@@ -990,7 +990,7 @@ static void quirk_no_independent_bit_depths(struct wined3d_gl_info *gl_info)
 }
 
 static const struct wined3d_gpu_description *query_gpu_description(const struct wined3d_gl_info *gl_info,
-        UINT64 *vram_bytes)
+        struct wined3d_gpu_description *runtime_description, const char *gl_renderer, UINT64 *vram_bytes)
 {
     const struct wined3d_gpu_description *gpu_description = NULL, *gpu_description_override;
     enum wined3d_pci_vendor vendor = PCI_VENDOR_NONE;
@@ -1014,6 +1014,20 @@ static const struct wined3d_gpu_description *query_gpu_description(const struct 
 
     if ((gpu_description_override = wined3d_get_user_override_gpu_description(vendor, device)))
         gpu_description = gpu_description_override;
+
+    if (!gpu_description && vendor != PCI_VENDOR_NONE && device != PCI_DEVICE_NONE)
+    {
+        FIXME("Failed to retrieve GPU description for device %s %04x:%04x.\n",
+                debugstr_a(gl_renderer), vendor, device);
+
+        runtime_description->vendor = vendor;
+        runtime_description->device = device;
+        runtime_description->description = gl_renderer;
+        runtime_description->driver = wined3d_guess_display_driver(vendor);
+        runtime_description->vidmem = min(*vram_bytes / (1024 * 1024), (UINT64)UINT_MAX);
+
+        gpu_description = runtime_description;
+    }
 
     return gpu_description;
 }
@@ -3787,7 +3801,8 @@ static BOOL wined3d_adapter_init_gl_caps(struct wined3d_adapter_gl *adapter_gl,
     gl_vendor = wined3d_guess_gl_vendor(gl_info, gl_vendor_str, gl_renderer_str, gl_version_str);
     TRACE("Guessed GL vendor %#x.\n", gl_vendor);
 
-    if (!(caps_gl_ctx->gpu_description = query_gpu_description(gl_info, &caps_gl_ctx->vram_bytes)))
+    if (!(caps_gl_ctx->gpu_description = query_gpu_description(gl_info,
+            &caps_gl_ctx->runtime_gpu_description, gl_renderer_str, &caps_gl_ctx->vram_bytes)))
     {
         enum wined3d_feature_level feature_level;
         struct fragment_caps fragment_caps;

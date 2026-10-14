@@ -802,6 +802,7 @@ struct wined3d_caps_gl_ctx
     GLuint test_vbo;
     GLuint test_program_id;
 
+    struct wined3d_gpu_description runtime_gpu_description;
     const struct wined3d_gpu_description *gpu_description;
     UINT64 vram_bytes;
 };

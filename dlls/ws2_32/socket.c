@@ -1275,6 +1275,12 @@ int WINAPI connect( SOCKET s, const struct sockaddr *addr, int len )
 
     TRACE( "socket %#Ix, addr %s, len %d\n", s, debugstr_sockaddr(addr), len );
 
+    if (!addr && len)
+    {
+        SetLastError( WSAEFAULT );
+        return -1;
+    }
+
     if (!(sync_event = get_sync_event())) return -1;
 
     if (!(params = malloc( sizeof(*params) + len )))
@@ -1284,7 +1290,8 @@ int WINAPI connect( SOCKET s, const struct sockaddr *addr, int len )
     }
     params->addr_len = len;
     params->synchronous = TRUE;
-    memcpy( params + 1, addr, len );
+    if (len)
+        memcpy( params + 1, addr, len );
 
     status = NtDeviceIoControlFile( (HANDLE)s, sync_event, NULL, NULL, &io, IOCTL_AFD_WINE_CONNECT,
                                     params, sizeof(*params) + len, NULL, 0 );

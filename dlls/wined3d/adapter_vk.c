@@ -2132,17 +2132,6 @@ static VkPhysicalDevice get_vulkan_physical_device(struct wined3d_vk_info *vk_in
     return physical_devices[0];
 }
 
-static enum wined3d_display_driver guess_display_driver(enum wined3d_pci_vendor vendor)
-{
-    switch (vendor)
-    {
-        case HW_VENDOR_AMD:    return DRIVER_AMD_RX;
-        case HW_VENDOR_INTEL:  return DRIVER_INTEL_HD4000;
-        case HW_VENDOR_NVIDIA: return DRIVER_NVIDIA_GEFORCE8;
-        default:               return DRIVER_WINE;
-    }
-}
-
 static bool adapter_vk_init_driver_info(struct wined3d_adapter_vk *adapter_vk,
         const VkPhysicalDeviceProperties *properties)
 {
@@ -2189,7 +2178,7 @@ static bool adapter_vk_init_driver_info(struct wined3d_adapter_vk *adapter_vk,
         description.vendor = properties->vendorID;
         description.device = properties->deviceID;
         description.description = properties->deviceName;
-        description.driver = guess_display_driver(properties->vendorID);
+        description.driver = wined3d_guess_display_driver(properties->vendorID);
         description.vidmem = vram_bytes;
 
         gpu_description = &description;

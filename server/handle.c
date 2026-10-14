@@ -434,13 +434,28 @@ unsigned int close_handle( struct process *process, obj_handle_t handle )
     if (!(entry = get_handle( process, handle ))) return STATUS_INVALID_HANDLE;
     if (entry->access & RESERVED_CLOSE_PROTECT) return STATUS_HANDLE_NOT_CLOSABLE;
     obj = entry->ptr;
-    if (!obj->ops->close_handle( obj, process, handle )) return STATUS_HANDLE_NOT_CLOSABLE;
+
+    /* the close_handle callback may terminate the process itself (e.g. the last
+     * handle to a kill-on-close job containing it), which frees its handle table */
+    grab_object( process );
+    grab_object( obj );
+    if (!obj->ops->close_handle( obj, process, handle ))
+    {
+        release_object( obj );
+        release_object( process );
+        return STATUS_HANDLE_NOT_CLOSABLE;
+    }
 
     table = handle_is_global(handle) ? global_table : process->handles;
-    table->entries[index].ptr = NULL;
-    if (index < table->free) table->free = index;
-    if (index == table->last) shrink_handle_table( table );
-    release_object_from_handle( obj );
+    if (table)  /* otherwise the table teardown already released the handle */
+    {
+        table->entries[index].ptr = NULL;
+        if (index < table->free) table->free = index;
+        if (index == table->last) shrink_handle_table( table );
+        release_object_from_handle( obj );
+    }
+    release_object( obj );
+    release_object( process );
     return STATUS_SUCCESS;
 }
 

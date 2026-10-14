@@ -874,6 +874,46 @@ err:
     return NULL;
 }
 
+static BOOL get_color_bitmap_bits(HDC hdc, HBITMAP bitmap, const BITMAP *bm,
+                                  BITMAPINFO *info, unsigned int *bits)
+{
+    HBITMAP dib = 0, old_dst = 0, old_src = 0;
+    HDC src_hdc = 0;
+    void *dib_bits = NULL;
+    BOOL ret = FALSE;
+
+    if (NtGdiGetDIBitsInternal(hdc, bitmap, 0, bm->bmHeight, bits, info,
+                               DIB_RGB_COLORS, 0, 0))
+        return TRUE;
+
+    /* Windows rejects GetDIBits for DDBs whose native depth is neither 1 nor
+     * 32 bits. Render other DDB formats into a 32-bit DIB section instead of
+     * weakening that application-visible behavior. */
+    if (!(src_hdc = NtGdiCreateCompatibleDC(0))) goto done;
+    if (!(dib = NtGdiCreateDIBSection(hdc, NULL, 0, info, DIB_RGB_COLORS,
+                                      0, 0, 0, &dib_bits)))
+        goto done;
+    if (!(old_src = NtGdiSelectBitmap(src_hdc, bitmap))) goto done;
+    if (!(old_dst = NtGdiSelectBitmap(hdc, dib))) goto done;
+    if (!NtGdiBitBlt(hdc, 0, 0, bm->bmWidth, bm->bmHeight,
+                     src_hdc, 0, 0, SRCCOPY, 0, 0))
+        goto done;
+
+    memcpy(bits, dib_bits, bm->bmWidth * bm->bmHeight * sizeof(*bits));
+    ret = TRUE;
+
+done:
+    if (old_dst) NtGdiSelectBitmap(hdc, old_dst);
+    if (old_src) NtGdiSelectBitmap(src_hdc, old_src);
+    if (dib) NtGdiDeleteObjectApp(dib);
+    if (src_hdc) NtGdiDeleteObjectApp(src_hdc);
+    if (!ret)
+        ERR("Failed to convert %dx%d color bitmap, planes %u, bpp %u\n",
+            bm->bmWidth, bm->bmHeight, (unsigned int)bm->bmPlanes,
+            (unsigned int)bm->bmBitsPixel);
+    return ret;
+}
+
 /***********************************************************************
  *           wayland_shm_buffer_from_color_bitmaps
  *
@@ -912,8 +952,7 @@ struct wayland_shm_buffer *wayland_shm_buffer_from_color_bitmaps(HDC hdc, HBITMA
     info->bmiHeader.biClrUsed = 0;
     info->bmiHeader.biClrImportant = 0;
 
-    if (!NtGdiGetDIBitsInternal(hdc, color, 0, bm.bmHeight, bits, info,
-                                DIB_RGB_COLORS, 0, 0))
+    if (!get_color_bitmap_bits(hdc, color, &bm, info, bits))
         goto failed;
 
     for (i = 0; i < bm.bmWidth * bm.bmHeight; i++)
