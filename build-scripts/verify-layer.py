@@ -256,6 +256,13 @@ def main():
         report(u16("WINE_OPTISCALER_NAME") in read(os.path.join(pe, "ntdll.dll")), "ntdll.dll: OptiScaler injection hack")
         report(b"WINE_FULLSCREEN_FSR" in w32so, "win32u.so: fullscreen-hack FSR")
         report(b"WINE_NO_WM_DECORATION" in w32so, "win32u.so: WINE_NO_WM_DECORATION switch")
+        # DroidDeck-Proton 11-9.1 tier 3: CachyOS game fixes not in GE (in-tree on proton_11.9.1-DroidDeck)
+        print("-- DroidDeck-Proton CachyOS tier")
+        report(b"WINE_DISABLE_SFN" in ntdll_so and b"Yakuza5.exe" in ntdll_so, "ntdll.so: WINE_DISABLE_SFN short-name switch (Yakuza 5 cutscenes)")
+        report(u16("CefBrowserWindow") in w32so and b"3513350" in w32so, "win32u.so: Wuthering Waves opaque webviews")
+        report(b"462780" in read(os.path.join(pe, "xaudio2_7.dll")), "xaudio2_7.dll: Darksiders Warmastered buffer-copy hack")
+        report(b"RtlAreLongPathsEnabled" in read(os.path.join(pe, "ntdll.dll")), "ntdll.dll: RtlAreLongPathsEnabled export")
+        report(b"PowerReadACValueIndex" in read(os.path.join(pe, "powrprof.dll")), "powrprof.dll: PowerReadACValueIndex stub export")
         if not arm64ec:
             # compiled only for x86_64 PE ntdll (#if __x86_64__ && !__arm64ec__); inert on arm64ec
             report(u16("AI-LIMIT.exe") in read(os.path.join(pe, "ntdll.dll")),
