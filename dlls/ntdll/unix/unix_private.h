@@ -222,6 +222,9 @@ extern BOOL fsync_yield_to_waiters;
 
 extern BOOL ac_odyssey;
 
+extern BOOL handle_cpuid_fault( ULONG_PTR *pc, ULONG_PTR *ax, ULONG_PTR *bx, ULONG_PTR *cx, ULONG_PTR *dx );
+extern void emulate_cpuid(void);
+
 extern void init_environment(void);
 extern void init_startup_info(void);
 extern void *create_startup_info( const UNICODE_STRING *nt_image, ULONG process_flags,
@@ -232,6 +235,7 @@ extern NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_imag
 extern NTSTATUS load_builtin( const struct pe_image_info *image_info, UNICODE_STRING *nt_name,
                               ANSI_STRING *exp_name, USHORT machine, SECTION_IMAGE_INFORMATION *info,
                               void **module, SIZE_T *size, ULONG_PTR limit_low, ULONG_PTR limit_high, off_t offset );
+extern NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret );
 extern BOOL is_builtin_path( const UNICODE_STRING *path, WORD *machine );
 extern NTSTATUS load_main_exe( UNICODE_STRING *nt_name, USHORT load_machine, void **module );
 extern NTSTATUS load_start_exe( UNICODE_STRING *nt_name, void **module );
@@ -332,7 +336,7 @@ extern void virtual_set_large_address_space(void);
 extern void virtual_fill_image_information( const struct pe_image_info *pe_info,
                                             SECTION_IMAGE_INFORMATION *info );
 extern void *get_builtin_so_handle( void *module );
-extern NTSTATUS load_builtin_unixlib( void *module, const char *name );
+extern NTSTATUS set_builtin_unixlib_name( void *module, const char *name );
 extern BOOL is_emulated_code( ULONG_PTR ptr );
 
 extern NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *info, ULONG len );

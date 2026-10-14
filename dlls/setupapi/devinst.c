@@ -170,6 +170,20 @@ static WCHAR *concat_path(const WCHAR *root, const WCHAR *path)
     return sprintf_path(L"%s\\%s", root, path);
 }
 
+static BOOL guid_from_string_w(WCHAR *str, GUID *guid)
+{
+    RPC_STATUS ret;
+
+    if (wcslen(str) != 38 || (str[0] != '{') || (str[37] != '}'))
+        return FALSE;
+
+    str[37] = 0;
+    ret = UuidFromStringW(&str[1], guid);
+    str[37] = '}';
+
+    return ret == RPC_S_OK;
+}
+
 static struct DeviceInfoSet *get_device_set(HDEVINFO devinfo)
 {
     struct DeviceInfoSet *set = devinfo;
@@ -331,6 +345,20 @@ static BOOL is_valid_property_type(DEVPROPTYPE prop_type)
         return FALSE;
 
     return TRUE;
+}
+
+static BOOL is_valid_device_instance_id(const WCHAR *device_instance_id)
+{
+    int separators = 0;
+    const WCHAR *tmp;
+
+    if (!*device_instance_id) return FALSE;
+    if (wcslen(device_instance_id) >= MAX_DEVICE_ID_LEN) return FALSE;
+
+    for (tmp = wcschr(device_instance_id, '\\'); tmp && *tmp; tmp = wcschr(tmp + 1, '\\')) separators++;
+    if (separators != 2) return FALSE;
+    tmp = wcsrchr(device_instance_id, '\\') + 1;
+    return *tmp;
 }
 
 static LPWSTR SETUPDI_CreateSymbolicLinkPath(LPCWSTR instanceId,
@@ -1382,6 +1410,13 @@ BOOL WINAPI SetupDiCreateDeviceInfoW(HDEVINFO devinfo, const WCHAR *name, const 
         return FALSE;
     }
 
+    if ((!(flags & DICD_GENERATE_ID) && !is_valid_device_instance_id(name))
+            || ((flags & DICD_GENERATE_ID) && wcschr(name, '\\')))
+    {
+        SetLastError(ERROR_INVALID_DEVINST_NAME);
+        return FALSE;
+    }
+
     if (!(set = get_device_set(devinfo)))
         return FALSE;
 
@@ -1399,12 +1434,6 @@ BOOL WINAPI SetupDiCreateDeviceInfoW(HDEVINFO devinfo, const WCHAR *name, const 
     if ((flags & DICD_GENERATE_ID))
     {
         unsigned int instance_id;
-
-        if (wcschr(name, '\\'))
-        {
-            SetLastError(ERROR_INVALID_DEVINST_NAME);
-            return FALSE;
-        }
 
         for (instance_id = 0; ; ++instance_id)
         {
@@ -3622,9 +3651,15 @@ BOOL WINAPI SetupDiOpenDeviceInfoA(HDEVINFO devinfo, PCSTR instance_id, HWND hwn
 
     TRACE("%p %s %p 0x%08lx %p\n", devinfo, debugstr_a(instance_id), hwnd_parent, flags, device_data);
 
-    if (!instance_id || strlen(instance_id) >= MAX_DEVICE_ID_LEN)
+    if (!instance_id)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (strlen(instance_id) >= MAX_DEVICE_ID_LEN)
+    {
+        SetLastError(ERROR_INVALID_DEVINST_NAME);
         return FALSE;
     }
 
@@ -3644,7 +3679,7 @@ BOOL WINAPI SetupDiOpenDeviceInfoW(HDEVINFO devinfo, PCWSTR instance_id, HWND hw
     GUID guid;
     HKEY enumKey = NULL;
     HKEY instanceKey = NULL;
-    DWORD phantom;
+    DWORD phantom = 0;
     DWORD size;
     DWORD error = ERROR_NO_SUCH_DEVINST;
 
@@ -3656,6 +3691,12 @@ BOOL WINAPI SetupDiOpenDeviceInfoW(HDEVINFO devinfo, PCWSTR instance_id, HWND hw
     if (!instance_id)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (!is_valid_device_instance_id(instance_id))
+    {
+        SetLastError(ERROR_INVALID_DEVINST_NAME);
         return FALSE;
     }
 
@@ -3672,16 +3713,15 @@ BOOL WINAPI SetupDiOpenDeviceInfoW(HDEVINFO devinfo, PCWSTR instance_id, HWND hw
 
     /* If it's an unregistered instance, aka phantom instance, report ERROR_NO_SUCH_DEVINST */
     size = sizeof(phantom);
-    if (!RegQueryValueExW(instanceKey, L"Phantom", NULL, NULL, (BYTE *)&phantom, &size))
+    if (!RegQueryValueExW(instanceKey, L"Phantom", NULL, NULL, (BYTE *)&phantom, &size)
+            && phantom != 0)
         goto done;
 
-    /* Check class GUID */
+    /* Check class GUID, and use it if present. */
     size = sizeof(classW);
-    if (RegQueryValueExW(instanceKey, L"ClassGUID", NULL, NULL, (BYTE *)classW, &size))
-        goto done;
-
-    classW[37] = 0;
-    UuidFromStringW(&classW[1], &guid);
+    if (RegGetValueW(instanceKey, NULL, L"ClassGUID", RRF_RT_REG_SZ, NULL, classW, &size)
+            || !guid_from_string_w(classW, &guid))
+        guid = GUID_NULL;
 
     if (!IsEqualGUID(&set->ClassGuid, &GUID_NULL) && !IsEqualGUID(&guid, &set->ClassGuid))
     {

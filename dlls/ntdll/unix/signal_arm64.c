@@ -306,7 +306,8 @@ static void restore_fpu( const CONTEXT *context, ucontext_t *sigcontext )
 /* Preserve all CPSR bits not covered by user context in signal handlers.
  * Additionally, preserve the host SSBS bit, which is allowed to be set on
  * Windows, but is volatile and restored on kernel transition anyway.
- * (Wine MR 12262.) WINE_FORCE_SSBS=0 drops the SSBS part for stock behaviour. */
+ * (Wine MR 12262, upstream in Valve 11.0 f9a7e33ae77.) WINE_FORCE_SSBS=0 drops the
+ * SSBS part for stock behaviour, so the mask is not const here. */
 static ULONG cpsr_host_mask = ~cpsr_user_mask | 0x1000;
 
 /***********************************************************************
@@ -357,7 +358,7 @@ static void restore_context( const CONTEXT *context, ucontext_t *sigcontext )
 
     FP_sig(sigcontext)     = context->Fp;   /* Frame pointer */
     LR_sig(sigcontext)     = context->Lr;   /* Link register */
-    PSTATE_sig(sigcontext) = (PSTATE_sig(sigcontext) & cpsr_host_mask) | (context->Cpsr & cpsr_user_mask); /* Current State Register */
+    PSTATE_sig(sigcontext) = (PSTATE_sig(sigcontext) & cpsr_host_mask) | (context->Cpsr & ~cpsr_host_mask);
     for (i = 0; i <= 28; i++) REGn_sig( i, sigcontext ) = context->X[i];
     restore_fpu( context, sigcontext );
 }

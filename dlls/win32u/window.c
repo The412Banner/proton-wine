@@ -2654,6 +2654,11 @@ BOOL WINAPI NtUserUpdateLayeredWindow( HWND hwnd, HDC hdc_dst, const POINT *pts_
     TRACE( "window %p new_rects %s\n", hwnd, debugstr_window_rects( &new_rects ) );
 
     surface = get_window_surface( hwnd, swp_flags, TRUE, &new_rects, &surface_rect );
+    if (hdc_src && surface && surface != &dummy_surface)
+    {
+        if (!(flags & ULW_COLORKEY)) key = CLR_INVALID;
+        window_surface_set_layered( surface, key, -1, 0xff000000 );
+    }
     apply_window_pos( hwnd, 0, swp_flags, surface, &new_rects, NULL );
     if (!surface) return FALSE;
 
@@ -2689,9 +2694,6 @@ BOOL WINAPI NtUserUpdateLayeredWindow( HWND hwnd, HDC hdc_dst, const POINT *pts_
 
         NtGdiDeleteObjectApp( hdc );
         window_surface_unlock( surface );
-
-        if (!(flags & ULW_COLORKEY)) key = CLR_INVALID;
-        window_surface_set_layered( surface, key, -1, 0xff000000 );
 
         user_driver->pUpdateLayeredWindow( hwnd, source_alpha, flags );
         window_surface_flush( surface );
@@ -5824,16 +5826,19 @@ int disable_gamescope_max_size_hack(void)
 static void style_fixup_workarounds( CREATESTRUCTW *cs, const UNICODE_STRING *class_name )
 {
     static const WCHAR BlockClickMASKWndW[] = {'B','l','o','c','k','C','l','i','c','k','M','A','S','K','W','n','d'};
+    static const WCHAR EASteamLauncherSplash[] = {'E','A','S','t','e','a','m','L','a','u','n','c','h','e','r','S','p','l','a','s','h'};
     static const struct
     {
         const WCHAR *class_name;
         const char *wm;
         const char *game_id;
-        unsigned exstyle;
+        unsigned int set_exstyle;
+        unsigned int clear_exstyle;
     }
     workarounds[] =
     {
         { BlockClickMASKWndW, "steamcompmgr", "3839850", WS_EX_NOACTIVATE },
+        { EASteamLauncherSplash, "steamcompmgr", NULL, 0, WS_EX_TOOLWINDOW },
     };
     const char *sgi = getenv( "SteamGameId" );
     unsigned int i;
@@ -5848,8 +5853,9 @@ static void style_fixup_workarounds( CREATESTRUCTW *cs, const UNICODE_STRING *cl
                  (class_name->Length == wcslen( workarounds[i].class_name ) * sizeof(WCHAR)
                  && !memcmp( class_name->Buffer, workarounds[i].class_name, class_name->Length ))))
         {
-            FIXME( "HACK: adding %#x exstyle for %s.\n", workarounds[i].exstyle, debugstr_w( cs->lpszClass ));
-            cs->dwExStyle |= workarounds[i].exstyle;
+            FIXME( "HACK: %#x/%#x for %s.\n", workarounds[i].set_exstyle, workarounds[i].clear_exstyle, debugstr_us(class_name) );
+            cs->dwExStyle |= workarounds[i].set_exstyle;
+            cs->dwExStyle &= ~workarounds[i].clear_exstyle;
         }
     }
 }

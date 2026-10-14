@@ -87,6 +87,7 @@ struct joystick
     UINT timer;
     DWORD threshold;
     BOOL changed;
+    BOOL disconnected;
 };
 
 static DIDEVICEINSTANCEW instances[16];
@@ -236,27 +237,75 @@ static HRESULT set_data_format( IDirectInputDevice8W *device )
     return IDirectInputDevice8_SetDataFormat( device, &data_format );
 }
 
-static void find_joysticks(void)
+static void update_connected_state(void)
 {
-    static INIT_ONCE init_once = INIT_ONCE_STATIC_INIT;
-
     IDirectInputDevice8W *device;
-    HANDLE event;
-    DWORD index;
+    struct joystick_state state;
+    unsigned int i;
     HRESULT hr;
 
-    InitOnceExecuteOnce( &init_once, joystick_load_once, NULL, NULL );
-
-    if (!dinput) return;
-
-    index = 0;
-    IDirectInput8_EnumDevices( dinput, DI8DEVCLASS_ALL, enum_instances, &index, DIEDFL_ATTACHEDONLY );
-    TRACE( "found %lu device instances\n", index );
-
-    while (index--)
+    for (i = 0; i < ARRAY_SIZE(joysticks); ++i)
     {
-        if (!memcmp( &joysticks[index].instance, &instances[index], sizeof(DIDEVICEINSTANCEW) ))
+        if (!(device = joysticks[i].device)) continue;
+        if (SUCCEEDED(hr = IDirectInputDevice8_GetDeviceState( device, sizeof(struct joystick_state), &state )))
+        {
+            joysticks[i].disconnected = FALSE;
+            TRACE( "joystick %u connected.\n", i );
             continue;
+        }
+        if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED)
+        {
+            joysticks[i].disconnected = FAILED((hr = IDirectInputDevice8_Acquire( device )));
+            if (joysticks[i].disconnected)
+                TRACE( "joystick %u disconnected, hr %#lx.\n", i, hr );
+            else
+                TRACE( "joystick %u reconnected.\n", i );
+            continue;
+        }
+        WARN( "GetDeviceState device %p returned %#lx, removing device\n", device, hr );
+        IDirectInputDevice8_Release( joysticks[i].device );
+        CloseHandle( joysticks[i].event );
+        memset( &joysticks[i], 0, sizeof(*joysticks) );
+    }
+}
+
+static void add_joystick( const DIDEVICEINSTANCEW *instance )
+{
+    int first_disconnected = -1, index = -1;
+    IDirectInputDevice8W *device = NULL;
+    unsigned int i;
+    HANDLE event;
+    HRESULT hr;
+
+    for (i = 0; i < ARRAY_SIZE(joysticks); ++i)
+    {
+        if (!memcmp( &joysticks[i].instance, instance, sizeof(DIDEVICEINSTANCEW) )) return;
+        if (index == -1 && !joysticks[i].device) index = i;
+        if (index == -1 && first_disconnected == -1 && joysticks[i].disconnected) first_disconnected = i;
+    }
+    if (index == -1) index = first_disconnected;
+    if (index == -1)
+    {
+        ERR( "Could not find existing or empty slot.\n" );
+        return;
+    }
+
+    if (!(event = CreateEventW( NULL, FALSE, FALSE, NULL )))
+        WARN( "could not event for device, error %lu\n", GetLastError() );
+    else if (FAILED(hr = IDirectInput8_CreateDevice( dinput, &instance->guidInstance, &device, NULL )))
+        WARN( "could not create device %s instance, hr %#lx\n",
+              debugstr_guid( &instance->guidInstance ), hr );
+    else if (FAILED(hr = IDirectInputDevice8_SetEventNotification( device, event )))
+        WARN( "SetEventNotification device %p hr %#lx\n", device, hr );
+    else if (FAILED(hr = IDirectInputDevice8_SetCooperativeLevel( device, NULL, DISCL_NONEXCLUSIVE|DISCL_BACKGROUND )))
+        WARN( "SetCooperativeLevel device %p hr %#lx\n", device, hr );
+    else if (FAILED(hr = set_data_format( device )))
+        WARN( "SetDataFormat device %p hr %#lx\n", device, hr );
+    else if (FAILED(hr = IDirectInputDevice8_Acquire( device )))
+        WARN( "Acquire device %p hr %#lx\n", device, hr );
+    else
+    {
+        TRACE( "opened device %p event %p\n", device, event );
 
         if (joysticks[index].device)
         {
@@ -264,36 +313,33 @@ static void find_joysticks(void)
             CloseHandle( joysticks[index].event );
         }
 
-        if (!(event = CreateEventW( NULL, FALSE, FALSE, NULL )))
-            WARN( "could not event for device, error %lu\n", GetLastError() );
-        else if (FAILED(hr = IDirectInput8_CreateDevice( dinput, &instances[index].guidInstance, &device, NULL )))
-            WARN( "could not create device %s instance, hr %#lx\n",
-                  debugstr_guid( &instances[index].guidInstance ), hr );
-        else if (FAILED(hr = IDirectInputDevice8_SetEventNotification( device, event )))
-            WARN( "SetEventNotification device %p hr %#lx\n", device, hr );
-        else if (FAILED(hr = IDirectInputDevice8_SetCooperativeLevel( device, NULL, DISCL_NONEXCLUSIVE|DISCL_BACKGROUND )))
-            WARN( "SetCooperativeLevel device %p hr %#lx\n", device, hr );
-        else if (FAILED(hr = set_data_format( device )))
-            WARN( "SetDataFormat device %p hr %#lx\n", device, hr );
-        else if (FAILED(hr = IDirectInputDevice8_Acquire( device )))
-            WARN( "Acquire device %p hr %#lx\n", device, hr );
-        else
-        {
-            TRACE( "opened device %p event %p\n", device, event );
-
-            memset( &joysticks[index], 0, sizeof(struct joystick) );
-            joysticks[index].instance = instances[index];
-            joysticks[index].device = device;
-            joysticks[index].event = event;
-            continue;
-        }
-
-        CloseHandle( event );
-        if (device) IDirectInputDevice8_Release( device );
-        memmove( joysticks + index, joysticks + index + 1,
-                 (ARRAY_SIZE(joysticks) - index - 1) * sizeof(struct joystick) );
-        memset( &joysticks[ARRAY_SIZE(joysticks) - 1], 0, sizeof(struct joystick) );
+        memset( &joysticks[index], 0, sizeof(struct joystick) );
+        joysticks[index].instance = *instance;
+        joysticks[index].device = device;
+        joysticks[index].event = event;
+        return;
     }
+
+    CloseHandle( event );
+    if (device) IDirectInputDevice8_Release( device );
+}
+
+static void find_joysticks(void)
+{
+    static INIT_ONCE init_once = INIT_ONCE_STATIC_INIT;
+    DWORD i, count;
+
+    InitOnceExecuteOnce( &init_once, joystick_load_once, NULL, NULL );
+
+    if (!dinput) return;
+
+    count = 0;
+    IDirectInput8_EnumDevices( dinput, DI8DEVCLASS_ALL, enum_instances, &count, DIEDFL_ATTACHEDONLY );
+    TRACE( "found %lu device instances\n", count );
+
+    update_connected_state();
+
+    for (i = 0; i < count; ++i) add_joystick( &instances[i] );
 }
 
 static BOOL compare_uint(unsigned int x, unsigned int y, unsigned int max_diff)
@@ -525,7 +571,7 @@ MMRESULT WINAPI DECLSPEC_HOTPATCH joyGetDevCapsA( UINT_PTR id, JOYCAPSA *caps, U
  */
 MMRESULT WINAPI DECLSPEC_HOTPATCH joyGetPosEx( UINT id, JOYINFOEX *info )
 {
-    static ULONG last_check;
+    static ULONG last_find_ticks, last_reconnect_ticks;
     DWORD i, ticks = GetTickCount();
     MMRESULT res = JOYERR_NOERROR;
     IDirectInputDevice8W *device;
@@ -539,18 +585,35 @@ MMRESULT WINAPI DECLSPEC_HOTPATCH joyGetPosEx( UINT id, JOYINFOEX *info )
 
     EnterCriticalSection( &joystick_cs );
 
-    if (!(device = joysticks[id].device) && (ticks - last_check) >= 2000)
+    if (!(device = joysticks[id].device) && (ticks - last_find_ticks) >= 2000)
     {
-        last_check = ticks;
+        last_find_ticks = ticks;
         find_joysticks();
     }
+    if ((device = joysticks[id].device) && joysticks[id].disconnected && (ticks - last_reconnect_ticks) >= 2000)
+    {
+        last_reconnect_ticks = ticks;
+        update_connected_state();
+        device = joysticks[id].device;
+    }
 
-    if (!(device = joysticks[id].device))
+    if (!device)
         res = JOYERR_PARMS;
+    else if (joysticks[id].disconnected)
+        res = JOYERR_UNPLUGGED;
     else if (FAILED(hr = IDirectInputDevice8_GetDeviceState( device, sizeof(struct joystick_state), &state )))
     {
-        WARN( "GetDeviceState device %p returned %#lx\n", device, hr );
-        res = JOYERR_PARMS;
+        if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED)
+        {
+            TRACE( "joystick %u, device %p is unplugged\n", id, device );
+            joysticks[id].disconnected = TRUE;
+            res = JOYERR_UNPLUGGED;
+        }
+        else
+        {
+            WARN( "GetDeviceState device %p returned %#lx\n", device, hr );
+            res = JOYERR_PARMS;
+        }
     }
     else
     {

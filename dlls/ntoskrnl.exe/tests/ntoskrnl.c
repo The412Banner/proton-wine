@@ -402,10 +402,17 @@ static void cat_okfile(void)
 
 static ULONG64 modified_value;
 
+static DWORD WINAPI context_thread_proc(void *arg)
+{
+    return 0;
+}
+
 static void main_test(void)
 {
     struct main_test_input test_input;
-    DWORD size;
+    TOKEN_STATISTICS stats;
+    HANDLE thread, token;
+    DWORD size, len;
     BOOL res;
 
     test_input.process_id = GetCurrentProcessId();
@@ -413,9 +420,28 @@ static void main_test(void)
     test_input.modified_value = &modified_value;
     modified_value = 0;
 
+    thread = CreateThread(NULL, 0, context_thread_proc, NULL, CREATE_SUSPENDED, &test_input.thread_id);
+    ok(!!thread, "CreateThread failed: %lu\n", GetLastError());
+    memset(&test_input.thread_context, 0, sizeof(test_input.thread_context));
+    test_input.thread_context.ContextFlags = CONTEXT_CONTROL;
+    res = GetThreadContext(thread, &test_input.thread_context);
+    ok(res, "GetThreadContext failed: %lu\n", GetLastError());
+
+    token = NULL;
+    res = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token);
+    ok(res, "OpenProcessToken failed: %lu\n", GetLastError());
+    res = GetTokenInformation(token, TokenStatistics, &stats, sizeof(stats), &len);
+    ok(res, "GetTokenInformation failed: %lu\n", GetLastError());
+    test_input.token_id = stats.TokenId;
+    CloseHandle(token);
+
     res = DeviceIoControl(device, IOCTL_WINETEST_MAIN_TEST, &test_input, sizeof(test_input), NULL, 0, &size, NULL);
     ok(res, "DeviceIoControl failed: %lu\n", GetLastError());
     ok(!size, "got size %lu\n", size);
+
+    ResumeThread(thread);
+    ok(!WaitForSingleObject(thread, 5000), "wait timed out\n");
+    CloseHandle(thread);
 }
 
 static void test_basic_ioctl(void)
@@ -453,6 +479,7 @@ struct cancel_thread_ctx
 {
     HANDLE file;
     enum cancel_test test;
+    OVERLAPPED o, o2;
 };
 
 static DWORD WINAPI test_cancel_thread(void *param)
@@ -461,18 +488,23 @@ static DWORD WINAPI test_cancel_thread(void *param)
     NTSTATUS status = STATUS_SUCCESS;
     IO_STATUS_BLOCK cancel_sb;
     DWORD cancel_cnt, size;
-    OVERLAPPED o, o2, o3;
+    OVERLAPPED o3 = {0};
     BOOL res;
 
-    res = DeviceIoControl(ctx->file, IOCTL_WINETEST_RESET_CANCEL, NULL, 0, NULL, 0, NULL, &o);
+    memset(&ctx->o, 0, sizeof(OVERLAPPED));
+    memset(&ctx->o2, 0, sizeof(OVERLAPPED));
+
+    res = DeviceIoControl(ctx->file, IOCTL_WINETEST_RESET_CANCEL, NULL, 0, NULL, 0, NULL, &ctx->o);
     ok(res, "DeviceIoControl failed: %lu\n", GetLastError());
 
     if (ctx->test != cancelsync)
     {
-        res = DeviceIoControl(ctx->file, IOCTL_WINETEST_QUEUE_ASYNC, NULL, 0, NULL, 0, NULL, &o);
+        ctx->o.hEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
+        res = DeviceIoControl(ctx->file, IOCTL_WINETEST_QUEUE_ASYNC, NULL, 0, NULL, 0, NULL, &ctx->o);
         ok(!res && GetLastError() == ERROR_IO_PENDING, "DeviceIoControl failed: %lu\n", GetLastError());
 
-        res = DeviceIoControl(ctx->file, IOCTL_WINETEST_QUEUE_ASYNC, NULL, 0, NULL, 0, NULL, &o2);
+        ctx->o2.hEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
+        res = DeviceIoControl(ctx->file, IOCTL_WINETEST_QUEUE_ASYNC, NULL, 0, NULL, 0, NULL, &ctx->o2);
         ok(!res && GetLastError() == ERROR_IO_PENDING, "DeviceIoControl failed: %lu\n", GetLastError());
     }
 
@@ -608,7 +640,11 @@ static void test_overlapped(void)
     res = DeviceIoControl(file, IOCTL_WINETEST_COMPLETE_ASYNC, NULL, 0, NULL, 0, NULL, &overlapped);
     ok(res, "DeviceIoControl failed: %lu\n", GetLastError());
     WaitForSingleObject(thread, INFINITE);
+    WaitForSingleObject(ctx.o.hEvent, INFINITE);
+    WaitForSingleObject(ctx.o2.hEvent, INFINITE);
     CloseHandle(thread);
+    CloseHandle(ctx.o.hEvent);
+    CloseHandle(ctx.o2.hEvent);
 
     cancel_cnt = 0xdeadbeef;
     res = DeviceIoControl(file, IOCTL_WINETEST_GET_CANCEL_COUNT, NULL, 0, &cancel_cnt, sizeof(cancel_cnt), NULL, &overlapped2);
@@ -628,7 +664,11 @@ static void test_overlapped(void)
     res = DeviceIoControl(file, IOCTL_WINETEST_COMPLETE_ASYNC, NULL, 0, NULL, 0, NULL, &overlapped);
     ok(res, "DeviceIoControl failed: %lu\n", GetLastError());
     WaitForSingleObject(thread, INFINITE);
+    WaitForSingleObject(ctx.o.hEvent, INFINITE);
+    WaitForSingleObject(ctx.o2.hEvent, INFINITE);
     CloseHandle(thread);
+    CloseHandle(ctx.o.hEvent);
+    CloseHandle(ctx.o2.hEvent);
 
     cancel_cnt = 0xdeadbeef;
     res = DeviceIoControl(file, IOCTL_WINETEST_GET_CANCEL_COUNT, NULL, 0, &cancel_cnt, sizeof(cancel_cnt), NULL, &overlapped2);
@@ -646,7 +686,11 @@ static void test_overlapped(void)
     res = DeviceIoControl(file, IOCTL_WINETEST_COMPLETE_ASYNC, NULL, 0, NULL, 0, NULL, &overlapped);
     ok(res, "DeviceIoControl failed: %lu\n", GetLastError());
     WaitForSingleObject(thread, INFINITE);
+    WaitForSingleObject(ctx.o.hEvent, INFINITE);
+    WaitForSingleObject(ctx.o2.hEvent, INFINITE);
     CloseHandle(thread);
+    CloseHandle(ctx.o.hEvent);
+    CloseHandle(ctx.o2.hEvent);
 
     cancel_cnt = 0xdeadbeef;
     res = DeviceIoControl(file, IOCTL_WINETEST_GET_CANCEL_COUNT, NULL, 0, &cancel_cnt, sizeof(cancel_cnt), NULL, &overlapped2);
@@ -668,7 +712,11 @@ static void test_overlapped(void)
     res = DeviceIoControl(file, IOCTL_WINETEST_COMPLETE_ASYNC, NULL, 0, NULL, 0, NULL, &overlapped);
     ok(res, "DeviceIoControl failed: %lu\n", GetLastError());
     WaitForSingleObject(thread, INFINITE);
+    WaitForSingleObject(ctx.o.hEvent, INFINITE);
+    WaitForSingleObject(ctx.o2.hEvent, INFINITE);
     CloseHandle(thread);
+    CloseHandle(ctx.o.hEvent);
+    CloseHandle(ctx.o2.hEvent);
 
     cancel_cnt = 0xdeadbeef;
     res = DeviceIoControl(file, IOCTL_WINETEST_GET_CANCEL_COUNT, NULL, 0, &cancel_cnt, sizeof(cancel_cnt), NULL, &overlapped2);

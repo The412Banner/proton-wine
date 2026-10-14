@@ -712,7 +712,10 @@ static void test_device_info(void)
     static const GUID deadbeef = {0xdeadbeef,0xdead,0xbeef,{0xde,0xad,0xbe,0xef,0xde,0xad,0xbe,0xef}};
     SP_DEVINFO_DATA device = {0}, ret_device = {sizeof(ret_device)};
     char id[MAX_DEVICE_ID_LEN + 2];
+    DWORD phantom;
     HDEVINFO set;
+    LSTATUS ls;
+    HKEY key;
     BOOL ret;
     INT i = 0;
 
@@ -846,6 +849,36 @@ static void test_device_info(void)
     ret = SetupDiCreateDeviceInfoA(set, id, &guid, NULL, NULL, 0, NULL);
     ok(ret, "Failed to create device, error %#lx.\n", GetLastError());
 
+    /* Create device with only an enumerator. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiCreateDeviceInfoA(set, "Root", &guid, NULL, NULL, 0, NULL);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+
+    /* Create device with only an enumerator and device ID. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiCreateDeviceInfoA(set, "Root\\LEGACY_BOGUS", &guid, NULL, NULL, 0, NULL);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+
+    /* Create device with an empty instance ID. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiCreateDeviceInfoA(set, "Root\\LEGACY_BOGUS\\", &guid, NULL, NULL, 0, NULL);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+
+    /* Create device with a full device instance ID and DICD_GENERATE_ID. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiCreateDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", &guid, NULL, NULL, DICD_GENERATE_ID, NULL);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+
+    /* Create device with a single separator and DICD_GENERATE_ID. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiCreateDeviceInfoA(set, "LEGACY_BOGUS\\", &guid, NULL, NULL, DICD_GENERATE_ID, NULL);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+
     SetupDiDestroyDeviceInfoList(set);
 
     set = SetupDiCreateDeviceInfoList(&guid, NULL);
@@ -863,6 +896,77 @@ static void test_device_info(void)
     ok(!ret, "Expect failure\n");
     ok(GetLastError() == ERROR_DEVINST_ALREADY_EXISTS, "Got error %#lx\n", GetLastError());
     check_device_info(set, 0, NULL, NULL);
+    SetupDiDestroyDeviceInfoList(set);
+
+    /* Create a registry key outside of setupapi. */
+    ls = RegCreateKeyA(HKEY_LOCAL_MACHINE, "System\\CurrentControlSet\\Enum\\Root\\LEGACY_BOGUS\\0101", &key);
+    ok(!ls, "Failed to create key, error %lu.\n", ls);
+
+    /* Now attempt to create device info, this should fail. */
+    set = SetupDiCreateDeviceInfoList(NULL, NULL);
+    ret = SetupDiCreateDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", &guid, NULL, NULL, 0, &device);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_DEVINST_ALREADY_EXISTS, "Got unexpected error %#lx.\n", GetLastError());
+    check_device_info(set, 0, NULL, NULL);
+
+    phantom = 1;
+    RegSetValueExA(key, "Phantom", 0, REG_DWORD, (BYTE *)&phantom, sizeof(phantom));
+
+    /*
+     * Can't open a device with this device instance ID if the phantom value
+     * is present and set to 1.
+     */
+    ret = SetupDiOpenDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", NULL, 0, &device);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_NO_SUCH_DEVINST, "Got unexpected error %#lx.\n", GetLastError());
+    check_device_info(set, 0, NULL, NULL);
+
+    /* Present phantom value set to 0, it will open. */
+    phantom = 0;
+    RegSetValueExA(key, "Phantom", 0, REG_DWORD, (BYTE *)&phantom, sizeof(phantom));
+    ret = SetupDiOpenDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", NULL, 0, &device);
+    ok(ret, "Got unexpected error %#lx.\n", GetLastError());
+    check_device_info(set, 0, &GUID_NULL, "ROOT\\LEGACY_BOGUS\\0101");
+    check_device_info(set, 1, NULL, NULL);
+    SetupDiDestroyDeviceInfoList(set);
+
+    /* Also succeeds without the phantom value, opening an empty key. */
+    RegDeleteValueA(key, "Phantom");
+    set = SetupDiCreateDeviceInfoList(NULL, NULL);
+    ret = SetupDiOpenDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", NULL, 0, &device);
+    ok(ret, "Got unexpected error %#lx.\n", GetLastError());
+    check_device_info(set, 0, &GUID_NULL, "ROOT\\LEGACY_BOGUS\\0101");
+    check_device_info(set, 1, NULL, NULL);
+    SetupDiDestroyDeviceInfoList(set);
+
+    /*
+     * Set created with a GUID, no GUID value is present in the registry,
+     * defaults to GUID_NULL.
+     */
+    set = SetupDiCreateDeviceInfoList(&guid, NULL);
+    ret = SetupDiOpenDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", NULL, 0, &device);
+    ok(!ret, "Expected failure.\n");
+    ok(GetLastError() == ERROR_CLASS_MISMATCH, "Got unexpected error %#lx.\n", GetLastError());
+    check_device_info(set, 0, NULL, NULL);
+    SetupDiDestroyDeviceInfoList(set);
+
+    set = SetupDiCreateDeviceInfoList(&GUID_NULL, NULL);
+    ret = SetupDiOpenDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", NULL, 0, &device);
+    ok(ret, "Got unexpected error %#lx.\n", GetLastError());
+    check_device_info(set, 0, &GUID_NULL, "ROOT\\LEGACY_BOGUS\\0101");
+    check_device_info(set, 1, NULL, NULL);
+    SetupDiDestroyDeviceInfoList(set);
+
+    /* Delete the key and try again. */
+    RegDeleteKeyA(key, "");
+    RegCloseKey(key);
+
+    /* No key, success. */
+    set = SetupDiCreateDeviceInfoList(NULL, NULL);
+    ret = SetupDiCreateDeviceInfoA(set, "Root\\LEGACY_BOGUS\\0101", &guid, NULL, NULL, 0, &device);
+    ok(ret, "Got unexpected error %#lx.\n", GetLastError());
+    check_device_info(set, 0, &guid, "ROOT\\LEGACY_BOGUS\\0101");
+    check_device_info(set, 1, NULL, NULL);
     SetupDiDestroyDeviceInfoList(set);
 
     set = SetupDiGetClassDevsA(&guid, NULL, NULL, 0);
@@ -1555,6 +1659,37 @@ static void test_open_device_info(void)
     ok(!ret, "Expected failure.\n");
     check_device_info(set, 0, NULL, NULL);
 
+    /* Open device with an instance ID exceeding max device ID length. */
+    memset(id, 'x', sizeof(id));
+    memcpy(id, "Root\\LEGACY_BOGUS\\", strlen("Root\\LEGACY_BOGUS\\"));
+    id[MAX_DEVICE_ID_LEN + 1] = 0;
+    SetLastError(0xdeadbeef);
+    ret = SetupDiOpenDeviceInfoA(set, id, NULL, 0, &device);
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+    ok(!ret, "Expected failure.\n");
+    check_device_info(set, 0, NULL, NULL);
+
+    /* Open device with only an enumerator. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiOpenDeviceInfoA(set, "Root", NULL, 0, &device);
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+    ok(!ret, "Expected failure.\n");
+    check_device_info(set, 0, NULL, NULL);
+
+    /* Open device with only an enumerator and device ID. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiOpenDeviceInfoA(set, "Root\\LEGACY_BOGUS", NULL, 0, &device);
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+    ok(!ret, "Expected failure.\n");
+    check_device_info(set, 0, NULL, NULL);
+
+    /* Open device with an empty instance ID. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiOpenDeviceInfoA(set, "Root\\LEGACY_BOGUS\\", NULL, 0, &device);
+    ok(GetLastError() == ERROR_INVALID_DEVINST_NAME, "Got unexpected error %#lx.\n", GetLastError());
+    ok(!ret, "Expected failure.\n");
+    check_device_info(set, 0, NULL, NULL);
+
     /* Open unregistered device */
     ret = SetupDiCreateDeviceInfoA(set, "Root\\LEGACY_BOGUS\\1000", &guid, NULL, NULL, 0, &device);
     ok(ret, "Failed to create device, error %#lx.\n", GetLastError());
@@ -1648,6 +1783,13 @@ static void test_open_device_info(void)
     SetLastError(0xdeadbeef);
     ret = SetupDiOpenDeviceInfoA(set, NULL, NULL, 0, &device);
     ok(GetLastError() == ERROR_INVALID_PARAMETER, "Got unexpected error %#lx.\n", GetLastError());
+    ok(!ret, "Expected failure.\n");
+    check_device_info(set, 0, NULL, NULL);
+
+    /* NULL instance ID on W function, returns different error. */
+    SetLastError(0xdeadbeef);
+    ret = SetupDiOpenDeviceInfoW(set, NULL, NULL, 0, &device);
+    todo_wine ok(GetLastError() == ERROR_CLASS_MISMATCH, "Got unexpected error %#lx.\n", GetLastError());
     ok(!ret, "Expected failure.\n");
     check_device_info(set, 0, NULL, NULL);
 
