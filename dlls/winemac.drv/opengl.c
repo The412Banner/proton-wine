@@ -1395,7 +1395,7 @@ static BOOL create_context(struct macdrv_context *context, CGLContextObj share, 
         attribs[n++] = pf->samples;
     }
 
-    if (pf->backing_store)
+    if (force_backing_store || pf->backing_store)
         attribs[n++] = kCGLPFABackingStore;
 
     if (core)
