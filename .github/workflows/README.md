@@ -13,6 +13,7 @@ Each layer branch carries exactly one build workflow, named for the layer it bui
 | `proton_11.6-GE` | `build-ge-proton-11.0-6.yml` | GE-Proton 11.0-6 |
 | `proton_11.7-GE` | `build-ge-proton-11.0-7.yml` | GE-Proton 11.0-7 (arm64ec + x86_64) |
 | `proton_11.7.1-GE` | `build-ge-proton-11.0-7-valve.yml` | GE-Proton 11.0-7.1 (Valve wine 46b29104, the GE-Proton11-7 base, + the 11.0-2 layer stack; arm64ec + x86_64) |
+| `proton_11.9-GE` | `build-ge-proton-11.0-9.yml` | GE-Proton 11.0-9 (Valve wine 981e2f0b9007, the GE-Proton11-9 base, merged onto `proton_11.7.1-GE`; arm64ec + x86_64) |
 
 The file name is distinct per branch on purpose: GitHub labels a run with the
 workflow name taken from the default branch's copy of the same path, so a shared
@@ -58,8 +59,8 @@ the `release:` job in each workflow is hard-disabled (`if: false`).
 `arch` × `api_level`. Every leg compiles against the android28 NDK target;
 `api_level: 35` only adds 16 KB linker alignment (`--enable-16kb-pages`).
 arm64ec is always built 16 KB-aligned on api 28. `proton_11.0-2` also builds
-x86_64 (4 KB and 16 KB legs), and `proton_11.7-GE` and `proton_11.7.1-GE` build
-x86_64 at api_level 28 only (4 KB, the leg 11.0-2 ships); the other branches are
+x86_64 (4 KB and 16 KB legs), and `proton_11.7-GE`, `proton_11.7.1-GE` and
+`proton_11.9-GE` build x86_64 at api_level 28 only (4 KB, the leg 11.0-2 ships); the other branches are
 arm64ec-only.
 
 ## versionCode

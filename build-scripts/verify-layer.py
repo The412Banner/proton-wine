@@ -199,6 +199,11 @@ def main():
     xin = b"transient wait failure in the update thread"
     report(xin in read(os.path.join(pe, "xinput1_3.dll")), "xinput1_3.dll: WAIT_FAILED retry (controller-dies fix)")
     report(xin in read(os.path.join(pe32, "xinput1_3.dll")), "i386 xinput1_3.dll: WAIT_FAILED retry")
+    # Upstream 6ba259a274c (in Valve 981e2f0b9007) hides pads marked "disabled" for DInput from
+    # xinput too, which kills the pad under Exclusive XInput. Reverted on this branch.
+    report(u16("disabled") not in read(os.path.join(pe, "xinput1_3.dll")) and
+           u16("disabled") not in read(os.path.join(pe32, "xinput1_3.dll")),
+           "xinput1_3.dll: no \"disabled\" controller check (6ba259a274c reverted)")
     report(b"WINE_FROM_ANDROID_CLIPBOARD" in read(os.path.join(unix, "win32u.so")),
            "win32u.so: Android clipboard bridge")
 
@@ -242,7 +247,7 @@ def main():
         report(u16("maxpayne.exe") in read(os.path.join(pe32, "ntdll.dll")),
                "i386 ntdll.dll: Max Payne CPUID leaf fix (GE 11-7, active under WoW64)")
         report(b"244210" in read(os.path.join(pe, "dwrite.dll")), "dwrite.dll: Assetto Corsa HUD (GE 11-7 dwrite rewrite)")
-        report(u16("218210") in read(os.path.join(pe, "kernelbase.dll")), "kernelbase.dll: Vanguard Saga of Heroes cwd fix")
+        report(u16("VGOEmuLauncher.exe") in read(os.path.join(pe, "kernelbase.dll")), "kernelbase.dll: Vanguard Saga of Heroes cwd fix (GE 11-9, exe-name gate)")
         if not arm64ec:
             # compiled only for x86_64 PE ntdll (#if __x86_64__ && !__arm64ec__); inert on arm64ec
             report(u16("AI-LIMIT.exe") in read(os.path.join(pe, "ntdll.dll")),

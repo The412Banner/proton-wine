@@ -1,11 +1,11 @@
-name: GE-Proton 11.0-7.1 (bionic layer, new Valve base)
-run-name: "GE-Proton 11.0-7.1 — ${{ github.ref_name }} (${{ github.event_name }})"
+name: GE-Proton 11.0-9 (bionic layer)
+run-name: "GE-Proton 11.0-9 — ${{ github.ref_name }} (${{ github.event_name }})"
 
-# EXPERIMENTAL layer: GE-Proton11-7's own Wine base, ValveSoftware/wine 46b29104
-# (bleeding-edge, 2026-09-15), merged onto our proton_11.0-2 layer (Valve dc26e618 +
-# the full v7 Android stack), plus the GE-Proton11-7 game-fixes tier. Stamped
-# versionName 11.0-7.1 / versionCode 1 so it installs in its own slot, apart from the
-# current-base GE 11.0-7 layer. Artifacts only: the release job is disabled.
+# GE-Proton 11.0-9 layer: GE-Proton11-9's own Wine base, ValveSoftware/wine 981e2f0b9007
+# (bleeding-edge, 2026-10-10; a fast-forward of 11.7.1's 46b29104 by 110 commits),
+# merged onto proton_11.7.1-GE (the 11.0-2 Android stack + v10..v14 work), plus the
+# GE-Proton11-9 game-fixes tier. versionName 11.0-9, versionCode 14 (the current
+# all-in-one release). Artifacts only: the release job is disabled.
 
 # Collapsed SDK matrix: one dispatch builds every SDK (api_level) x arch leg.
 # The old build-proton-sdk28.yml + build-proton-sdk35.yml were near-identical; their
@@ -26,7 +26,7 @@ on:
   push:
     # Self-builds on push to its own branch only: GitHub registers workflow_dispatch
     # only for workflows on the default branch, so a bare dispatch 404s here.
-    branches: [ proton_11.7.1-GE, 'staging/proton_11.7.1-GE/**' ]
+    branches: [ proton_11.9-GE, 'staging/proton_11.9-GE/**' ]
   workflow_dispatch:
 
 jobs:
@@ -284,19 +284,19 @@ jobs:
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
             ARCH_NAME="x86_64"
-            DESC="GE-Proton 11.0-7.1 ${ARCH_NAME} (bionic, box64) EXPERIMENTAL — GE-Proton11-7's own Valve Wine 46b29104 base (bleeding-edge, 2026-09-15) + our full v7 Android stack: fast-yield gate + esync + xrandr/xrender + XP desktop + xinput controller-dies fix + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-7 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP). Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container. v10: Media Foundation cutscene fixes (WMV/WMA) + shared-texture driver for DXVK before 3.0."
-            DESC_WINE="GE-Proton 11.0-7.1 ${ARCH_NAME} (bionic, box64) EXPERIMENTAL — GE-Proton11-7's Valve Wine 46b29104 base + our full v7 Android stack + GE-Proton11-7 game-fixes. Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container."
+            DESC="GE-Proton 11.0-9 ${ARCH_NAME} (bionic, box64) — GE-Proton11-9's own Valve Wine 981e2f0b9007 base (bleeding-edge, 2026-10-10) + our Android stack: fast-yield gate (WINE_FAST_YIELD) + esync + userspace ntsync (WINENTSYNC=1) + xrandr/xrender + XP desktop + xinput controller-dies fix + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 (opt-in; pulse/alsa default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-9 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP). Media Foundation cutscene fixes + shared-texture driver (v10), winedmo FFmpeg opt-in (v12), Headless Steam server browser (v13), SSBS fix (Wine MR 12262, WINE_FORCE_SSBS=0 for stock) (v14). Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container."
+            DESC_WINE="GE-Proton 11.0-9 ${ARCH_NAME} (bionic, box64) — GE-Proton11-9's Valve Wine 981e2f0b9007 base + our Android stack + GE-Proton11-9 game-fixes. Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container."
           else
             ARCH_NAME="arm64ec"
-            DESC="GE-Proton 11.0-7.1 ${ARCH_NAME} (bionic) EXPERIMENTAL — GE-Proton11-7's own Valve Wine 46b29104 base (bleeding-edge, 2026-09-15) + our full v7 Android stack: fast-yield gate + FEX-unixlib loader + esync + xrandr/xrender + XP desktop + xinput controller-dies fix + RtlIsEcCode guard + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-7 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP). Wayland + HDR10 added. v10: Media Foundation cutscene fixes (WMV/WMA) + shared-texture driver for DXVK before 3.0."
-            DESC_WINE="GE-Proton 11.0-7.1 ${ARCH_NAME} (bionic) EXPERIMENTAL — GE-Proton11-7's Valve Wine 46b29104 base + our full v7 Android stack + GE-Proton11-7 game-fixes. Wayland + HDR10 added."
+            DESC="GE-Proton 11.0-9 ${ARCH_NAME} (bionic) — GE-Proton11-9's own Valve Wine 981e2f0b9007 base (bleeding-edge, 2026-10-10) + our Android stack: FEX-unixlib loader + RtlIsEcCode guard + fast-yield gate (WINE_FAST_YIELD) + esync + userspace ntsync (WINENTSYNC=1) + xrandr/xrender + XP desktop + xinput controller-dies fix + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 (opt-in; pulse/alsa default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-9 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP). Media Foundation cutscene fixes + shared-texture driver (v10), winedmo FFmpeg opt-in (v12), Headless Steam server browser (v13), SSBS fix (Wine MR 12262, WINE_FORCE_SSBS=0 for stock) (v14). Wayland + HDR10."
+            DESC_WINE="GE-Proton 11.0-9 ${ARCH_NAME} (bionic) — GE-Proton11-9's Valve Wine 981e2f0b9007 base + our Android stack + GE-Proton11-9 game-fixes. Wayland + HDR10."
           fi
 
           # Generate Proton profile.json
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
-            "versionName": "11.0-7.1-${ARCH_NAME}",
+            "versionName": "11.0-9-${ARCH_NAME}",
             "versionCode": 14,
             "description": "${DESC}",
             "files": [],
@@ -312,7 +312,7 @@ jobs:
           cat > $GITHUB_WORKSPACE/profile-wine.json << EOF
           {
             "type": "Wine",
-            "versionName": "11.0-7.1-${ARCH_NAME}",
+            "versionName": "11.0-9-${ARCH_NAME}",
             "versionCode": 14,
             "description": "${DESC_WINE}",
             "files": [],
@@ -348,13 +348,13 @@ jobs:
           # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar -I 'zstd -T0 -19' -cf GE-proton-11.0-7.1-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
-          mv GE-proton-11.0-7.1-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
+          tar -I 'zstd -T0 -19' -cf GE-proton-11.0-9-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
+          mv GE-proton-11.0-9-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
 
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
           cp $GITHUB_WORKSPACE/profile-wine.json profile.json
-          tar cJf proton-wine-11.0-7.1-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
-          mv proton-wine-11.0-7.1-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
+          tar cJf proton-wine-11.0-9-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
+          mv proton-wine-11.0-9-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
 
       # The packaged archive must carry exactly what the app's ContentsManager expects.
       - name: Verify wcp archives
@@ -442,7 +442,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: GE-proton-11.0-7.1-${{ env.ARCH_NAME }}.wcp
+          path: GE-proton-11.0-9-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
 
       # Just the Wayland driver, for replacing it in an installed copy of this same build
@@ -460,13 +460,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-wine-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: proton-wine-11.0-7.1-${{ env.ARCH_NAME }}.wcp.xz
+          path: proton-wine-11.0-9-${{ env.ARCH_NAME }}.wcp.xz
           retention-days: 30
 
   release:
     needs: build
     runs-on: ubuntu-24.04
-    # Disabled: this experimental layer is never published from CI. Artifacts only.
+    # Disabled: this layer is never published from CI. Artifacts only.
     if: false
 
     steps:
@@ -486,7 +486,7 @@ jobs:
         id: generate_tag
         run: |
           DATE=$(date +%Y%m%d)
-          TAG_NAME="build-p11-${DATE}-ge11.7-valve"
+          TAG_NAME="build-p11-${DATE}-ge11.9"
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Generated tag: ${TAG_NAME}"
 
@@ -494,16 +494,16 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: GE-Proton Wine 11.0-7.1 new-base (${{ steps.generate_tag.outputs.tag_name }})
+          name: GE-Proton Wine 11.0-9 (${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
           body: |
             # Caution: This version is provided for testing purposes only. It may lead to game instability or crashes. Use at your own risk.
 
-            ## GE-Proton Wine Build based on Valve [Wine 46b29104](https://github.com/ValveSoftware/wine/commit/46b29104e3741fe23bf5e2547196a253aab88c89) (GE-Proton11-7's base) + GE-Proton11-7 game-fixes
+            ## GE-Proton Wine Build based on Valve [Wine 981e2f0b9007](https://github.com/ValveSoftware/wine/commit/981e2f0b9007fd70a6e0ed6119cb18f4164e26f9) (GE-Proton11-9's base) + GE-Proton11-9 game-fixes
 
-            ### Proton Version: 11.0-7.1 (experimental)
+            ### Proton Version: 11.0-9
 
             Built from commit: ${{ github.sha }}
 
@@ -513,11 +513,11 @@ jobs:
 
             ### WCP Files
             **Proton Type:**
-            - `GE-proton-11.0-7.1-arm64ec.wcp` - For GameNative
-            - `GE-proton-11.0-7.1-x86_64.wcp` - For GameNative
+            - `GE-proton-11.0-9-arm64ec.wcp` - For GameNative
+            - `GE-proton-11.0-9-x86_64.wcp` - For GameNative
 
             **Wine Type:**
-            - `proton-wine-11.0-7.1-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
-            - `proton-wine-11.0-7.1-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
+            - `proton-wine-11.0-9-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
+            - `proton-wine-11.0-9-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
