@@ -581,6 +581,7 @@ static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD st
 static int get_window_attributes( struct x11drv_win_data *data, XSetWindowAttributes *attr )
 {
     DWORD ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
+    BOOL overlay = layered_overlay_shape_enabled() || layered_overlay_alpha_enabled();
 
     attr->colormap          = data->whole_colormap ? data->whole_colormap : default_colormap;
     attr->save_under        = ((NtUserGetClassLongW( data->hwnd, GCL_STYLE ) & CS_SAVEBITS) != 0);
@@ -590,9 +591,10 @@ static int get_window_attributes( struct x11drv_win_data *data, XSetWindowAttrib
     attr->background_pixel  = 0;
     attr->event_mask        = (ExposureMask | KeyPressMask | KeyReleaseMask |
                                FocusChangeMask | KeymapStateMask | StructureNotifyMask | PropertyChangeMask);
-    /* for transparent windows, exclude mouse events to allow mouse pass-through */
-    if (!(ex_style & WS_EX_TRANSPARENT)) attr->event_mask |= (PointerMotionMask | ButtonPressMask |
-                                                              ButtonReleaseMask | EnterWindowMask);
+    /* for transparent windows, exclude mouse events to allow mouse pass-through
+       (overlay-shape mode keeps input so the shaped overlay stays interactive) */
+    if (!(ex_style & WS_EX_TRANSPARENT) || overlay) attr->event_mask |= (PointerMotionMask | ButtonPressMask |
+                                                                       ButtonReleaseMask | EnterWindowMask);
 
     return (CWSaveUnder | CWColormap | CWBorderPixel | CWBackPixel |
             CWEventMask | CWBitGravity | CWBackingStore);
@@ -609,6 +611,9 @@ static void sync_window_input_shape( struct x11drv_win_data *data )
 {
 #ifdef HAVE_LIBXSHAPE
     DWORD ex_style = NtUserGetWindowLongW( data->hwnd, GWL_EXSTYLE );
+    /* ALPHA mode's input shape comes from the readback; with it off keep the stock pass-through */
+    BOOL overlay = layered_overlay_shape_enabled() ||
+                   (layered_overlay_alpha_enabled() && layered_overlay_input_shape_enabled());
     char const *sgi;
 
     if (!data->whole_window) return;
@@ -625,7 +630,7 @@ static void sync_window_input_shape( struct x11drv_win_data *data )
      */
     if ((sgi = getenv( "SteamGameId" )) && !strcmp( sgi, "3678970" )) return;
 
-    if (ex_style & WS_EX_TRANSPARENT)
+    if ((ex_style & WS_EX_TRANSPARENT) && !overlay)
     {
         /* For transparent windows, set an empty input shape to allow mouse pass-through */
         static XRectangle empty_rect;
@@ -2846,6 +2851,17 @@ static void create_whole_window( struct x11drv_win_data *data )
     }
     data->shaped = (win_rgn != 0);
 
+    /* Layered overlay (WINE_LAYERED_OVERLAY_ALPHA): give the TOP-LEVEL window a 32-bit
+     * ARGB visual with per-pixel alpha so the compositor blends it (real transparency).
+     * The Vulkan child window being ARGB is not enough — the compositor composites the
+     * top-level, which must itself carry alpha. Env-var scoped to the opted-in game. */
+    if (layered_overlay_alpha_enabled() && argb_visual.visualid &&
+        data->vis.visualid != argb_visual.visualid)
+    {
+        data->vis = argb_visual;
+        data->use_alpha = TRUE;
+    }
+
     if (data->vis.visualid != default_visual.visualid)
         data->whole_colormap = XCreateColormap( data->display, root_window, data->vis.visual, AllocNone );
 
@@ -3029,7 +3045,12 @@ void X11DRV_SetWindowStyle( HWND hwnd, INT offset, STYLESTRUCT *style )
         if (changed & WS_EX_LAYERED) /* changing WS_EX_LAYERED resets attributes */
         {
             data->layered = FALSE;
-            set_window_visual( data, &default_visual, FALSE );
+            /* Layered overlay (WINE_LAYERED_OVERLAY_ALPHA): keep the ARGB visual instead
+             * of resetting to the opaque default, so the compositor keeps blending. */
+            if (layered_overlay_alpha_enabled() && argb_visual.visualid)
+                set_window_visual( data, &argb_visual, TRUE );
+            else
+                set_window_visual( data, &default_visual, FALSE );
             sync_window_opacity( data->display, data->whole_window, 0, 0 );
         }
         if (changed & WS_EX_TRANSPARENT) sync_window_style( data );

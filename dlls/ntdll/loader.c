@@ -149,6 +149,7 @@ typedef struct _wine_modref
     struct file_id        id;
     ULONG                 CheckSum;
     BOOL                  system;
+    void                 *ai_limit_compute_thunk;
 } WINE_MODREF;
 
 static UINT tls_module_count = 32;     /* number of modules with TLS directory */
@@ -1766,6 +1767,211 @@ static void call_tls_callbacks( HMODULE module, UINT reason )
     }
 }
 
+#if defined(__x86_64__) && !defined(__arm64ec__)
+typedef BYTE *(WINAPI *unity_get_gfx_device_func)(void);
+typedef void *(WINAPI *unity_select_compute_variant_func)(BYTE *shader);
+
+static void *WINAPI ai_limit_select_compute_variant( BYTE *shader, unity_get_gfx_device_func get_device,
+                                                     unity_select_compute_variant_func select_variant )
+{
+    BYTE *device = get_device(), *variants, *dx11 = NULL;
+    SIZE_T count, i;
+
+    if (!device || *(UINT *)(device + 0x1e84) != 18) return select_variant( shader );
+
+    variants = *(BYTE **)(shader + 0x38);
+    count = *(SIZE_T *)(shader + 0x48);
+    for (i = 0; i < count; ++i)
+    {
+        BYTE *variant = variants + i * 0x50;
+
+        /* Never replace a native DX12 entry, even if its kernel list is empty. */
+        if (*(UINT *)variant == 18) return select_variant( shader );
+        if (*(UINT *)variant == 2 && !*(UINT *)(variant + 4) && *(SIZE_T *)(variant + 0x18))
+            dx11 = variant;
+    }
+
+    /* The inspected DX11 entries contain DXBC cs_5_0 programs usable by DX12.
+     * Return the owned entry without copying its vectors or changing the device. */
+    return dx11 ? dx11 : select_variant( shader );
+}
+
+#include "pshpack1.h"
+struct ai_limit_compute_thunk
+{
+    BYTE mov_rdx[2];
+    unity_get_gfx_device_func get_device;
+    BYTE mov_r8[2];
+    unity_select_compute_variant_func select_variant;
+    BYTE jump[6];
+    void *hook;
+    BYTE original[20];
+    BYTE return_jump[6];
+    void *return_address;
+};
+#include "poppack.h"
+
+C_ASSERT(offsetof(struct ai_limit_compute_thunk, original) == 34);
+C_ASSERT(sizeof(struct ai_limit_compute_thunk) == 68);
+
+static void patch_ai_limit_compute_shaders( WINE_MODREF *wm )
+{
+    static const BYTE jump[] = {0xff, 0x25, 0, 0, 0, 0};
+    struct ai_limit_compute_thunk *thunk;
+    BYTE *base = wm->ldr.DllBase, *target = base + 0x6049a0;
+    const WCHAR *app, *p;
+    void *allocation = NULL, *address;
+    SIZE_T size;
+    ULONG old_protect, unused;
+    NTSTATUS status;
+
+    if (wm->ai_limit_compute_thunk || (wm->ldr.Flags & LDR_WINE_INTERNAL) ||
+        wcsicmp( wm->ldr.BaseDllName.Buffer, L"UnityPlayer.dll" )) return;
+    app = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
+    if ((p = wcsrchr( app, '\\' ))) app = p + 1;
+    if ((p = wcsrchr( app, '/' ))) app = p + 1;
+    if (wcsicmp( app, L"AI-LIMIT.exe" )) return;
+
+    /* AI LIMIT's Unity 2022.3.39f1. Check the complete selector and device
+     * getter before relying on their private layout or relocating the prologue.
+     * These code ranges have no base relocations. Unknown builds stay untouched. */
+    if (wm->ldr.TimeDateStamp != 0x6696cce1 || wm->ldr.SizeOfImage != 0x1e57000 ||
+        RtlImageNtHeader( wm->ldr.DllBase )->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
+        RtlComputeCrc32( 0, target, 0x259 ) != 0xcf04ef1f ||
+        RtlComputeCrc32( 0, base + 0x705e80, 0xe5 ) != 0xeb25b6f4)
+    {
+        WARN_(loaddll)("AI LIMIT: skipping DX12 compute fallback for an unrecognized UnityPlayer.dll.\n");
+        return;
+    }
+
+    size = sizeof(*thunk);
+    status = NtAllocateVirtualMemory( NtCurrentProcess(), &allocation, 0, &size,
+                                      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
+    if (status) goto failed;
+    thunk = allocation;
+    thunk->mov_rdx[0] = 0x48;
+    thunk->mov_rdx[1] = 0xba;
+    thunk->get_device = (unity_get_gfx_device_func)(base + 0x705e80);
+    thunk->mov_r8[0] = 0x49;
+    thunk->mov_r8[1] = 0xb8;
+    thunk->select_variant = (unity_select_compute_variant_func)thunk->original;
+    memcpy( thunk->jump, jump, sizeof(jump) );
+    thunk->hook = ai_limit_select_compute_variant;
+    /* Four complete MOVs save nonvolatile registers in the caller's home area.
+     * They are position independent and leave RSP unchanged. The rest of Unity's
+     * prologue and its original unwind information remain at their original RVAs. */
+    memcpy( thunk->original, target, sizeof(thunk->original) );
+    memcpy( thunk->return_jump, jump, sizeof(jump) );
+    thunk->return_address = target + sizeof(thunk->original);
+
+    address = allocation;
+    size = sizeof(*thunk);
+    status = NtProtectVirtualMemory( NtCurrentProcess(), &address, &size, PAGE_EXECUTE_READ, &unused );
+    if (status) goto failed;
+    status = NtFlushInstructionCache( NtCurrentProcess(), allocation, sizeof(*thunk) );
+    if (status) goto failed;
+
+    address = target;
+    size = sizeof(jump) + sizeof(allocation);
+    status = NtProtectVirtualMemory( NtCurrentProcess(), &address, &size, PAGE_EXECUTE_READWRITE, &old_protect );
+    if (status) goto failed;
+    /* Install under the loader lock, before this module's TLS callbacks/DllMain. */
+    memcpy( target, jump, sizeof(jump) );
+    memcpy( target + sizeof(jump), &allocation, sizeof(allocation) );
+    status = NtFlushInstructionCache( NtCurrentProcess(), target, sizeof(thunk->original) );
+    if (!status)
+        status = NtProtectVirtualMemory( NtCurrentProcess(), &address, &size, old_protect, &unused );
+    if (status)
+    {
+        memcpy( target, thunk->original, sizeof(thunk->original) );
+        NtFlushInstructionCache( NtCurrentProcess(), target, sizeof(thunk->original) );
+        NtProtectVirtualMemory( NtCurrentProcess(), &address, &size, old_protect, &unused );
+        goto failed;
+    }
+    wm->ai_limit_compute_thunk = allocation;
+    TRACE_(loaddll)("AI LIMIT: enabled DX12 compute-shader fallback for Unity 2022.3.39f1.\n");
+    return;
+
+failed:
+    if (allocation)
+    {
+        size = 0;
+        NtFreeVirtualMemory( NtCurrentProcess(), &allocation, &size, MEM_RELEASE );
+    }
+    WARN_(loaddll)("AI LIMIT: could not install DX12 compute-shader fallback, status %#lx.\n", status);
+}
+#else
+static void patch_ai_limit_compute_shaders( WINE_MODREF *wm ) {}
+#endif
+
+#ifdef __i386__
+static void patch_max_payne_cpu_detection( WINE_MODREF *wm )
+{
+    static const BYTE expected[] =
+    {
+        0x66, 0x60, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x0f, 0xa2,
+        0x89, 0x45, 0xdc, 0x88, 0x5d, 0xc0, 0x88, 0x7d, 0xc1,
+        0xc1, 0xeb, 0x10, 0x88, 0x5d, 0xc2, 0x88, 0x7d, 0xc3,
+        0x88, 0x55, 0xc4, 0x88, 0x75, 0xc5, 0xc1, 0xea, 0x10,
+        0x88, 0x55, 0xc6, 0x88, 0x75, 0xc7, 0x88, 0x4d, 0xc8,
+        0x88, 0x6d, 0xc9, 0xc1, 0xe9, 0x10, 0x88, 0x4d, 0xca,
+        0x88, 0x6d, 0xcb, 0xc6, 0x45, 0xcc, 0x00, 0x85, 0xc0,
+        0x66, 0x61, 0x8b, 0x45, 0xdc, 0x83, 0xe0, 0x0f,
+        0x89, 0x45, 0xdc, 0x0f, 0x84, 0x92, 0x12, 0x00, 0x00,
+        0x83, 0xf8, 0x01, 0x72, 0x38, 0x66, 0x60,
+    };
+    static const BYTE replacement[] = {0x85, 0xc0, 0x90}; /* test eax,eax; nop */
+    BYTE *base = wm->ldr.DllBase, *target;
+    const WCHAR *app, *p;
+    void *address;
+    SIZE_T size;
+    ULONG old_protect, unused;
+    NTSTATUS status;
+
+    if ((wm->ldr.Flags & LDR_WINE_INTERNAL) || wcsicmp( wm->ldr.BaseDllName.Buffer, L"rlmfc.dll" )) return;
+    app = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
+    if ((p = wcsrchr( app, '\\' ))) app = p + 1;
+    if ((p = wcsrchr( app, '/' ))) app = p + 1;
+    if (wcsicmp( app, L"maxpayne.exe" )) return;
+
+    /* LuigoAlma identified the erroneous CPUID(0).EAX & 0xf test in rlmfc.
+     * Keep the full leaf count so 0x10 does not select the broken scalar path.
+     * Verify the relocation-free instruction sequence before changing it. */
+    if (wm->ldr.TimeDateStamp != 0x3c03ab3e || wm->ldr.SizeOfImage != 0x67000 ||
+        RtlImageNtHeader( wm->ldr.DllBase )->FileHeader.Machine != IMAGE_FILE_MACHINE_I386 ||
+        memcmp( base + 0x256a9, expected, sizeof(expected) ))
+    {
+        TRACE_(loaddll)("Max Payne: skipping CPU detection fix for an unrecognized rlmfc.dll.\n");
+        return;
+    }
+
+    target = base + 0x256ed;
+    address = target;
+    size = sizeof(replacement);
+    status = NtProtectVirtualMemory( NtCurrentProcess(), &address, &size, PAGE_EXECUTE_READWRITE, &old_protect );
+    if (status) goto failed;
+    /* Called under the loader lock, before rlmfc's TLS callbacks or DllMain. */
+    memcpy( target, replacement, sizeof(replacement) );
+    status = NtFlushInstructionCache( NtCurrentProcess(), target, sizeof(replacement) );
+    if (!status)
+        status = NtProtectVirtualMemory( NtCurrentProcess(), &address, &size, old_protect, &unused );
+    if (status)
+    {
+        memcpy( target, expected + 0x256ed - 0x256a9, sizeof(replacement) );
+        NtFlushInstructionCache( NtCurrentProcess(), target, sizeof(replacement) );
+        NtProtectVirtualMemory( NtCurrentProcess(), &address, &size, old_protect, &unused );
+        goto failed;
+    }
+    TRACE_(loaddll)("Max Payne: fixed rlmfc.dll CPU detection for JPEG loading.\n");
+    return;
+
+failed:
+    WARN_(loaddll)("Max Payne: could not fix rlmfc.dll CPU detection, status %#lx.\n", status);
+}
+#else
+static void patch_max_payne_cpu_detection( WINE_MODREF *wm ) {}
+#endif
+
 /*************************************************************************
  *              MODULE_InitDLL
  */
@@ -1780,6 +1986,8 @@ static NTSTATUS MODULE_InitDLL( WINE_MODREF *wm, UINT reason, LPVOID lpReserved 
     /* Skip calls for modules loaded with special load flags */
 
     if (wm->ldr.Flags & (LDR_DONT_RESOLVE_REFS | LDR_DONT_CALL_DLLMAIN)) return STATUS_SUCCESS;
+    if (reason == DLL_PROCESS_ATTACH) patch_ai_limit_compute_shaders( wm );
+    if (reason == DLL_PROCESS_ATTACH) patch_max_payne_cpu_detection( wm );
     if (wm->ldr.TlsIndex == -1) call_tls_callbacks( wm->ldr.DllBase, reason );
     if (!entry) return STATUS_SUCCESS;
 
@@ -4353,6 +4561,11 @@ static void free_modref( WINE_MODREF *wm )
     free_tls_slot( &wm->ldr );
     RtlReleaseActivationContext( wm->ldr.ActivationContext );
     NtUnmapViewOfSection( NtCurrentProcess(), wm->ldr.DllBase );
+    if (wm->ai_limit_compute_thunk)
+    {
+        SIZE_T size = 0;
+        NtFreeVirtualMemory( NtCurrentProcess(), &wm->ai_limit_compute_thunk, &size, MEM_RELEASE );
+    }
     if (cached_modref == wm) cached_modref = NULL;
     RtlFreeUnicodeString( &wm->ldr.FullDllName );
     RtlFreeHeap( GetProcessHeap(), 0, wm );

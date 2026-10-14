@@ -1127,6 +1127,7 @@ LPWSTR WINAPI CharNextW(const WCHAR *x)
 
 LPSTR WINAPI CharPrevA(const char *start, const char *ptr)
 {
+    if (!start) return NULL;
     while (*start && (start < ptr))
     {
         LPCSTR next = CharNextA(start);
@@ -1138,6 +1139,7 @@ LPSTR WINAPI CharPrevA(const char *start, const char *ptr)
 
 LPSTR WINAPI CharPrevExA(WORD codepage, const char *start, const char *ptr, DWORD flags)
 {
+    if (!start) return NULL;
     while (*start && (start < ptr))
     {
         LPCSTR next = CharNextExA(codepage, start, flags);

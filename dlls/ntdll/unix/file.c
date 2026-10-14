@@ -3696,6 +3696,8 @@ static NTSTATUS lookup_unix_name( int root_fd, OBJECT_ATTRIBUTES *attr, UNICODE_
     struct stat st;
     char *unix_name = *buffer;
     const WCHAR *ptr, *end;
+    static const char *skip_search;
+    static int skip_search_initialized;
 
     /* check syntax of individual components */
 
@@ -3742,6 +3744,16 @@ static NTSTATUS lookup_unix_name( int root_fd, OBJECT_ATTRIBUTES *attr, UNICODE_
     if (is_unix && (disposition == FILE_OPEN || disposition == FILE_OVERWRITE))
         return STATUS_OBJECT_NAME_NOT_FOUND;
 
+    if (!skip_search_initialized)
+    {
+        skip_search = getenv("WINE_NO_OPEN_FILE_SEARCH");
+        skip_search_initialized = 1;
+        if (skip_search)
+            WARN( "Disabling case insensitive search for paths containing %s.\n",
+                  debugstr_a(skip_search) );
+    }
+    if (skip_search && strcasestr(unix_name, skip_search) && disposition == FILE_OPEN)
+        return STATUS_OBJECT_NAME_NOT_FOUND;
     /* now do it component by component */
 
     while (name_len)
