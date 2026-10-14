@@ -3647,6 +3647,7 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
                                    USHORT machine, struct pe_image_info *image_info,
                                    UNICODE_STRING *nt_name, BOOL is_builtin, off_t offset)
 {
+    const char *disable_exe_aslr = getenv( "WINE_DISABLE_EXE_ASLR" );
     int unix_fd = -1, needs_close;
     int shared_fd = -1, shared_needs_close = 0;
     SIZE_T size = image_info->map_size;
@@ -3668,7 +3669,8 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
     }
 
     if (!image_info->map_addr &&
-        (image_info->image_charact & IMAGE_FILE_DLL) &&
+        ((image_info->image_charact & IMAGE_FILE_DLL) || !disable_exe_aslr ||
+         strcmp( disable_exe_aslr, "1" )) &&
         (image_info->image_flags & IMAGE_FLAGS_ImageDynamicallyRelocated))
     {
         SERVER_START_REQ( get_image_map_address )
