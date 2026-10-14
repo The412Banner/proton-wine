@@ -955,7 +955,7 @@ static NTSTATUS load_so_dll( void *args )
     NTSTATUS status;
     DWORD len;
 
-    if (get_load_order( nt_name ) == LO_DISABLED) return STATUS_DLL_NOT_FOUND;
+    if (get_load_order( nt_name, NULL, 0 ) == LO_DISABLED) return STATUS_DLL_NOT_FOUND;
     InitializeObjectAttributes( &attr, nt_name, OBJ_CASE_INSENSITIVE, 0, 0 );
     if (!get_nt_and_unix_names( &attr, &true_nt_name, &unix_name, FILE_OPEN, FALSE ))
     {
@@ -1629,13 +1629,14 @@ done:
  * Return STATUS_IMAGE_ALREADY_LOADED if we should keep the native one that we have found.
  */
 NTSTATUS load_builtin( const struct pe_image_info *image_info, UNICODE_STRING *nt_name,
-                       ANSI_STRING *exp_name, USHORT machine, SECTION_IMAGE_INFORMATION *info,
+                       ANSI_STRING *exp_name, void *version_res, ULONG version_len,
+                       USHORT machine, SECTION_IMAGE_INFORMATION *info,
                        void **module, SIZE_T *size, ULONG_PTR limit_low, ULONG_PTR limit_high,
                        off_t offset )
 {
     NTSTATUS status;
     USHORT search_machine = image_info->machine;
-    enum loadorder loadorder = get_load_order( nt_name );
+    enum loadorder loadorder = get_load_order( nt_name, version_res, version_len );
 
     if (loadorder == LO_DISABLED) return STATUS_DLL_NOT_FOUND;
 
@@ -1841,7 +1842,7 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
  */
 NTSTATUS load_main_exe( UNICODE_STRING *nt_name, USHORT load_machine, void **module )
 {
-    enum loadorder loadorder = get_load_order( nt_name );
+    enum loadorder loadorder = get_load_order( nt_name, NULL, 0 );
     unsigned int status;
     SIZE_T size;
     USHORT search_machine;
@@ -2243,6 +2244,107 @@ BOOL alert_simulate_sched_quantum;
 BOOL fsync_simulate_sched_quantum;
 BOOL fsync_yield_to_waiters;
 
+static void patch_redundant_packed_split_lock(void)
+{
+#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
+    static const BYTE signature[] =
+    {
+        0x0f, 0xb7, 0xd0, 0x8d, 0x92, 0xb7, 0x39, 0x34, 0x57, 0x03, 0xf1,
+        0x87, 0x94, 0xc4, 0x07, 0xf0, 0xff, 0xff,
+        0x5a, 0xc1, 0xc0, 0x68, 0x5a, 0x58, 0x5a,
+    };
+    const IMAGE_DOS_HEADER *dos;
+    const IMAGE_NT_HEADERS32 *nt;
+    const IMAGE_SECTION_HEADER *section;
+    BYTE *base = (BYTE *)peb->ImageBaseAddress, *match = NULL, *target;
+    SIZE_T image_size, section_table_offset;
+    void *protect_base;
+    SIZE_T protect_size;
+    ULONG old_prot, restore_prot;
+    NTSTATUS status;
+    unsigned int i;
+
+    if (main_image_info.Machine != IMAGE_FILE_MACHINE_I386 || !base ||
+        main_image_info.ImageFileSize < sizeof(*dos))
+        return;
+
+    dos = (const IMAGE_DOS_HEADER *)base;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < sizeof(*dos) ||
+        (SIZE_T)dos->e_lfanew > main_image_info.ImageFileSize ||
+        main_image_info.ImageFileSize - dos->e_lfanew < sizeof(*nt))
+        return;
+
+    nt = (const IMAGE_NT_HEADERS32 *)(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE ||
+        nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC ||
+        nt->FileHeader.SizeOfOptionalHeader < sizeof(nt->OptionalHeader))
+        return;
+
+    image_size = nt->OptionalHeader.SizeOfImage;
+    section = (const IMAGE_SECTION_HEADER *)((const BYTE *)&nt->OptionalHeader +
+                                             nt->FileHeader.SizeOfOptionalHeader);
+    section_table_offset = (const BYTE *)section - base;
+    if (section_table_offset > image_size ||
+        nt->FileHeader.NumberOfSections >
+        (image_size - section_table_offset) / sizeof(*section))
+        return;
+
+    for (i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section)
+    {
+        BYTE *cursor, *end;
+        SIZE_T section_size;
+
+        if (!(section->Characteristics & IMAGE_SCN_MEM_EXECUTE) ||
+            section->VirtualAddress >= image_size)
+            continue;
+
+        section_size = max( section->Misc.VirtualSize, section->SizeOfRawData );
+        section_size = min( section_size, image_size - section->VirtualAddress );
+        if (section_size < sizeof(signature)) continue;
+
+        cursor = base + section->VirtualAddress;
+        end = cursor + section_size;
+        while ((SIZE_T)(end - cursor) >= sizeof(signature))
+        {
+            BYTE *candidate = memchr( cursor, signature[0], end - cursor - sizeof(signature) + 1 );
+
+            if (!candidate) break;
+            if (!memcmp( candidate, signature, sizeof(signature) ))
+            {
+                if (match)
+                {
+                    WARN("HACK: multiple redundant split-lock signatures found; leaving image unchanged.\n");
+                    return;
+                }
+                match = candidate;
+            }
+            cursor = candidate + 1;
+        }
+    }
+
+    if (!match) return;
+    target = match + 11;
+    protect_base = target;
+    protect_size = 1;
+    status = NtProtectVirtualMemory( NtCurrentProcess(), &protect_base, &protect_size,
+                                     PAGE_EXECUTE_READWRITE, &old_prot );
+    if (status)
+    {
+        WARN("HACK: failed to make redundant split-lock instruction writable, status %#x.\n",
+             (int)status);
+        return;
+    }
+
+    *target = 0x89; /* xchg edx,[mem] -> mov [mem],edx; the following pop discards loaded edx. */
+    NtFlushInstructionCache( NtCurrentProcess(), target, 1 );
+    status = NtProtectVirtualMemory( NtCurrentProcess(), &protect_base, &protect_size,
+                                     old_prot, &restore_prot );
+    if (status)
+        WARN("HACK: failed to restore split-lock instruction protection, status %#x.\n", (int)status);
+    ERR("HACK: removed redundant packed-code split lock at %p.\n", target);
+#endif
+}
+
 static void hacks_init(void)
 {
     const char *sgi = getenv( "SteamGameId" );
@@ -2416,6 +2518,7 @@ static void start_main_thread(void)
 
     mallopt( M_PERTURB, 0xff );
     init_startup_info();
+    patch_redundant_packed_split_lock();
     *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
     set_load_order_app_name( main_wargv[0] );
     init_thread_stack( teb, 0, 0, 0 );

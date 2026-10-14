@@ -555,6 +555,12 @@ static BOOL CertContext_GetProperty(cert_t *cert, DWORD dwPropId,
              cert->ctx.pbCertEncoded, cert->ctx.cbCertEncoded, pvData,
              pcbData);
             break;
+        case CERT_SHA256_HASH_PROP_ID:
+            /* Compute uncached signer hashes like the existing SHA-1 property. */
+            ret = CertContext_GetHashProp(cert, dwPropId, CALG_SHA_256,
+             cert->ctx.pbCertEncoded, cert->ctx.cbCertEncoded, pvData,
+             pcbData);
+            break;
         case CERT_MD5_HASH_PROP_ID:
             ret = CertContext_GetHashProp(cert, dwPropId, CALG_MD5,
              cert->ctx.pbCertEncoded, cert->ctx.cbCertEncoded, pvData,
@@ -779,6 +785,7 @@ static BOOL CertContext_SetProperty(cert_t *cert, DWORD dwPropId,
         case CERT_PUBKEY_ALG_PARA_PROP_ID:
         case CERT_PVK_FILE_PROP_ID:
         case CERT_SIGNATURE_HASH_PROP_ID:
+        case CERT_SHA256_HASH_PROP_ID:
         case CERT_ISSUER_PUBLIC_KEY_MD5_HASH_PROP_ID:
         case CERT_SUBJECT_NAME_MD5_HASH_PROP_ID:
         case CERT_EXTENDED_ERROR_INFO_PROP_ID:
@@ -971,6 +978,20 @@ BOOL WINAPI CryptAcquireCertificatePrivateKey(PCCERT_CONTEXT pCert,
 
     TRACE("(%p, %08lx, %p, %p, %p, %p)\n", pCert, dwFlags, pvReserved,
      phCryptProv, pdwKeySpec, pfCallerFreeProv);
+
+    if (dwFlags & CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG)
+    {
+        /* Private keys here always live in a CAPI key container and Wine has
+         * no NCrypt provider able to wrap one. Handing back the CAPI handle
+         * would give the caller a value it treats as an NCRYPT_KEY_HANDLE, so
+         * report the key as unavailable and let it fall back to CAPI.
+         */
+        FIXME("(%p, %08lx): NCRYPT-only private keys not supported\n", pCert, dwFlags);
+        *phCryptProv = 0;
+        if (pfCallerFreeProv) *pfCallerFreeProv = FALSE;
+        SetLastError(CRYPT_E_NO_KEY_PROPERTY);
+        return FALSE;
+    }
 
     if (dwFlags & CRYPT_ACQUIRE_USE_PROV_INFO_FLAG)
     {

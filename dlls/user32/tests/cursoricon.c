@@ -320,9 +320,9 @@ static LRESULT CALLBACK callback_child(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 
             memset(&info, 0, sizeof(info));
             ret = GetIconInfo(cursor, &info);
-            todo_wine ok(ret, "GetIconInfoEx failed with error %lu\n", GetLastError());
-            todo_wine ok(info.hbmColor != NULL, "info.hmbColor was not set\n");
-            todo_wine ok(info.hbmMask != NULL, "info.hmbColor was not set\n");
+            ok(ret, "GetIconInfo failed with error %lu\n", GetLastError());
+            ok(info.hbmColor != NULL, "info.hbmColor was not set\n");
+            ok(info.hbmMask != NULL, "info.hbmMask was not set\n");
             DeleteObject(info.hbmColor);
             DeleteObject(info.hbmMask);
 
@@ -333,6 +333,54 @@ static LRESULT CALLBACK callback_child(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             ok(error == ERROR_DESTROY_OBJECT_OF_OTHER_THREAD ||
                error == 0xdeadbeef,  /* vista */
                 "Last error: %lu\n", error);
+            return TRUE;
+        }
+        case WM_USER+2:
+        {
+            ICONINFOEXA info = { .cbSize = sizeof(info) };
+            BITMAP bitmap;
+            BYTE bits[256];
+            BOOL ret;
+
+            ret = pGetIconInfoExA( (HCURSOR)lParam, &info );
+            ok(ret, "GetIconInfoEx failed with error %lu\n", GetLastError());
+            if (!ret) return FALSE;
+            ok(!info.fIcon, "Expected a cursor\n");
+            ok(info.wResID == wParam, "Unexpected resource id %u\n", info.wResID);
+            if (wParam)
+            {
+                ok(info.szModName[0], "Expected a resource module\n");
+            }
+            else
+            {
+                ok(!info.szModName[0] && !info.szResName[0], "Unexpected resource names\n");
+                ok(info.xHotspot == 3 && info.yHotspot == 5, "Unexpected hotspot %lu,%lu\n",
+                   info.xHotspot, info.yHotspot);
+                ok(!info.hbmColor, "Expected a monochrome cursor\n");
+                ret = GetObjectA( info.hbmMask, sizeof(bitmap), &bitmap );
+                ok(ret, "GetObject failed\n");
+                ok(bitmap.bmWidth == 32 && bitmap.bmHeight == 64, "Unexpected size %ld,%ld\n",
+                   bitmap.bmWidth, bitmap.bmHeight);
+                memset( bits, 0, sizeof(bits) );
+                ok(GetBitmapBits( info.hbmMask, sizeof(bits), bits ) == sizeof(bits), "GetBitmapBits failed\n");
+                ok(bits[0] == 0xff && bits[127] == 0xff && !bits[128] && !bits[255],
+                   "Unexpected AND/XOR bits\n");
+            }
+            DeleteObject( info.hbmColor );
+            DeleteObject( info.hbmMask );
+            return TRUE;
+        }
+        case WM_USER+3:
+        {
+            ICONINFO info;
+            BOOL ret = GetIconInfo( (HCURSOR)lParam, &info );
+
+            ok(!ret, "GetIconInfo succeeded on a destroyed cursor\n");
+            if (ret)
+            {
+                DeleteObject( info.hbmColor );
+                DeleteObject( info.hbmMask );
+            }
             return TRUE;
         }
         case WM_DESTROY:
@@ -396,6 +444,8 @@ static void do_child(void)
 static void test_child_process(void)
 {
     static const BYTE bmp_bits[4096];
+    static const WORD ids[] = {32512, 32513, 32649}; /* arrow, I-beam, hand */
+    BYTE mask[256];
     char path_name[MAX_PATH];
     PROCESS_INFORMATION info;
     STARTUPINFOA startup;
@@ -403,6 +453,7 @@ static void test_child_process(void)
     UINT display_bpp;
     WNDCLASSA class;
     HCURSOR cursor;
+    unsigned int i;
     BOOL ret;
     HDC hdc;
     MSG msg;
@@ -463,6 +514,37 @@ static void test_child_process(void)
 
     /* Destroy the cursor. */
     SendMessageA(child, WM_USER+1, 0, (LPARAM) cursor);
+    SetCursor(NULL);
+    DestroyCursor(cursor);
+    SendMessageA(child, WM_USER+3, 0, (LPARAM)cursor);
+    DeleteObject(cursorInfo.hbmMask);
+    DeleteObject(cursorInfo.hbmColor);
+
+    if (pGetIconInfoExA)
+    {
+        for (i = 0; i < ARRAY_SIZE(ids); i++)
+        {
+            cursor = LoadCursorA(NULL, MAKEINTRESOURCEA(ids[i]));
+            ok(cursor != NULL, "LoadCursor failed\n");
+            SetCursor(cursor);
+            SendMessageA(child, WM_USER+2, ids[i], (LPARAM)cursor);
+        }
+
+        memset(mask, 0xff, sizeof(mask) / 2);
+        memset(mask + sizeof(mask) / 2, 0, sizeof(mask) / 2);
+        cursorInfo.xHotspot = 3;
+        cursorInfo.yHotspot = 5;
+        cursorInfo.hbmColor = NULL;
+        cursorInfo.hbmMask = CreateBitmap(32, 64, 1, 1, mask);
+        cursor = CreateIconIndirect(&cursorInfo);
+        ok(cursor != NULL, "CreateIconIndirect failed\n");
+        SetCursor(cursor);
+        SendMessageA(child, WM_USER+2, 0, (LPARAM)cursor);
+        SetCursor(NULL);
+        DestroyCursor(cursor);
+        DeleteObject(cursorInfo.hbmMask);
+        SendMessageA(child, WM_USER+3, 0, (LPARAM)cursor);
+    }
 
     SendMessageA(child, WM_CLOSE, 0, 0);
     wait_child_process( &info );

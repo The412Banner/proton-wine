@@ -14202,6 +14202,80 @@ static void test_effect_color_matrix(BOOL d3d11)
     release_test_context(&ctx);
 }
 
+static void test_effect_tint(BOOL d3d11)
+{
+    static const struct effect_property properties[] =
+    {
+        { L"Color", D2D1_TINT_PROP_COLOR, D2D1_PROPERTY_TYPE_VECTOR4 },
+        { L"ClampOutput", D2D1_TINT_PROP_CLAMP_OUTPUT, D2D1_PROPERTY_TYPE_BOOL },
+    };
+    static const D2D_VECTOR_4F color = {0.25f, 0.5f, 0.75f, 0.5f};
+    struct d2d1_test_context ctx;
+    unsigned int count, i;
+    D2D_VECTOR_4F value;
+    ID2D1Effect *effect;
+    ID2D1Image *output;
+    BOOL clamp = TRUE;
+    WCHAR name[64];
+    HRESULT hr;
+
+    if (!init_test_context(&ctx, d3d11))
+        return;
+
+    hr = ID2D1DeviceContext_CreateEffect(ctx.context, &CLSID_D2D1Tint, &effect);
+    if (hr == D2DERR_EFFECT_IS_NOT_REGISTERED && !strcmp(winetest_platform, "windows"))
+    {
+        win_skip("Tint effect is not supported.\n");
+        release_test_context(&ctx);
+        return;
+    }
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    if (FAILED(hr))
+    {
+        release_test_context(&ctx);
+        return;
+    }
+
+    check_system_properties(effect);
+    count = ID2D1Effect_GetInputCount(effect);
+    ok(count == 1, "Got unexpected input count %u.\n", count);
+    count = ID2D1Effect_GetPropertyCount(effect);
+    ok(count == ARRAY_SIZE(properties), "Got unexpected property count %u.\n", count);
+
+    for (i = 0; i < ARRAY_SIZE(properties); ++i)
+    {
+        hr = ID2D1Effect_GetPropertyName(effect, properties[i].index, name, ARRAY_SIZE(name));
+        ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+        ok(!wcscmp(name, properties[i].name), "Unexpected name %s.\n", wine_dbgstr_w(name));
+        ok(ID2D1Effect_GetPropertyIndex(effect, properties[i].name) == properties[i].index,
+                "Unexpected index for %s.\n", wine_dbgstr_w(properties[i].name));
+        ok(ID2D1Effect_GetType(effect, properties[i].index) == properties[i].type,
+                "Unexpected type for %s.\n", wine_dbgstr_w(properties[i].name));
+    }
+
+    value = effect_get_vec4_prop(effect, D2D1_TINT_PROP_COLOR);
+    ok(value.x == 1.0f && value.y == 1.0f && value.z == 1.0f && value.w == 1.0f,
+            "Unexpected default color {%.8e, %.8e, %.8e, %.8e}.\n", value.x, value.y, value.z, value.w);
+    ok(!effect_get_bool_prop(effect, D2D1_TINT_PROP_CLAMP_OUTPUT), "ClampOutput should default to false.\n");
+
+    hr = ID2D1Effect_SetValue(effect, D2D1_TINT_PROP_COLOR, D2D1_PROPERTY_TYPE_VECTOR4,
+            (const BYTE *)&color, sizeof(color));
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    value = effect_get_vec4_prop(effect, D2D1_TINT_PROP_COLOR);
+    ok(!memcmp(&value, &color, sizeof(value)), "Color was not preserved.\n");
+
+    hr = ID2D1Effect_SetValueByName(effect, L"ClampOutput", D2D1_PROPERTY_TYPE_BOOL,
+            (const BYTE *)&clamp, sizeof(clamp));
+    ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+    ok(effect_get_bool_prop(effect, D2D1_TINT_PROP_CLAMP_OUTPUT), "ClampOutput was not preserved.\n");
+
+    ID2D1Effect_GetOutput(effect, &output);
+    ok(!!output, "Expected an output image.\n");
+    if (output) ID2D1Image_Release(output);
+    ID2D1Effect_Release(effect);
+    release_test_context(&ctx);
+}
+
 static void test_effect_blend(BOOL d3d11)
 {
     static const struct effect_property properties[] =
@@ -17917,6 +17991,350 @@ static void test_sprite_batch(BOOL d3d11)
     release_test_context(&ctx);
 }
 
+static void test_target_clipping(BOOL d3d11)
+{
+    static const D2D1_COLOR_F black = {0.0f, 0.0f, 0.0f, 1.0f};
+    static const D2D1_COLOR_F white = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const D2D1_COLOR_F red = {1.0f, 0.0f, 0.0f, 1.0f};
+    static const D2D1_RECT_F main_clip = {40.0f, 40.0f, 64.0f, 64.0f};
+    static const D2D1_RECT_F offscreen_clip = {4.0f, 4.0f, 16.0f, 16.0f};
+    static const D2D1_RECT_F full_rect = {0.0f, 0.0f, 32.0f, 32.0f};
+    static const D2D1_RECT_F dest = {32.0f, 32.0f, 64.0f, 64.0f};
+    static const D2D1_RECT_F unclipped_dest = {80.0f, 0.0f, 112.0f, 32.0f};
+    static const struct {unsigned int x, y; DWORD colour;} pixels[] =
+    {
+        {44, 44, 0xffffffff}, {50, 50, 0xff000000}, {38, 38, 0xff000000},
+        {100, 20, 0xffff0000},
+    };
+    D2D1_BITMAP_PROPERTIES1 desc = {{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED},
+            96.0f, 96.0f, D2D1_BITMAP_OPTIONS_TARGET};
+    D2D1_LAYER_PARAMETERS1 parameters = {0};
+    D2D1_SIZE_U size = {32, 32};
+    struct d2d1_test_context ctx;
+    struct resource_readback rb;
+    ID2D1DeviceContext *context;
+    ID2D1SolidColorBrush *brush;
+    ID2D1Bitmap1 *bitmap;
+    ID2D1Image *target;
+    unsigned int i, j;
+    DWORD colour;
+    HRESULT hr;
+
+    if (!init_test_context(&ctx, d3d11))
+        return;
+    if (!(context = ctx.context))
+    {
+        win_skip("ID2D1DeviceContext is not supported.\n");
+        release_test_context(&ctx);
+        return;
+    }
+
+    hr = ID2D1DeviceContext_CreateBitmap(context, size, NULL, 0, &desc, &bitmap);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = ID2D1DeviceContext_CreateSolidColorBrush(context, &white, NULL, &brush);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr)) goto release_bitmap;
+    ID2D1DeviceContext_GetTarget(context, &target);
+    ID2D1DeviceContext_SetDpi(context, 96.0f, 96.0f);
+    ID2D1DeviceContext_SetAntialiasMode(context, D2D1_ANTIALIAS_MODE_ALIASED);
+    parameters.contentBounds = main_clip;
+    parameters.maskAntialiasMode = D2D1_ANTIALIAS_MODE_ALIASED;
+    set_matrix_identity(&parameters.maskTransform);
+    parameters.opacity = 1.0f;
+
+    for (i = 0; i < 2; ++i)
+    {
+        winetest_push_context("layer %u", i);
+        ID2D1DeviceContext_BeginDraw(context);
+        ID2D1DeviceContext_Clear(context, &black);
+        ID2D1DeviceContext_PushAxisAlignedClip(context, &main_clip, D2D1_ANTIALIAS_MODE_ALIASED);
+        if (i) ID2D1DeviceContext_PushLayer(context, &parameters, NULL);
+
+        /* Build an offscreen image without inheriting the main target's HUD clip. */
+        ID2D1DeviceContext_SetTarget(context, (ID2D1Image *)bitmap);
+        ID2D1DeviceContext_Clear(context, &black);
+        ID2D1DeviceContext_PushAxisAlignedClip(context, &offscreen_clip, D2D1_ANTIALIAS_MODE_ALIASED);
+        ID2D1DeviceContext_FillRectangle(context, &full_rect, (ID2D1Brush *)brush);
+        ID2D1DeviceContext_SetTarget(context, target);
+        ID2D1DeviceContext_DrawBitmap(context, (ID2D1Bitmap *)bitmap, &dest, 1.0f,
+                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, NULL, NULL);
+        if (i) ID2D1DeviceContext_PopLayer(context);
+        ID2D1DeviceContext_PopAxisAlignedClip(context);
+
+        /* Pop each target's own clip, even when another target has a newer one. */
+        ID2D1DeviceContext_SetTarget(context, (ID2D1Image *)bitmap);
+        ID2D1DeviceContext_PopAxisAlignedClip(context);
+        ID2D1DeviceContext_Clear(context, &red);
+        ID2D1DeviceContext_SetTarget(context, target);
+        ID2D1DeviceContext_DrawBitmap(context, (ID2D1Bitmap *)bitmap, &unclipped_dest, 1.0f,
+                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, NULL, NULL);
+        hr = ID2D1DeviceContext_EndDraw(context, NULL, NULL);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        get_surface_readback(&ctx, &rb);
+        for (j = 0; j < ARRAY_SIZE(pixels); ++j)
+        {
+            colour = get_readback_colour(&rb, pixels[j].x, pixels[j].y);
+            ok(colour == pixels[j].colour, "Pixel %u: %#lx, expected %#lx.\n",
+                    j, colour, pixels[j].colour);
+        }
+        release_resource_readback(&rb);
+        winetest_pop_context();
+    }
+
+    /* An unbalanced layer must unwind its own target even if another is selected. */
+    ID2D1DeviceContext_BeginDraw(context);
+    ID2D1DeviceContext_PushLayer(context, &parameters, NULL);
+    ID2D1DeviceContext_SetTarget(context, (ID2D1Image *)bitmap);
+    hr = ID2D1DeviceContext_EndDraw(context, NULL, NULL);
+    ok(hr == D2DERR_PUSH_POP_UNBALANCED, "Got hr %#lx.\n", hr);
+    ID2D1DeviceContext_SetTarget(context, target);
+    ID2D1DeviceContext_BeginDraw(context);
+    ID2D1DeviceContext_Clear(context, &white);
+    hr = ID2D1DeviceContext_EndDraw(context, NULL, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    get_surface_readback(&ctx, &rb);
+    colour = get_readback_colour(&rb, 100, 100);
+    ok(colour == 0xffffffff, "Unbalanced layer left a stale target clip: %#lx.\n", colour);
+    release_resource_readback(&rb);
+
+    ID2D1Image_Release(target);
+    ID2D1SolidColorBrush_Release(brush);
+release_bitmap:
+    ID2D1Bitmap1_Release(bitmap);
+done:
+    release_test_context(&ctx);
+}
+
+static void test_hud_rendering(BOOL d3d11)
+{
+    static const DWORD pixels[] = {0xffffffff, 0xffff0000, 0xff00ff00, 0xff0000ff};
+    static const D2D1_COLOR_F black = {0.0f, 0.0f, 0.0f, 1.0f};
+    static const D2D1_COLOR_F white = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const D2D1_COLOR_F colours[] = {{0.25f, 0.5f, 0.75f, 0.5f}, {1.0f, 1.0f, 1.0f, 1.0f}};
+    static const D2D1_RECT_F destinations[] = {{0.0f, 0.0f, 16.0f, 16.0f}, {40.0f, 0.0f, 56.0f, 16.0f}};
+    static const D2D1_RECT_U sources[] = {{0, 0, 1, 1}, {1, 0, 2, 1}};
+    static const struct {unsigned int x, y; DWORD colour;} sprite_pixels[] =
+    {
+        {30, 30, 0xff4080bf}, {90, 10, 0xffff0000}, {5, 5, 0xff000000},
+    };
+    static const struct {unsigned int x, y; DWORD colour;} layer_pixels[] =
+    {
+        {5, 5, 0xff000000}, {12, 12, 0xff000000}, {22, 22, 0xff800000},
+        {32, 32, 0xff800000}, {45, 45, 0xff000000},
+    };
+    D2D1_MATRIX_3X2_F transforms[2], world, saved, identity;
+    D2D1_BITMAP_PROPERTIES bitmap_desc;
+    D2D1_LAYER_PARAMETERS1 parameters = {0};
+    ID2D1RectangleGeometry *mask;
+    ID2D1SolidColorBrush *brush;
+    struct d2d1_test_context ctx;
+    struct resource_readback rb;
+    ID2D1DeviceContext3 *context;
+    ID2D1SpriteBatch *batch;
+    ID2D1Image *target, *image;
+    ID2D1Effect *effect;
+    ID2D1Bitmap *bitmap;
+    ID2D1Layer *layer;
+    D2D1_COLOR_F red = {1.0f, 0.0f, 0.0f, 1.0f};
+    D2D1_POINT_2F offset = {4.0f, 4.0f};
+    D2D1_SIZE_U size = {4, 1};
+    D2D1_RECT_F rect;
+    unsigned int i, j;
+    DWORD colour;
+    HRESULT hr;
+
+    if (!init_test_context(&ctx, d3d11))
+        return;
+    if (!ctx.context || FAILED(ID2D1DeviceContext_QueryInterface(ctx.context,
+            &IID_ID2D1DeviceContext3, (void **)&context)))
+    {
+        win_skip("ID2D1DeviceContext3 is not supported.\n");
+        release_test_context(&ctx);
+        return;
+    }
+
+    set_matrix_identity(&identity);
+    ID2D1DeviceContext3_SetDpi(context, 96.0f, 96.0f);
+    ID2D1DeviceContext3_SetAntialiasMode(context, D2D1_ANTIALIAS_MODE_ALIASED);
+    bitmap_desc.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    bitmap_desc.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+    bitmap_desc.dpiX = 192.0f;
+    bitmap_desc.dpiY = 96.0f;
+    hr = ID2D1RenderTarget_CreateBitmap(ctx.rt, size, pixels, sizeof(pixels), &bitmap_desc, &bitmap);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = ID2D1DeviceContext3_CreateSpriteBatch(context, &batch);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr)) goto release_bitmap;
+
+    transforms[0] = transforms[1] = identity;
+    transforms[0]._31 = transforms[0]._32 = 10.0f;
+    world = identity;
+    world._11 = world._22 = 2.0f;
+    world._31 = world._32 = 4.0f;
+    hr = ID2D1SpriteBatch_AddSprites(batch, 2, destinations, sources, colours, transforms,
+            sizeof(*destinations), sizeof(*sources), sizeof(*colours), sizeof(*transforms));
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ID2D1DeviceContext3_SetTransform(context, &world);
+    ID2D1DeviceContext3_BeginDraw(context);
+    ID2D1DeviceContext3_Clear(context, &black);
+    ID2D1DeviceContext3_DrawSpriteBatch(context, batch, 0, 1, bitmap,
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_SPRITE_OPTIONS_CLAMP_TO_SOURCE_RECTANGLE);
+    ID2D1DeviceContext3_DrawSpriteBatch(context, batch, 1, 1, bitmap,
+            D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_SPRITE_OPTIONS_NONE);
+    ID2D1DeviceContext3_GetTransform(context, &saved);
+    ok(!memcmp(&saved, &world, sizeof(world)), "Sprite draw changed the context transform.\n");
+    hr = ID2D1DeviceContext3_EndDraw(context, NULL, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    get_surface_readback(&ctx, &rb);
+    for (i = 0; i < ARRAY_SIZE(sprite_pixels); ++i)
+    {
+        colour = get_readback_colour(&rb, sprite_pixels[i].x, sprite_pixels[i].y);
+        ok(compare_colour(colour, sprite_pixels[i].colour, 1), "Sprite pixel %u: %#lx, expected %#lx.\n",
+                i, colour, sprite_pixels[i].colour);
+    }
+    release_resource_readback(&rb);
+    ID2D1SpriteBatch_Release(batch);
+
+    hr = ID2D1DeviceContext3_CreateEffect(context, &CLSID_D2D1Tint, &effect);
+    if (hr == D2DERR_EFFECT_IS_NOT_REGISTERED)
+        win_skip("Tint is not supported.\n");
+    else
+    {
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            ID2D1Effect_SetInput(effect, 0, (ID2D1Image *)bitmap, FALSE);
+            hr = ID2D1Effect_SetValue(effect, D2D1_TINT_PROP_COLOR, D2D1_PROPERTY_TYPE_VECTOR4,
+                    (const BYTE *)&colours[0], sizeof(colours[0]));
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+            ID2D1Effect_GetOutput(effect, &image);
+            world = identity;
+            world._11 = world._22 = 16.0f;
+            ID2D1DeviceContext3_SetTransform(context, &world);
+            set_rect(&rect, 0.0f, 0.0f, 0.5f, 1.0f);
+            ID2D1DeviceContext3_BeginDraw(context);
+            ID2D1DeviceContext3_Clear(context, &black);
+            ID2D1DeviceContext3_DrawImage(context, image, &offset, &rect,
+                    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            ID2D1DeviceContext3_DrawImage(context, (ID2D1Image *)bitmap, NULL, &rect,
+                    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            hr = ID2D1DeviceContext3_EndDraw(context, NULL, NULL);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+            get_surface_readback(&ctx, &rb);
+            colour = get_readback_colour(&rb, 66, 66);
+            ok(compare_colour(colour, 0xff4080bf, 1), "Unexpected Tint output %#lx.\n", colour);
+            colour = get_readback_colour(&rb, 2, 2);
+            ok(colour == 0xffffffff, "Tint leaked into a subsequent draw: %#lx.\n", colour);
+            release_resource_readback(&rb);
+            ID2D1Image_Release(image);
+            ID2D1Effect_Release(effect);
+        }
+    }
+
+    hr = ID2D1DeviceContext3_CreateSolidColorBrush(context, &red, NULL, &brush);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr)) goto release_bitmap;
+    set_rect(&rect, 5.0f, 5.0f, 25.0f, 25.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(ctx.factory, &rect, &mask);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+    {
+        ID2D1SolidColorBrush_Release(brush);
+        goto release_bitmap;
+    }
+    set_rect(&parameters.contentBounds, 0.0f, 0.0f, 40.0f, 40.0f);
+    parameters.geometricMask = (ID2D1Geometry *)mask;
+    parameters.maskAntialiasMode = D2D1_ANTIALIAS_MODE_ALIASED;
+    parameters.maskTransform = identity;
+    parameters.maskTransform._31 = parameters.maskTransform._32 = 5.0f;
+    parameters.opacity = 0.5f;
+    world = identity;
+    world._31 = world._32 = 10.0f;
+    ID2D1DeviceContext3_GetTarget(context, &target);
+    for (i = 0; i < 2; ++i)
+    {
+        ID2D1DeviceContext3_SetTransform(context, &world);
+        ID2D1DeviceContext3_BeginDraw(context);
+        ID2D1DeviceContext3_Clear(context, &black);
+        layer = NULL;
+        if (!i)
+        {
+            hr = ID2D1DeviceContext3_CreateLayer(context, NULL, &layer);
+            ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        }
+        ID2D1DeviceContext3_PushLayer(context, &parameters, layer);
+        if (layer) ID2D1Layer_Release(layer);
+        ID2D1DeviceContext3_GetTarget(context, &image);
+        ok(image == target, "PushLayer changed the public target.\n");
+        ID2D1Image_Release(image);
+        /* Overlap must receive group opacity once, not once per primitive. */
+        set_rect(&rect, 0.0f, 0.0f, 30.0f, 30.0f);
+        ID2D1DeviceContext3_FillRectangle(context, &rect, (ID2D1Brush *)brush);
+        set_rect(&rect, 10.0f, 10.0f, 40.0f, 40.0f);
+        ID2D1DeviceContext3_FillRectangle(context, &rect, (ID2D1Brush *)brush);
+        ID2D1DeviceContext3_SetTransform(context, &identity);
+        ID2D1DeviceContext3_PopLayer(context);
+        ID2D1DeviceContext3_GetTransform(context, &saved);
+        ok(!memcmp(&saved, &identity, sizeof(saved)), "PopLayer changed the context transform.\n");
+        hr = ID2D1DeviceContext3_EndDraw(context, NULL, NULL);
+        ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        get_surface_readback(&ctx, &rb);
+        for (j = 0; j < ARRAY_SIZE(layer_pixels); ++j)
+        {
+            colour = get_readback_colour(&rb, layer_pixels[j].x, layer_pixels[j].y);
+            ok(compare_colour(colour, layer_pixels[j].colour, 1), "Layer pixel %u: %#lx, expected %#lx.\n",
+                    j, colour, layer_pixels[j].colour);
+        }
+        release_resource_readback(&rb);
+    }
+
+    parameters.geometricMask = NULL;
+    parameters.maskTransform = identity;
+    parameters.opacity = 0.5f;
+    set_rect(&parameters.contentBounds, 0.0f, 0.0f, 40.0f, 40.0f);
+    ID2D1SolidColorBrush_SetColor(brush, &white);
+    ID2D1DeviceContext3_BeginDraw(context);
+    ID2D1DeviceContext3_Clear(context, &black);
+    ID2D1DeviceContext3_PushLayer(context, &parameters, NULL);
+    ID2D1DeviceContext3_PushLayer(context, &parameters, NULL);
+    set_rect(&rect, 0.0f, 0.0f, 80.0f, 80.0f);
+    ID2D1DeviceContext3_FillRectangle(context, &rect, (ID2D1Brush *)brush);
+    ID2D1DeviceContext3_PopLayer(context);
+    ID2D1DeviceContext3_PopLayer(context);
+    hr = ID2D1DeviceContext3_EndDraw(context, NULL, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    get_surface_readback(&ctx, &rb);
+    colour = get_readback_colour(&rb, 20, 20);
+    ok(compare_colour(colour, 0xff404040, 1), "Nested layer output %#lx.\n", colour);
+    colour = get_readback_colour(&rb, 50, 50);
+    ok(colour == 0xff000000, "Layer bounds were ignored: %#lx.\n", colour);
+    release_resource_readback(&rb);
+
+    ID2D1DeviceContext3_BeginDraw(context);
+    ID2D1DeviceContext3_PushLayer(context, &parameters, NULL);
+    hr = ID2D1DeviceContext3_EndDraw(context, NULL, NULL);
+    ok(hr == D2DERR_PUSH_POP_UNBALANCED, "Got hr %#lx.\n", hr);
+    ID2D1DeviceContext3_BeginDraw(context);
+    ID2D1DeviceContext3_Clear(context, &white);
+    hr = ID2D1DeviceContext3_EndDraw(context, NULL, NULL);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    get_surface_readback(&ctx, &rb);
+    colour = get_readback_colour(&rb, 50, 50);
+    ok(colour == 0xffffffff, "Unbalanced layer left stale clipping or target state: %#lx.\n", colour);
+    release_resource_readback(&rb);
+    ID2D1Image_Release(target);
+    ID2D1RectangleGeometry_Release(mask);
+    ID2D1SolidColorBrush_Release(brush);
+
+release_bitmap:
+    ID2D1Bitmap_Release(bitmap);
+done:
+    ID2D1DeviceContext3_Release(context);
+    release_test_context(&ctx);
+}
+
 START_TEST(d2d1)
 {
     HMODULE d2d1_dll = GetModuleHandleA("d2d1.dll");
@@ -17980,6 +18398,8 @@ START_TEST(d2d1)
     queue_test(test_fill_geometry);
     queue_test(test_wic_gdi_interop);
     queue_test(test_layer);
+    queue_test(test_hud_rendering);
+    queue_test(test_target_clipping);
     queue_test(test_bezier_intersect);
     queue_test(test_create_device);
     queue_test(test_create_device_context);
@@ -18011,6 +18431,7 @@ START_TEST(d2d1)
     queue_d3d10_test(test_effect_3d_perspective_transform);
     queue_d3d10_test(test_effect_composite);
     queue_d3d10_test(test_effect_color_matrix);
+    queue_d3d10_test(test_effect_tint);
     queue_test(test_effect_flood);
     queue_d3d10_test(test_effect_blend);
     queue_d3d10_test(test_effect_brightness);
