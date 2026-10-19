@@ -1552,6 +1552,7 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
         MSG msg;
         INPUT input;
         int x, y, rootX, rootY;
+        DWORD start = NtGetTickCount(), elapsed;
 
         if (!XQueryPointer( display, root_window, &root, &child, &rootX, &rootY, &x, &y, &xstate )) break;
 
@@ -1576,10 +1577,13 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
                 NtUserTranslateMessage( &msg, 0 );
                 NtUserDispatchMessage( &msg );
             }
+            /* A rendering timer can keep the queue busy indefinitely. */
+            if (NtGetTickCount() - start >= 100) break;
         }
 
         if (!(xstate & (Button1Mask << (button - 1)))) break;
-        NtUserMsgWaitForMultipleObjectsEx( 0, NULL, 100, QS_ALLINPUT, 0 );
+        if ((elapsed = NtGetTickCount() - start) < 100)
+            NtUserMsgWaitForMultipleObjectsEx( 0, NULL, 100 - elapsed, QS_ALLINPUT, 0 );
     }
 
     TRACE( "hwnd %p/%lx done\n", hwnd, win );

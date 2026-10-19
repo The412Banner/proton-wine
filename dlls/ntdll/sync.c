@@ -543,6 +543,7 @@ void WINAPI RtlAcquireSRWLockExclusive( RTL_SRWLOCK *lock )
         } while (InterlockedCompareExchange( u.l, new.l, old.l ) != old.l);
 
         if (!wait) return;
+        terminate_process_on_shutdown();
         RtlWaitOnAddress( &u.s->owners, &new.s.owners, sizeof(short), NULL );
     }
 }
@@ -582,6 +583,7 @@ void WINAPI RtlAcquireSRWLockShared( RTL_SRWLOCK *lock )
         } while (InterlockedCompareExchange( u.l, new.l, old.l ) != old.l);
 
         if (!wait) return;
+        terminate_process_on_shutdown();
         RtlWaitOnAddress( u.s, &new.s, sizeof(struct srw_lock), NULL );
     }
 }

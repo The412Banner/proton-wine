@@ -1204,6 +1204,8 @@ LRESULT ANDROID_WindowMessage( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
             NtUserExposeWindowSurface( hwnd, 0, NULL, 0 );
         }
         return 0;
+    case WM_WINE_MAP_NOTIFY_ICON_POINT:
+        return 0;
     default:
         FIXME( "got window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, (long)wp, lp );
         return 0;
