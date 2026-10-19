@@ -1337,9 +1337,15 @@ int WINAPI connect( SOCKET s, const struct sockaddr *addr, int len )
 
     TRACE( "socket %#Ix, addr %s, len %d\n", s, debugstr_sockaddr(addr), len );
 
+    if (!addr && len)
+    {
+        SetLastError( WSAEFAULT );
+        return -1;
+    }
+
     if (!(sync_event = get_sync_event())) return -1;
 
-    if (addr->sa_family == AF_UNIX && *addr->sa_data)
+    if (addr && len > (int)offsetof(struct sockaddr_un, sun_path) && addr->sa_family == AF_UNIX && *addr->sa_data)
     {
         WCHAR *sun_pathW = strdupAtoW(addr->sa_data);
         unix_path = wine_get_unix_file_name(sun_pathW);
@@ -1356,7 +1362,8 @@ int WINAPI connect( SOCKET s, const struct sockaddr *addr, int len )
     }
     params->addr_len = len;
     params->synchronous = TRUE;
-    memcpy( params + 1, addr, len );
+    if (len)
+        memcpy( params + 1, addr, len );
     if (unix_path)
         memcpy( (char *)(params + 1) + len, unix_path, unix_varargs_size );
 
