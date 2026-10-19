@@ -928,7 +928,10 @@ static inline ucontext_t *init_handler( void *sigcontext )
     {
         struct amd64_thread_data *thread_data = (struct amd64_thread_data *)&get_current_teb()->GdiTebBatch;
         thread_data->syscall_dispatch = 0; /* SYSCALL_DISPATCH_FILTER_ALLOW */
-        if (fs32_sel) arch_prctl( ARCH_SET_FS, thread_data->pthread_teb );
+        /* system threads never run PE code, so %fs still holds the libc TLS base
+         * and pthread_teb is never initialized for them */
+        if (fs32_sel && !((struct ntdll_thread_data *)thread_data)->system_thread)
+            arch_prctl( ARCH_SET_FS, thread_data->pthread_teb );
     }
 #elif defined __APPLE__
     {
