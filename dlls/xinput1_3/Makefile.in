@@ -1,7 +1,7 @@
 EXTRADEFS = -DXINPUT_VER=3
 MODULE    = xinput1_3.dll
 IMPORTLIB = xinput
-IMPORTS   = hid setupapi advapi32 user32
+IMPORTS   = hid cfgmgr32 advapi32 user32 ntdll
 
 SOURCES = \
 	main.c \

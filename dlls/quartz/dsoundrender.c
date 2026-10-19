@@ -29,6 +29,7 @@
 #include "strmif.h"
 #include "dsound.h"
 #include "amaudio.h"
+#include "mmreg.h"
 
 #include "wine/debug.h"
 
@@ -348,6 +349,55 @@ static HRESULT render_sample(struct dsound_render *filter, IMediaSample *pSample
     return send_sample_data(filter, start, pbSrcStream, cbSrcStream);
 }
 
+static HRESULT dsound_render_init_dsound(struct dsound_render *filter)
+{
+    const WAVEFORMATEX *format = (WAVEFORMATEX *)filter->sink.pin.mt.pbFormat;
+    DSBUFFERDESC buf_desc;
+    HRESULT hr;
+
+    if (filter->dsbuffer)
+        return S_OK;
+
+    if (!filter->dsound)
+    {
+        if (FAILED(hr = DirectSoundCreate8(NULL, &filter->dsound, NULL)))
+            return hr == DSERR_NODRIVER ? VFW_E_NO_AUDIO_HARDWARE : hr;
+
+        if (FAILED(hr = IDirectSound8_SetCooperativeLevel(filter->dsound,
+                GetDesktopWindow(), DSSCL_PRIORITY)))
+            return hr;
+    }
+
+    filter->buf_size = format->nAvgBytesPerSec * 4;
+
+    memset(&buf_desc, 0, sizeof(buf_desc));
+    buf_desc.dwSize = sizeof(buf_desc);
+    buf_desc.dwFlags = DSBCAPS_CTRLVOLUME | DSBCAPS_CTRLPAN |
+            DSBCAPS_CTRLFREQUENCY | DSBCAPS_GLOBALFOCUS |
+            DSBCAPS_GETCURRENTPOSITION2;
+    buf_desc.dwBufferBytes = filter->buf_size;
+    buf_desc.lpwfxFormat = (WAVEFORMATEX *)format;
+
+    if (FAILED(hr = IDirectSound8_CreateSoundBuffer(filter->dsound, &buf_desc, &filter->dsbuffer, NULL)))
+    {
+        ERR("Failed to create sound buffer, hr %#lx.\n", hr);
+        strmbase_dump_media_type(&filter->sink.pin.mt);
+        return hr;
+    }
+
+    filter->writepos = filter->buf_size;
+
+    hr = IDirectSoundBuffer_SetVolume(filter->dsbuffer, filter->volume);
+    if (FAILED(hr))
+        ERR("Failed to set volume to %ld, hr %#lx.\n", filter->volume, hr);
+
+    hr = IDirectSoundBuffer_SetPan(filter->dsbuffer, filter->pan);
+    if (FAILED(hr))
+        ERR("Failed to set pan to %ld, hr %#lx.\n", filter->pan, hr);
+
+    return S_OK;
+}
+
 static void complete_eos(struct dsound_render *filter)
 {
     IFilterGraph *graph = filter->filter.graph;
@@ -466,53 +516,40 @@ static HRESULT dsound_render_sink_query_interface(struct strmbase_pin *iface, RE
 
 static HRESULT dsound_render_sink_query_accept(struct strmbase_pin *iface, const AM_MEDIA_TYPE * pmt)
 {
+    const WAVEFORMATEX *format = (const WAVEFORMATEX *)pmt->pbFormat;
+
     if (!IsEqualIID(&pmt->majortype, &MEDIATYPE_Audio))
         return S_FALSE;
 
-    return S_OK;
+    if (!IsEqualGUID(&pmt->formattype, &FORMAT_WaveFormatEx) || pmt->cbFormat < sizeof(WAVEFORMATEX))
+        return S_FALSE;
+
+    if (format->wFormatTag == WAVE_FORMAT_PCM || format->wFormatTag == WAVE_FORMAT_IEEE_FLOAT)
+        return S_OK;
+
+    if (format->wFormatTag == WAVE_FORMAT_EXTENSIBLE
+            && pmt->cbFormat >= sizeof(WAVEFORMATEXTENSIBLE))
+    {
+        const WAVEFORMATEXTENSIBLE *ext = (const WAVEFORMATEXTENSIBLE *)format;
+
+        if (IsEqualGUID(&ext->SubFormat, &MEDIASUBTYPE_PCM)
+                || IsEqualGUID(&ext->SubFormat, &MEDIASUBTYPE_IEEE_FLOAT))
+            return S_OK;
+    }
+
+    TRACE("Rejecting compressed or unsupported audio type.\n");
+    strmbase_dump_media_type(pmt);
+    return S_FALSE;
 }
 
 static HRESULT dsound_render_sink_connect(struct strmbase_sink *iface, IPin *peer, const AM_MEDIA_TYPE *mt)
 {
     struct dsound_render *filter = impl_from_strmbase_pin(&iface->pin);
     const WAVEFORMATEX *format = (WAVEFORMATEX *)mt->pbFormat;
-    HRESULT hr = S_OK;
-    DSBUFFERDESC buf_desc;
 
     filter->buf_size = format->nAvgBytesPerSec;
-
-    memset(&buf_desc,0,sizeof(DSBUFFERDESC));
-    buf_desc.dwSize = sizeof(DSBUFFERDESC);
-    buf_desc.dwFlags = DSBCAPS_CTRLVOLUME | DSBCAPS_CTRLPAN |
-                       DSBCAPS_CTRLFREQUENCY | DSBCAPS_GLOBALFOCUS |
-                       DSBCAPS_GETCURRENTPOSITION2;
-    buf_desc.dwBufferBytes = filter->buf_size;
-    buf_desc.lpwfxFormat = (WAVEFORMATEX *)format;
-    hr = IDirectSound8_CreateSoundBuffer(filter->dsound, &buf_desc, &filter->dsbuffer, NULL);
     filter->writepos = filter->buf_size;
-    if (FAILED(hr))
-        ERR("Failed to create sound buffer, hr %#lx.\n", hr);
-
-    if (SUCCEEDED(hr))
-    {
-        hr = IDirectSoundBuffer_SetVolume(filter->dsbuffer, filter->volume);
-        if (FAILED(hr))
-            ERR("Failed to set volume to %ld, hr %#lx.\n", filter->volume, hr);
-
-        hr = IDirectSoundBuffer_SetPan(filter->dsbuffer, filter->pan);
-        if (FAILED(hr))
-            ERR("Failed to set pan to %ld, hr %#lx.\n", filter->pan, hr);
-        hr = S_OK;
-    }
-
-    if (FAILED(hr) && hr != VFW_E_ALREADY_CONNECTED)
-    {
-        if (filter->dsbuffer)
-            IDirectSoundBuffer_Release(filter->dsbuffer);
-        filter->dsbuffer = NULL;
-    }
-
-    return hr;
+    return S_OK;
 }
 
 static void dsound_render_sink_disconnect(struct strmbase_sink *iface)
@@ -675,7 +712,7 @@ static HRESULT dsound_render_init_stream(struct strmbase_filter *iface)
     if (!(filter->render_thread = CreateThread(NULL, 0, render_thread_run, filter, 0, NULL)))
         return HRESULT_FROM_WIN32(GetLastError());
 
-    return S_FALSE;
+    return S_OK;
 }
 
 static HRESULT dsound_render_start_stream(struct strmbase_filter *iface, REFERENCE_TIME start)
@@ -683,8 +720,12 @@ static HRESULT dsound_render_start_stream(struct strmbase_filter *iface, REFEREN
     struct dsound_render *filter = impl_from_strmbase_filter(iface);
     IFilterGraph *graph = filter->filter.graph;
     IMediaEventSink *event_sink;
+    HRESULT hr;
 
     filter->stream_start = start;
+
+    if (filter->sink.pin.peer && FAILED(hr = dsound_render_init_dsound(filter)))
+        return hr;
 
     SetEvent(filter->state_event);
 
@@ -743,10 +784,22 @@ static HRESULT dsound_render_cleanup_stream(struct strmbase_filter *iface)
 static HRESULT dsound_render_wait_state(struct strmbase_filter *iface, DWORD timeout)
 {
     struct dsound_render *filter = impl_from_strmbase_filter(iface);
+    BOOL no_samples;
 
-    if (WaitForSingleObject(filter->state_event, timeout) == WAIT_TIMEOUT)
-        return VFW_S_STATE_INTERMEDIATE;
-    return S_OK;
+    if (WaitForSingleObject(filter->state_event, timeout) != WAIT_TIMEOUT)
+        return S_OK;
+
+    if (filter->filter.state == State_Paused)
+    {
+        EnterCriticalSection(&filter->render_cs);
+        no_samples = !filter->queued_sample_count;
+        LeaveCriticalSection(&filter->render_cs);
+
+        if (no_samples)
+            return VFW_S_CANT_CUE;
+    }
+
+    return VFW_S_STATE_INTERMEDIATE;
 }
 
 static const struct strmbase_filter_ops filter_ops =
@@ -1067,14 +1120,7 @@ static const IQualityControlVtbl quality_control_vtbl =
 
 HRESULT dsound_render_create(IUnknown *outer, IUnknown **out)
 {
-    static const DSBUFFERDESC buffer_desc =
-    {
-        .dwSize = sizeof(DSBUFFERDESC),
-        .dwFlags = DSBCAPS_PRIMARYBUFFER,
-    };
-
     struct dsound_render *object;
-    IDirectSoundBuffer *buffer;
     HRESULT hr;
 
     TRACE("outer %p, out %p.\n", outer, out);
@@ -1089,31 +1135,6 @@ HRESULT dsound_render_create(IUnknown *outer, IUnknown **out)
         strmbase_filter_cleanup(&object->filter);
         free(object);
         return hr;
-    }
-
-    if (FAILED(hr = DirectSoundCreate8(NULL, &object->dsound, NULL)))
-    {
-        IUnknown_Release(object->system_clock);
-        strmbase_filter_cleanup(&object->filter);
-        free(object);
-        return hr == DSERR_NODRIVER ? VFW_E_NO_AUDIO_HARDWARE : hr;
-    }
-
-    if (FAILED(hr = IDirectSound8_SetCooperativeLevel(object->dsound,
-            GetDesktopWindow(), DSSCL_PRIORITY)))
-    {
-        IDirectSound8_Release(object->dsound);
-        IUnknown_Release(object->system_clock);
-        strmbase_filter_cleanup(&object->filter);
-        free(object);
-        return hr;
-    }
-
-    if (SUCCEEDED(hr = IDirectSound8_CreateSoundBuffer(object->dsound,
-            &buffer_desc, &buffer, NULL)))
-    {
-        IDirectSoundBuffer_Play(buffer, 0, 0, DSBPLAY_LOOPING);
-        IDirectSoundBuffer_Release(buffer);
     }
 
     strmbase_passthrough_init(&object->passthrough, (IUnknown *)&object->filter.IBaseFilter_iface);

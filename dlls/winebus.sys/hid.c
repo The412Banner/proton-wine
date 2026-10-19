@@ -138,6 +138,7 @@ BOOL hid_device_end_input_report(struct unix_device *iface)
 {
     struct hid_report_descriptor *desc = &iface->hid_report_descriptor;
     struct hid_device_state *state = &iface->hid_device_state;
+    ULONG i;
 
     state->report_len = (state->bit_size + 7) / 8;
     if (!(state->report_buf = calloc(1, state->report_len))) return FALSE;
@@ -145,6 +146,14 @@ BOOL hid_device_end_input_report(struct unix_device *iface)
 
     state->report_buf[0] = state->id;
     state->last_report_buf[0] = state->id;
+    for (i = 0; i < state->hatswitch_count; ++i)
+    {
+        ULONG offset = state->hatswitch_start + i / 2;
+        BYTE neutral = 0x0f << (4 * (i % 2));
+
+        state->report_buf[offset] |= neutral;
+        state->last_report_buf[offset] |= neutral;
+    }
     return hid_device_end_collection(desc);
 }
 
@@ -230,8 +239,8 @@ BOOL hid_device_add_hatswitch(struct unix_device *iface, INT count)
     {
         USAGE_PAGE(1, HID_USAGE_PAGE_GENERIC),
         USAGE(1, HID_USAGE_GENERIC_HATSWITCH),
-        LOGICAL_MINIMUM(1, 1),
-        LOGICAL_MAXIMUM(1, 8),
+        LOGICAL_MINIMUM(1, 0),
+        LOGICAL_MAXIMUM(1, 7),
         REPORT_SIZE(1, 4),
         REPORT_COUNT(4, count),
         UNIT(1, 0x0), /* None */
@@ -1493,33 +1502,32 @@ BOOL hid_device_set_button(struct unix_device *iface, ULONG index, BOOL is_set)
 /* hatswitch x / y vs value:
  *      -1  x +1
  *     +-------->
- *  -1 | 8  1  2
- *   y | 7  0  3
- *  +1 | 6  5  4
+ *  -1 | 7  0  1
+ *   y | 6  f  2
+ *  +1 | 5  4  3
  *     v
  */
 static void hatswitch_decompose(BYTE value, ULONG index, LONG *x, LONG *y)
 {
     value = (index % 2) ? (value >> 4) : (value & 0x0f);
     *x = *y = 0;
-    if (value == 8 || value == 1 || value == 2) *y = -1;
-    if (value == 6 || value == 5 || value == 4) *y = +1;
-    if (value == 8 || value == 7 || value == 6) *x = -1;
-    if (value == 2 || value == 3 || value == 4) *x = +1;
+    if (value == 7 || value == 0 || value == 1) *y = -1;
+    if (value == 5 || value == 4 || value == 3) *y = +1;
+    if (value == 7 || value == 6 || value == 5) *x = -1;
+    if (value == 1 || value == 2 || value == 3) *x = +1;
 }
 
 static void hatswitch_compose(LONG x, LONG y, BYTE *value, ULONG index)
 {
-    BYTE new_value = 0;
-    if (x == 0 && y == 0) new_value = 0;
-    else if (x == 0 && y < 0) new_value = 1;
-    else if (x > 0 && y < 0) new_value = 2;
-    else if (x > 0 && y == 0) new_value = 3;
-    else if (x > 0 && y > 0) new_value = 4;
-    else if (x == 0 && y > 0) new_value = 5;
-    else if (x < 0 && y > 0) new_value = 6;
-    else if (x < 0 && y == 0) new_value = 7;
-    else if (x < 0 && y < 0) new_value = 8;
+    BYTE new_value = 0x0f;
+    if (x == 0 && y < 0) new_value = 0;
+    else if (x > 0 && y < 0) new_value = 1;
+    else if (x > 0 && y == 0) new_value = 2;
+    else if (x > 0 && y > 0) new_value = 3;
+    else if (x == 0 && y > 0) new_value = 4;
+    else if (x < 0 && y > 0) new_value = 5;
+    else if (x < 0 && y == 0) new_value = 6;
+    else if (x < 0 && y < 0) new_value = 7;
 
     if (index % 2)
     {

@@ -23,7 +23,7 @@
 #include "winternl.h"
 #include "winioctl.h"
 #include "winreg.h"
-#include "ddk/wdm.h"
+#include "ddk/ntddk.h"
 #include "hidusage.h"
 #include "ddk/hidport.h"
 #include "ddk/hidclass.h"
@@ -123,6 +123,11 @@ struct hid_queue
     ULONG              write_idx;
     struct hid_report *reports[512];
     LIST_ENTRY         irp_queue;
+    HANDLE             process_id;
+    HANDLE             takeover_event;
+    BOOL               takeover_signalled;
+    unsigned int       native_reads;
+    BOOL               dinput_reader;
 };
 
 typedef struct _minidriver

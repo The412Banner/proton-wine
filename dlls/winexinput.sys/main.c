@@ -159,7 +159,9 @@ struct func_device
     HIDP_VALUE_CAPS rx_caps;
     HIDP_VALUE_CAPS ry_caps;
     HIDP_VALUE_CAPS rt_caps;
+    HIDP_VALUE_CAPS hatswitch_caps;
     HIDP_DEVICE_DESC device_desc;
+    BOOL is_sony_gamepad;
 
     /* everything below requires holding the cs */
     CRITICAL_SECTION cs;
@@ -192,11 +194,37 @@ static LONG scale_value(ULONG value, const HIDP_VALUE_CAPS *caps, LONG min, LONG
     return min + MulDiv(tmp - caps->LogicalMin, max - min, caps->LogicalMax - caps->LogicalMin);
 }
 
+static WORD hatswitch_to_xinput_buttons(ULONG value, const HIDP_VALUE_CAPS *caps)
+{
+    LONG hat;
+
+    if (!caps->UsagePage) return 0;
+    hat = sign_extend(value, caps);
+    if (hat < caps->LogicalMin || hat > caps->LogicalMax) return 0;
+    if (caps->LogicalMax - caps->LogicalMin != 7)
+    {
+        WARN("Unsupported hatswitch logical range %ld..%ld.\n", caps->LogicalMin, caps->LogicalMax);
+        return 0;
+    }
+
+    return (hat - caps->LogicalMin + 1) << 10;
+}
+
+static USAGE sony_button_to_xinput_usage(USAGE usage)
+{
+    static const USAGE map[] =
+    {
+        0, 3, 1, 2, 4, 5, 6, 0, 0, 7, 8, 9, 10,
+    };
+
+    return usage < ARRAY_SIZE(map) ? map[usage] : 0;
+}
+
 static void translate_report_to_xinput_state(struct func_device *fdo)
 {
     ULONG lx = 0, ly = 0, rx = 0, ry = 0, lt = 0, rt = 0, hat = 0;
     PHIDP_PREPARSED_DATA preparsed;
-    USAGE usages[10];
+    USAGE usages[32];
     NTSTATUS status;
     ULONG i, count;
 
@@ -208,7 +236,12 @@ static void translate_report_to_xinput_state(struct func_device *fdo)
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsages returned %#lx\n", status);
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_HATSWITCH,
                                 &hat, preparsed, fdo->report_buf, fdo->report_len);
-    if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue hat returned %#lx\n", status);
+    if (status != HIDP_STATUS_SUCCESS)
+    {
+        WARN("HidP_GetUsageValue hat returned %#lx\n", status);
+        fdo->xinput_state.buttons = 0;
+    }
+    else fdo->xinput_state.buttons = hatswitch_to_xinput_buttons(hat, &fdo->hatswitch_caps);
     status = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, HID_USAGE_GENERIC_X,
                                 &lx, preparsed, fdo->report_buf, fdo->report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue x returned %#lx\n", status);
@@ -228,19 +261,30 @@ static void translate_report_to_xinput_state(struct func_device *fdo)
                                 &rt, preparsed, fdo->report_buf, fdo->report_len);
     if (status != HIDP_STATUS_SUCCESS) WARN("HidP_GetUsageValue rz returned %#lx\n", status);
 
-    if (hat < 1 || hat > 8) fdo->xinput_state.buttons = 0;
-    else fdo->xinput_state.buttons = hat << 10;
     for (i = 0; i < count; i++)
     {
-        if (usages[i] < 1 || usages[i] > 10) continue;
-        fdo->xinput_state.buttons |= (1 << (usages[i] - 1));
+        USAGE usage = fdo->is_sony_gamepad ? sony_button_to_xinput_usage(usages[i]) : usages[i];
+
+        if (usage < 1 || usage > 10) continue;
+        fdo->xinput_state.buttons |= (1 << (usage - 1));
     }
     fdo->xinput_state.lx_axis = scale_value(lx, &fdo->lx_caps, 0, 65535);
-    fdo->xinput_state.ly_axis = scale_value(-ly - 1, &fdo->ly_caps, 0, 65535);
-    fdo->xinput_state.rx_axis = scale_value(rx, &fdo->rx_caps, 0, 65535);
-    fdo->xinput_state.ry_axis = scale_value(-ry - 1, &fdo->ry_caps, 0, 65535);
-    rt = scale_value(rt, &fdo->rt_caps, 0, 255);
-    lt = scale_value(lt, &fdo->lt_caps, 0, 255);
+    if (fdo->is_sony_gamepad)
+    {
+        fdo->xinput_state.ly_axis = scale_value(ly, &fdo->ly_caps, 65535, 0);
+        fdo->xinput_state.rx_axis = scale_value(lt, &fdo->lt_caps, 0, 65535);
+        fdo->xinput_state.ry_axis = scale_value(rt, &fdo->rt_caps, 65535, 0);
+        lt = scale_value(rx, &fdo->rx_caps, 0, 255);
+        rt = scale_value(ry, &fdo->ry_caps, 0, 255);
+    }
+    else
+    {
+        fdo->xinput_state.ly_axis = scale_value(-ly - 1, &fdo->ly_caps, 0, 65535);
+        fdo->xinput_state.rx_axis = scale_value(rx, &fdo->rx_caps, 0, 65535);
+        fdo->xinput_state.ry_axis = scale_value(-ry - 1, &fdo->ry_caps, 0, 65535);
+        rt = scale_value(rt, &fdo->rt_caps, 0, 255);
+        lt = scale_value(lt, &fdo->lt_caps, 0, 255);
+    }
     fdo->xinput_state.trigger = 0x8000 + (lt - rt) * 128;
 }
 
@@ -643,6 +687,7 @@ static void check_value_caps(struct func_device *fdo, USHORT usage, HIDP_VALUE_C
     case HID_USAGE_GENERIC_RX: fdo->rx_caps = *caps; break;
     case HID_USAGE_GENERIC_RY: fdo->ry_caps = *caps; break;
     case HID_USAGE_GENERIC_RZ: fdo->rt_caps = *caps; break;
+    case HID_USAGE_GENERIC_HATSWITCH: fdo->hatswitch_caps = *caps; break;
     }
 }
 
@@ -843,6 +888,7 @@ static NTSTATUS WINAPI add_device(DRIVER_OBJECT *driver, DEVICE_OBJECT *bus_devi
     WCHAR bus_id[MAX_DEVICE_ID_LEN], *device_id, instance_id[MAX_DEVICE_ID_LEN];
     struct func_device *fdo;
     DEVICE_OBJECT *device;
+    UINT vid, pid;
     NTSTATUS status;
 
     TRACE("driver %p, bus_device %p.\n", driver, bus_device);
@@ -876,6 +922,8 @@ static NTSTATUS WINAPI add_device(DRIVER_OBJECT *driver, DEVICE_OBJECT *bus_devi
     fdo = device->DeviceExtension;
     fdo->base.is_fdo = TRUE;
     swprintf(fdo->base.device_id, MAX_DEVICE_ID_LEN, L"WINEXINPUT\\%s", device_id);
+    if (swscanf(device_id, L"VID_%04x&PID_%04x", &vid, &pid) == 2 && vid == 0x054c)
+        fdo->is_sony_gamepad = pid == 0x05c4 || pid == 0x09cc || pid == 0x0ce6 || pid == 0x0df2;
 
     fdo->bus_device = bus_device;
     wcscpy(fdo->instance_id, instance_id);
