@@ -302,8 +302,15 @@ static void wayland_surface_update_state_toplevel(struct wayland_surface *surfac
     {
          /* First do all state unsettings, before setting new state. Some
           * Wayland compositors misbehave if the order is reversed. */
+        /* Some compositors (e.g. Hyprland) report fullscreen together with
+         * maximized. Fullscreen combined with maximized is the same as
+         * fullscreen, so keep the maximized bit while the window stays
+         * fullscreen: unsetting it makes those compositors leave fullscreen
+         * and send a tiled configure, which the application sees as a resize. */
         if (!(surface->window.state & WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED) &&
-            (surface->current.state & WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED))
+            (surface->current.state & WAYLAND_SURFACE_CONFIG_STATE_MAXIMIZED) &&
+            !(surface->window.state & surface->current.state &
+              WAYLAND_SURFACE_CONFIG_STATE_FULLSCREEN))
         {
             xdg_toplevel_unset_maximized(surface->xdg_toplevel);
         }
