@@ -406,6 +406,42 @@ RETURN_CODE WCMD_choice(WCHAR *args)
     {
         if (opt_timeout == 0)
             answer[0] = opt_default;
+        else if (have_console)
+        {
+            /* Console handles are synchronous, so the overlapped read below would block
+             * until a key is pressed and never time out. Wait on the input handle and
+             * read key events instead. */
+            HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+            ULONGLONG deadline = GetTickCount64() + (ULONGLONG)opt_timeout * 1000;
+            INPUT_RECORD ir;
+            DWORD count, wait;
+
+            answer[0] = 0;
+            while (!answer[0] && return_code == NO_ERROR)
+            {
+                if (opt_timeout == -1) wait = INFINITE;
+                else
+                {
+                    ULONGLONG now = GetTickCount64();
+                    wait = now >= deadline ? 0 : deadline - now;
+                }
+                switch (WaitForSingleObject(input, wait))
+                {
+                case WAIT_OBJECT_0:
+                    if (!ReadConsoleInputW(input, &ir, 1, &count))
+                        return_code = ERROR_INVALID_FUNCTION;
+                    else if (count && ir.EventType == KEY_EVENT && ir.Event.KeyEvent.bKeyDown &&
+                             ir.Event.KeyEvent.uChar.UnicodeChar)
+                        answer[0] = ir.Event.KeyEvent.uChar.UnicodeChar;
+                    break;
+                case WAIT_TIMEOUT:
+                    answer[0] = opt_default;
+                    break;
+                default:
+                    return_code = ERROR_INVALID_FUNCTION;
+                }
+            }
+        }
         else
         {
             LARGE_INTEGER li, zeroli = {0};
