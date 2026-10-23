@@ -324,6 +324,20 @@ do
 
       # 7. Build System (Optional)
 #      "test-bylaws/tools_makedep_c.patch"
+
+      # 8. v15 (2026-10-23). From GameNative/proton-wine (proton_11.0-2), credited per patch;
+      #    #58 and #73 re-ported onto this Wine 10 tree (#69, #82 and #66 do not apply here:
+      #    no image pool, no other-process rendering, no_error only advertised when GLX has it)
+      # kernelbase: report AMD64 from GetNativeSystemInfo() in x64 processes (#94, upstream Wine c5a96a0b6c, Brendan Shanks)
+      "common/dlls_kernelbase_memory_c_native_system_info.patch"
+      # crypt32: CRYPT_E_NOT_FOUND for an empty enhanced key usage (#46, Cole McCarren)
+      "common/dlls_crypt32_cert_c_enhkey_usage.patch"
+      # ntdll: release the arm64ec emulator cpu area from its view base (#42, David Luo)
+      "common/dlls_ntdll_unix_virtual_c_emu_stack_release.patch"
+      # win32u: keep the full mode list after a mode change in virtual desktop mode (#58, Utkarsh Dalal)
+      "common/dlls_win32u_sysparams_c_modelist.patch"
+      # ntdll: relocate fixed allocations above the host address space limit (#73, Utkarsh Dalal)
+      "common/dlls_ntdll_unix_virtual_c_relocate_high_allocs.patch"
     )
 
     for patch in "${PATCHES[@]}"; do
@@ -366,6 +380,11 @@ do
       "dlls/user32/clipboard.c|WINE_FROM_ANDROID_CLIPBOARD|Android clipboard bridge (user32 half, Wine-10 only)"
       "server/token.c|machine-id|per-prefix machine-id fallback (Wine-10 only)"
       "dlls/ntdll/unix/loader.c|load_unixlib_by_name|FEX unixlib load-by-name loader"
+      "dlls/kernelbase/memory.c|if (!is_wow64 || native_machine != IMAGE_FILE_MACHINE_AMD64)|GetNativeSystemInfo AMD64 in x64 processes (Wine c5a96a0b6c)"
+      "dlls/crypt32/cert.c|Windows sets the last error to CRYPT_E_NOT_FOUND|crypt32 empty EKU last error (GameNative #46)"
+      "dlls/ntdll/unix/virtual.c|void *base = (char *)teb->ChpeV2CpuAreaInfo - kernel_stack_guard_size;|arm64ec emulator cpu area released (GameNative #42)"
+      "dlls/win32u/sysparams.c|bound the mode list by the desktop size, not the current mode|virtual desktop keeps its full mode list (GameNative #58)"
+      "dlls/ntdll/unix/virtual.c|relocating fixed allocation|fixed allocations beyond the host address limit relocated (GameNative #73)"
       "dlls/winewayland.drv/wayland.c|banner_desktop_v1|Wayland virtual desktop (banner_desktop_v1)"
       "dlls/winewayland.drv/wayland_touch.c|touch_lparam|Wayland touch (wl_touch -> WM_POINTER*, normalized lparam)"
       "dlls/winewayland.drv/wayland_edid.c|wayland_edid_build|Wayland HDR10 monitor EDID"
