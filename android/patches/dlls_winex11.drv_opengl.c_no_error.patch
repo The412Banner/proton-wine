@@ -1,0 +1,19 @@
+diff --git a/dlls/winex11.drv/opengl.c b/dlls/winex11.drv/opengl.c
+index b9090be7d7..d449ad5d4d 100644
+--- a/dlls/winex11.drv/opengl.c
++++ b/dlls/winex11.drv/opengl.c
+@@ -1272,6 +1272,14 @@ static BOOL x11drv_context_create( int format, void *share, const int *attribLis
+                 pContextAttribList += 2;
+                 break;
+             case WGL_CONTEXT_OPENGL_NO_ERROR_ARB:
++                /* win32u advertises WGL_ARB_create_context_no_error unconditionally since
++                 * Wine 11, so SDL2 asks for it; Mesa's xlib GLX rejects the attribute with
++                 * BadValue when it lacks the extension (Dead Cells: "OpenGL 3.2+ is required") */
++                if (!has_extension( glxExtensions, "GLX_ARB_create_context_no_error" ))
++                {
++                    TRACE( "dropping WGL_CONTEXT_OPENGL_NO_ERROR_ARB %#x, GLX has no create_context_no_error\n", attribList[1] );
++                    break;
++                }
+                 pContextAttribList[0] = GLX_CONTEXT_OPENGL_NO_ERROR_ARB;
+                 pContextAttribList[1] = attribList[1];
+                 pContextAttribList += 2;
