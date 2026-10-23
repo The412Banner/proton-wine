@@ -699,6 +699,8 @@ static void put_media_type( const AM_MEDIA_TYPE *mt, struct am_media_type32 *mt3
     mt32->bTemporalCompression = mt->bTemporalCompression;
     mt32->lSampleSize          = mt->lSampleSize;
     mt32->formattype           = mt->formattype;
+    mt32->pUnk                 = 0;
+    mt32->cbFormat             = mt->cbFormat;
 }
 
 static NTSTATUS wow64_v4l_device_create( void *args )
