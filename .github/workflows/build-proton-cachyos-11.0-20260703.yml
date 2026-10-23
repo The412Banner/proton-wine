@@ -271,6 +271,25 @@ jobs:
           mv prefixPack-fixed.txz $GITHUB_WORKSPACE/prefixPack.txz
           rm -f prefixPack-donor.txz
 
+      - name: Register the layer's Windows Runtime classes in the prefix pack
+        run: |
+          # The pinned packs predate the WinRT classes this Wine adds (PropertySet, Storage.Streams,
+          # DispatcherQueueController, MediaPlayer, ...); wineboot's first-launch update writes them
+          # to Wow6432Node only on arm64ec, so 64-bit games could not activate them (Xbox sign-in).
+          # Read the class names from this build's own DLLs and register them in both views.
+          if [ "${{ matrix.arch }}" == "x86_64" ]; then
+            OUTPUT_DIR="$HOME/compiled-files-x86_64"; PE64=x86_64-windows
+          else
+            OUTPUT_DIR="$HOME/compiled-files-aarch64"; PE64=aarch64-windows
+          fi
+          python3 android/prefixpack-winrt-registry.py $GITHUB_WORKSPACE/prefixPack.txz \
+            "$OUTPUT_DIR/lib/wine/$PE64" "$OUTPUT_DIR/lib/wine/i386-windows" prefixPack-winrt.txz
+          for k in '[Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\Windows.Foundation.Collections.PropertySet]' \
+                   '[Software\\Wow6432Node\\Microsoft\\WindowsRuntime\\ActivatableClassId\\Windows.Foundation.Collections.PropertySet]'; do
+            tar -xJOf prefixPack-winrt.txz .wine/system.reg | grep -qF "$k" || { echo "FATAL: $k missing from the patched pack"; exit 1; }
+          done
+          mv prefixPack-winrt.txz $GITHUB_WORKSPACE/prefixPack.txz
+
       - name: Generate profile.json files
         run: |
           BASE="CachyOS/wine-cachyos b5f2dc7b590 (release cachyos-11.0-20260703-slr: Valve Proton experimental-11.0 + CachyOS patches)"
@@ -285,12 +304,13 @@ jobs:
             DESC_WINE="Proton-CachyOS 11.0-20260703 ${ARCH_NAME} (bionic) EXPERIMENTAL — wine-cachyos b5f2dc7b590 + our full v7 Android stack. Wayland + HDR10 added."
           fi
 
+          DESC="$DESC v15: FEX unixlib name fix + GameNative fixes (virtual-desktop mode list, image map pool, high fixed allocations, GetNativeSystemInfo AMD64, crypt32 EKU, Vulkan OPWR off, WGL no_error, emulator cpu-area release) + WinRT classes registered in both prefix views."
           # Generate Proton profile.json
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
             "versionName": "11.0-20260703-${ARCH_NAME}",
-            "versionCode": 14,
+            "versionCode": 15,
             "description": "${DESC}",
             "files": [],
             "wine": {
@@ -306,7 +326,7 @@ jobs:
           {
             "type": "Wine",
             "versionName": "11.0-20260703-${ARCH_NAME}",
-            "versionCode": 14,
+            "versionCode": 15,
             "description": "${DESC_WINE}",
             "files": [],
             "wine": {
