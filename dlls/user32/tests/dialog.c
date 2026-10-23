@@ -2081,6 +2081,171 @@ static void test_MessageBoxFontTest(void)
     DestroyWindow(hDlg);
 }
 
+static const char msgbox_title[] = "%5!z9ZXw*ia;57n/FGl.bCH,Su\"mfKN;foCqAU\'j6AmoJgAc_D:Z0A\'E6PF_O/w";
+
+DWORD WINAPI WorkerThread(void *param)
+{
+    WCHAR *expected = param;
+    char windowTitle[sizeof(msgbox_title)];
+    HWND hwndMbox;
+    BOOL succeeded = FALSE;
+
+    Sleep(200);
+
+    hwndMbox = GetForegroundWindow();
+
+    /* Find the Window, if it doesn't have focus */
+    if (!(IsWindow(hwndMbox) &&
+        GetWindowTextA(hwndMbox, windowTitle, sizeof(msgbox_title)) &&
+        lstrcmpA(msgbox_title, windowTitle) == 0))
+    {
+        hwndMbox = FindWindowA(NULL, msgbox_title);
+        if (!IsWindow(hwndMbox))
+            goto cleanup;
+    }
+
+    SendMessageA(hwndMbox, WM_COPY, 0, 0);
+
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT) && OpenClipboard(NULL))
+    {
+        HANDLE textHandle = GetClipboardData(CF_UNICODETEXT);
+        WCHAR *text = GlobalLock(textHandle);
+
+        if (text != NULL)
+        {
+            succeeded = lstrcmpW(expected, text) == 0;
+            if(!succeeded)
+            {
+                ok(0, "%s\n", wine_dbgstr_w(text));
+                ok(0, "%s\n", wine_dbgstr_w(expected));
+            }
+
+            GlobalUnlock(textHandle);
+        }
+        else
+            ok(0, "No text on clipboard.\n");
+
+        CloseClipboard();
+
+    }
+    else
+        trace("Clipboard error\n");
+
+    PostMessageA(hwndMbox, WM_COMMAND, IDIGNORE, 0); /* For MB_ABORTRETRYIGNORE dialog. */
+    PostMessageA(hwndMbox, WM_CLOSE, 0, 0);
+
+cleanup:
+    ok(succeeded, "Failed to get string.\n");
+
+    return 0;
+}
+
+static WCHAR *shell_get_resource_string(UINT id)
+{
+    const WCHAR *resource;
+    unsigned int size;
+    WCHAR *ret;
+
+    size = LoadStringW(NULL, id, (WCHAR *)&resource, 0);
+    ret = malloc((size + 1) * sizeof(WCHAR));
+    memcpy(ret, resource, size * sizeof(WCHAR));
+    ret[size] = 0;
+    return ret;
+}
+
+static WCHAR *create_msgbox_message(UINT res1, UINT res2, UINT res3)
+{
+    /*
+    ---------------------------
+    Dialog Title
+    ---------------------------
+    Dialog Message
+    ---------------------------
+    Button(s) Text. OK<+3 spaces>
+    ---------------------------
+    */
+    static WCHAR text[512];
+    WCHAR *btn1text = shell_get_resource_string(res1);
+
+    lstrcpyW(text, L"---------------------------\r\n");
+    lstrcatW(text, L"%5!z9ZXw*ia;57n/FGl.bCH,Su\"mfKN;foCqAU\'j6AmoJgAc_D:Z0A\'E6PF_O/w");
+    lstrcatW(text, L"\r\n");
+    lstrcatW(text, L"---------------------------\r\n");
+    lstrcatW(text, L"Message\r\n");
+    lstrcatW(text, L"---------------------------\r\n");
+
+    lstrcatW(text, btn1text);
+    lstrcatW(text, L"   ");
+    free(btn1text);
+
+    if (res2 != 0)
+    {
+        WCHAR *btn2text = shell_get_resource_string(res2);
+        lstrcatW(text, btn2text);
+        lstrcatW(text, L"   ");
+        free(btn2text);
+    }
+    if (res3 != 0)
+    {
+        WCHAR *btn3text = shell_get_resource_string(res3);
+        lstrcatW(text, btn3text);
+        lstrcatW(text, L"   ");
+        free(btn3text);
+    }
+    lstrcatW(text, L"\r\n---------------------------\r\n");
+
+    return text;
+}
+
+static void test_MessageBox_WM_COPY_Test(void)
+{
+    DWORD tid = 0;
+    WCHAR *expected;
+    HANDLE hthread;
+
+    expected = create_msgbox_message(102 /* OK */, 0, 0);
+    hthread = CreateThread(NULL, 0, WorkerThread, expected, 0, &tid);
+    MessageBoxA(NULL, "Message", msgbox_title, MB_OK);
+    ok(WaitForSingleObject(hthread, 2000) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
+    CloseHandle(hthread);
+
+    expected = create_msgbox_message(102 /* OK */, 105 /* Cancel */, 0);
+    hthread = CreateThread(NULL, 0, WorkerThread, expected, 0, &tid);
+    MessageBoxA(NULL, "Message", msgbox_title, MB_OKCANCEL);
+    ok(WaitForSingleObject(hthread, 2000) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
+    CloseHandle(hthread);
+
+    expected = create_msgbox_message(103 /* Abort */, 104 /* Retry */, 106 /* Ignore */);
+    hthread = CreateThread(NULL, 0, WorkerThread, expected, 0, &tid);
+    MessageBoxA(NULL, "Message", msgbox_title, MB_ABORTRETRYIGNORE);
+    ok(WaitForSingleObject(hthread, 2000) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
+    CloseHandle(hthread);
+
+    expected = create_msgbox_message(100 /* Yes */, 101 /* No */, 0);
+    hthread = CreateThread(NULL, 0, WorkerThread, expected, 0, &tid);
+    MessageBoxA(NULL, "Message", msgbox_title, MB_YESNO);
+    ok(WaitForSingleObject(hthread, 2000) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
+    CloseHandle(hthread);
+
+    expected = create_msgbox_message(100 /* Yes */, 101 /* No */, 105 /* Cancel */);
+    hthread = CreateThread(NULL, 0, WorkerThread, expected, 0, &tid);
+    MessageBoxA(NULL, "Message", msgbox_title, MB_YESNOCANCEL);
+    ok(WaitForSingleObject(hthread, 2000) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
+    CloseHandle(hthread);
+
+    expected = create_msgbox_message(104 /* Retry */, 105 /* Cancel */, 0);
+    hthread = CreateThread(NULL, 0, WorkerThread, expected, 0, &tid);
+    MessageBoxA(NULL, "Message", msgbox_title, MB_RETRYCANCEL);
+    ok(WaitForSingleObject(hthread, 2000) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
+    CloseHandle(hthread);
+
+    expected = create_msgbox_message(105 /* Cancel */, 107 /* Try again */, 108 /* Continue */);
+    hthread = CreateThread(NULL, 0, WorkerThread, expected, 0, &tid);
+    MessageBoxA(NULL, "Message", msgbox_title, MB_CANCELTRYCONTINUE);
+    ok(WaitForSingleObject(hthread, 2000) == WAIT_OBJECT_0, "WaitForSingleObject failed\n");
+    CloseHandle(hthread);
+}
+
 static void test_SaveRestoreFocus(void)
 {
     HWND hDlg;
@@ -2536,6 +2701,7 @@ START_TEST(dialog)
         return;
     }
 
+    test_MessageBox_WM_COPY_Test();
     test_dialog_custom_data();
     test_GetNextDlgItem();
     test_IsDialogMessage();
