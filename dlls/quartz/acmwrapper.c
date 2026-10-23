@@ -292,6 +292,7 @@ static HRESULT acm_wrapper_sink_connect(struct strmbase_sink *iface, IPin *peer,
     if ((res = acmStreamOpen(&drv, NULL, (WAVEFORMATEX *)wfx, filter->pWfOut, NULL, 0, 0, 0)))
     {
         ERR("Failed to open stream, error %u.\n", res);
+        strmbase_dump_media_type(mt);
         FreeMediaType(&filter->mt);
         return VFW_E_TYPE_NOT_ACCEPTED;
     }

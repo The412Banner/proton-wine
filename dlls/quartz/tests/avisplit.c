@@ -809,6 +809,7 @@ struct testfilter
     const AM_MEDIA_TYPE *mt;
     HANDLE eos_event;
     unsigned int sample_count, eos_count, new_segment_count;
+    unsigned int begin_flush_count, end_flush_count;
     REFERENCE_TIME segment_start, segment_end, seek_start, seek_end;
 };
 
@@ -843,6 +844,7 @@ static HRESULT testfilter_init_stream(struct strmbase_filter *iface)
     filter->new_segment_count = 0;
     filter->eos_count = 0;
     filter->sample_count = 0;
+    filter->begin_flush_count = filter->end_flush_count = 0;
     return S_OK;
 }
 
@@ -1002,6 +1004,22 @@ static HRESULT testsink_new_segment(struct strmbase_sink *iface,
     return S_OK;
 }
 
+static HRESULT testsink_begin_flush(struct strmbase_sink *iface)
+{
+    struct testfilter *filter = impl_from_strmbase_filter(iface->pin.filter);
+
+    ++filter->begin_flush_count;
+    return S_OK;
+}
+
+static HRESULT testsink_end_flush(struct strmbase_sink *iface)
+{
+    struct testfilter *filter = impl_from_strmbase_filter(iface->pin.filter);
+
+    ++filter->end_flush_count;
+    return S_OK;
+}
+
 static const struct strmbase_sink_ops testsink_ops =
 {
     .base.pin_query_interface = testsink_query_interface,
@@ -1010,6 +1028,8 @@ static const struct strmbase_sink_ops testsink_ops =
     .pfnReceive = testsink_Receive,
     .sink_eos = testsink_eos,
     .sink_new_segment = testsink_new_segment,
+    .sink_begin_flush = testsink_begin_flush,
+    .sink_end_flush = testsink_end_flush,
 };
 
 static struct testfilter *impl_from_IAsyncReader(IAsyncReader *iface)
@@ -1710,6 +1730,22 @@ static void test_streaming(const WCHAR *resname)
     ok(!WaitForSingleObject(testsink.eos_event, 1000), "Did not receive EOS.\n");
     ok(WaitForSingleObject(testsink.eos_event, 100) == WAIT_TIMEOUT, "Got more than one EOS.\n");
     ok(testsink.sample_count, "Expected at least one sample.\n");
+
+    /* Pause and resume must not flush the downstream decoder, even at EOS. */
+    hr = IMediaControl_Run(control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(!testsink.begin_flush_count, "Got %u BeginFlush calls.\n", testsink.begin_flush_count);
+    ok(!testsink.end_flush_count, "Got %u EndFlush calls.\n", testsink.end_flush_count);
+
+    hr = IMediaControl_Pause(control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(!testsink.begin_flush_count, "Got %u BeginFlush calls on Pause.\n", testsink.begin_flush_count);
+    ok(!testsink.end_flush_count, "Got %u EndFlush calls on Pause.\n", testsink.end_flush_count);
+
+    hr = IMediaControl_Run(control);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    ok(!testsink.begin_flush_count, "Got %u BeginFlush calls on Run.\n", testsink.begin_flush_count);
+    ok(!testsink.end_flush_count, "Got %u EndFlush calls on Run.\n", testsink.end_flush_count);
 
     hr = IMediaControl_Stop(control);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);

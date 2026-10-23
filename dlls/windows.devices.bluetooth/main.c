@@ -46,6 +46,12 @@ HRESULT WINAPI DllGetActivationFactory( HSTRING classid, IActivationFactory **fa
         IActivationFactory_QueryInterface( bluetoothledevice_statics_factory, &IID_IActivationFactory, (void **)factory );
     if (!wcscmp( buffer, RuntimeClass_Windows_Devices_Bluetooth_Advertisement_BluetoothLEAdvertisementWatcher))
         IActivationFactory_QueryInterface( advertisement_watcher_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Devices_Bluetooth_GenericAttributeProfile_GattSession ))
+        IActivationFactory_QueryInterface( gattsession_statics_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Devices_Bluetooth_BluetoothDeviceId ))
+        IActivationFactory_QueryInterface( bluetoothdeviceid_statics_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Devices_Bluetooth_BluetoothUuidHelper ))
+        IActivationFactory_QueryInterface( bluetoothuuidhelper_statics_factory, &IID_IActivationFactory, (void **)factory );
 
     if (*factory) return S_OK;
     return CLASS_E_CLASSNOTAVAILABLE;

@@ -28,6 +28,7 @@
 #include "winioctl.h"
 #include "ddk/wdm.h"
 #include "ddk/hidport.h"
+#include "wine/hid.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(hid);
@@ -54,6 +55,7 @@ static NTSTATUS WINAPI internal_ioctl(DEVICE_OBJECT *device, IRP *irp)
     case IOCTL_HID_WRITE_REPORT:
     case IOCTL_HID_GET_FEATURE:
     case IOCTL_HID_SET_FEATURE:
+    case IOCTL_HID_WINE_SET_XINPUT_OUTPUT_REPORT:
         /* All these are handled by the lower level driver */
         IoSkipCurrentIrpStackLocation(irp);
         return IoCallDriver(((HID_DEVICE_EXTENSION *)device->DeviceExtension)->NextDeviceObject, irp);

@@ -21621,6 +21621,7 @@ wine_fn_config_makefile dlls/rsabase enable_rsabase
 wine_fn_config_makefile dlls/rsaenh enable_rsaenh
 wine_fn_config_makefile dlls/rsaenh/tests enable_tests
 wine_fn_config_makefile dlls/rstrtmgr enable_rstrtmgr
+wine_fn_config_makefile dlls/rsx enable_rsx
 wine_fn_config_makefile dlls/rtutils enable_rtutils
 wine_fn_config_makefile dlls/rtworkq enable_rtworkq
 wine_fn_config_makefile dlls/rtworkq/tests enable_tests
@@ -23612,5 +23613,4 @@ IFS="$ac_save_IFS"
 printf "%s\n" "
 $as_me: Finished.  Do '${ac_make}' to compile Wine.
 " >&6
-
 

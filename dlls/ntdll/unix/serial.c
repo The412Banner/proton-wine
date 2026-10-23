@@ -1336,6 +1336,32 @@ NTSTATUS serial_DeviceIoControl( HANDLE device, HANDLE event, PIO_APC_ROUTINE ap
         }
         else status = STATUS_INVALID_PARAMETER;
         break;
+    case IOCTL_SERIAL_GET_DTRRTS:
+        if (out_buffer && out_size == sizeof(DWORD))
+        {
+#ifdef TIOCMGET
+            int mstat;
+            if (ioctl(fd, TIOCMGET, &mstat) == -1)
+            {
+                WARN("TIOCMGET err %s\n", strerror(errno));
+                status = errno_to_status( errno );
+            }
+            else
+            {
+                DWORD *state = out_buffer;
+                *state = 0;
+                if (mstat & TIOCM_DTR) *state |= SERIAL_DTR_STATE;
+                if (mstat & TIOCM_RTS) *state |= SERIAL_RTS_STATE;
+                TRACE("DTR/RTS state %08x\n", (unsigned int)*state);
+                status = STATUS_SUCCESS;
+                sz = sizeof(DWORD);
+            }
+#else
+            status = STATUS_NOT_SUPPORTED;
+#endif
+        }
+        else status = STATUS_INVALID_PARAMETER;
+        break;
     case IOCTL_SERIAL_GET_PROPERTIES:
         if (out_buffer && out_size == sizeof(SERIAL_COMMPROP))
         {
