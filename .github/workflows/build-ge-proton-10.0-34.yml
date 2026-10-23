@@ -210,7 +210,9 @@ jobs:
           # The pinned packs predate the WinRT classes this Wine adds (PropertySet, Storage.Streams,
           # DispatcherQueueController, MediaPlayer, ...); wineboot's first-launch update writes them
           # to Wow6432Node only on arm64ec, so 64-bit games could not activate them (Xbox sign-in).
-          # Read the class names from this build's own DLLs and register them in both views.
+          # Read the class names from this build's own DLLs and register them in both views. Wine 10
+          # has no PropertySet (not backported), so the check uses Storage.Streams.Buffer, which the
+          # pinned pack also lacks.
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
             OUTPUT_DIR="$HOME/compiled-files-x86_64"; PE64=x86_64-windows
           else
@@ -218,8 +220,8 @@ jobs:
           fi
           python3 android/prefixpack-winrt-registry.py $GITHUB_WORKSPACE/prefixPack.txz \
             "$OUTPUT_DIR/lib/wine/$PE64" "$OUTPUT_DIR/lib/wine/i386-windows" prefixPack-winrt.txz
-          for k in '[Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\Windows.Foundation.Collections.PropertySet]' \
-                   '[Software\\Wow6432Node\\Microsoft\\WindowsRuntime\\ActivatableClassId\\Windows.Foundation.Collections.PropertySet]'; do
+          for k in '[Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\Windows.Storage.Streams.Buffer]' \
+                   '[Software\\Wow6432Node\\Microsoft\\WindowsRuntime\\ActivatableClassId\\Windows.Storage.Streams.Buffer]'; do
             tar -xJOf prefixPack-winrt.txz .wine/system.reg | grep -qF "$k" || { echo "FATAL: $k missing from the patched pack"; exit 1; }
           done
           mv prefixPack-winrt.txz $GITHUB_WORKSPACE/prefixPack.txz
