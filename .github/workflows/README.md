@@ -14,6 +14,7 @@ Each layer branch carries exactly one build workflow, named for the layer it bui
 | `proton_11.7-GE` | `build-ge-proton-11.0-7.yml` | GE-Proton 11.0-7 (arm64ec + x86_64) |
 | `proton_11.7.1-GE` | `build-ge-proton-11.0-7-valve.yml` | GE-Proton 11.0-7.1 (Valve wine 46b29104, the GE-Proton11-7 base, + the 11.0-2 layer stack; arm64ec + x86_64) |
 | `proton_11.9-GE` | `build-ge-proton-11.0-9.yml` | GE-Proton 11.0-9 (Valve wine 981e2f0b9007, the GE-Proton11-9 base, merged onto `proton_11.7.1-GE`; arm64ec + x86_64) |
+| `proton_11.11.1-DroidDeck` | `build-droiddeck-proton-11.0-11.1.yml` | DroidDeck-Proton 11.0-11.1 (`proton_11.9-GE` v15 + Valve wine c53678ab22a8 + GE-Proton11-11 picks + the DroidDeck-Proton CachyOS tier; arm64ec + x86_64) |
 
 The file name is distinct per branch on purpose: GitHub labels a run with the
 workflow name taken from the default branch's copy of the same path, so a shared
