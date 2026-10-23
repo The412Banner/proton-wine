@@ -2749,7 +2749,8 @@ static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 {
     ucontext_t *ucontext = init_handler( sigcontext );
 
-    if (!is_inside_syscall( RSP_sig(ucontext) )) user_mode_abort_thread( 0, get_syscall_frame() );
+    if (!ntdll_get_thread_data()->system_thread && !is_inside_syscall( RSP_sig(ucontext) ))
+        user_mode_abort_thread( 0, get_syscall_frame() );
     abort_thread( 0 );
 }
 
@@ -2763,7 +2764,11 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 {
     ucontext_t *ucontext = init_handler( sigcontext );
 
-    if (is_inside_syscall( RSP_sig(ucontext) ))
+    if (ntdll_get_thread_data()->system_thread)
+    {
+        server_select( NULL, 0, SELECT_INTERRUPTIBLE, 0, NULL, NULL );
+    }
+    else if (is_inside_syscall( RSP_sig(ucontext) ))
     {
         struct syscall_frame *frame = get_syscall_frame();
         ULONG64 saved_compaction = 0;
@@ -2821,6 +2826,9 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 }
 
 #if defined(__APPLE__) || defined(__linux__)
+
+static BOOL use_eos_syscall_hack;
+
 /**********************************************************************
  *		sigsys_handler
  *
@@ -2833,7 +2841,7 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     ucontext_t *ucontext = init_handler( sigcontext );
     struct syscall_frame *frame = get_syscall_frame();
 
-    TRACE_(seh)("SIGSYS, rax %#llx, rip %#llx.\n", RAX_sig(ucontext), RIP_sig(ucontext));
+    TRACE_(seh)("SIGSYS, rax %#lx, rip %#lx.\n", (long)RAX_sig(ucontext), (long)RIP_sig(ucontext));
 
 #ifdef __linux__
     if (!syscall_dispatch_enabled)
@@ -2850,6 +2858,33 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         prctl( PR_SET_SYSCALL_USER_DISPATCH, PR_SYS_DISPATCH_ON, 0x700100000000, 0x7fffffff0000 - 0x700100000000,
                &thread_data->syscall_dispatch );
         RIP_sig(ucontext) -= 2;
+        return;
+    }
+
+    /* HACK: The EOS version of easy anti cheat executes linux syscalls in a high address
+     * to evade the older seccomp based syscall emulation. It maps a page at
+     * 0x700100000000 and uses it to execute syscalls.
+     * The child process does more of the same but at different address.
+     * Detect this case and execute the linux syscall instead. */
+    if ((long)RIP_sig(ucontext) >= 0x700100000000 && use_eos_syscall_hack)
+    {
+        /* block syscall user dispatch, if it was already blocked we wont be in this handler */
+        __asm__ (
+            "movq %%gs:0x30,%%r13\n\t"
+            "movb $0, 0x340(%%r13)\n\t"
+            ::: "r13"
+        );
+
+        RAX_sig(ucontext) = syscall(RAX_sig(ucontext), RDI_sig(ucontext), RSI_sig(ucontext),
+                                    RDX_sig(ucontext), R10_sig(ucontext), R8_sig(ucontext),
+                                    R9_sig(ucontext));
+
+        /* restore syscall user dispatch state */
+        __asm__ (
+            "movq %%gs:0x30,%%r13\n\t"
+            "movb $1, 0x340(%%r13)\n\t"
+            ::: "r13"
+        );
         return;
     }
 #endif
@@ -3073,6 +3108,7 @@ void signal_init_process(void)
 #ifdef __linux__
     if (syscall_dispatch_enabled)
     {
+        const char *env;
         struct sigaction act;
 
         if (sigaction( SIGSYS, NULL, &act ) == -1)
@@ -3084,6 +3120,12 @@ void signal_init_process(void)
         {
             WARN_(seh)( "could not find library containing signal restorer trampoline\n" );
             syscall_dispatch_enabled = FALSE;
+        }
+        else
+        {
+            /* We don't unset the env since child processes also need to inherit the same syscall hack */
+            use_eos_syscall_hack = (env = getenv("PROTON_SYSCALL_HACK")) && !strcmp(env, "1");
+            if (use_eos_syscall_hack) ERR_(seh)("Using EAC bootstrapper (EOS) syscall workaround!\n");
         }
     }
 #endif

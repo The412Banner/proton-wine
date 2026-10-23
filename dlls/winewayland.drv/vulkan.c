@@ -26,6 +26,7 @@
 
 #include <dlfcn.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -33,11 +34,66 @@
 #include "wine/debug.h"
 
 #include "wine/vulkan.h"
+#include "wine/hwnd_dmabuf.h"
 #include "wine/vulkan_driver.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(vulkan);
+WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 
 static const struct vulkan_driver_funcs wayland_vulkan_driver_funcs;
+
+static struct wayland_client_surface *stash_client_surface(HWND hwnd,
+                                                           struct wayland_client_surface *surface)
+{
+    struct wayland_client_surface *ret = NULL;
+    struct wayland_win_data *data;
+    BOOL preserve = process_name && !strcmp(process_name, "doometernalx64vk.exe");
+
+    if (!(data = wayland_win_data_get(hwnd))) return NULL;
+
+    if (surface)
+    {
+        if ((ret = data->stashed_client) == surface)
+        {
+            wayland_win_data_release(data);
+            return ret;
+        }
+        client_surface_add_ref(&surface->client);
+        data->stashed_client = surface;
+    }
+    else if ((ret = data->stashed_client) && !ReadAcquire(&ret->client.busy_ref) &&
+             (ReadAcquire(&ret->client.ref) == 1 || preserve))
+    {
+        /* cannot decrease the ref count here as there is a
+         * new VkSurface referencing this client surface */
+        data->stashed_client = NULL;
+        /* DOOM retains old VkSurfaces after destroying their swapchains.
+         * Preserve its idle wl_surface and attachment so HDR replacements
+         * keep the compositor's DMA-BUF feedback and the last visible frame.
+         * Attachment updates still handle an actual parent/role change. */
+        if (!preserve)
+        {
+            /* detach the client surface to ensure it is reparented */
+            wayland_client_surface_attach(ret, NULL);
+            if (data->client_surface == ret)
+            {
+                InterlockedExchange(&ret->client.presentation_owner, FALSE);
+                data->client_surface = NULL;
+            }
+            if (!list_empty(&ret->hwnd_entry))
+            {
+                list_remove(&ret->hwnd_entry);
+                list_init(&ret->hwnd_entry);
+            }
+        }
+    }
+    else ret = NULL;
+
+    wayland_win_data_release(data);
+
+    if (ret && surface) client_surface_release(&ret->client);
+
+    return ret;
+}
 
 static VkResult wayland_vulkan_surface_create(HWND hwnd, BOOL raw, const struct vulkan_instance *instance,
                                               VkSurfaceKHR *handle, struct client_surface **client)
@@ -48,7 +104,13 @@ static VkResult wayland_vulkan_surface_create(HWND hwnd, BOOL raw, const struct 
 
     TRACE("%p %p %p %p\n", hwnd, instance, handle, client);
 
-    if (!(surface = wayland_client_surface_create(hwnd))) return VK_ERROR_OUT_OF_HOST_MEMORY;
+    if (!(surface = stash_client_surface(hwnd, NULL)) &&
+        !(surface = wayland_client_surface_create(hwnd)))
+    {
+        ERR("Failed to create vulkan client surface\n");
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
     create_info_host.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
     create_info_host.pNext = NULL;
     create_info_host.flags = 0; /* reserved */
@@ -64,6 +126,7 @@ static VkResult wayland_vulkan_surface_create(HWND hwnd, BOOL raw, const struct 
     }
 
     set_client_surface(hwnd, surface);
+    stash_client_surface(hwnd, surface);
     *client = &surface->client;
 
     TRACE("Created surface=0x%s, client=%p\n", wine_dbgstr_longlong(*handle), *client);
@@ -97,9 +160,128 @@ static void wayland_map_device_extensions(struct vulkan_device_extensions *exten
     if (extensions->has_VK_KHR_external_fence_fd) extensions->has_VK_KHR_external_fence_win32 = 1;
 }
 
+static VkColorSpaceKHR wayland_vulkan_map_colorspace(VkColorSpaceKHR colorspace, struct client_surface *client)
+{
+    struct wayland_client_surface *surface = impl_from_client_surface(client);
+    struct wp_image_description_v1 *wp_image_description_v1 = NULL;
+    VkColorSpaceKHR new = colorspace;
+
+    if (process_wayland.supports_win_scrgb && colorspace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
+        new = VK_COLOR_SPACE_PASS_THROUGH_EXT;
+    else if (process_wayland.supports_win_pq && colorspace == VK_COLOR_SPACE_HDR10_ST2084_EXT)
+        new = VK_COLOR_SPACE_PASS_THROUGH_EXT;
+
+    TRACE("mapping colorspace %u => %u\n", colorspace, new);
+
+    if (!client) return new;
+    if (new == colorspace)
+    {
+        wayland_client_surface_attach_image_description(surface, NULL);
+        return colorspace;
+    }
+
+    switch (colorspace)
+    {
+    case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT:
+        wp_image_description_v1 =
+            wp_color_manager_v1_create_windows_scrgb(process_wayland.wp_color_manager_v1);
+        break;
+    case VK_COLOR_SPACE_HDR10_ST2084_EXT:
+        wp_image_description_v1 =
+            wp_color_manager_v1_create_windows_bt2100(process_wayland.wp_color_manager_v1);
+    default: break;
+    }
+
+    if (!wp_image_description_v1) goto err;
+
+    wayland_client_surface_attach_image_description(surface, wp_image_description_v1);
+    wl_display_flush(process_wayland.wl_display);
+    return new;
+err:
+    ERR("Failed to configure image description for client surface!\n");
+    return colorspace;
+}
+
+static void wayland_vulkan_surface_set_alpha(VkCompositeAlphaFlagBitsKHR alpha_bits,
+                                             struct client_surface *client)
+{
+    /* Wayland does not support inherited alpha. */
+    wayland_client_surface_set_alpha(client, !(alpha_bits & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR));
+}
+
+static UINT wayland_vulkan_get_hwnd_dmabuf_caps(HWND hwnd, void *caps_ptr, void *format_modifiers_ptr,
+                                                UINT max_format_modifiers, UINT *format_modifier_count)
+{
+    hwnd_dmabuf_host_caps_t *caps = caps_ptr;
+    hwnd_dmabuf_format_modifier_t *format_modifiers = format_modifiers_ptr;
+    struct wayland_dmabuf_format *entry;
+    UINT count = 0, copied = 0;
+
+    if (format_modifier_count) *format_modifier_count = 0;
+    if (!caps || !format_modifier_count || (max_format_modifiers && !format_modifiers))
+        return HWND_DMABUF_INVALID_ARGS;
+    if (!process_wayland.zwp_linux_dmabuf_v1)
+    {
+        TRACE("hwnd %p has no linux-dmabuf transport\n", hwnd);
+        return HWND_DMABUF_NOT_FOUND;
+    }
+
+    /* Most local top-levels should present directly through Vulkan WSI. If the
+     * top-level's client content cannot be represented as a rectangular Wayland
+     * surface, route it through the managed producer path where Wine can apply
+     * the Win32 visible region. */
+    {
+        HWND toplevel = NtUserGetAncestor(hwnd, GA_ROOT);
+        struct wayland_win_data *toplevel_data;
+        BOOL toplevel_presentable_locally = FALSE;
+        BOOL toplevel_unmaskable = FALSE;
+
+        if (toplevel && (toplevel_data = wayland_win_data_get(toplevel)))
+        {
+            struct wayland_surface *surface = toplevel_data->wayland_surface;
+
+            toplevel_presentable_locally = surface != NULL;
+            toplevel_unmaskable = surface && wayland_surface_client_is_unmaskable(surface);
+            wayland_win_data_release(toplevel_data);
+        }
+
+        if (toplevel_presentable_locally && !toplevel_unmaskable)
+        {
+            TRACE("hwnd %p toplevel %p has a local wayland surface; direct present, no dmabuf bridge\n",
+                  hwnd, toplevel);
+            return HWND_DMABUF_NOT_FOUND;
+        }
+    }
+
+    pthread_mutex_lock(&process_wayland.dmabuf_mutex);
+    wl_list_for_each(entry, &process_wayland.dmabuf_formats, link)
+        count++;
+
+    memset(caps, 0, sizeof(*caps));
+    wl_list_for_each(entry, &process_wayland.dmabuf_formats, link)
+    {
+        if (copied >= max_format_modifiers)
+            break;
+        format_modifiers[copied].fourcc = entry->format;
+        format_modifiers[copied].tranche_index = entry->tranche_index;
+        format_modifiers[copied].tranche_flags = entry->tranche_flags;
+        format_modifiers[copied].modifier = entry->modifier;
+        copied++;
+    }
+    pthread_mutex_unlock(&process_wayland.dmabuf_mutex);
+
+    caps->format_modifier_count = copied;
+    caps->flags |= HWND_DMABUF_HOST_CAP_CONSUMER_STATE;
+    *format_modifier_count = count;
+    return HWND_DMABUF_OK;
+}
+
 static const struct vulkan_driver_funcs wayland_vulkan_driver_funcs =
 {
     .p_vulkan_surface_create = wayland_vulkan_surface_create,
+    .p_vulkan_map_colorspace = wayland_vulkan_map_colorspace,
+    .p_vulkan_surface_set_alpha = wayland_vulkan_surface_set_alpha,
+    .p_vulkan_get_hwnd_dmabuf_caps = wayland_vulkan_get_hwnd_dmabuf_caps,
     .p_get_physical_device_presentation_support = wayland_get_physical_device_presentation_support,
     .p_map_instance_extensions = wayland_map_instance_extensions,
     .p_map_device_extensions = wayland_map_device_extensions,

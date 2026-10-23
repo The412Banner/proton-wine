@@ -541,7 +541,7 @@ HKEY reg_create_key( HKEY root, const WCHAR *name, ULONG name_len,
     attr.Length = sizeof(attr);
     attr.RootDirectory = root;
     attr.ObjectName = &nameW;
-    attr.Attributes = 0;
+    attr.Attributes = (options & REG_OPTION_OPEN_LINK) ? OBJ_OPENLINK : 0;
     attr.SecurityDescriptor = NULL;
     attr.SecurityQualityOfService = NULL;
 
@@ -562,6 +562,7 @@ HKEY reg_create_key( HKEY root, const WCHAR *name, ULONG name_len,
         {
             unsigned int subkey_options = options;
             if (i < len) subkey_options &= ~(REG_OPTION_CREATE_LINK | REG_OPTION_OPEN_LINK);
+            attr.Attributes = (subkey_options & REG_OPTION_OPEN_LINK) ? OBJ_OPENLINK : 0;
             nameW.Buffer = (WCHAR *)name + pos;
             nameW.Length = (i - pos) * sizeof(WCHAR);
             status = NtCreateKey( &ret, MAXIMUM_ALLOWED, &attr, 0, NULL, subkey_options, disposition );

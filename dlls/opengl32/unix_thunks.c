@@ -7,6 +7,8 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#include <unistd.h>
+
 #include <assert.h>
 
 #include "ntstatus.h"
@@ -30552,6 +30554,78 @@ static NTSTATUS ext_wglCreatePbufferARB( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS ext_wglDXCloseDeviceNV( void *args )
+{
+    struct wglDXCloseDeviceNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXCloseDeviceNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXCloseDeviceNV( params->hDevice );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglDXLockObjectsNV( void *args )
+{
+    struct wglDXLockObjectsNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXLockObjectsNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXLockObjectsNV( params->hDevice, params->count, params->hObjects );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglDXObjectAccessNV( void *args )
+{
+    struct wglDXObjectAccessNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXObjectAccessNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXObjectAccessNV( params->hObject, params->access );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglDXOpenDeviceNV( void *args )
+{
+    struct wglDXOpenDeviceNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXOpenDeviceNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXOpenDeviceNV( params->dxDevice );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglDXRegisterObjectNV( void *args )
+{
+    struct wglDXRegisterObjectNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXRegisterObjectNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXRegisterObjectNV( params->hDevice, params->dxObject, params->name, params->type, params->access );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglDXSetResourceShareHandleNV( void *args )
+{
+    struct wglDXSetResourceShareHandleNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXSetResourceShareHandleNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXSetResourceShareHandleNV( params->dxObject, params->shareHandle );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglDXUnlockObjectsNV( void *args )
+{
+    struct wglDXUnlockObjectsNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXUnlockObjectsNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXUnlockObjectsNV( params->hDevice, params->count, params->hObjects );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglDXUnregisterObjectNV( void *args )
+{
+    struct wglDXUnregisterObjectNV_params *params = args;
+    const struct opengl_funcs *funcs = params->teb->glTable;
+    if (!funcs->p_wglDXUnregisterObjectNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXUnregisterObjectNV( params->hDevice, params->hObject );
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS ext_wglDestroyPbufferARB( void *args )
 {
     struct wglDestroyPbufferARB_params *params = args;
@@ -30720,6 +30794,37 @@ static NTSTATUS ext_wglSwapIntervalEXT( void *args )
     const struct opengl_funcs *funcs = params->teb->glTable;
     if (!funcs->p_wglSwapIntervalEXT) return STATUS_NOT_IMPLEMENTED;
     params->ret = funcs->p_wglSwapIntervalEXT( params->interval );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglWineCloseDmaBufWINE( void *args )
+{
+    struct wglWineCloseDmaBufWINE_params *params = args;
+
+    if (params->fd >= 0) close( params->fd );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglWineDmaBufExportSupportedWINE( void *args )
+{
+    struct wglWineDmaBufExportSupportedWINE_params *params = args;
+    TEB *teb = params->teb;
+    const struct opengl_funcs *funcs = teb->glTable;
+
+    params->ret = funcs && funcs->p_wglWineDmaBufExportSupportedWINE &&
+            funcs->p_wglWineDmaBufExportSupportedWINE();
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS ext_wglWineExportDmaBufWINE( void *args )
+{
+    struct wglWineExportDmaBufWINE_params *params = args;
+    TEB *teb = params->teb;
+    const struct opengl_funcs *funcs = teb->glTable;
+
+    if (!funcs || !funcs->p_wglWineExportDmaBufWINE) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglWineExportDmaBufWINE( params->texture, params->target,
+            params->desc, params->fd );
     return STATUS_SUCCESS;
 }
 
@@ -33808,6 +33913,14 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     ext_wglChoosePixelFormatARB,
     ext_wglCreateContextAttribsARB,
     ext_wglCreatePbufferARB,
+    ext_wglDXCloseDeviceNV,
+    ext_wglDXLockObjectsNV,
+    ext_wglDXObjectAccessNV,
+    ext_wglDXOpenDeviceNV,
+    ext_wglDXRegisterObjectNV,
+    ext_wglDXSetResourceShareHandleNV,
+    ext_wglDXUnlockObjectsNV,
+    ext_wglDXUnregisterObjectNV,
     ext_wglDestroyPbufferARB,
     ext_wglFreeMemoryNV,
     ext_wglGetExtensionsStringARB,
@@ -33827,6 +33940,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     ext_wglSetPbufferAttribARB,
     ext_wglSetPixelFormatWINE,
     ext_wglSwapIntervalEXT,
+    ext_wglWineCloseDmaBufWINE,
+    ext_wglWineDmaBufExportSupportedWINE,
+    ext_wglWineExportDmaBufWINE,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_funcs) == funcs_count);
@@ -86986,6 +87102,144 @@ static NTSTATUS wow64_ext_wglCreatePbufferARB( void *args )
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS wow64_ext_wglDXCloseDeviceNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDevice;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    if (!funcs->p_wglDXCloseDeviceNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXCloseDeviceNV( ULongToPtr(params->hDevice) );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglDXLockObjectsNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDevice;
+        GLint count;
+        PTR32 hObjects;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    HANDLE *hObjects;
+    if (!funcs->p_wglDXLockObjectsNV) return STATUS_NOT_IMPLEMENTED;
+    hObjects = copy_wow64_ptr32s( params->hObjects, params->count );
+    params->ret = funcs->p_wglDXLockObjectsNV( ULongToPtr(params->hDevice), params->count, hObjects );
+    free( hObjects );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglDXObjectAccessNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hObject;
+        GLenum access;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    if (!funcs->p_wglDXObjectAccessNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXObjectAccessNV( ULongToPtr(params->hObject), params->access );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglDXOpenDeviceNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 dxDevice;
+        PTR32 ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    if (!funcs->p_wglDXOpenDeviceNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = (UINT_PTR)funcs->p_wglDXOpenDeviceNV( ULongToPtr(params->dxDevice) );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglDXRegisterObjectNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDevice;
+        PTR32 dxObject;
+        GLuint name;
+        GLenum type;
+        GLenum access;
+        PTR32 ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    if (!funcs->p_wglDXRegisterObjectNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = (UINT_PTR)funcs->p_wglDXRegisterObjectNV( ULongToPtr(params->hDevice),
+            ULongToPtr(params->dxObject), params->name, params->type, params->access );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglDXSetResourceShareHandleNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 dxObject;
+        PTR32 shareHandle;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    if (!funcs->p_wglDXSetResourceShareHandleNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXSetResourceShareHandleNV( ULongToPtr(params->dxObject), ULongToPtr(params->shareHandle) );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglDXUnlockObjectsNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDevice;
+        GLint count;
+        PTR32 hObjects;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    HANDLE *hObjects;
+    if (!funcs->p_wglDXUnlockObjectsNV) return STATUS_NOT_IMPLEMENTED;
+    hObjects = copy_wow64_ptr32s( params->hObjects, params->count );
+    params->ret = funcs->p_wglDXUnlockObjectsNV( ULongToPtr(params->hDevice), params->count, hObjects );
+    free( hObjects );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglDXUnregisterObjectNV( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        PTR32 hDevice;
+        PTR32 hObject;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+    if (!funcs->p_wglDXUnregisterObjectNV) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglDXUnregisterObjectNV( ULongToPtr(params->hDevice), ULongToPtr(params->hObject) );
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS wow64_ext_wglDestroyPbufferARB( void *args )
 {
     struct
@@ -87287,6 +87541,52 @@ static NTSTATUS wow64_ext_wglSwapIntervalEXT( void *args )
     const struct opengl_funcs *funcs = teb->glTable;
     if (!funcs->p_wglSwapIntervalEXT) return STATUS_NOT_IMPLEMENTED;
     params->ret = funcs->p_wglSwapIntervalEXT( params->interval );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglWineCloseDmaBufWINE( void *args )
+{
+    struct
+    {
+        int fd;
+    } *params = args;
+
+    if (params->fd >= 0) close( params->fd );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglWineDmaBufExportSupportedWINE( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+
+    params->ret = funcs && funcs->p_wglWineDmaBufExportSupportedWINE &&
+            funcs->p_wglWineDmaBufExportSupportedWINE();
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS wow64_ext_wglWineExportDmaBufWINE( void *args )
+{
+    struct
+    {
+        PTR32 teb;
+        GLuint texture;
+        GLenum target;
+        PTR32 desc;
+        PTR32 fd;
+        BOOL ret;
+    } *params = args;
+    TEB *teb = get_teb64( params->teb );
+    const struct opengl_funcs *funcs = teb->glTable;
+
+    if (!funcs || !funcs->p_wglWineExportDmaBufWINE) return STATUS_NOT_IMPLEMENTED;
+    params->ret = funcs->p_wglWineExportDmaBufWINE( params->texture, params->target,
+            ULongToPtr(params->desc), ULongToPtr(params->fd) );
     return STATUS_SUCCESS;
 }
 
@@ -90376,6 +90676,14 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wow64_ext_wglChoosePixelFormatARB,
     wow64_ext_wglCreateContextAttribsARB,
     wow64_ext_wglCreatePbufferARB,
+    wow64_ext_wglDXCloseDeviceNV,
+    wow64_ext_wglDXLockObjectsNV,
+    wow64_ext_wglDXObjectAccessNV,
+    wow64_ext_wglDXOpenDeviceNV,
+    wow64_ext_wglDXRegisterObjectNV,
+    wow64_ext_wglDXSetResourceShareHandleNV,
+    wow64_ext_wglDXUnlockObjectsNV,
+    wow64_ext_wglDXUnregisterObjectNV,
     wow64_ext_wglDestroyPbufferARB,
     wow64_ext_wglFreeMemoryNV,
     wow64_ext_wglGetExtensionsStringARB,
@@ -90395,6 +90703,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wow64_ext_wglSetPbufferAttribARB,
     wow64_ext_wglSetPixelFormatWINE,
     wow64_ext_wglSwapIntervalEXT,
+    wow64_ext_wglWineCloseDmaBufWINE,
+    wow64_ext_wglWineDmaBufExportSupportedWINE,
+    wow64_ext_wglWineExportDmaBufWINE,
 };
 
 C_ASSERT(ARRAYSIZE(__wine_unix_call_wow64_funcs) == funcs_count);
@@ -92168,8 +92479,8 @@ struct opengl_funcs null_opengl_funcs =
     .p_glViewport = null_glViewport,
 };
 
-const int extension_registry_size = 2754;
-const struct registry_entry extension_registry[2754] =
+const int extension_registry_size = 2762;
+const struct registry_entry extension_registry[2762] =
 {
     { "glAccumxOES", "GL_OES_fixed_point\0", offsetof(struct opengl_funcs, p_glAccumxOES) },
     { "glAcquireKeyedMutexWin32EXT", "GL_EXT_win32_keyed_mutex\0", offsetof(struct opengl_funcs, p_glAcquireKeyedMutexWin32EXT) },
@@ -94905,6 +95216,14 @@ const struct registry_entry extension_registry[2754] =
     { "wglChoosePixelFormatARB", "WGL_ARB_pixel_format\0", offsetof(struct opengl_funcs, p_wglChoosePixelFormatARB) },
     { "wglCreateContextAttribsARB", "WGL_ARB_create_context\0", offsetof(struct opengl_funcs, p_wglCreateContextAttribsARB) },
     { "wglCreatePbufferARB", "WGL_ARB_pbuffer\0", offsetof(struct opengl_funcs, p_wglCreatePbufferARB) },
+    { "wglDXCloseDeviceNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXCloseDeviceNV) },
+    { "wglDXLockObjectsNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXLockObjectsNV) },
+    { "wglDXObjectAccessNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXObjectAccessNV) },
+    { "wglDXOpenDeviceNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXOpenDeviceNV) },
+    { "wglDXRegisterObjectNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXRegisterObjectNV) },
+    { "wglDXSetResourceShareHandleNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXSetResourceShareHandleNV) },
+    { "wglDXUnlockObjectsNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXUnlockObjectsNV) },
+    { "wglDXUnregisterObjectNV", "WGL_NV_DX_interop\0", offsetof(struct opengl_funcs, p_wglDXUnregisterObjectNV) },
     { "wglDestroyPbufferARB", "WGL_ARB_pbuffer\0", offsetof(struct opengl_funcs, p_wglDestroyPbufferARB) },
     { "wglFreeMemoryNV", "WGL_NV_vertex_array_range\0", offsetof(struct opengl_funcs, p_wglFreeMemoryNV) },
     { "wglGetCurrentReadDCARB", "WGL_ARB_make_current_read\0", offsetof(struct opengl_funcs, p_wglGetCurrentReadDCARB) },

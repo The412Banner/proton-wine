@@ -91,6 +91,8 @@ static const WCHAR system_path[] = L"C:\\windows\\system32;C:\\windows\\system;C
 static BOOL is_prefix_bootstrap;  /* are we bootstrapping the prefix? */
 static BOOL imports_fixup_done = FALSE;  /* set once the imports have been fixed up, before attaching them */
 static BOOL process_detaching = FALSE;  /* set on process detach to avoid deadlocks with thread detach */
+static BOOL process_exiting;           /* RtlExitUserProcess has terminated the other threads */
+static DWORD process_exit_status;
 static int free_lib_count;   /* recursion depth of LdrUnloadDll calls */
 static LONG path_safe_mode;  /* path mode set by RtlSetSearchPathMode */
 static LONG dll_safe_mode = 1;  /* dll search mode */
@@ -4130,8 +4132,18 @@ void WINAPI RtlExitUserProcess( DWORD status )
     RtlEnterCriticalSection( &loader_section );
     RtlAcquirePebLock();
     NtTerminateProcess( 0, status );
+    process_exit_status = status;
+    process_exiting = TRUE;
     LdrShutdownProcess();
     for (;;) NtTerminateProcess( GetCurrentProcess(), status );
+}
+
+/* Called only when acquiring a lock would block. Never run cleanup with
+ * fabricated ownership of a lock left behind by a terminated thread. */
+void terminate_process_on_shutdown(void)
+{
+    if (process_exiting && process_detaching)
+        for (;;) NtTerminateProcess( GetCurrentProcess(), process_exit_status );
 }
 
 /******************************************************************
