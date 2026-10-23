@@ -1,0 +1,19 @@
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index 9df1bd392c..64a9dea8d3 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -4458,8 +4458,13 @@ void virtual_free_teb( TEB *teb )
+ #ifdef __aarch64__
+     if (teb->ChpeV2CpuAreaInfo)
+     {
++        /* the cpu area sits past the read-only kernel stack guard region (init_thread_stack),
++         * so release the view from its base; free through a local so the write-back leaves no
++         * dangling pointer in the teb, which signal_arm64.c reads on live threads */
++        void *base = (char *)teb->ChpeV2CpuAreaInfo - kernel_stack_guard_size;
+         size = 0;
+-        NtFreeVirtualMemory( GetCurrentProcess(), (void **)&teb->ChpeV2CpuAreaInfo, &size, MEM_RELEASE );
++        NtFreeVirtualMemory( GetCurrentProcess(), &base, &size, MEM_RELEASE );
++        teb->ChpeV2CpuAreaInfo = NULL;
+     }
+ #endif
+     if (thread_data->kernel_stack)

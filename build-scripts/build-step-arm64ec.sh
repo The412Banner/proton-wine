@@ -322,6 +322,30 @@ do
 	  "server_esync.h.patch"
 	  # userspace ntsync, OPT-IN at runtime (WINENTSYNC=1); must follow esync
 	  "ntsync_userspace.patch"
+
+      # v15 (2026-10-23)
+      # FEX unixlib: Valve's load_unixlib_by_name set the extension one byte early for an
+      # extensionless name, so it looked for libarm64ecfe.so / libwow64fe.so and FEX ran
+      # without its unixlib (same bug our proton_11.0 branch fixed in f3ec0cb6)
+      "dlls_ntdll_unix_loader.c_unixlib_name.patch"
+      # From GameNative/proton-wine (proton_11.0-2), credited per patch:
+      # win32u: keep the full mode list after a mode change in virtual desktop mode (#58, Utkarsh Dalal)
+      "dlls_win32u_sysparams.c_modelist.patch"
+      # server: keep the 64-bit image map pool below bionic's randomised mappings (#69, Utkarsh Dalal)
+      "server_mapping.c_image_pool.patch"
+      # ntdll: relocate fixed allocations above the host address space limit (#73, Utkarsh Dalal)
+      "dlls_ntdll_unix_virtual.c_relocate_high_allocs.patch"
+      # kernelbase: report AMD64 from GetNativeSystemInfo() in x64 processes (#94, upstream Wine c5a96a0b6c, Brendan Shanks)
+      "dlls_kernelbase_memory.c_native_system_info.patch"
+      # crypt32: CRYPT_E_NOT_FOUND for an empty enhanced key usage (#46, Cole McCarren)
+      "dlls_crypt32_cert.c_enhkey_usage.patch"
+      # winex11: Vulkan other-process rendering off by default on Android (#82, Dmage22 via Utkarsh Dalal;
+      # WINE_DISABLE_VULKAN_OPWR=0 turns it back on)
+      "dlls_winex11.drv_init.c_opwr.patch"
+      # winex11: drop WGL_CONTEXT_OPENGL_NO_ERROR_ARB when GLX lacks it (#66, Utkarsh Dalal)
+      "dlls_winex11.drv_opengl.c_no_error.patch"
+      # ntdll: release the arm64ec emulator cpu area from its view base (#42, David Luo)
+      "dlls_ntdll_unix_virtual.c_emu_stack_release.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -386,6 +410,15 @@ do
       "dlls/ntdll/unix/sync.c|userspace_wait_objs|userspace ntsync wait path (client)"
       "dlls/gdiplus/region.c|if (x1_min <= x) x1_min = x + 1;|gdiplus degenerate-span clamp (EA installer wizard)"
       "dlls/ntdll/unix/loader.c|load_unixlib_by_name|FEX unixlib load-by-name loader"
+      "dlls/ntdll/unix/loader.c|ends at pos + 1 + len, not pos + len|FEX unixlib full name (load_unixlib_by_name extension offset)"
+      "dlls/win32u/sysparams.c|bound the mode list by the desktop size, not the current mode|virtual desktop keeps its full mode list (GameNative #58)"
+      "server/mapping.c|free_available_high_map_addr( 0x5000000000, 0x1000000000 );|64-bit image map pool below bionic mappings (GameNative #69)"
+      "dlls/ntdll/unix/virtual.c|relocating fixed allocation|fixed allocations beyond the host address limit relocated (GameNative #73)"
+      "dlls/crypt32/cert.c|Windows sets the last error to CRYPT_E_NOT_FOUND|crypt32 empty EKU last error (GameNative #46)"
+      "dlls/winex11.drv/init.c|Failing it makes Chromium-based launchers fall back to software compositing|Vulkan OPWR off by default on Android (GameNative #82)"
+      "dlls/winex11.drv/opengl.c|GLX has no create_context_no_error|WGL no_error attribute dropped without GLX support (GameNative #66)"
+      "dlls/kernelbase/memory.c|if (!is_wow64 || native_machine != IMAGE_FILE_MACHINE_AMD64)|GetNativeSystemInfo AMD64 in x64 processes (Wine c5a96a0b6c)"
+      "dlls/ntdll/unix/virtual.c|void *base = (char *)teb->ChpeV2CpuAreaInfo - kernel_stack_guard_size;|arm64ec emulator cpu area released (GameNative #42)"
 
       "dlls/amd_ags_x64/unixlib.c|__ANDROID__|AGS unixlib Android guard (builtin AGS on bionic)"
       "dlls/amd_ags_x64/unixlib.c|STATUS_NOT_IMPLEMENTED|AGS Android unix_call table populated (not empty)"
