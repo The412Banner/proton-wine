@@ -644,9 +644,12 @@ static BOOL unix_to_win_locale( const char *unix_name, char *win_name )
     char buffer[LOCALE_NAME_MAX_LENGTH];
     char *p, *country = NULL, *modifier = NULL;
 
-    if (!unix_name || !unix_name[0] || !strcmp( unix_name, "C" ))
+    /* Android's libc answers setlocale( ..., "" ) with "C.UTF-8" whatever the environment says;
+     * treat any "C.<charset>" like "C" so LC_ALL (or LANG) still selects the Windows locale. */
+    if (!unix_name || !unix_name[0] || !strcmp( unix_name, "C" ) || !strncmp( unix_name, "C.", 2 ))
     {
         unix_name = getenv( "LC_ALL" );
+        if (!unix_name || !unix_name[0]) unix_name = getenv( "LANG" );
         if (!unix_name || !unix_name[0]) return FALSE;
     }
 
