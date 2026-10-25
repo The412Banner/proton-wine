@@ -498,14 +498,14 @@ static void client_surface_update_geometry( HWND hwnd, struct x11drv_client_surf
 }
 
 /* ms between needs_offscreen_rendering checks on the present path; each check makes wineserver
- * round trips, twice per present. 0 checks on every call. */
+ * round trips, twice per present. Unset or 0 checks on every call; DroidDeck's Performance mode sets 100. */
 static DWORD offscreen_check_interval(void)
 {
     static int interval = -1;
     if (interval == -1)
     {
         const char *e = getenv( "WINE_OFFSCREEN_CHECK_MS" );
-        interval = e ? atoi( e ) : 100;
+        interval = e ? atoi( e ) : 0;
         if (interval < 0) interval = 0;
     }
     return interval;
