@@ -393,6 +393,8 @@ struct x11drv_client_surface
     HDC hdc_src;
     HDC hdc_dst;
     BOOL other_process;
+    BOOL offscreen_checked;
+    DWORD offscreen_checked_at;
 
     BYTE *shape_age;
     unsigned int shape_cols;
@@ -495,10 +497,30 @@ static void client_surface_update_geometry( HWND hwnd, struct x11drv_client_surf
     XFlush( gdi_display );
 }
 
+/* ms between needs_offscreen_rendering checks on the present path; each check makes wineserver
+ * round trips, twice per present. 0 checks on every call. */
+static DWORD offscreen_check_interval(void)
+{
+    static int interval = -1;
+    if (interval == -1)
+    {
+        const char *e = getenv( "WINE_OFFSCREEN_CHECK_MS" );
+        interval = e ? atoi( e ) : 100;
+        if (interval < 0) interval = 0;
+    }
+    return interval;
+}
+
 static void client_surface_update_offscreen( HWND hwnd, struct x11drv_client_surface *surface )
 {
-    BOOL offscreen = needs_offscreen_rendering( hwnd );
+    DWORD now = NtGetTickCount(), interval = offscreen_check_interval();
+    BOOL offscreen;
     struct x11drv_win_data *data;
+
+    if (interval && surface->offscreen_checked && now - surface->offscreen_checked_at < interval) return;
+    surface->offscreen_checked = TRUE;
+    surface->offscreen_checked_at = now;
+    offscreen = needs_offscreen_rendering( hwnd );
 
     if (surface->other_process) offscreen = TRUE;
 
