@@ -768,6 +768,15 @@ VkResult wine_vkGetSwapchainTimeDomainPropertiesEXT(VkDevice client_device, VkSw
 
     TRACE("device %p, swapchain %p, properties %p, counter %p\n", device, swapchain, properties, counter);
 
+    /* Managed (cross-process dmabuf) swapchains have no host swapchain and no
+     * present timing, matching win32u's vkGetSwapchainTimingPropertiesEXT. */
+    if (!swapchain->host.swapchain)
+    {
+        properties->timeDomainCount = 0;
+        if (counter) *counter = 0;
+        return VK_SUCCESS;
+    }
+
     host_properties.timeDomainCount = 0;
     host_properties.pTimeDomainIds = NULL;
     host_properties.pTimeDomains = NULL;
