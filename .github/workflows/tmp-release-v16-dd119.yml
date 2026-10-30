@@ -1,0 +1,69 @@
+name: tmp v16 DroidDeck-Proton 11.0-11.9 assets
+# Temporary: attaches the DroidDeck-Proton 11.0-11.9 wcp from the proton_11.11.9-DroidDeck build
+# to the published v16 release, so the files never leave GitHub. Adds files only (no --clobber).
+on:
+  push:
+    branches: [ 'tmp/release-v16-dd119' ]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  assets:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: build-bionic-layers-20261030-v16
+      RUN: "41119590016"
+      HEAD: 8e2653cbca58a47af3fa3bec3b8d933febc54f2d
+    steps:
+      - name: Download the layer wcp artifacts
+        run: |
+          set -euo pipefail
+          info=$(gh api repos/$REPO/actions/runs/$RUN --jq '.head_branch + " " + .head_sha + " " + .conclusion')
+          echo "run $RUN: $info"
+          test "$info" = "proton_11.11.9-DroidDeck $HEAD success"
+          mkdir -p dl out
+          for n in proton-arm64ec-sdk28 proton-x86_64-sdk28; do
+            gh run download "$RUN" -R "$REPO" -n "$n" -D "dl/$n"
+          done
+          find dl -name '*.wcp' -exec ls -l {} +
+      - name: Name the files like the other v16 assets and check them
+        run: |
+          set -euo pipefail
+          for f in $(find dl -name '*.wcp'); do
+            b=$(basename "$f"); b=${b/DroidDeck-Proton-/DroidDeck-proton-}
+            cp "$f" "out/$b"
+          done
+          ls out
+          test "$(ls out | tr '\n' ' ')" = "DroidDeck-proton-11.0-11.9-arm64ec.wcp DroidDeck-proton-11.0-11.9-x86_64.wcp "
+          for f in out/*.wcp; do
+            echo "$f: $(tar -I zstd -xOf "$f" profile.json | jq -c '{type,versionName,versionCode}')"
+          done
+          existing=$(gh api repos/$REPO/releases/tags/$TAG --jq '.assets[].name')
+          for f in out/*.wcp; do
+            if echo "$existing" | grep -qx "$(basename "$f")"; then echo "already attached: $f"; exit 1; fi
+          done
+          cd out && sha256sum *.wcp | tee ../SHA256SUMS
+      - name: Compare with the device-tested build of the same commit (info only)
+        continue-on-error: true
+        env:
+          TESTED: "41101080463"
+        run: |
+          set -uo pipefail
+          echo "tested run: $(gh api repos/$REPO/actions/runs/$TESTED --jq '.head_branch + " " + .head_sha + " " + .conclusion')"
+          for n in proton-arm64ec-sdk28 proton-x86_64-sdk28; do
+            gh run download "$TESTED" -R "$REPO" -n "$n" -D "tested/$n" || continue
+            a=$(find "dl/$n" -name '*.wcp' | head -1); b=$(find "tested/$n" -name '*.wcp' | head -1)
+            mkdir -p "cmp/new-$n" "cmp/old-$n"
+            tar -I zstd -xf "$a" -C "cmp/new-$n"; tar -I zstd -xf "$b" -C "cmp/old-$n"
+            (cd "cmp/new-$n" && find . -type f -exec sha256sum {} + | sort -k2) > "new-$n.sha"
+            (cd "cmp/old-$n" && find . -type f -exec sha256sum {} + | sort -k2) > "old-$n.sha"
+            echo "== $n: files new=$(wc -l < new-$n.sha) tested=$(wc -l < old-$n.sha), differing: $(diff new-$n.sha old-$n.sha | grep -c '^<')"
+            diff new-$n.sha old-$n.sha | grep '^<' | awk '{print $3}' | head -40
+          done
+      - name: Attach to the v16 release
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" out/*.wcp -R "$REPO"
+          gh api repos/$REPO/releases/tags/$TAG --jq '.assets[]|"\(.name) \(.size) \(.digest)"'
