@@ -419,6 +419,13 @@ do
       "dlls/ntdll/unix/file.c|is_wine_install_fd( fd )|Wine's own files not read-only (DroidDeck-Proton #6)"
       "dlls/ntdll/unix/file.c|else if (dir_folds_case( root_fd, dir, fd ))|Android shared storage case-insensitive (DroidDeck-Proton #7)"
       "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in)"
+      "dlls/xinput1_3/main.c|RegNotifyChangeKeyValue(deviface_key|xinput rescans controllers only when DeviceClasses changes (Valve 575131f3)"
+      "dlls/winebus.sys/main.c|overlong report %#x length|winebus truncates overlong input reports (Valve 674d3cdd)"
+      "dlls/ntdll/sync.c|if (sem) NtReleaseSemaphore( sem, 1, NULL );|RtlpUnWaitCriticalSection ignores semaphore errors (Valve d5c4b850)"
+      "dlls/win32u/sysparams.c|RadeonSoftwareVersion|Radeon Software version in the registry, AMD GPUs only (Valve 3f43b5ff)"
+      "programs/cmd/builtins.c|Console handles are synchronous, so the overlapped read below would block|cmd CHOICE /T times out on a console (GE)"
+      "dlls/winewayland.drv/wayland_data_device.c|'c','l','i','p','b','o','a','r','d','_','m','a','n','a','g','e','r',0}|winewayland clipboard class name null-terminated (Wine 039ad9fe)"
+      "dlls/win32u/vulkan.c|sort_surface_formats2( formats, *format_count )|B8G8R8A8_UNORM reported as the first surface format (GE)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
