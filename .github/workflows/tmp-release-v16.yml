@@ -1,0 +1,45 @@
+name: tmp v16 release assets
+# Temporary: collects the v16 layer wcp from the five layer builds and attaches them to the
+# draft release, so the files never leave GitHub. Deleted after the release.
+on:
+  push:
+    branches: [ 'tmp/release-v16' ]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  assets:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: build-bionic-layers-20261030-v16
+      RUNS: "41081173822 41081176670 41081180748 41081184459 41081187566"
+    steps:
+      - name: Download the layer wcp artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dl out
+          for r in $RUNS; do
+            echo "run $r: $(gh api repos/$REPO/actions/runs/$r --jq '.head_branch + " " + .head_sha + " " + .conclusion')"
+            for n in proton-arm64ec-sdk28 proton-x86_64-sdk28; do
+              if gh api "repos/$REPO/actions/runs/$r/artifacts" --jq '.artifacts[].name' | grep -qx "$n"; then
+                gh run download "$r" -R "$REPO" -n "$n" -D "dl/$r-$n"
+              fi
+            done
+          done
+          find dl -name '*.wcp' -exec ls -l {} +
+      - name: Name the files like v15 and checksum them
+        run: |
+          set -euo pipefail
+          for f in $(find dl -name '*.wcp'); do
+            b=$(basename "$f"); b=${b/DroidDeck-Proton-/DroidDeck-proton-}
+            cp "$f" "out/$b"
+          done
+          test "$(ls out | wc -l)" -eq 8
+          cd out && sha256sum *.wcp | tee ../SHA256SUMS
+      - name: Attach to the draft release
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" out/*.wcp -R "$REPO" --clobber
+          gh api repos/$REPO/releases --jq ".[]|select(.tag_name==\"$TAG\")|.assets[]|\"\(.name) \(.size) \(.digest)\""
