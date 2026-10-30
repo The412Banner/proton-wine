@@ -383,6 +383,8 @@ do
     echo "Verifying shipped features are present in the source tree..."
     verify_fail=0
     MARKERS=(
+      "dlls/sechost/Makefile.in|IMPORTS   = kernelbase rpcrt4|sechost imports rpcrt4 directly (no variadic exit thunk; DOOM 2016 GOG / EA app service crash)"
+      "dlls/advapi32/Makefile.in|IMPORTS   = kernelbase sechost msvcrt rpcrt4|advapi32 imports rpcrt4 directly (no variadic exit thunk)"
       "dlls/ntdll/unix/virtual.c|force_anon|noexec/force_anon SD-card boot (Dragon Age)"
       "dlls/shell32/shlfileop.c|dir_len|drive-root FO_COPY guard"
       "dlls/ntdll/unix/env.c|C.UTF-8|LC_ALL=C.UTF-8 bionic locale bring-up"
