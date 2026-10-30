@@ -28,4 +28,5 @@ jobs:
             tar -I zstd -xf "$a" -C "x/new-$n"; tar -I zstd -xf "$b" -C "x/old-$n"
             echo "== $n"
             python3 pecmp.py "x/new-$n" "x/old-$n"
+            echo "-- prefixPack.txz contents"; python3 packcmp.py "x/new-$n/prefixPack.txz" "x/old-$n/prefixPack.txz"
           done
