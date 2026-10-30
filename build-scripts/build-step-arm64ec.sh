@@ -416,6 +416,8 @@ do
       "dlls/winex11.drv/opengl.c|GLX has no create_context_no_error|WGL no_error attribute dropped without GLX support (GameNative #66)"
       "dlls/kernelbase/memory.c|if (!is_wow64 || native_machine != IMAGE_FILE_MACHINE_AMD64)|GetNativeSystemInfo AMD64 in x64 processes (Wine c5a96a0b6c)"
       "dlls/ntdll/unix/virtual.c|void *base = (char *)teb->ChpeV2CpuAreaInfo - kernel_stack_guard_size;|arm64ec emulator cpu area released (GameNative #42)"
+      "dlls/sechost/Makefile.in|IMPORTS   = kernelbase rpcrt4|sechost imports rpcrt4 directly (no variadic exit thunk; DOOM 2016 GOG / EA app service crash)"
+      "dlls/advapi32/Makefile.in|IMPORTS   = kernelbase sechost msvcrt rpcrt4|advapi32 imports rpcrt4 directly (no variadic exit thunk)"
 
       "dlls/amd_ags_x64/unixlib.c|__ANDROID__|AGS unixlib Android guard (builtin AGS on bionic)"
       "dlls/amd_ags_x64/unixlib.c|STATUS_NOT_IMPLEMENTED|AGS Android unix_call table populated (not empty)"
