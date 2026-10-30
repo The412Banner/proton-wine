@@ -1,0 +1,31 @@
+name: tmp compare DroidDeck-Proton 11.0-11.9 builds
+# Temporary, read-only: compares the attached v16 build (run 41119590016) with the device-tested
+# build of the same commit (run 41101080463), file by file, ignoring only PE build stamps.
+on:
+  push:
+    branches: [ 'tmp/release-v16-dd119' ]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        run: |
+          set -eo pipefail
+          for r in 41119590016 41101080463; do echo "run $r: $(gh api repos/$REPO/actions/runs/$r --jq '.head_branch + " " + .head_sha + " " + .conclusion')"; done
+          for n in proton-arm64ec-sdk28 proton-x86_64-sdk28; do
+            gh run download 41119590016 -R "$REPO" -n "$n" -D "new/$n"
+            gh run download 41101080463 -R "$REPO" -n "$n" -D "old/$n"
+            a=$(find "new/$n" -name '*.wcp'); b=$(find "old/$n" -name '*.wcp')
+            sha256sum "$a" "$b"
+            mkdir -p "x/new-$n" "x/old-$n"
+            tar -I zstd -xf "$a" -C "x/new-$n"; tar -I zstd -xf "$b" -C "x/old-$n"
+            echo "== $n"
+            python3 pecmp.py "x/new-$n" "x/old-$n"
+          done
