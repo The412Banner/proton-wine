@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Sun, 25 Oct 2026 06:30:00 -0500
+Subject: [PATCH] ntdll: Recover a lost wake in the i386 RtlWaitOnAddress()
+ under FEX.
+
+32-bit code run through FEX's WoW64 layer can lose the alert that
+RtlWakeAddressSingle() and RtlWakeAddressAll() send after they dequeue a
+waiter: the waker sees NtAlertThreadByThreadId() succeed, the waiter is
+already off the queue, and it never returns from its infinite wait. It
+only happens while other threads write to code pages that are being
+run, which is what V8's JIT does all the time, so the Battle.net client
+(CEF, 32-bit) freezes its UI and threads after a few clicks.
+
+The i386 build now waits in slices, starting at 16 ms and doubling up to
+256 ms. When a slice times out and the entry is no longer queued, the
+wake happened and the wait returns. Normal wakes are unchanged, and
+idle client CPU is the same.
+
+SRW/condition variable stress with three JIT writer threads, 90 s:
+before, all 8 workers stuck within seconds; after, 0 stuck, ~1M ops/s.
+---
+ dlls/ntdll/sync.c | 49 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
+--- a/dlls/ntdll/sync.c
++++ b/dlls/ntdll/sync.c
+@@ -875,6 +875,45 @@
+     return FALSE;
+ }
+ 
++#ifdef __i386__
++static NTSTATUS wait_for_wake( struct futex_entry *entry, const LARGE_INTEGER *timeout )
++{
++    LARGE_INTEGER end, step, now;
++    LONGLONG slice = 160000;
++    NTSTATUS ret;
++
++    if (timeout && timeout->QuadPart != MAXLONGLONG)
++    {
++        end = *timeout;
++        if (end.QuadPart < 0)
++        {
++            NtQuerySystemTime( &now );
++            end.QuadPart = now.QuadPart - end.QuadPart;
++        }
++    }
++    else timeout = NULL;
++
++    for (;;)
++    {
++        step.QuadPart = -slice;
++        if (timeout)
++        {
++            NtQuerySystemTime( &now );
++            if (end.QuadPart - now.QuadPart <= slice) step = end;
++        }
++        if ((ret = NtWaitForAlertByThreadId( NULL, &step )) != STATUS_TIMEOUT) return ret;
++        if (!ReadPointerAcquire( (void * volatile *)&entry->addr ))
++        {
++            step.QuadPart = -20000;
++            NtWaitForAlertByThreadId( NULL, &step );
++            return STATUS_ALERTED;
++        }
++        if (timeout && step.QuadPart == end.QuadPart) return STATUS_TIMEOUT;
++        if (slice < 2560000) slice *= 2;
++    }
++}
++#endif
++
+ /***********************************************************************
+  *           RtlWaitOnAddress   (NTDLL.@)
+  */
+@@ -910,7 +949,11 @@
+ 
+     spin_unlock( &queue->lock );
+ 
++#ifdef __i386__
++    ret = wait_for_wake( &entry, timeout );
++#else
+     ret = NtWaitForAlertByThreadId( NULL, timeout );
++#endif
+ 
+     /* We may have already been removed by a call to RtlWakeAddressSingle() or RtlWakeAddressAll(). */
+     if (ReadPointerAcquire( (void * volatile *)&entry.addr ))
+@@ -926,7 +969,13 @@
+         /* A waker removed us as the wait timed out: we have been woken, and the waker alerts us right after
+          * releasing the queue lock. Take that alert, as Windows does, or it would end this thread's next wait
+          * early, whatever it waits for. */
++#ifdef __i386__
++        LARGE_INTEGER wait;
++        wait.QuadPart = -1000000;
++        NtWaitForAlertByThreadId( NULL, &wait );
++#else
+         NtWaitForAlertByThreadId( NULL, NULL );
++#endif
+         ret = STATUS_SUCCESS;
+     }
+ 
+-- 
+2.43.0

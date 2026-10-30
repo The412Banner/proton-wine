@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Mon, 26 Oct 2026 07:05:00 -0400
+Subject: [PATCH] ntdll: Treat Android's case-folding shared storage as
+ case-insensitive.
+
+Android's shared storage (/storage/emulated through the MediaProvider
+FUSE daemon, or sdcardfs on older releases) looks names up without
+regard to case, but it has no ext4 casefold flag to read through FUSE
+and no .ciopfs marker, so get_dir_case_sensitivity() reports it case
+sensitive. Every lookup of a name that doesn't exist yet then lists the
+whole directory to look for a case-insensitive match.
+
+Creating files in a large directory becomes quadratic. The Blizzard
+Agent installing Warcraft Rumble into a Games folder on shared storage
+writes about 5000 files, 2300 of them into one directory; after the
+first thousand it managed three files a second and the download fell
+from 58 MB/s to about 100 KB/s, with the FUSE daemon at a full core.
+
+On FUSE and sdcardfs, look the directory up again with its own name in
+the opposite case. When that finds the same inode the volume folds case
+and the scan is skipped, as it already is for casefolded ext4 and CIOPFS
+directories. A case-sensitive FUSE volume (ntfs-3g, sshfs) misses the
+flipped name, or finds a different entry, and keeps the scan.
+---
+ dlls/ntdll/unix/file.c | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index 5b4d6c8113..14f1e6d4cf 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -1246,6 +1246,37 @@ done:
+ }
+ #endif
+ 
++#ifdef __linux__
++static BOOLEAN dir_folds_case( int root_fd, const char *dir, int fd )
++{
++    struct statfs stfs;
++    struct stat st, folded;
++    const char *name;
++    char *flipped;
++    size_t i, len = strlen( dir );
++    BOOLEAN changed = FALSE, ret = FALSE;
++
++    if (fstatfs( fd, &stfs ) == -1) return FALSE;
++    if (stfs.f_type != 0x65735546 && stfs.f_type != 0x5dca2df5) return FALSE;
++    while (len > 1 && dir[len - 1] == '/') len--;
++    for (name = dir + len; name > dir && name[-1] != '/'; name--) ;
++    if (name == dir + len || !(flipped = malloc( len + 1 ))) return FALSE;
++    memcpy( flipped, dir, len );
++    flipped[len] = 0;
++    for (i = name - dir; i < len; i++)
++    {
++        if (flipped[i] >= 'a' && flipped[i] <= 'z') flipped[i] -= 'a' - 'A';
++        else if (flipped[i] >= 'A' && flipped[i] <= 'Z') flipped[i] += 'a' - 'A';
++        else continue;
++        changed = TRUE;
++    }
++    if (changed && !fstat( fd, &st ) && !fstatat( root_fd, flipped, &folded, 0 ))
++        ret = st.st_dev == folded.st_dev && st.st_ino == folded.st_ino;
++    free( flipped );
++    return ret;
++}
++#endif
++
+ /***********************************************************************
+  *           get_dir_case_sensitivity_stat
+  *
+@@ -1322,6 +1353,10 @@ static BOOLEAN get_dir_case_sensitivity_stat( int root_fd, const char *dir )
+     {
+         sens = FALSE;
+     }
++    else if (dir_folds_case( root_fd, dir, fd ))
++    {
++        sens = FALSE;
++    }
+ 
+     close( fd );
+     return sens;
+-- 
+2.43.0
+

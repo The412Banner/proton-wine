@@ -268,6 +268,11 @@ def main():
             report(u16("AI-LIMIT.exe") in read(os.path.join(pe, "ntdll.dll")),
                    "ntdll.dll: AI LIMIT DX12 compute-shader fallback (GE 11-7, x86_64 only)")
 
+    # DroidDeck-Proton 11-11.3..11-11.9 fixes (proton_11.11.9-DroidDeck). The ntdll/server ones have no
+    # string of their own; the build-step MARKERS check them in the source.
+    print("-- DroidDeck-Proton 11-11.9 fixes")
+    report(b"WINE_OFFSCREEN_CHECK_MS" in read(os.path.join(unix, "winex11.so")), "winex11.so: offscreen check cache (WINE_OFFSCREEN_CHECK_MS, opt-in)")
+
     print("== verify-layer: %s" % ("PASS" if fails == 0 else "%d FATAL check(s)" % fails))
     return 0 if fails == 0 else 1
 

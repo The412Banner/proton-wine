@@ -345,6 +345,24 @@ do
       "dlls_winex11.drv_opengl.c_no_error.patch"
       # ntdll: release the arm64ec emulator cpu area from its view base (#42, David Luo)
       "dlls_ntdll_unix_virtual.c_emu_stack_release.patch"
+
+      # 11-11.9 (2026-10-30): DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Droid-Deck/DroidDeck-Proton
+      # f7d00335 patches/wine-hotfixes/pending, unchanged) + the proton-wine banner-proton/11.11 winex11 commit.
+      # server: give the user ownership of files on Android shared storage (FUSE/sdcardfs owner is the
+      # media provider; Blizzard Agent error 2123) (DroidDeck-Proton #4, maxjivi05)
+      "server_file.c_android_shared_storage_owner.patch"
+      # ntdll: recover a lost wake in the i386 RtlWaitOnAddress() under FEX (Battle.net UI freeze) (#5, maxjivi05)
+      "dlls_ntdll_sync.c_i386_lost_wake.patch"
+      # ntdll: don't report Wine's own installed files as read-only (MapleStory) (#6, maxjivi05)
+      "dlls_ntdll_unix_file.c_wine_files_not_readonly.patch"
+      # ntdll: treat Android's case-folding shared storage as case-insensitive (no per-lookup directory scan) (#7, maxjivi05)
+      "dlls_ntdll_unix_file.c_android_case_insensitive.patch"
+      # winex11: needs_offscreen_rendering at most every WINE_OFFSCREEN_CHECK_MS ms on the present path;
+      # unset or 0 = every call (proton-wine ff9db6f6 + bab12909, ported onto this tree's init.c)
+      "dlls_winex11.drv_init.c_offscreen_check_cache.patch"
+      # ntdll: World of Warcraft Forever ARM64EC syscall dispatch, NLS and map-time fixes (DroidDeck-Proton #3,
+      # arusiasotto). arm64ec only: its start_thread hunk calls an __aarch64__-only function.
+      "dlls_ntdll_wow_forever_arm64ec.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -421,6 +439,15 @@ do
 
       "dlls/amd_ags_x64/unixlib.c|__ANDROID__|AGS unixlib Android guard (builtin AGS on bionic)"
       "dlls/amd_ags_x64/unixlib.c|STATUS_NOT_IMPLEMENTED|AGS Android unix_call table populated (not empty)"
+      "server/file.c|security_unix_uid_to_sid( file_sd_owner( unix_fd, &st ) )|Android shared storage files owned by the user (DroidDeck-Proton #4)"
+      "dlls/ntdll/sync.c|ret = wait_for_wake( &entry, timeout );|i386 RtlWaitOnAddress lost-wake recovery (DroidDeck-Proton #5)"
+      "dlls/ntdll/unix/file.c|is_wine_install_fd( fd )|Wine's own files not read-only (DroidDeck-Proton #6)"
+      "dlls/ntdll/unix/file.c|else if (dir_folds_case( root_fd, dir, fd ))|Android shared storage case-insensitive (DroidDeck-Proton #7)"
+      "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in)"
+      "include/wine/asm.h|ldr x16, [x18, #0x370]|WoW Forever ARM64EC syscall stubs read the TEB syscall table (DroidDeck-Proton #3)"
+      "dlls/ntdll/unix/syscall.c|ntdll_arm64ec_sync_syscall_dispatch|WoW Forever ARM64EC KSDT dispatcher sync (DroidDeck-Proton #3)"
+      "dlls/ntdll/unix/env.c|map_nls_file_as_view|WoW Forever NLS section fallback (DroidDeck-Proton #3)"
+      "dlls/ntdll/unix/virtual.c|map_image_init_ntdll_dispatchers|WoW Forever mapped-ntdll dispatcher init (DroidDeck-Proton #3)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
