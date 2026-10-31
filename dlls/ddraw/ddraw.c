@@ -374,6 +374,8 @@ static void ddraw_destroy_swapchain(struct ddraw *ddraw)
 {
     unsigned int i;
 
+    ddraw_gf_close_overlay_window(ddraw);
+
     TRACE("Destroying the swapchain.\n");
 
     wined3d_swapchain_decref(ddraw->wined3d_swapchain);
@@ -5042,8 +5044,10 @@ static void CDECL device_parent_mode_changed(struct wined3d_device_parent *devic
     r = &output_desc.desktop_rect;
     TRACE("Resizing window %p to %s.\n", ddraw->swapchain_window, wine_dbgstr_rect(r));
 
-    if (!SetWindowPos(ddraw->swapchain_window, HWND_TOP, r->left, r->top,
-                      r->right - r->left, r->bottom - r->top, SWP_SHOWWINDOW | SWP_NOACTIVATE))
+    /* The temporary video window is not the fullscreen device window. */
+    if (!ddraw->gf_overlay_window
+            && !SetWindowPos(ddraw->swapchain_window, HWND_TOP, r->left, r->top,
+                    r->right - r->left, r->bottom - r->top, SWP_SHOWWINDOW | SWP_NOACTIVATE))
         ERR("Failed to resize window.\n");
 
     InterlockedCompareExchange(&ddraw->device_state, DDRAW_DEVICE_STATE_NOT_RESTORED, DDRAW_DEVICE_STATE_OK);

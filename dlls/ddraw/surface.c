@@ -145,7 +145,8 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
      * the time. Testing the game Windows 98 shows this exact behaviour; the
      * buttons often fail to highlight correctly when you mouse over them. */
     if (ddraw->swapchain_window && (!(ddraw->cooperative_level & DDSCL_EXCLUSIVE)
-            || ddraw->swapchain_window == GetForegroundWindow() || ddraw_gdi_is_front(ddraw)))
+            || ddraw->gf_overlay_window || ddraw->swapchain_window == GetForegroundWindow()
+            || ddraw_gdi_is_front(ddraw)))
     {
         /* Nothing to do, we control the frontbuffer, or at least the parts we
          * care about. */
@@ -4163,6 +4164,154 @@ static HWND ddraw_find_overlay_window(struct ddraw *ddraw)
 /* Wine has no hardware overlays: the visible overlay is drawn over its
  * destination when that is presented (see ddraw_surface_update_frontbuffer()).
  * Only one overlay is shown at a time. */
+/* The Godfather uses DirectDraw overlays alongside D3D9 presents. */
+static BOOL ddraw_gf_overlay_enabled(void)
+{
+    static LONG cached = -1;
+    WCHAR path[MAX_PATH];
+    const WCHAR *filename;
+    char value[4];
+    DWORD len;
+    LONG match;
+    unsigned int i;
+
+    if (GetEnvironmentVariableA("GF_DDRAW_DISABLE", value, sizeof(value)) == 1
+            && value[0] == '1')
+        return FALSE;
+
+    if ((match = InterlockedCompareExchange(&cached, -1, -1)) != -1)
+        return match;
+
+    match = 0;
+    len = GetModuleFileNameW(NULL, path, ARRAY_SIZE(path));
+    if (len && len < ARRAY_SIZE(path))
+    {
+        filename = path;
+        for (i = 0; i < len; ++i)
+            if (path[i] == '\\' || path[i] == '/')
+                filename = path + i + 1;
+
+        match = !lstrcmpiW(filename, L"godfather.exe")
+                || !lstrcmpiW(filename, L"The Godfather The Game.exe");
+    }
+
+    InterlockedCompareExchange(&cached, match, -1);
+    return match;
+}
+
+void ddraw_gf_close_overlay_window(struct ddraw *ddraw)
+{
+    HWND window = ddraw->gf_overlay_window;
+    HWND previous = ddraw->gf_previous_window;
+
+    if (!window)
+        return;
+
+    if (!previous)
+        previous = ddraw->dest_window;
+
+    ddraw->gf_overlay_window = NULL;
+    ddraw->gf_previous_window = NULL;
+
+    if (ddraw->wined3d_swapchain && previous && IsWindow(previous))
+    {
+        wined3d_swapchain_set_window(ddraw->wined3d_swapchain, previous);
+        ddraw_set_swapchain_window(ddraw, previous);
+    }
+
+    if (IsWindow(window) && !DestroyWindow(window))
+    {
+        DWORD error = GetLastError();
+        ShowWindow(window, SW_HIDE);
+        TRACE("GF-DDRAW-WINDOW: DestroyWindow failed, error %lu.\n", error);
+    }
+
+    TRACE("GF-DDRAW-WINDOW: closed.\n");
+}
+
+static void ddraw_gf_prepare_overlay_window(struct ddraw *ddraw)
+{
+    HWND window;
+    RECT client, current;
+    POINT origin = {0, 0};
+    int width, height;
+
+    if (!ddraw_gf_overlay_enabled()
+            || !(ddraw->cooperative_level & DDSCL_EXCLUSIVE)
+            || !ddraw->wined3d_swapchain
+            || !ddraw->dest_window
+            || !IsWindow(ddraw->dest_window)
+            || !IsWindowVisible(ddraw->dest_window))
+        return;
+
+    if (!GetClientRect(ddraw->dest_window, &client)
+            || !ClientToScreen(ddraw->dest_window, &origin))
+        return;
+
+    width = client.right - client.left;
+    height = client.bottom - client.top;
+    if (width <= 0 || height <= 0)
+        return;
+
+    window = ddraw->gf_overlay_window;
+    /* Recover from unexpected destruction of the transient popup. */
+    if (window && !IsWindow(window))
+    {
+        ddraw_gf_close_overlay_window(ddraw);
+        window = NULL;
+    }
+
+    if (!window)
+    {
+        if (ddraw->swapchain_window != ddraw->dest_window)
+        {
+            TRACE("GF-DDRAW-WINDOW: unexpected swapchain window %p, game %p.\n",
+                    ddraw->swapchain_window, ddraw->dest_window);
+            return;
+        }
+
+        window = CreateWindowExA(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
+                DDRAW_WINDOW_CLASS_NAME, "GF DirectDraw Overlay", WS_POPUP,
+                origin.x, origin.y, width, height, ddraw->dest_window, NULL, NULL, NULL);
+        if (!window)
+        {
+            TRACE("GF-DDRAW-WINDOW: creation failed, error %lu.\n", GetLastError());
+            return;
+        }
+
+        if (!SetLayeredWindowAttributes(window, 0, 254, LWA_ALPHA))
+        {
+            TRACE("GF-DDRAW-WINDOW: layered attributes failed, error %lu.\n", GetLastError());
+            DestroyWindow(window);
+            return;
+        }
+
+        if (!SetWindowPos(window, HWND_TOPMOST, origin.x, origin.y,
+                width, height, SWP_NOACTIVATE))
+        {
+            TRACE("GF-DDRAW-WINDOW: positioning failed, error %lu.\n", GetLastError());
+            DestroyWindow(window);
+            return;
+        }
+
+        ddraw->gf_previous_window = ddraw->swapchain_window;
+        ddraw->gf_overlay_window = window;
+        wined3d_swapchain_set_window(ddraw->wined3d_swapchain, window);
+        ddraw_set_swapchain_window(ddraw, window);
+
+        TRACE("GF-DDRAW-WINDOW: opened %p at %ld,%ld size %dx%d opacity=254/255.\n",
+                window, origin.x, origin.y, width, height);
+    }
+    else if (GetWindowRect(window, &current)
+            && (current.left != origin.x || current.top != origin.y
+            || current.right - current.left != width
+            || current.bottom - current.top != height))
+    {
+        SetWindowPos(window, HWND_TOPMOST, origin.x, origin.y,
+                width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+}
+
 static void ddraw_surface_set_visible_overlay(struct ddraw_surface *overlay, const RECT *src_rect,
         struct ddraw_surface *dst, const RECT *dst_rect, DWORD flags)
 {
@@ -4176,6 +4325,7 @@ static void ddraw_surface_set_visible_overlay(struct ddraw_surface *overlay, con
     {
         if (ddraw->overlay != overlay)
             return;
+        ddraw_gf_close_overlay_window(ddraw);
         old_dst = ddraw->overlay_dst;
         old_dst_rect = ddraw->overlay_dst_rect;
         ddraw->overlay = ddraw->overlay_dst = NULL;
@@ -4221,7 +4371,17 @@ static void ddraw_surface_set_visible_overlay(struct ddraw_surface *overlay, con
     else
         SetRect(&ddraw->overlay_dst_rect, 0, 0, dst->surface_desc.dwWidth, dst->surface_desc.dwHeight);
 
+    ddraw_gf_prepare_overlay_window(ddraw);
     ddraw_surface_update_overlay_dst(ddraw);
+
+    if (ddraw->gf_overlay_window && !IsWindowVisible(ddraw->gf_overlay_window))
+    {
+        if (!SetWindowPos(ddraw->gf_overlay_window, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW))
+            TRACE("GF-DDRAW-DEFER-SHOW: show failed, error %lu.\n", GetLastError());
+        else
+            TRACE("GF-DDRAW-DEFER-SHOW: first blit submitted before show.\n");
+    }
 }
 
 /*****************************************************************************
@@ -6325,7 +6485,10 @@ static void STDMETHODCALLTYPE ddraw_surface_wined3d_object_destroyed(void *paren
     }
 
     if (surface == surface->ddraw->overlay || surface == surface->ddraw->overlay_dst)
+    {
+        ddraw_gf_close_overlay_window(surface->ddraw);
         surface->ddraw->overlay = surface->ddraw->overlay_dst = NULL;
+    }
 
     wined3d_private_store_cleanup(&surface->private_store);
 
