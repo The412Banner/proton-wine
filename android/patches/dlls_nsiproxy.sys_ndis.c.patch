@@ -1,5 +1,4 @@
 diff --git a/dlls/nsiproxy.sys/ndis.c b/dlls/nsiproxy.sys/ndis.c
-index 158a39e558d..b095467cbb7 100644
 --- a/dlls/nsiproxy.sys/ndis.c
 +++ b/dlls/nsiproxy.sys/ndis.c
 @@ -23,7 +23,8 @@
@@ -22,24 +21,32 @@ index 158a39e558d..b095467cbb7 100644
  static BOOL have_ethernet_iface;
 
  static struct if_entry *find_entry_from_index( UINT index )
-@@ -309,6 +311,16 @@ static struct if_entry *add_entry( UINT index, const char *name )
+@@ -309,8 +311,23 @@ static struct if_entry *add_entry( UINT index, const char *name )
          free( entry );
          return NULL;
      }
-+#ifndef __ANDROID__
-+    if_get_physical( name, &entry->if_type, &entry->if_phys_addr );
-+#else
-+    if (strstr(name, "wlan") || strstr(name, "en") || strstr(name, "eth") || strstr(name, "dummy"))
-+        entry->if_type = MIB_IF_TYPE_ETHERNET;
-+    else if (strstr(name, "lo"))
-+        entry->if_type = MIB_IF_TYPE_LOOPBACK;
-+    else if (strstr(name, "rmnet"))
-+        entry->if_type = MIB_IF_TYPE_PPP;
+-
+     if_get_physical( name, &entry->if_type, &entry->if_phys_addr );
++#ifdef __ANDROID__
++    if (entry->if_type == MIB_IF_TYPE_OTHER)
++    {
++        if (!strncmp( name, "wlan", 4 ) || !strncmp( name, "en", 2 ) ||
++            !strncmp( name, "eth", 3 ) || !strncmp( name, "dummy", 5 ))
++            entry->if_type = MIB_IF_TYPE_ETHERNET;
++        else if (!strcmp( name, "lo" ))
++            entry->if_type = MIB_IF_TYPE_LOOPBACK;
++        else if (!strncmp( name, "rmnet", 5 ))
++            entry->if_type = MIB_IF_TYPE_PPP;
++    }
++    /* Android may withhold hardware addresses. Retain a six-byte placeholder. */
++    if (!entry->if_phys_addr.Length &&
++        entry->if_type != MIB_IF_TYPE_LOOPBACK && strcmp( name, "lo" ))
++        entry->if_phys_addr.Length = 6;
 +#endif
 
-     if_get_physical( name, &entry->if_type, &entry->if_phys_addr );
-
-@@ -330,9 +342,35 @@ static struct if_entry *add_entry( UINT index, const char *name )
+     entry->if_luid.Info.Reserved = 0;
+     entry->if_luid.Info.NetLuidIndex = index;
+@@ -330,9 +347,35 @@ static unsigned int update_if_table( void )
 
  static unsigned int update_if_table( void )
  {
@@ -76,7 +83,7 @@ index 158a39e558d..b095467cbb7 100644
 
      for (entry = indices; entry->if_index; entry++)
      {
-@@ -532,7 +570,10 @@ static NTSTATUS ifinfo_enumerate_all( void *key_data, UINT key_size, void *rw_da
+@@ -532,7 +575,10 @@ static NTSTATUS ifinfo_enumerate_all( void *key_data, UINT key_size, void *rw_da
      pthread_mutex_lock( &if_list_lock );
 
      update_if_table();
