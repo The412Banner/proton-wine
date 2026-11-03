@@ -3,7 +3,7 @@ MODULE    = win32u.dll
 UNIXLIB   = win32u.so
 IMPORTLIB = win32u
 IMPORTS   = ntdll
-UNIX_CFLAGS  = $(FREETYPE_CFLAGS) $(FONTCONFIG_CFLAGS)
+UNIX_CFLAGS  = $(FREETYPE_CFLAGS) $(FONTCONFIG_CFLAGS) $(DBUS_CFLAGS)
 UNIX_LIBS    = $(CORETEXT_LIBS) $(APPKIT_LIBS) $(PTHREAD_LIBS) -lm
 
 EXTRADLLFLAGS = -nodefaultlibs
@@ -32,6 +32,7 @@ SOURCES = \
 	freetype.c \
 	gdiobj.c \
 	hook.c \
+	hwnd_dmabuf.c \
 	imm.c \
 	input.c \
 	main.c \
@@ -48,6 +49,7 @@ SOURCES = \
 	rawinput.c \
 	region.c \
 	scroll.c \
+	sni.c \
 	spy.c \
 	syscall.c \
 	sysparams.c \

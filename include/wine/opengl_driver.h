@@ -59,12 +59,32 @@ struct wgl_pixel_format
     int float_components;
 };
 
+struct wgl_dmabuf_desc
+{
+    UINT fourcc;
+    UINT stride;
+    UINT offset;
+    UINT64 modifier;
+};
+
+typedef BOOL (GLAPIENTRY *PFN_wglWineExportDmaBufWINE)( GLuint texture, GLenum target,
+        struct wgl_dmabuf_desc *desc, int *fd );
+typedef void (GLAPIENTRY *PFN_wglWineCloseDmaBufWINE)( int fd );
+typedef BOOL (GLAPIENTRY *PFN_wglWineDmaBufExportSupportedWINE)( void );
+typedef int (GLAPIENTRY *PFN_wglWineHwndDmaBufOpenProducerWINE)( HWND hwnd );
+typedef UINT (GLAPIENTRY *PFN_wglWineHwndDmaBufGetCapsWINE)( HWND hwnd, void *caps,
+        void *format_modifiers, UINT max_format_modifiers, UINT *format_modifier_count );
+typedef void (GLAPIENTRY *PFN_wglWineHwndDmaBufCloseProducerWINE)( HWND hwnd, int channel_fd );
+typedef int (GLAPIENTRY *PFN_wglWineHwndDmaBufPublishWINE)( HWND hwnd, int channel_fd,
+        const void *desc, int dmabuf_fd );
+typedef int (GLAPIENTRY *PFN_wglWineHwndDmaBufDrainReleaseWINE)( int channel_fd, void *release );
+
 #ifdef WINE_UNIX_LIB
 
 #include "wine/gdi_driver.h"
 
 /* Wine internal opengl driver version, needs to be bumped upon opengl_funcs changes. */
-#define WINE_OPENGL_DRIVER_VERSION 37
+#define WINE_OPENGL_DRIVER_VERSION 38
 
 struct opengl_drawable;
 struct wgl_context;
@@ -130,6 +150,14 @@ struct opengl_funcs
     BOOL       (*p_wglChoosePixelFormatARB)( HDC hdc, const int *piAttribIList, const FLOAT *pfAttribFList, UINT nMaxFormats, int *piFormats, UINT *nNumFormats );
     struct wgl_context * (*p_wglCreateContextAttribsARB)( HDC hDC, struct wgl_context * hShareContext, const int *attribList );
     struct wgl_pbuffer * (*p_wglCreatePbufferARB)( HDC hDC, int iPixelFormat, int iWidth, int iHeight, const int *piAttribList );
+    BOOL       (*p_wglDXCloseDeviceNV)( HANDLE hDevice );
+    BOOL       (*p_wglDXLockObjectsNV)( HANDLE hDevice, GLint count, HANDLE *hObjects );
+    BOOL       (*p_wglDXObjectAccessNV)( HANDLE hObject, GLenum access );
+    HANDLE     (*p_wglDXOpenDeviceNV)( void *dxDevice );
+    HANDLE     (*p_wglDXRegisterObjectNV)( HANDLE hDevice, void *dxObject, GLuint name, GLenum type, GLenum access );
+    BOOL       (*p_wglDXSetResourceShareHandleNV)( void *dxObject, HANDLE shareHandle );
+    BOOL       (*p_wglDXUnlockObjectsNV)( HANDLE hDevice, GLint count, HANDLE *hObjects );
+    BOOL       (*p_wglDXUnregisterObjectNV)( HANDLE hDevice, HANDLE hObject );
     BOOL       (*p_wglDestroyPbufferARB)( struct wgl_pbuffer * hPbuffer );
     void       (*p_wglFreeMemoryNV)( void *pointer );
     HDC        (*p_wglGetCurrentReadDCARB)(void);
@@ -150,6 +178,8 @@ struct opengl_funcs
     BOOL       (*p_wglSetPbufferAttribARB)( struct wgl_pbuffer * hPbuffer, const int *piAttribList );
     BOOL       (*p_wglSetPixelFormatWINE)( HDC hdc, int format );
     BOOL       (*p_wglSwapIntervalEXT)( int interval );
+    PFN_wglWineDmaBufExportSupportedWINE p_wglWineDmaBufExportSupportedWINE;
+    PFN_wglWineExportDmaBufWINE p_wglWineExportDmaBufWINE;
 #define USE_GL_FUNC(x) PFN_##x p_##x;
     ALL_EGL_FUNCS
     ALL_EGL_EXT_FUNCS
@@ -175,6 +205,11 @@ struct egl_platform
     EGLConfig           *configs;
     BOOL                 has_EGL_EXT_present_opaque;
     BOOL                 has_EGL_EXT_pixel_format_float;
+    BOOL                 has_EGL_KHR_image_base;
+    BOOL                 has_EGL_KHR_gl_renderbuffer_image;
+    BOOL                 has_EGL_KHR_gl_texture_2D_image;
+    BOOL                 has_EGL_KHR_image;
+    BOOL                 has_EGL_MESA_image_dma_buf_export;
 
     /* WGL_WINE_query_renderer info */
     UINT                 device_id;
@@ -220,6 +255,7 @@ struct opengl_drawable
     int                                 interval;       /* last set surface swap interval */
     BOOL                                doublebuffer;   /* pixel format is double buffered */
     BOOL                                stereo;         /* pixel format is stereo buffered */
+    BOOL                                client_active;  /* native client surface activation was committed */
     EGLSurface                          surface;        /* surface for EGL based drivers */
     GLuint                              read_fbo;       /* default read FBO name when emulating framebuffer */
     GLuint                              draw_fbo;       /* default draw FBO name when emulating framebuffer */

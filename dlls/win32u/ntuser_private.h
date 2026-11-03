@@ -74,8 +74,10 @@ typedef struct tagWND
     int                swap_interval; /* OpenGL surface swap interval */
     int                pixel_format;  /* Pixel format set by the graphics driver */
     int                clip_clients;  /* Has client surfaces that needs to be clipped out */
+    int                clip_from_parent; /* Client area is clipped out of parent surfaces */
     int                cbWndExtra;    /* class cbWndExtra at window creation */
     DWORD_PTR          userdata;      /* User private data */
+    struct list        entry;         /* process window objects, including dead server handles */
     DWORD              wExtra[1];     /* Window extra bytes */
 } WND;
 
@@ -131,6 +133,7 @@ struct user_thread_info
     HKL                           kbd_layout;             /* Current keyboard layout */
     UINT                          kbd_layout_id;          /* Current keyboard layout ID */
     struct hardware_msg_data     *rawinput;               /* Current rawinput message data */
+    WCHAR                         kbd_deadkey;            /* Current keyboard dead key */
     struct touchinput_thread_data *touchinput;            /* touch input thread local buffer */
     UINT                          spy_indent;             /* Current spy indent */
     BOOL                          clipping_cursor;        /* thread is currently clipping */
@@ -228,6 +231,16 @@ extern void check_for_events( UINT flags );
 
 /* systray.c */
 extern LRESULT system_tray_call( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void *data );
+extern LRESULT sni_notify_icon( HWND owner, UINT msg, NOTIFYICONDATAW *nid );
+extern BOOL sni_notify_balloon( const NOTIFYICONDATAW *nid );
+extern void sni_cleanup_icons( HWND owner );
+extern void sni_run_loop( void );
+extern BOOL sni_has_icons( void );
+extern BOOL sni_is_available( void );
+extern BOOL sni_get_context_menu_pos( POINT *pos );
+extern BOOL sni_should_layer_context_menu( HWND hwnd, DWORD style, DWORD ex_style, const RECT *rect,
+                                          BOOL fullscreen );
+extern void sni_adjust_menu_position( HWND hwnd, INT *x, INT *y );
 
 /* opengl.c */
 extern BOOL set_dc_pixel_format_internal( HDC hdc, int format, struct list *drawables );
@@ -235,6 +248,19 @@ extern void release_opengl_drawables( struct list *drawables );
 
 /* vulkan.c */
 extern struct vulkan_instance *vulkan_instance_create( const struct vulkan_instance_extensions *extensions );
+extern struct vulkan_instance *get_d3dkmt_vulkan_instance( void );
+extern BOOL vulkan_init_in_progress( void );
+
+/* hwnd_dmabuf.c */
+extern unsigned int hwnd_dmabuf_set_pending( HWND hwnd, BOOL pending );
+extern int hwnd_dmabuf_open_channel( HWND hwnd );
+extern int hwnd_dmabuf_open_channel_exclusive( HWND hwnd );
+extern void hwnd_dmabuf_close_channel( HWND hwnd, int channel_fd );
+extern unsigned int hwnd_dmabuf_release_channel( HWND hwnd );
+extern int hwnd_dmabuf_channel_send( int channel_fd, const void *desc, int dmabuf_fd );
+extern int hwnd_dmabuf_channel_publish( HWND hwnd, int channel_fd, const void *desc, int dmabuf_fd );
+extern int hwnd_dmabuf_channel_recv_release( int channel_fd, void *release );
+extern void hwnd_dmabuf_post_wake( HWND hwnd, unsigned int flags );
 
 /* window.c */
 HANDLE alloc_user_handle( void *ptr, unsigned short type );

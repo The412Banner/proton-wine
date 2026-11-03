@@ -972,6 +972,7 @@ SOURCES = \
 	wine/gdi_driver.h \
 	wine/glu.h \
 	wine/hid.h \
+	wine/hwnd_dmabuf.h \
 	wine/http.h \
 	wine/iaccessible2.idl \
 	wine/irot.idl \

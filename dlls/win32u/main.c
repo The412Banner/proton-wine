@@ -1884,6 +1884,32 @@ BOOL SYSCALL_API NtUserHiliteMenuItem( HWND hwnd, HMENU handle, UINT item, UINT 
     SYSCALL_FUNC( NtUserHiliteMenuItem );
 }
 
+void SYSCALL_API NtUserHwndDmaBufCloseProducer( HWND hwnd, int channel_fd )
+{
+    SYSCALL_FUNC( NtUserHwndDmaBufCloseProducer );
+}
+
+int SYSCALL_API NtUserHwndDmaBufDrainRelease( int channel_fd, void *release )
+{
+    SYSCALL_FUNC( NtUserHwndDmaBufDrainRelease );
+}
+
+UINT SYSCALL_API NtUserHwndDmaBufGetCaps( HWND hwnd, void *caps, void *format_modifiers,
+                                          UINT max_format_modifiers, UINT *format_modifier_count )
+{
+    SYSCALL_FUNC( NtUserHwndDmaBufGetCaps );
+}
+
+int SYSCALL_API NtUserHwndDmaBufOpenProducer( HWND hwnd )
+{
+    SYSCALL_FUNC( NtUserHwndDmaBufOpenProducer );
+}
+
+int SYSCALL_API NtUserHwndDmaBufPublish( HWND hwnd, int channel_fd, const void *desc, int dmabuf_fd )
+{
+    SYSCALL_FUNC( NtUserHwndDmaBufPublish );
+}
+
 NTSTATUS SYSCALL_API NtUserInitializeClientPfnArrays( const ntuser_client_func_ptr *client_procsA,
                                                       const ntuser_client_func_ptr *client_procsW,
                                                       const ntuser_client_func_ptr *client_workers, HINSTANCE user_module )

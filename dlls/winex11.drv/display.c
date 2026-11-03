@@ -482,6 +482,33 @@ BOOL X11DRV_DisplayDevices_SupportEventHandlers(void)
     return !!host_handler.register_event_handlers;
 }
 
+static BOOL is_hdr_enabled(void)
+{
+    unsigned long count, remaining;
+    unsigned char *data = NULL;
+    BOOL enabled, valid;
+    const char *env;
+    Atom type;
+    int format;
+
+    if ((env = getenv("DXVK_NO_HDR")) && *env == '1') return FALSE;
+    if ((env = getenv("DXVK_HDR")) && *env == '0') return FALSE;
+
+    /* Gamescope publishes this on each of its Xwayland roots. A known SDR
+     * result must win over the legacy HDR opt-in inherited from the session. */
+    valid = !XGetWindowProperty( gdi_display, DefaultRootWindow(gdi_display),
+                                x11drv_atom(GAMESCOPE_HDR_OUTPUT_FEEDBACK), 0, 1, False,
+                                XA_CARDINAL, &type, &format, &count, &remaining, &data );
+    valid = valid && type == XA_CARDINAL && format == 32 && count == 1 && !remaining;
+    enabled = valid && *(unsigned long *)data != 0;
+    if (data) XFree( data );
+    if (valid) return enabled;
+
+    /* Preserve explicit opt-in for older HDR WSI implementations. Unknown
+     * X11/Xwayland outputs remain SDR when no override was requested. */
+    return (env = getenv("DXVK_HDR")) && *env == '1';
+}
+
 UINT X11DRV_UpdateDisplayDevices( const struct gdi_device_manager *device_manager, void *param )
 {
     INT gpu_count, adapter_count, monitor_count, current_adapter_count = 0;
@@ -490,13 +517,12 @@ UINT X11DRV_UpdateDisplayDevices( const struct gdi_device_manager *device_manage
     struct x11drv_gpu *gpus;
     INT gpu, adapter, monitor;
     struct x11drv_mode *modes;
-    const char *env;
     BOOL hdr_enabled;
     UINT mode_count;
 
     TRACE( "via %s\n", debugstr_a(host_handler.name) );
 
-    hdr_enabled = (env = getenv("DXVK_HDR")) && *env == '1';
+    hdr_enabled = is_hdr_enabled();
     TRACE( "hdr_enabled %d.\n", hdr_enabled );
 
     /* Initialize GPUs */

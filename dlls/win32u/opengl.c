@@ -34,6 +34,8 @@
 #include "win32u_private.h"
 #include "ntuser_private.h"
 
+#include <dxgi.h>
+
 #include "wine/opengl_driver.h"
 
 #include "dibdrv/dibdrv.h"
@@ -62,6 +64,12 @@ static int fshack_enabled = -1;
 static struct wgl_pixel_format *pixel_formats;
 static UINT formats_count, onscreen_count;
 static char wgl_extensions[4096];
+
+#ifdef SONAME_LIBEGL
+static void steam_overlay_opengl_dispatch( struct opengl_drawable *drawable );
+#else
+static void steam_overlay_opengl_dispatch( struct opengl_drawable *drawable ) {}
+#endif
 
 static BOOL has_extension( const char *list, const char *ext )
 {
@@ -117,7 +125,11 @@ void *opengl_drawable_create( UINT size, const struct opengl_drawable_funcs *fun
     drawable->interval = INT_MIN;
     drawable->doublebuffer = !!(pixel_formats[format - 1].pfd.dwFlags & PFD_DOUBLEBUFFER);
     drawable->stereo = !!(pixel_formats[format - 1].pfd.dwFlags & PFD_STEREO);
-    if ((drawable->client = client)) client_surface_add_ref( client );
+    if ((drawable->client = client))
+    {
+        client_surface_add_ref( client );
+        InterlockedIncrement( &client->busy_ref );
+    }
     for (UINT i = 0; i < ARRAY_SIZE(drawable->buffer_map); i++) drawable->buffer_map[i] = GL_FRONT_LEFT + i;
 
     TRACE( "created %s\n", debugstr_opengl_drawable( drawable ) );
@@ -142,7 +154,13 @@ void opengl_drawable_release( struct opengl_drawable *drawable )
 
         drawable->funcs->destroy( drawable );
         if (drawable->surface) funcs->p_eglDestroySurface( egl->display, drawable->surface );
-        if (drawable->client) client_surface_release( drawable->client );
+        if (drawable->client)
+        {
+            if (drawable->client_active)
+                client_surface_deactivate( drawable->client, TRUE );
+            InterlockedDecrement( &drawable->client->busy_ref );
+            client_surface_release( drawable->client );
+        }
         free( drawable );
     }
 }
@@ -170,6 +188,7 @@ static void opengl_drawable_flush( struct opengl_drawable *drawable, int interva
 static BOOL opengl_drawable_swap( struct opengl_drawable *drawable )
 {
     if (!is_client_surface_window( drawable->client, 0 )) return FALSE;
+    steam_overlay_opengl_dispatch( drawable );
     client_surface_update( drawable->client );
     return drawable->funcs->swap( drawable );
 }
@@ -1398,10 +1417,19 @@ static BOOL egldrv_make_current( struct opengl_drawable *draw, struct opengl_dra
 {
     const struct opengl_funcs *funcs = &display_funcs;
     const struct egl_platform *egl = &display_egl;
+    BOOL ret;
 
     TRACE( "draw %s, read %s, context %p\n", debugstr_opengl_drawable( draw ), debugstr_opengl_drawable( read ), context );
 
-    return funcs->p_eglMakeCurrent( egl->display, context ? draw->surface : EGL_NO_SURFACE, context ? read->surface : EGL_NO_SURFACE, context );
+    ret = funcs->p_eglMakeCurrent( egl->display, context ? draw->surface : EGL_NO_SURFACE, context ? read->surface : EGL_NO_SURFACE, context );
+    if (ret && context && draw->surface != EGL_NO_SURFACE && egl->display && egl->type == EGL_PLATFORM_WAYLAND_KHR)
+    {
+        /* HACK: set swap interval to 0 for the wayland platform,
+         * winewayland implements swap interval=1 instead of the GPU driver. */
+        ERR("HACK: Using swap interval 0\n");
+        funcs->p_eglSwapInterval( egl->display, 0 );
+    }
+    return ret;
 }
 
 static void egldrv_pbuffer_destroy( struct opengl_drawable *drawable )
@@ -1429,6 +1457,82 @@ static const struct opengl_driver_funcs egldrv_funcs =
     .p_context_destroy = egldrv_context_destroy,
     .p_make_current = egldrv_make_current,
 };
+
+typedef void (*steam_overlay_opengl_attach_func)( void *display, int x, int y,
+                                                   unsigned int width, unsigned int height );
+typedef void (*steam_overlay_opengl_dispatch_func)( int, int, unsigned int, unsigned int );
+static void *steam_overlay_opengl_handle;
+static void *steam_overlay_opengl_display;
+static BOOL steam_overlay_opengl_attached;
+static steam_overlay_opengl_attach_func steam_overlay_opengl_attach;
+static steam_overlay_opengl_dispatch_func steam_overlay_opengl_dispatch_func_ptr;
+
+static BOOL steam_overlay_opengl_enabled(void)
+{
+    const char *env;
+
+    if (!(env = getenv( "WINE_WAYLAND_STEAM_OVERLAY_LAYER" )) || !atoi( env )) return FALSE;
+    return !(env = getenv( "DISABLE_WINE_WAYLAND_STEAM_OVERLAY_LAYER" )) || !atoi( env );
+}
+
+static BOOL load_steam_overlay_opengl_bridge(void)
+{
+    if (steam_overlay_opengl_attach && steam_overlay_opengl_dispatch_func_ptr) return TRUE;
+    if (!steam_overlay_opengl_enabled()) return FALSE;
+
+    if (!steam_overlay_opengl_handle &&
+        !(steam_overlay_opengl_handle = dlopen( "liblsteamclient_overlay_bridge.so.1",
+                                                RTLD_NOW | RTLD_LOCAL )))
+    {
+        WARN( "Failed to load lsteamclient overlay bridge: %s.\n", dlerror() );
+        return FALSE;
+    }
+
+    steam_overlay_opengl_attach = (steam_overlay_opengl_attach_func)dlsym(
+        steam_overlay_opengl_handle, "ge_overlay_external_wayland_attach" );
+    steam_overlay_opengl_dispatch_func_ptr = (steam_overlay_opengl_dispatch_func)dlsym(
+        steam_overlay_opengl_handle, "ge_overlay_external_wayland_dispatch" );
+    if (!steam_overlay_opengl_attach || !steam_overlay_opengl_dispatch_func_ptr)
+    {
+        WARN( "lsteamclient overlay bridge entry points are unavailable.\n" );
+        steam_overlay_opengl_attach = NULL;
+        steam_overlay_opengl_dispatch_func_ptr = NULL;
+        return FALSE;
+    }
+
+    TRACE( "Loaded lsteamclient native overlay bridge for OpenGL.\n" );
+    return TRUE;
+}
+
+static void steam_overlay_opengl_dispatch( struct opengl_drawable *drawable )
+{
+    RECT rect, virtual_rect;
+    HWND hwnd;
+    UINT width, height;
+    UINT dpi;
+
+    if (!steam_overlay_opengl_dispatch_func_ptr ||
+        !(hwnd = drawable->client->hwnd))
+        return;
+
+    dpi = get_thread_dpi();
+    if (!get_client_rect_rel( hwnd, COORDS_SCREEN, &rect, dpi )) return;
+    rect = map_rect_virt_to_raw( rect, dpi );
+    virtual_rect = get_virtual_screen_rect( 0, MDT_RAW_DPI );
+    OffsetRect( &rect, -virtual_rect.left, -virtual_rect.top );
+    width = max( rect.right - rect.left, 1 );
+    height = max( rect.bottom - rect.top, 1 );
+
+    if (!steam_overlay_opengl_attached)
+    {
+        if (!steam_overlay_opengl_display || !steam_overlay_opengl_attach) return;
+        steam_overlay_opengl_attach( steam_overlay_opengl_display,
+                                     rect.left, rect.top, width, height );
+        steam_overlay_opengl_attached = TRUE;
+    }
+
+    steam_overlay_opengl_dispatch_func_ptr( rect.left, rect.top, width, height );
+}
 
 static BOOL egl_init( const struct opengl_driver_funcs **driver_funcs )
 {
@@ -1525,6 +1629,13 @@ static BOOL init_egl_platform( struct egl_platform *egl, const struct opengl_fun
 
     egl->has_EGL_EXT_present_opaque = has_extension( extensions, "EGL_EXT_present_opaque" );
     egl->has_EGL_EXT_pixel_format_float = has_extension( extensions, "EGL_EXT_pixel_format_float" );
+    egl->has_EGL_KHR_image_base = has_extension( extensions, "EGL_KHR_image_base" );
+    egl->has_EGL_KHR_gl_renderbuffer_image = has_extension( extensions, "EGL_KHR_gl_renderbuffer_image" );
+    egl->has_EGL_KHR_gl_texture_2D_image = has_extension( extensions, "EGL_KHR_gl_texture_2D_image" );
+    egl->has_EGL_KHR_image = has_extension( extensions, "EGL_KHR_image" );
+    egl->has_EGL_MESA_image_dma_buf_export = has_extension( extensions, "EGL_MESA_image_dma_buf_export" );
+    if (egl->type == EGL_PLATFORM_WAYLAND_KHR && load_steam_overlay_opengl_bridge())
+        steam_overlay_opengl_display = egl->native_display;
     return TRUE;
 }
 
@@ -1676,6 +1787,17 @@ static void init_device_info( struct egl_platform *egl, const struct opengl_func
     funcs->p_eglBindAPI( EGL_OPENGL_API );
     funcs->p_eglGetConfigs( egl->display, &config, 1, &count );
     if (!count) config = EGL_NO_CONFIG_KHR;
+
+    if (!(context = funcs->p_eglCreateContext( egl->display, config, EGL_NO_CONTEXT, NULL )))
+    {
+        WARN( "Unable to create a context, ignoring device\n" );
+        funcs->p_eglTerminate( egl->display );
+        list_remove( &egl->entry );
+        free( egl );
+        return;
+    }
+    funcs->p_eglDestroyContext( egl->display, context );
+    context = EGL_NO_CONTEXT;
 
     for (i = 0; i < ARRAY_SIZE(versions) && (!egl->core_version || !egl->compat_version); i++)
     {
@@ -1923,8 +2045,11 @@ static void set_window_opengl_drawable( HWND hwnd, struct opengl_drawable *new_d
     if ((win = get_win_ptr( hwnd )) && win != WND_DESKTOP && win != WND_OTHER_PROCESS)
     {
         struct opengl_drawable **ptr = current ? &win->current_drawable : &win->unused_drawable;
-        old_drawable = *ptr;
-        if ((*ptr = new_drawable)) opengl_drawable_add_ref( new_drawable );
+        if (*ptr != new_drawable)
+        {
+            old_drawable = *ptr;
+            if ((*ptr = new_drawable)) opengl_drawable_add_ref( new_drawable );
+        }
         release_win_ptr( win );
     }
 
@@ -1978,7 +2103,12 @@ static struct opengl_drawable *get_window_unused_drawable( HWND hwnd, int format
     if (!drawable)
     {
         driver_funcs->p_surface_create( hwnd, raw, format, &drawable );
-        if (drawable && drawable->client) add_window_client_surface( hwnd, drawable->client );
+        if (drawable && drawable->client)
+        {
+            client_surface_activate( drawable->client, TRUE, NULL );
+            drawable->client_active = TRUE;
+            add_window_client_surface( hwnd, drawable->client );
+        }
     }
 
     if (drawable && drawable->funcs != &framebuffer_surface_funcs && raw)
@@ -2285,12 +2415,44 @@ static struct opengl_drawable *get_updated_drawable( HDC hdc, int format, struct
     return get_window_unused_drawable( hwnd, format );
 }
 
+static BOOL context_drawable_is_current( struct opengl_drawable *drawable )
+{
+    HWND hwnd;
+
+    if (!drawable || !drawable->client) return FALSE;
+    if (!(hwnd = drawable->client->hwnd)) return FALSE;
+    return is_client_surface_window( drawable->client, hwnd ) && !needs_framebuffer_update( hwnd, drawable );
+}
+
+static BOOL context_drawables_are_current( struct wgl_context *context )
+{
+    if (!context_drawable_is_current( context->draw )) return FALSE;
+    return context->read == context->draw || context_drawable_is_current( context->read );
+}
+
+static BOOL context_drawable_has_pending_update( struct opengl_drawable *drawable )
+{
+    return drawable && drawable->client && InterlockedCompareExchange( &drawable->client->updated, 0, 0 );
+}
+
+static BOOL context_flush_is_noop( struct wgl_context *context, void (*flush)(void), UINT flags )
+{
+    if (flush || flags) return FALSE;
+    if (NtCurrentTeb()->glContext != context) return FALSE;
+    if (!context_drawables_are_current( context )) return FALSE;
+    if (context_drawable_has_pending_update( context->draw )) return FALSE;
+    return context->read == context->draw || !context_drawable_has_pending_update( context->read );
+}
+
 static BOOL context_sync_drawables( struct wgl_context *context, HDC draw_hdc, HDC read_hdc )
 {
     struct opengl_drawable *new_draw, *new_read, *old_draw = NULL, *old_read = NULL, *draw, *read;
     static pthread_mutex_t reserved_tx_mutex = PTHREAD_MUTEX_INITIALIZER;
     struct wgl_context *previous = NtCurrentTeb()->glContext;
     BOOL ret = FALSE, draw_updated, read_updated;
+
+    if (!draw_hdc && !read_hdc && previous == context && context_drawables_are_current( context ))
+        return TRUE;
 
     if (!(new_draw = get_updated_drawable( draw_hdc, context->format, context->draw, &draw_updated ))) return FALSE;
     read_updated = draw_updated;
@@ -2972,6 +3134,10 @@ static BOOL win32u_wgl_context_flush( struct wgl_context *context, void (*flush)
     int interval;
 
     if (!draw->client) return flush_memory_pbuffer( flush );
+
+    /* No-op flushes cannot present. Real swaps apply interval changes. */
+    if (context_flush_is_noop( context, flush, flags )) return TRUE;
+
     interval = get_window_swap_interval( draw->client->hwnd );
     if (flags & GL_FLUSH_FORCE_SWAP) interval = 0;
 
@@ -3306,9 +3472,568 @@ void win32u_glImportSemaphoreWin32NameEXT( GLuint semaphore, GLenum type, const 
     }
 }
 
+#ifndef WGL_ACCESS_READ_ONLY_NV
+#define WGL_ACCESS_READ_ONLY_NV             0x0000
+#define WGL_ACCESS_READ_WRITE_NV            0x0001
+#define WGL_ACCESS_WRITE_DISCARD_NV         0x0002
+#endif
+
+struct wgl_dx_share_handle
+{
+    struct list entry;
+    void *dx_object;
+    HANDLE share_handle;
+};
+
+struct wgl_dx_object
+{
+    struct list entry;
+    HANDLE handle;
+    void *dx_object;
+    GLuint gl_name;
+    GLenum gl_type;
+    GLenum access;
+    BOOL locked;
+    GLuint memory;
+    UINT width;
+    UINT height;
+};
+
+struct wgl_dx_gl_format
+{
+    GLenum internal_format;
+    UINT bytes_per_pixel;
+    BOOL bgra_swizzle;
+};
+
+struct wgl_dx_device
+{
+    struct list entry;
+    HANDLE handle;
+    void *dx_device;
+    struct list objects;
+};
+
+static pthread_mutex_t wgl_dx_mutex = PTHREAD_MUTEX_INITIALIZER;
+static struct list wgl_dx_devices = LIST_INIT( wgl_dx_devices );
+static struct list wgl_dx_share_handles = LIST_INIT( wgl_dx_share_handles );
+static UINT_PTR wgl_dx_next_handle = 1;
+static BOOL wgl_dx_supported;
+
+static HANDLE wgl_dx_alloc_handle(void)
+{
+    return (HANDLE)(UINT_PTR)wgl_dx_next_handle++;
+}
+
+static BOOL wgl_dx_valid_access( GLenum access )
+{
+    return access == WGL_ACCESS_READ_ONLY_NV || access == WGL_ACCESS_READ_WRITE_NV ||
+           access == WGL_ACCESS_WRITE_DISCARD_NV;
+}
+
+static struct wgl_dx_device *wgl_dx_get_device_locked( HANDLE handle )
+{
+    struct wgl_dx_device *device;
+
+    LIST_FOR_EACH_ENTRY( device, &wgl_dx_devices, struct wgl_dx_device, entry )
+    {
+        if (device->handle == handle) return device;
+    }
+
+    return NULL;
+}
+
+static struct wgl_dx_object *wgl_dx_get_object_locked( struct wgl_dx_device *device, HANDLE handle )
+{
+    struct wgl_dx_object *object;
+
+    LIST_FOR_EACH_ENTRY( object, &device->objects, struct wgl_dx_object, entry )
+    {
+        if (object->handle == handle) return object;
+    }
+
+    return NULL;
+}
+
+static struct wgl_dx_share_handle *wgl_dx_get_share_handle_locked( void *dx_object )
+{
+    struct wgl_dx_share_handle *share;
+
+    LIST_FOR_EACH_ENTRY( share, &wgl_dx_share_handles, struct wgl_dx_share_handle, entry )
+    {
+        if (share->dx_object == dx_object) return share;
+    }
+
+    return NULL;
+}
+
+static void wgl_dx_remove_share_handle_locked( void *dx_object, HANDLE share_handle )
+{
+    struct wgl_dx_share_handle *share;
+
+    if ((share = wgl_dx_get_share_handle_locked( dx_object )) && share->share_handle == share_handle)
+    {
+        list_remove( &share->entry );
+        free( share );
+    }
+}
+
+static void wgl_dx_drain_gl_errors(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < 16 && display_funcs.p_glGetError() != GL_NO_ERROR; ++i) {}
+}
+
+static BOOL wgl_dx_get_gl_format( UINT format, struct wgl_dx_gl_format *gl_format )
+{
+    switch (format)
+    {
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+        gl_format->internal_format = GL_RGBA8;
+        gl_format->bytes_per_pixel = 4;
+        gl_format->bgra_swizzle = FALSE;
+        return TRUE;
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+        gl_format->internal_format = GL_RGBA8;
+        gl_format->bytes_per_pixel = 4;
+        gl_format->bgra_swizzle = TRUE;
+        return TRUE;
+    default:
+        WARN( "Unsupported DXGI format %#x\n", format );
+        return FALSE;
+    }
+}
+
+static BOOL wgl_dx_validate_resource_desc( const struct d3dkmt_resource_desc *desc, GLenum gl_type,
+                                           struct wgl_dx_gl_format *gl_format, GLuint64 *size )
+{
+    if (gl_type != GL_TEXTURE_2D)
+    {
+        WARN( "Unsupported GL object type %#x\n", gl_type );
+        return FALSE;
+    }
+    if (desc->type != D3DKMT_RESOURCE_DESC_TEXTURE_2D)
+    {
+        WARN( "Unsupported D3DKMT resource type %#x\n", desc->type );
+        return FALSE;
+    }
+    if (!desc->width || !desc->height)
+    {
+        WARN( "Invalid resource dimensions %ux%u\n", desc->width, desc->height );
+        return FALSE;
+    }
+    if (desc->mip_levels != 1 || desc->array_size != 1 || desc->sample_count != 1)
+    {
+        WARN( "Unsupported resource shape mips %u array %u samples %u\n",
+              desc->mip_levels, desc->array_size, desc->sample_count );
+        return FALSE;
+    }
+    if (!wgl_dx_get_gl_format( desc->format, gl_format )) return FALSE;
+
+    *size = (GLuint64)desc->width * desc->height * gl_format->bytes_per_pixel;
+    return TRUE;
+}
+
+static GLuint64 wgl_dx_get_fd_size( int fd, GLuint64 min_size )
+{
+    off_t end;
+
+    if ((end = lseek( fd, 0, SEEK_END )) > 0)
+    {
+        lseek( fd, 0, SEEK_SET );
+        if ((GLuint64)end >= min_size) return end;
+
+        WARN( "Shared resource fd size %s is smaller than minimum image size %s\n",
+              wine_dbgstr_longlong( (ULONGLONG)end ), wine_dbgstr_longlong( min_size ) );
+        return 0;
+    }
+
+    WARN( "Failed to query shared resource fd size, using minimum image size %s\n",
+          wine_dbgstr_longlong( min_size ) );
+    return min_size;
+}
+
+static void wgl_dx_apply_bgra_swizzle(void)
+{
+    static const GLint swizzle[] = {GL_BLUE, GL_GREEN, GL_RED, GL_ALPHA};
+
+    display_funcs.p_glTexParameteriv( GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle );
+}
+
+static void wgl_dx_delete_object( struct wgl_dx_object *object )
+{
+    if (object->memory && display_funcs.p_glDeleteMemoryObjectsEXT)
+    {
+        if (NtCurrentTeb()->glContext) display_funcs.p_glDeleteMemoryObjectsEXT( 1, &object->memory );
+        else WARN( "Skipping WGL/DX memory object delete without a current GL context\n" );
+    }
+    free( object );
+}
+
+static BOOL wgl_dx_import_texture( HANDLE share_handle, GLuint gl_name, GLenum gl_type, struct wgl_dx_object *object )
+{
+    D3DKMT_HANDLE local = 0, mutex = 0, sync = 0;
+    struct d3dkmt_resource_desc desc;
+    struct wgl_dx_gl_format gl_format;
+    GLenum err;
+    GLuint64 size;
+    GLuint memory = 0;
+    GLint previous = 0;
+    int fd;
+
+    local = d3dkmt_open_shared_resource_with_desc( share_handle, &mutex, &sync, &desc );
+    if (mutex) d3dkmt_destroy_mutex( mutex );
+    if (sync) d3dkmt_destroy_sync( sync );
+    if (!local)
+    {
+        WARN( "Failed to open shared D3DKMT resource for handle %p\n", share_handle );
+        return FALSE;
+    }
+
+    if (!wgl_dx_validate_resource_desc( &desc, gl_type, &gl_format, &size ))
+    {
+        d3dkmt_destroy_resource( local );
+        return FALSE;
+    }
+
+    fd = d3dkmt_object_get_fd( local );
+    d3dkmt_destroy_resource( local );
+    if (fd < 0)
+    {
+        WARN( "Failed to obtain shared resource fd\n" );
+        return FALSE;
+    }
+    if (!(size = wgl_dx_get_fd_size( fd, size )))
+    {
+        close( fd );
+        return FALSE;
+    }
+
+    wgl_dx_drain_gl_errors();
+    display_funcs.p_glCreateMemoryObjectsEXT( 1, &memory );
+    if ((err = display_funcs.p_glGetError()) || !memory)
+    {
+        WARN( "glCreateMemoryObjectsEXT failed with %#x\n", err );
+        if (memory) display_funcs.p_glDeleteMemoryObjectsEXT( 1, &memory );
+        close( fd );
+        return FALSE;
+    }
+
+    display_funcs.p_glImportMemoryFdEXT( memory, size, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd );
+    if ((err = display_funcs.p_glGetError()))
+    {
+        WARN( "glImportMemoryFdEXT failed with %#x\n", err );
+        close( fd );
+        display_funcs.p_glDeleteMemoryObjectsEXT( 1, &memory );
+        return FALSE;
+    }
+
+    display_funcs.p_glGetIntegerv( GL_TEXTURE_BINDING_2D, &previous );
+    display_funcs.p_glBindTexture( GL_TEXTURE_2D, gl_name );
+    if (gl_format.bgra_swizzle)
+    {
+        wgl_dx_apply_bgra_swizzle();
+        err = display_funcs.p_glGetError();
+    }
+    else err = GL_NO_ERROR;
+    if (!err)
+    {
+        display_funcs.p_glTexStorageMem2DEXT( GL_TEXTURE_2D, 1, gl_format.internal_format, desc.width, desc.height, memory, 0 );
+        err = display_funcs.p_glGetError();
+    }
+    display_funcs.p_glBindTexture( GL_TEXTURE_2D, previous );
+    if (err)
+    {
+        WARN( "Failed to initialize WGL/DX texture storage with %#x\n", err );
+        display_funcs.p_glDeleteMemoryObjectsEXT( 1, &memory );
+        return FALSE;
+    }
+
+    object->memory = memory;
+    object->width = desc.width;
+    object->height = desc.height;
+    return TRUE;
+}
+
+static BOOL wgl_dx_functions_supported(void)
+{
+    return display_funcs.p_glBindTexture && display_funcs.p_glCreateMemoryObjectsEXT &&
+           display_funcs.p_glDeleteMemoryObjectsEXT && display_funcs.p_glFinish &&
+           display_funcs.p_glGetError && display_funcs.p_glGetIntegerv &&
+           display_funcs.p_glImportMemoryFdEXT && display_funcs.p_glTexParameteriv &&
+           display_funcs.p_glTexStorageMem2DEXT;
+}
+
+static HANDLE win32u_wglDXOpenDeviceNV( void *dx_device )
+{
+    struct wgl_dx_device *device;
+
+    TRACE( "dx_device %p\n", dx_device );
+
+    if (!wgl_dx_supported || !dx_device) return NULL;
+    if (!(device = calloc( 1, sizeof(*device) ))) return NULL;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    device->handle = wgl_dx_alloc_handle();
+    device->dx_device = dx_device;
+    list_init( &device->objects );
+    list_add_tail( &wgl_dx_devices, &device->entry );
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    return device->handle;
+}
+
+static BOOL win32u_wglDXCloseDeviceNV( HANDLE handle )
+{
+    struct wgl_dx_object *object, *next;
+    struct list objects = LIST_INIT( objects );
+    struct wgl_dx_device *device;
+
+    TRACE( "handle %p\n", handle );
+
+    if (!wgl_dx_supported || !handle) return FALSE;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if (!(device = wgl_dx_get_device_locked( handle )))
+    {
+        pthread_mutex_unlock( &wgl_dx_mutex );
+        return FALSE;
+    }
+    list_remove( &device->entry );
+    list_move_tail( &objects, &device->objects );
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    LIST_FOR_EACH_ENTRY_SAFE( object, next, &objects, struct wgl_dx_object, entry )
+    {
+        list_remove( &object->entry );
+        wgl_dx_delete_object( object );
+    }
+    free( device );
+    return TRUE;
+}
+
+static HANDLE win32u_wglDXRegisterObjectNV( HANDLE device_handle, void *dx_object,
+                                            GLuint name, GLenum type, GLenum access )
+{
+    struct wgl_dx_share_handle *share;
+    struct wgl_dx_device *device;
+    struct wgl_dx_object *object;
+    HANDLE share_handle;
+    BOOL remove_share_handle = FALSE;
+
+    TRACE( "device %p, dx_object %p, name %u, type %#x, access %#x\n",
+           device_handle, dx_object, name, type, access );
+
+    if (!wgl_dx_supported || !device_handle || !dx_object || !name || !wgl_dx_valid_access( access ))
+        return NULL;
+    if (!NtCurrentTeb()->glContext)
+    {
+        WARN( "No current GL context for WGL/DX registration\n" );
+        return NULL;
+    }
+    if (!(object = calloc( 1, sizeof(*object) ))) return NULL;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if (!(device = wgl_dx_get_device_locked( device_handle )))
+    {
+        pthread_mutex_unlock( &wgl_dx_mutex );
+        free( object );
+        return NULL;
+    }
+    if ((share = wgl_dx_get_share_handle_locked( dx_object )))
+    {
+        share_handle = share->share_handle;
+        remove_share_handle = TRUE;
+    }
+    else share_handle = dx_object;
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    if (!wgl_dx_import_texture( share_handle, name, type, object ))
+    {
+        free( object );
+        return NULL;
+    }
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if (!(device = wgl_dx_get_device_locked( device_handle )))
+    {
+        if (remove_share_handle) wgl_dx_remove_share_handle_locked( dx_object, share_handle );
+        pthread_mutex_unlock( &wgl_dx_mutex );
+        wgl_dx_delete_object( object );
+        return NULL;
+    }
+    object->handle = wgl_dx_alloc_handle();
+    object->dx_object = dx_object;
+    object->gl_name = name;
+    object->gl_type = type;
+    object->access = access;
+    list_add_tail( &device->objects, &object->entry );
+    if (remove_share_handle) wgl_dx_remove_share_handle_locked( dx_object, share_handle );
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    return object->handle;
+}
+
+static BOOL win32u_wglDXUnregisterObjectNV( HANDLE device_handle, HANDLE object_handle )
+{
+    struct wgl_dx_device *device;
+    struct wgl_dx_object *object;
+
+    TRACE( "device %p, object %p\n", device_handle, object_handle );
+
+    if (!wgl_dx_supported || !device_handle || !object_handle) return FALSE;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if (!(device = wgl_dx_get_device_locked( device_handle )) ||
+        !(object = wgl_dx_get_object_locked( device, object_handle )) || object->locked)
+    {
+        pthread_mutex_unlock( &wgl_dx_mutex );
+        return FALSE;
+    }
+    list_remove( &object->entry );
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    wgl_dx_delete_object( object );
+    return TRUE;
+}
+
+static BOOL win32u_wglDXObjectAccessNV( HANDLE object_handle, GLenum access )
+{
+    struct wgl_dx_device *device;
+    struct wgl_dx_object *object;
+
+    TRACE( "object %p, access %#x\n", object_handle, access );
+
+    if (!wgl_dx_supported || !object_handle || !wgl_dx_valid_access( access )) return FALSE;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    LIST_FOR_EACH_ENTRY( device, &wgl_dx_devices, struct wgl_dx_device, entry )
+    {
+        if ((object = wgl_dx_get_object_locked( device, object_handle )))
+        {
+            if (object->locked)
+            {
+                pthread_mutex_unlock( &wgl_dx_mutex );
+                return FALSE;
+            }
+            object->access = access;
+            pthread_mutex_unlock( &wgl_dx_mutex );
+            return TRUE;
+        }
+    }
+    pthread_mutex_unlock( &wgl_dx_mutex );
+    return FALSE;
+}
+
+static BOOL win32u_wglDXLockObjectsNV( HANDLE device_handle, GLint count, HANDLE *handles )
+{
+    struct wgl_dx_device *device;
+    struct wgl_dx_object *object;
+    GLint i;
+
+    TRACE( "device %p, count %d, handles %p\n", device_handle, count, handles );
+
+    if (!wgl_dx_supported || !NtCurrentTeb()->glContext ||
+        !device_handle || count < 0 || (count && !handles))
+        return FALSE;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if (!(device = wgl_dx_get_device_locked( device_handle )))
+    {
+        pthread_mutex_unlock( &wgl_dx_mutex );
+        return FALSE;
+    }
+    for (i = 0; i < count; ++i)
+    {
+        if (!(object = wgl_dx_get_object_locked( device, handles[i] )) || object->locked)
+        {
+            pthread_mutex_unlock( &wgl_dx_mutex );
+            return FALSE;
+        }
+    }
+    for (i = 0; i < count; ++i)
+    {
+        object = wgl_dx_get_object_locked( device, handles[i] );
+        object->locked = TRUE;
+    }
+    pthread_mutex_unlock( &wgl_dx_mutex );
+    return TRUE;
+}
+
+static BOOL win32u_wglDXUnlockObjectsNV( HANDLE device_handle, GLint count, HANDLE *handles )
+{
+    struct wgl_dx_device *device;
+    struct wgl_dx_object *object;
+    GLint i;
+
+    TRACE( "device %p, count %d, handles %p\n", device_handle, count, handles );
+
+    if (!wgl_dx_supported || !NtCurrentTeb()->glContext ||
+        !device_handle || count < 0 || (count && !handles))
+        return FALSE;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if (!(device = wgl_dx_get_device_locked( device_handle )))
+    {
+        pthread_mutex_unlock( &wgl_dx_mutex );
+        return FALSE;
+    }
+    for (i = 0; i < count; ++i)
+    {
+        if (!(object = wgl_dx_get_object_locked( device, handles[i] )) || !object->locked)
+        {
+            pthread_mutex_unlock( &wgl_dx_mutex );
+            return FALSE;
+        }
+    }
+    display_funcs.p_glFinish();
+    for (i = 0; i < count; ++i)
+    {
+        object = wgl_dx_get_object_locked( device, handles[i] );
+        object->locked = FALSE;
+    }
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    return TRUE;
+}
+
+static BOOL win32u_wglDXSetResourceShareHandleNV( void *dx_object, HANDLE share_handle )
+{
+    struct wgl_dx_share_handle *existing, *share;
+
+    TRACE( "dx_object %p, share_handle %p\n", dx_object, share_handle );
+
+    if (!wgl_dx_supported || !dx_object || !share_handle) return FALSE;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if ((share = wgl_dx_get_share_handle_locked( dx_object )))
+    {
+        share->share_handle = share_handle;
+        pthread_mutex_unlock( &wgl_dx_mutex );
+        return TRUE;
+    }
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    if (!(share = calloc( 1, sizeof(*share) ))) return FALSE;
+    share->dx_object = dx_object;
+    share->share_handle = share_handle;
+
+    pthread_mutex_lock( &wgl_dx_mutex );
+    if ((existing = wgl_dx_get_share_handle_locked( dx_object )))
+    {
+        free( share );
+        existing->share_handle = share_handle;
+    }
+    else list_add_tail( &wgl_dx_share_handles, &share->entry );
+    pthread_mutex_unlock( &wgl_dx_mutex );
+
+    return TRUE;
+}
+
 static void display_funcs_init(void)
 {
-    struct egl_platform *egl;
+    struct egl_platform *egl, *next;
     UINT status;
 
     const char *env = getenv( "WINE_DISABLE_FULLSCREEN_HACK" );
@@ -3386,6 +4111,8 @@ static void display_funcs_init(void)
     strcpy( wgl_extensions, driver_funcs->p_init_wgl_extensions( &display_funcs ) );
     display_funcs.p_wglGetPixelFormat = win32u_wglGetPixelFormat;
     display_funcs.p_wglSetPixelFormat = win32u_wglSetPixelFormat;
+    display_funcs.p_wglWineDmaBufExportSupportedWINE = driver_funcs->p_get_proc_address( "wglWineDmaBufExportSupportedWINE" );
+    display_funcs.p_wglWineExportDmaBufWINE = driver_funcs->p_get_proc_address( "wglWineExportDmaBufWINE" );
 
     display_funcs.p_wglCreateContext = (void *)1; /* never called */
     display_funcs.p_wglDeleteContext = (void *)1; /* never called */
@@ -3448,6 +4175,32 @@ static void display_funcs_init(void)
     display_funcs.p_wglSwapIntervalEXT = win32u_wglSwapIntervalEXT;
     display_funcs.p_wglGetSwapIntervalEXT = win32u_wglGetSwapIntervalEXT;
 
+    wgl_dx_supported = wgl_dx_functions_supported();
+    if (wgl_dx_supported)
+    {
+        display_funcs.p_wglDXOpenDeviceNV             = win32u_wglDXOpenDeviceNV;
+        display_funcs.p_wglDXCloseDeviceNV            = win32u_wglDXCloseDeviceNV;
+        display_funcs.p_wglDXRegisterObjectNV         = win32u_wglDXRegisterObjectNV;
+        display_funcs.p_wglDXUnregisterObjectNV       = win32u_wglDXUnregisterObjectNV;
+        display_funcs.p_wglDXLockObjectsNV            = win32u_wglDXLockObjectsNV;
+        display_funcs.p_wglDXUnlockObjectsNV          = win32u_wglDXUnlockObjectsNV;
+        display_funcs.p_wglDXObjectAccessNV           = win32u_wglDXObjectAccessNV;
+        display_funcs.p_wglDXSetResourceShareHandleNV = win32u_wglDXSetResourceShareHandleNV;
+        register_extension( wgl_extensions, ARRAY_SIZE(wgl_extensions), "WGL_NV_DX_interop" );
+        register_extension( wgl_extensions, ARRAY_SIZE(wgl_extensions), "WGL_NV_DX_interop2" );
+    }
+    else
+    {
+        display_funcs.p_wglDXOpenDeviceNV = NULL;
+        display_funcs.p_wglDXCloseDeviceNV = NULL;
+        display_funcs.p_wglDXRegisterObjectNV = NULL;
+        display_funcs.p_wglDXUnregisterObjectNV = NULL;
+        display_funcs.p_wglDXLockObjectsNV = NULL;
+        display_funcs.p_wglDXUnlockObjectsNV = NULL;
+        display_funcs.p_wglDXObjectAccessNV = NULL;
+        display_funcs.p_wglDXSetResourceShareHandleNV = NULL;
+    }
+
     if (display_funcs.p_glImportMemoryFdEXT)
     {
         display_funcs.p_glImportMemoryWin32HandleEXT = win32u_glImportMemoryWin32HandleEXT;
@@ -3467,7 +4220,7 @@ static void display_funcs_init(void)
         display_funcs.p_wglQueryCurrentRendererStringWINE = win32u_wglQueryCurrentRendererStringWINE;
         display_funcs.p_wglQueryRendererIntegerWINE = win32u_wglQueryRendererIntegerWINE;
         display_funcs.p_wglQueryRendererStringWINE = win32u_wglQueryRendererStringWINE;
-        LIST_FOR_EACH_ENTRY( egl, &devices_egl, struct egl_platform, entry )
+        LIST_FOR_EACH_ENTRY_SAFE( egl, next, &devices_egl, struct egl_platform, entry )
             init_device_info( egl, &display_funcs );
     }
 }

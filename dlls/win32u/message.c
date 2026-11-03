@@ -46,6 +46,49 @@ WINE_DECLARE_DEBUG_CHANNEL(relay);
 #define QS_HARDWARE     0x40000000
 #define QS_INTERNAL     (QS_DRIVER | QS_HARDWARE)
 
+static pthread_once_t steam_overlay_event_once = PTHREAD_ONCE_INIT;
+static HANDLE steam_overlay_event;
+
+static void init_steam_overlay_event(void)
+{
+    OBJECT_ATTRIBUTES attributes;
+    UNICODE_STRING name;
+    WCHAR buffer[MAX_PATH];
+    char path[MAX_PATH];
+    const char *env;
+    int length;
+
+    if (!(env = getenv( "WINE_WAYLAND_STEAM_OVERLAY_LAYER" )) || !atoi( env )) return;
+    if ((env = getenv( "DISABLE_WINE_WAYLAND_STEAM_OVERLAY_LAYER" )) && atoi( env )) return;
+
+    length = snprintf( path, sizeof(path),
+                       "\\Sessions\\%u\\BaseNamedObjects\\__wine_steamclient_GameOverlayActivated",
+                       (unsigned int)NtCurrentTeb()->Peb->SessionId );
+    if (length < 0 || (size_t)length >= sizeof(path) ||
+        (size_t)length >= ARRAY_SIZE(buffer)) return;
+
+    ascii_to_unicode( buffer, path, length + 1 );
+    name.Buffer = buffer;
+    name.Length = length * sizeof(WCHAR);
+    name.MaximumLength = (length + 1) * sizeof(WCHAR);
+    InitializeObjectAttributes( &attributes, &name,
+                                OBJ_CASE_INSENSITIVE | OBJ_OPENIF, 0, NULL );
+    NtCreateEvent( &steam_overlay_event, EVENT_ALL_ACCESS, &attributes,
+                   NotificationEvent, FALSE );
+}
+
+static BOOL steam_overlay_suppresses_hardware_input(UINT flags, const INPUT *input)
+{
+    LARGE_INTEGER timeout = {0};
+
+    if (flags & SEND_HWMSG_INJECTED) return FALSE;
+    if (input->type != INPUT_KEYBOARD && input->type != INPUT_MOUSE) return FALSE;
+
+    pthread_once( &steam_overlay_event_once, init_steam_overlay_event );
+    return steam_overlay_event &&
+           NtWaitForSingleObject( steam_overlay_event, FALSE, &timeout ) == STATUS_WAIT_0;
+}
+
 static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)0x7ffe0000;
 
 static LONG atomic_load_long( const volatile LONG *ptr )
@@ -2198,6 +2241,9 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
     {
     case WM_WINE_DESTROYWINDOW:
         return destroy_window( hwnd );
+    case WM_WINE_DESTROY_ABANDONED_WINDOW:
+        destroy_abandoned_window( UlongToHandle(wparam) );
+        return 0;
     case WM_WINE_SETWINDOWPOS:
         if (is_desktop_window( hwnd )) return 0;
         return set_window_pos( (WINDOWPOS *)lparam, 0, 0 );
@@ -2243,9 +2289,9 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
     }
     case WM_WINE_WINDOW_STATE_CHANGED:
     {
-        UINT state_cmd, swp_flags;
-        RECT window_rect;
-        HWND foreground;
+        UINT state_cmd = 0, swp_flags = 0;
+        RECT window_rect = {0};
+        HWND foreground = 0;
 
         if (!user_driver->pGetWindowStateUpdates( hwnd, &state_cmd, &swp_flags, &window_rect, &foreground )) goto unlock;
         window_rect = map_rect_raw_to_virt( window_rect, get_thread_dpi() );
@@ -2256,8 +2302,8 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
         case SC_RESTORE:
             if (HIWORD(state_cmd) && !foreground) set_foreground_window( hwnd, FALSE, TRUE );
 
-            /* make the win32 window restore to the current host window config */
-            set_window_normal_placement( hwnd, window_rect );
+            /* make the win32 window restore to the current host window config, if present */
+            if (!IsRectEmpty( &window_rect )) set_window_normal_placement( hwnd, window_rect );
 
             /* fallthrough */
         default:
@@ -2279,6 +2325,9 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
         return 0;
     case WM_WINE_SETPIXELFORMAT:
         set_window_pixel_format( hwnd, wparam, lparam );
+        return 0;
+    case WM_WINE_SETWINDOWSURFACECLIP:
+        set_window_surface_clip( hwnd, wparam );
         return 0;
     case WM_WINE_TRACKMOUSEEVENT:
     {
@@ -3949,6 +3998,8 @@ NTSTATUS send_hardware_message( HWND hwnd, UINT flags, const INPUT *input, LPARA
     NTSTATUS ret;
     BOOL wait;
 
+    if (steam_overlay_suppresses_hardware_input( flags, input )) return STATUS_SUCCESS;
+
     info.type     = MSG_HARDWARE;
     info.dest_tid = 0;
     info.hwnd     = hwnd;
@@ -3988,28 +4039,30 @@ NTSTATUS send_hardware_message( HWND hwnd, UINT flags, const INPUT *input, LPARA
             req->input.mouse.info  = input->mi.dwExtraInfo;
             break;
         case INPUT_KEYBOARD:
-            if (input->ki.dwFlags & KEYEVENTF_SCANCODE)
-            {
-                UINT scan = input->ki.wScan;
-                /* TODO: Use the keyboard layout of the target hwnd, once
-                 * NtUserGetKeyboardLayout supports non-current threads. */
-                HKL layout = NtUserGetKeyboardLayout( 0 );
-                if (flags & SEND_HWMSG_INJECTED)
-                {
-                    scan = scan & 0xff;
-                    if (input->ki.dwFlags & KEYEVENTF_EXTENDEDKEY) scan |= 0xe000;
-                }
-                req->input.kbd.vkey = map_scan_to_kbd_vkey( scan, layout );
-                req->input.kbd.scan = input->ki.wScan & 0xff;
-            }
-            else
-            {
-                req->input.kbd.vkey = input->ki.wVk;
-                req->input.kbd.scan = input->ki.wScan;
-            }
-            req->input.kbd.flags = input->ki.dwFlags & ~KEYEVENTF_SCANCODE;
+            req->input.kbd.vkey  = input->ki.wVk;
+            req->input.kbd.scan  = input->ki.wScan;
+            req->input.kbd.flags = input->ki.dwFlags;
             req->input.kbd.time  = input->ki.time;
             req->input.kbd.info  = input->ki.dwExtraInfo;
+
+            /* Handle the scancode resolution before sending data to wineserver, as it doesn't
+             * have access to keyboard layout tables and needs the vkey to start hook chain.
+             */
+            if (req->input.kbd.flags & KEYEVENTF_SCANCODE)
+            {
+                UINT scan = input->ki.wScan, dummy;
+                HKL layout = NtUserGetKeyboardLayout(NtUserGetWindowThread( hwnd, NULL ));
+
+                if (flags & SEND_HWMSG_INJECTED) scan = scan & 0xff;
+                if (req->input.kbd.flags & KEYEVENTF_EXTENDEDKEY) scan |= 0xe000;
+
+                req->input.kbd.vkey = map_scan_to_kbd_vkey( scan, layout, (flags & SEND_HWMSG_INJECTED) ? &dummy : &scan );
+                if (scan & ~0xff) req->input.kbd.flags |= KEYEVENTF_EXTENDEDKEY;
+                else req->input.kbd.flags &= ~KEYEVENTF_EXTENDEDKEY;
+
+                req->input.kbd.scan = scan & 0xff;
+                req->input.kbd.flags &= ~KEYEVENTF_SCANCODE;
+            }
             break;
         case INPUT_HARDWARE:
             req->input.hw.msg    = input->hi.uMsg;

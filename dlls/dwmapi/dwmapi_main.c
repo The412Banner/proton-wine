@@ -27,6 +27,7 @@
 #include "winbase.h"
 #include "wingdi.h"
 #include "winuser.h"
+#include "ntuser.h"
 #include "dwmapi.h"
 #include "wine/debug.h"
 
@@ -68,7 +69,27 @@ HRESULT WINAPI DwmEnableComposition(UINT uCompositionAction)
  */
 HRESULT WINAPI DwmExtendFrameIntoClientArea(HWND hwnd, const MARGINS* margins)
 {
-    FIXME("(%p, %p) stub\n", hwnd, margins);
+    static const WCHAR custom_frame_prop[] =
+        {'_','_','w','i','n','e','_','d','w','m','_','c','u','s','t','o','m','_','f','r','a','m','e',0};
+    static const WCHAR frameless_window_prop[] =
+        {'_','_','w','i','n','e','_','w','i','n','3','2','u','_','f','r','a','m','e','l','e','s','s',0};
+    BOOL owns, old;
+
+    TRACE("(%p, %p)\n", hwnd, margins);
+
+    owns = margins && margins->cyTopHeight != 0;
+    old = NtUserGetProp(hwnd, custom_frame_prop) != NULL;
+    if (owns != old)
+    {
+        if (owns) NtUserSetProp(hwnd, custom_frame_prop, (HANDLE)1);
+        else
+        {
+            NtUserRemoveProp(hwnd, custom_frame_prop);
+            NtUserRemoveProp(hwnd, frameless_window_prop);
+        }
+        SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 
     return S_OK;
 }
@@ -179,6 +200,137 @@ BOOL WINAPI DwmDefWindowProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam, 
     return FALSE;
 }
 
+/* Wine has no real DWM cloaking. On Wayland the host composites another process's window.
+ * It does not occlude ours even when Wine's flat cross-process list shows it on top.
+ * Reporting it cloaked stops an occlusion tracker (such as CEF's) from counting it as an
+ * opaque occluder and suspending our rendering. PROTON_CLOAK_OCCLUDERS picks the policy:
+ *   off     never cloak (default). stock Windows occlusion.
+ *   cover   cloak a foreign window that overlaps one of our own windows. recommended.
+ *   fs      cloak only a foreign window covering a whole monitor. legacy heuristic.
+ *   always  cloak any foreign visible top-level. blunt fallback. */
+enum cloak_mode { CLOAK_OFF, CLOAK_COVER, CLOAK_FS, CLOAK_ALWAYS };
+
+static BOOL token_is( const char *lowered, const char *lit )
+{
+    while (*lowered && *lit) { if (*lowered != *lit) return FALSE; lowered++; lit++; }
+    return !*lowered && !*lit;
+}
+
+static enum cloak_mode read_cloak_mode( void )
+{
+    char buf[16];
+    DWORD n, i;
+
+    n = GetEnvironmentVariableA( "PROTON_CLOAK_OCCLUDERS", buf, sizeof(buf) );
+    if (!n || n >= sizeof(buf)) return CLOAK_OFF;
+    for (i = 0; buf[i]; i++) if (buf[i] >= 'A' && buf[i] <= 'Z') buf[i] += 32;
+
+    if (token_is(buf,"off") || token_is(buf,"never") || token_is(buf,"none") ||
+        token_is(buf,"stock") || token_is(buf,"disable") || token_is(buf,"0")) return CLOAK_OFF;
+    if (token_is(buf,"cover") || token_is(buf,"auto") || token_is(buf,"on") ||
+        token_is(buf,"1") || token_is(buf,"true")) return CLOAK_COVER;
+    if (token_is(buf,"fs") || token_is(buf,"fullscreen")) return CLOAK_FS;
+    if (token_is(buf,"always") || token_is(buf,"all") || token_is(buf,"force")) return CLOAK_ALWAYS;
+
+    FIXME( "unknown PROTON_CLOAK_OCCLUDERS value, using off. valid: off cover fs always.\n" );
+    return CLOAK_OFF;
+}
+
+static enum cloak_mode cloak_mode( void )
+{
+    static LONG mode = -1;
+    if (mode == -1) InterlockedCompareExchange( &mode, read_cloak_mode(), -1 );
+    return mode;
+}
+
+/* Foreign opaque top-level gate, shared by every cloak mode. Never our own process: a
+ * tracker queries its OWN windows through this path and a self-cloak would hide it from
+ * itself. Never the shared desktop. Match the visible-and-opaque test CEF uses so we
+ * never cloak a window it skips. */
+static BOOL is_foreign_opaque_toplevel( HWND hwnd, DWORD *style_out )
+{
+    DWORD pid = 0, style, exstyle;
+
+    GetWindowThreadProcessId( hwnd, &pid );
+    if (!pid || pid == GetCurrentProcessId()) return FALSE;
+    if (hwnd == GetDesktopWindow()) return FALSE;
+
+    style = GetWindowLongW( hwnd, GWL_STYLE );
+    if (!(style & WS_VISIBLE) || (style & (WS_MINIMIZE | WS_CHILD))) return FALSE;
+
+    exstyle = GetWindowLongW( hwnd, GWL_EXSTYLE );
+    if (exstyle & (WS_EX_TRANSPARENT | WS_EX_LAYERED)) return FALSE;
+
+    if (style_out) *style_out = style;
+    return TRUE;
+}
+
+struct own_toplevels { RECT rc[64]; UINT count; };
+
+static BOOL CALLBACK collect_own_toplevel( HWND hwnd, LPARAM lparam )
+{
+    struct own_toplevels *own = (struct own_toplevels *)lparam;
+    DWORD pid = 0, style;
+    RECT rc;
+
+    GetWindowThreadProcessId( hwnd, &pid );
+    if (pid != GetCurrentProcessId()) return TRUE;
+    style = GetWindowLongW( hwnd, GWL_STYLE );
+    if (!(style & WS_VISIBLE) || (style & WS_MINIMIZE)) return TRUE;
+    if (own->count >= sizeof(own->rc) / sizeof(own->rc[0])) return FALSE;
+    if (GetWindowRect( hwnd, &rc ) && !IsRectEmpty( &rc )) own->rc[own->count++] = rc;
+    return TRUE;
+}
+
+/* cover: a foreign opaque top-level overlapping one of our own visible top-levels.
+ * Geometric overlap is the real occlusion condition. It catches fullscreen, windowed,
+ * borderless and monitor-straddling occluders, never a window on another monitor or
+ * beside us. */
+static BOOL window_is_covering_occluder( HWND hwnd )
+{
+    struct own_toplevels own = { 0 };
+    RECT rc, isect;
+    UINT i;
+
+    if (!is_foreign_opaque_toplevel( hwnd, NULL )) return FALSE;
+    if (!GetWindowRect( hwnd, &rc ) || IsRectEmpty( &rc )) return FALSE;
+
+    EnumWindows( collect_own_toplevel, (LPARAM)&own );
+    for (i = 0; i < own.count; i++)
+        if (IntersectRect( &isect, &rc, &own.rc[i] )) return TRUE;
+    return FALSE;
+}
+
+/* fs: legacy heuristic, a foreign borderless top-level covering a whole monitor. */
+static BOOL window_is_fullscreen_occluder( HWND hwnd )
+{
+    DWORD style;
+    MONITORINFO mi = { sizeof(mi) };
+    HMONITOR mon;
+    RECT rc;
+
+    if (!is_foreign_opaque_toplevel( hwnd, &style )) return FALSE;
+    if (style & (WS_CAPTION | WS_THICKFRAME)) return FALSE;
+    if (!GetWindowRect( hwnd, &rc )) return FALSE;
+    if (!(mon = MonitorFromWindow( hwnd, MONITOR_DEFAULTTONULL ))) return FALSE;
+    if (!GetMonitorInfoW( mon, &mi )) return FALSE;
+
+    return rc.left <= mi.rcMonitor.left && rc.top <= mi.rcMonitor.top &&
+           rc.right >= mi.rcMonitor.right && rc.bottom >= mi.rcMonitor.bottom;
+}
+
+static BOOL window_reports_cloaked( HWND hwnd )
+{
+    switch (cloak_mode())
+    {
+    case CLOAK_COVER:  return window_is_covering_occluder( hwnd );
+    case CLOAK_FS:     return window_is_fullscreen_occluder( hwnd );
+    case CLOAK_ALWAYS: return is_foreign_opaque_toplevel( hwnd, NULL );
+    case CLOAK_OFF:
+    default:           return FALSE;
+    }
+}
+
 /**********************************************************************
  *           DwmGetWindowAttribute         (DWMAPI.@)
  */
@@ -230,8 +382,13 @@ HRESULT WINAPI DwmGetWindowAttribute(HWND hwnd, DWORD attribute, PVOID pv_attrib
         if (size < sizeof(DWORD))
             return E_INVALIDARG;
 
-        FIXME("DWMWA_CLOAKED: always returning 0.\n");
-        *(DWORD*)(pv_attribute) = 0;
+        if (window_reports_cloaked( hwnd ))
+        {
+            TRACE("DWMWA_CLOAKED: hwnd %p reported cloaked (mode %d).\n", hwnd, cloak_mode());
+            *(DWORD*)(pv_attribute) = DWM_CLOAKED_SHELL;
+        }
+        else
+            *(DWORD*)(pv_attribute) = 0;
         hr = S_OK;
         break;
 

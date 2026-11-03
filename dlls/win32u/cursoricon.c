@@ -62,6 +62,12 @@ struct cursoricon_object
 };
 
 static struct list icon_cache = LIST_INIT( icon_cache );
+static pthread_mutex_t driver_cursor_mutex = PTHREAD_MUTEX_INITIALIZER;
+static BOOL driver_cursor_suppressed;
+static BOOL driver_cursor_valid;
+static unsigned int driver_cursor_generation;
+static HWND driver_cursor_window;
+static HCURSOR driver_cursor_handle;
 
 static struct cursoricon_object *get_icon_ptr( HICON handle )
 {
@@ -74,10 +80,69 @@ static struct cursoricon_object *get_icon_ptr( HICON handle )
     return obj;
 }
 
+static void apply_driver_cursor(void)
+{
+    HWND window;
+    HCURSOR handle;
+    unsigned int generation;
+    BOOL current, valid;
+
+    /* A concurrent SetCursor must not reinstate a cursor after suppression.
+     * Do not hold our lock across driver calls, which may reapply clipping. */
+    do
+    {
+        pthread_mutex_lock( &driver_cursor_mutex );
+        window = driver_cursor_window;
+        handle = driver_cursor_suppressed ? 0 : driver_cursor_handle;
+        valid = driver_cursor_valid;
+        generation = driver_cursor_generation;
+        pthread_mutex_unlock( &driver_cursor_mutex );
+
+        if (valid) user_driver->pSetCursor( window, handle );
+
+        pthread_mutex_lock( &driver_cursor_mutex );
+        current = generation == driver_cursor_generation;
+        pthread_mutex_unlock( &driver_cursor_mutex );
+    } while (!current);
+}
+
+W32KAPI void __wine_suppress_driver_cursor(BOOL suppress)
+{
+    BOOL changed;
+
+    pthread_mutex_lock( &driver_cursor_mutex );
+    changed = driver_cursor_suppressed != !!suppress;
+    driver_cursor_suppressed = !!suppress;
+    if (changed) ++driver_cursor_generation;
+    pthread_mutex_unlock( &driver_cursor_mutex );
+    if (changed) apply_driver_cursor();
+}
+
+W32KAPI void __wine_reapply_driver_cursor(void)
+{
+    RECT clip;
+    UINT context;
+
+    apply_driver_cursor();
+
+    context = NtUserSetThreadDpiAwarenessContext( NTUSER_DPI_PER_MONITOR_AWARE );
+    if (NtUserGetClipCursor( &clip )) NtUserClipCursor( &clip );
+    NtUserSetThreadDpiAwarenessContext( context );
+}
+
 BOOL process_wine_setcursor( HWND hwnd, HWND window, HCURSOR handle )
 {
     TRACE( "hwnd %p, window %p, hcursor %p\n", hwnd, window, handle );
-    user_driver->pSetCursor( window, handle );
+    pthread_mutex_lock( &driver_cursor_mutex );
+    if (!driver_cursor_valid || driver_cursor_window != window || driver_cursor_handle != handle)
+    {
+        driver_cursor_valid = TRUE;
+        driver_cursor_window = window;
+        driver_cursor_handle = handle;
+        ++driver_cursor_generation;
+    }
+    pthread_mutex_unlock( &driver_cursor_mutex );
+    apply_driver_cursor();
     return TRUE;
 }
 

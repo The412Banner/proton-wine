@@ -117,6 +117,7 @@ my %arg_types =
      "HDC" =>                  [ "long",   "%p" ],
      "HGLRC" =>                [ "long",   "%p" ],
      "HPBUFFERARB" =>          [ "long",   "%p" ],
+     "HANDLE" =>               [ "long",   "%p" ],
      "HENHMETAFILE" =>         [ "long",   "%p" ],
      "LPGLYPHMETRICSFLOAT" =>  [ "ptr",    "%p" ],
      "LPCSTR" =>               [ "str",    "wine_dbgstr_a(%s)" ],
@@ -221,6 +222,34 @@ my %manual_unix_thunks =
      "glViewport" => 1,
      "wglGetProcAddress" => 1,
      "wglSwapBuffers" => 1,
+    );
+my @wine_export_funcs =
+    (
+     "wglWineCloseDmaBufWINE",
+     "wglWineDmaBufExportSupportedWINE",
+     "wglWineExportDmaBufWINE",
+     "wglWineHwndDmaBufOpenProducerWINE",
+     "wglWineHwndDmaBufGetCapsWINE",
+     "wglWineHwndDmaBufCloseProducerWINE",
+     "wglWineHwndDmaBufPublishWINE",
+     "wglWineHwndDmaBufDrainReleaseWINE",
+    );
+my @wine_unix_call_funcs =
+    (
+     "wglWineCloseDmaBufWINE",
+     "wglWineDmaBufExportSupportedWINE",
+     "wglWineExportDmaBufWINE",
+    );
+my %wine_unix_call_specs =
+    (
+     "wglWineCloseDmaBufWINE" => "long",
+     "wglWineDmaBufExportSupportedWINE" => "",
+     "wglWineExportDmaBufWINE" => "long long ptr ptr",
+     "wglWineHwndDmaBufOpenProducerWINE" => "ptr",
+     "wglWineHwndDmaBufGetCapsWINE" => "ptr ptr ptr long ptr",
+     "wglWineHwndDmaBufCloseProducerWINE" => "ptr long",
+     "wglWineHwndDmaBufPublishWINE" => "ptr long ptr long",
+     "wglWineHwndDmaBufDrainReleaseWINE" => "long ptr",
     );
 my %hide_default_fbo_thunks =
     (
@@ -492,6 +521,67 @@ sub generate_unix_thunk($$$$)
     $ret .= "wow64_" if $is_wow64;
     $ret .= "$prefix\_$name( void *args )\n";
     $ret .= "{\n";
+
+    if ($is_wow64 && ($name eq "wglDXLockObjectsNV" || $name eq "wglDXUnlockObjectsNV"))
+    {
+        $ret .= "    struct\n";
+        $ret .= "    {\n";
+        $ret .= "        PTR32 teb;\n";
+        $ret .= "        PTR32 hDevice;\n";
+        $ret .= "        GLint count;\n";
+        $ret .= "        PTR32 hObjects;\n";
+        $ret .= "        BOOL ret;\n";
+        $ret .= "    } *params = args;\n";
+        $ret .= "    TEB *teb = get_teb64( params->teb );\n";
+        $ret .= "    const struct opengl_funcs *funcs = teb->glTable;\n";
+        $ret .= "    HANDLE *hObjects;\n";
+        $ret .= "    if (!funcs->p_$name) return STATUS_NOT_IMPLEMENTED;\n";
+        $ret .= "    hObjects = copy_wow64_ptr32s( params->hObjects, params->count );\n";
+        $ret .= "    params->ret = funcs->p_$name( ULongToPtr(params->hDevice), params->count, hObjects );\n";
+        $ret .= "    free( hObjects );\n";
+        $ret .= "    return STATUS_SUCCESS;\n";
+        $ret .= "}\n\n";
+        return $ret;
+    }
+
+    if ($is_wow64 && $name eq "wglDXOpenDeviceNV")
+    {
+        $ret .= "    struct\n";
+        $ret .= "    {\n";
+        $ret .= "        PTR32 teb;\n";
+        $ret .= "        PTR32 dxDevice;\n";
+        $ret .= "        PTR32 ret;\n";
+        $ret .= "    } *params = args;\n";
+        $ret .= "    TEB *teb = get_teb64( params->teb );\n";
+        $ret .= "    const struct opengl_funcs *funcs = teb->glTable;\n";
+        $ret .= "    if (!funcs->p_wglDXOpenDeviceNV) return STATUS_NOT_IMPLEMENTED;\n";
+        $ret .= "    params->ret = (UINT_PTR)funcs->p_wglDXOpenDeviceNV( ULongToPtr(params->dxDevice) );\n";
+        $ret .= "    return STATUS_SUCCESS;\n";
+        $ret .= "}\n\n";
+        return $ret;
+    }
+
+    if ($is_wow64 && $name eq "wglDXRegisterObjectNV")
+    {
+        $ret .= "    struct\n";
+        $ret .= "    {\n";
+        $ret .= "        PTR32 teb;\n";
+        $ret .= "        PTR32 hDevice;\n";
+        $ret .= "        PTR32 dxObject;\n";
+        $ret .= "        GLuint name;\n";
+        $ret .= "        GLenum type;\n";
+        $ret .= "        GLenum access;\n";
+        $ret .= "        PTR32 ret;\n";
+        $ret .= "    } *params = args;\n";
+        $ret .= "    TEB *teb = get_teb64( params->teb );\n";
+        $ret .= "    const struct opengl_funcs *funcs = teb->glTable;\n";
+        $ret .= "    if (!funcs->p_wglDXRegisterObjectNV) return STATUS_NOT_IMPLEMENTED;\n";
+        $ret .= "    params->ret = (UINT_PTR)funcs->p_wglDXRegisterObjectNV( ULongToPtr(params->hDevice),\n";
+        $ret .= "            ULongToPtr(params->dxObject), params->name, params->type, params->access );\n";
+        $ret .= "    return STATUS_SUCCESS;\n";
+        $ret .= "}\n\n";
+        return $ret;
+    }
 
     # special case for functions that take an HDC as first parameter
     $use_dc = @{$func->[1]} && get_arg_type( ${$func->[1]}[0] ) eq "HDC" && $name !~ /wglMake(Context)?Current/;
@@ -817,6 +907,106 @@ sub generate_spec_entry($$)
     return "@ stdcall $_($args)";
 }
 
+sub print_wine_unix_call_params($)
+{
+    my $out = shift;
+
+    print $out "struct wglWineCloseDmaBufWINE_params\n";
+    print $out "{\n";
+    print $out "    int fd;\n";
+    print $out "};\n\n";
+    print $out "struct wglWineDmaBufExportSupportedWINE_params\n";
+    print $out "{\n";
+    print $out "    TEB *teb;\n";
+    print $out "    BOOL ret;\n";
+    print $out "};\n\n";
+    print $out "struct wglWineExportDmaBufWINE_params\n";
+    print $out "{\n";
+    print $out "    TEB *teb;\n";
+    print $out "    GLuint texture;\n";
+    print $out "    GLenum target;\n";
+    print $out "    struct wgl_dmabuf_desc *desc;\n";
+    print $out "    int *fd;\n";
+    print $out "    BOOL ret;\n";
+    print $out "};\n\n";
+}
+
+sub print_wine_unix_call_thunks($$)
+{
+    my ($out, $is_wow64) = @_;
+    my $prefix = $is_wow64 ? "wow64_" : "";
+
+    print $out "static NTSTATUS ${prefix}ext_wglWineCloseDmaBufWINE( void *args )\n";
+    print $out "{\n";
+    print $out "    struct\n" if $is_wow64;
+    print $out "    {\n" if $is_wow64;
+    print $out "        int fd;\n" if $is_wow64;
+    print $out "    } *params = args;\n" if $is_wow64;
+    print $out "    struct wglWineCloseDmaBufWINE_params *params = args;\n" unless $is_wow64;
+    print $out "\n";
+    print $out "    if (params->fd >= 0) close( params->fd );\n";
+    print $out "    return STATUS_SUCCESS;\n";
+    print $out "}\n\n";
+
+    print $out "static NTSTATUS ${prefix}ext_wglWineDmaBufExportSupportedWINE( void *args )\n";
+    print $out "{\n";
+    if ($is_wow64)
+    {
+        print $out "    struct\n";
+        print $out "    {\n";
+        print $out "        PTR32 teb;\n";
+        print $out "        BOOL ret;\n";
+        print $out "    } *params = args;\n";
+        print $out "    TEB *teb = get_teb64( params->teb );\n";
+    }
+    else
+    {
+        print $out "    struct wglWineDmaBufExportSupportedWINE_params *params = args;\n";
+        print $out "    TEB *teb = params->teb;\n";
+    }
+    print $out "    const struct opengl_funcs *funcs = teb->glTable;\n\n";
+    print $out "    params->ret = funcs && funcs->p_wglWineDmaBufExportSupportedWINE &&\n";
+    print $out "            funcs->p_wglWineDmaBufExportSupportedWINE();\n";
+    print $out "    return STATUS_SUCCESS;\n";
+    print $out "}\n\n";
+
+    print $out "static NTSTATUS ${prefix}ext_wglWineExportDmaBufWINE( void *args )\n";
+    print $out "{\n";
+    if ($is_wow64)
+    {
+        print $out "    struct\n";
+        print $out "    {\n";
+        print $out "        PTR32 teb;\n";
+        print $out "        GLuint texture;\n";
+        print $out "        GLenum target;\n";
+        print $out "        PTR32 desc;\n";
+        print $out "        PTR32 fd;\n";
+        print $out "        BOOL ret;\n";
+        print $out "    } *params = args;\n";
+        print $out "    TEB *teb = get_teb64( params->teb );\n";
+    }
+    else
+    {
+        print $out "    struct wglWineExportDmaBufWINE_params *params = args;\n";
+        print $out "    TEB *teb = params->teb;\n";
+    }
+    print $out "    const struct opengl_funcs *funcs = teb->glTable;\n\n";
+    print $out "    if (!funcs || !funcs->p_wglWineExportDmaBufWINE) return STATUS_NOT_IMPLEMENTED;\n";
+    if ($is_wow64)
+    {
+        print $out "    params->ret = funcs->p_wglWineExportDmaBufWINE( params->texture, params->target,\n";
+        print $out "            ULongToPtr(params->desc), ULongToPtr(params->fd) );\n";
+    }
+    else
+    {
+        print $out "    params->ret = funcs->p_wglWineExportDmaBufWINE( params->texture, params->target,\n";
+        print $out "            params->desc, params->fd );\n";
+    }
+    print $out "    return STATUS_SUCCESS;\n";
+    print $out "}\n\n";
+
+}
+
 sub generate_func_params($$)
 {
     my ($name, $func) = @_;
@@ -973,8 +1163,6 @@ my %unsupported_extensions =
     "WGL_EXT_pixel_format" => 1,
     "WGL_NV_copy_image" => 1,
     "WGL_NV_delay_before_swap" => 1,
-    "WGL_NV_DX_interop" => 1,
-    "WGL_NV_DX_interop2" => 1,
     "WGL_NV_gpu_affinity" => 1,
     "WGL_NV_multigpu_context" => 1,
     "WGL_NV_multisample_coverage" => 1,
@@ -1339,6 +1527,10 @@ foreach (sort keys %wgl_functions)
 {
     printf SPEC "%s\n", generate_spec_entry( $_, $wgl_functions{$_} );
 }
+foreach (@wine_export_funcs)
+{
+    printf SPEC "\@ stdcall %s(%s)\n", $_, $wine_unix_call_specs{$_};
+}
 
 close(SPEC);
 
@@ -1361,6 +1553,7 @@ print OUT "#include \"winternl.h\"\n";
 print OUT "#include \"wingdi.h\"\n";
 print OUT "#include \"ntuser.h\"\n\n";
 print OUT "#include \"wine/wgl.h\"\n";
+print OUT "#include \"wine/opengl_driver.h\"\n";
 print OUT "#include \"wine/unixlib.h\"\n\n";
 
 print OUT "struct process_attach_params\n";
@@ -1373,6 +1566,7 @@ foreach (sort keys %wgl_functions)
     next if defined $manual_win_functions{$_};
     print OUT generate_func_params($_, $wgl_functions{$_});
 }
+print_wine_unix_call_params( \*OUT );
 foreach (sort keys %norm_functions)
 {
     next if defined $manual_win_functions{$_};
@@ -1415,6 +1609,10 @@ foreach (sort keys %ext_functions)
 {
     next if $_ =~ /^egl/; # unix-side only API
     next if defined $manual_win_functions{$_};
+    printf OUT "    unix_%s,\n", $_;
+}
+foreach (@wine_unix_call_funcs)
+{
     printf OUT "    unix_%s,\n", $_;
 }
 print OUT "    funcs_count\n";
@@ -1558,6 +1756,7 @@ print OUT "#endif\n\n";
 
 print OUT "#include <stdarg.h>\n";
 print OUT "#include <stddef.h>\n\n";
+print OUT "#include <unistd.h>\n\n";
 print OUT "#include <assert.h>\n\n";
 
 print OUT "#include \"ntstatus.h\"\n";
@@ -1571,7 +1770,6 @@ print OUT "#include \"unix_private.h\"\n\n";
 print OUT "#include \"wine/debug.h\"\n\n";
 
 print OUT "WINE_DEFAULT_DEBUG_CHANNEL(opengl);\n\n";
-
 print OUT "static GLboolean const_false;\n";
 print OUT "static GLboolean const_true = 1;\n\n";
 
@@ -1591,6 +1789,7 @@ foreach (sort keys %ext_functions)
     next if defined $manual_win_functions{$_};
     print OUT generate_unix_thunk($_, $ext_functions{$_}, 0, "ext");
 }
+print_wine_unix_call_thunks( \*OUT, 0 );
 
 print OUT "const unixlib_entry_t __wine_unix_call_funcs[] =\n";
 print OUT "{\n";
@@ -1612,6 +1811,10 @@ foreach (sort keys %ext_functions)
 {
     next if $_ =~ /^egl/; # unix-side only API
     next if defined $manual_win_functions{$_};
+    printf OUT "    ext_%s,\n", $_;
+}
+foreach (@wine_unix_call_funcs)
+{
     printf OUT "    ext_%s,\n", $_;
 }
 print OUT "};\n\n";
@@ -1638,6 +1841,7 @@ foreach (sort keys %ext_functions)
     next if defined $manual_win_functions{$_};
     print OUT generate_unix_thunk($_, $ext_functions{$_}, 1, "ext");
 }
+print_wine_unix_call_thunks( \*OUT, 1 );
 
 print OUT "\nconst unixlib_entry_t __wine_unix_call_wow64_funcs[] =\n";
 print OUT "{\n";
@@ -1659,6 +1863,10 @@ foreach (sort keys %ext_functions)
 {
     next if $_ =~ /^egl/; # unix-side only API
     next if defined $manual_win_functions{$_};
+    printf OUT "    wow64_ext_%s,\n", $_;
+}
+foreach (@wine_unix_call_funcs)
+{
     printf OUT "    wow64_ext_%s,\n", $_;
 }
 print OUT "};\n\n";

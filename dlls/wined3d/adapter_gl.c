@@ -5057,6 +5057,19 @@ static BOOL wined3d_adapter_gl_init(struct wined3d_adapter_gl *adapter_gl,
 #undef USE_GL_FUNC
         gl_info->gl_ops.wgl.p_wglSwapBuffers = (void *)GetProcAddress(mod_gl, "wglSwapBuffers");
         gl_info->gl_ops.wgl.p_wglGetPixelFormat = (void *)GetProcAddress(mod_gl, "wglGetPixelFormat");
+        gl_info->p_wglWineCloseDmaBufWINE = (void *)GetProcAddress(mod_gl, "wglWineCloseDmaBufWINE");
+        gl_info->p_wglWineDmaBufExportSupportedWINE = (void *)GetProcAddress(mod_gl, "wglWineDmaBufExportSupportedWINE");
+        gl_info->p_wglWineExportDmaBufWINE = (void *)GetProcAddress(mod_gl, "wglWineExportDmaBufWINE");
+        gl_info->p_wglWineHwndDmaBufOpenProducerWINE =
+                (void *)GetProcAddress(mod_gl, "wglWineHwndDmaBufOpenProducerWINE");
+        gl_info->p_wglWineHwndDmaBufGetCapsWINE =
+                (void *)GetProcAddress(mod_gl, "wglWineHwndDmaBufGetCapsWINE");
+        gl_info->p_wglWineHwndDmaBufCloseProducerWINE =
+                (void *)GetProcAddress(mod_gl, "wglWineHwndDmaBufCloseProducerWINE");
+        gl_info->p_wglWineHwndDmaBufPublishWINE =
+                (void *)GetProcAddress(mod_gl, "wglWineHwndDmaBufPublishWINE");
+        gl_info->p_wglWineHwndDmaBufDrainReleaseWINE =
+                (void *)GetProcAddress(mod_gl, "wglWineHwndDmaBufDrainReleaseWINE");
     }
 
     gl_info->p_glEnableWINE = gl_info->gl_ops.gl.p_glEnable;

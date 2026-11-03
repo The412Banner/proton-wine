@@ -94,7 +94,7 @@ struct VkDevice_T
 #include "wine/list.h"
 
 /* Wine internal vulkan driver version, needs to be bumped upon vulkan_funcs changes. */
-#define WINE_VULKAN_DRIVER_VERSION 47
+#define WINE_VULKAN_DRIVER_VERSION 49
 
 struct vulkan_object
 {
@@ -367,18 +367,29 @@ struct vulkan_funcs
     PFN_vkGetPhysicalDeviceSurfaceFormats2KHR p_vkGetPhysicalDeviceSurfaceFormats2KHR;
     PFN_vkGetPhysicalDeviceSurfaceFormatsKHR p_vkGetPhysicalDeviceSurfaceFormatsKHR;
     PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR p_vkGetPhysicalDeviceWin32PresentationSupportKHR;
+    PFN_vkGetPastPresentationTimingEXT p_vkGetPastPresentationTimingEXT;
+    PFN_vkGetLatencyTimingsNV p_vkGetLatencyTimingsNV;
     PFN_vkGetSemaphoreWin32HandleKHR p_vkGetSemaphoreWin32HandleKHR;
+    PFN_vkGetSwapchainTimingPropertiesEXT p_vkGetSwapchainTimingPropertiesEXT;
     PFN_vkGetSwapchainImagesKHR p_vkGetSwapchainImagesKHR;
     PFN_vkImportFenceWin32HandleKHR p_vkImportFenceWin32HandleKHR;
     PFN_vkImportSemaphoreWin32HandleKHR p_vkImportSemaphoreWin32HandleKHR;
+    PFN_vkLatencySleepNV p_vkLatencySleepNV;
     PFN_vkMapMemory p_vkMapMemory;
     PFN_vkMapMemory2KHR p_vkMapMemory2KHR;
     PFN_vkQueuePresentKHR p_vkQueuePresentKHR;
+    PFN_vkReleaseSwapchainImagesEXT p_vkReleaseSwapchainImagesEXT;
+    PFN_vkReleaseSwapchainImagesKHR p_vkReleaseSwapchainImagesKHR;
+    PFN_vkSetHdrMetadataEXT p_vkSetHdrMetadataEXT;
+    PFN_vkSetLatencyMarkerNV p_vkSetLatencyMarkerNV;
+    PFN_vkSetSwapchainPresentTimingQueueSizeEXT p_vkSetSwapchainPresentTimingQueueSizeEXT;
     PFN_vkQueueSubmit p_vkQueueSubmit;
     PFN_vkQueueSubmit2 p_vkQueueSubmit2;
     PFN_vkQueueSubmit2KHR p_vkQueueSubmit2KHR;
     PFN_vkUnmapMemory p_vkUnmapMemory;
     PFN_vkUnmapMemory2KHR p_vkUnmapMemory2KHR;
+    PFN_vkWaitForPresentKHR p_vkWaitForPresentKHR;
+    PFN_vkWaitForPresent2KHR p_vkWaitForPresent2KHR;
     PFN_vkGetSemaphoreCounterValue p_vkGetSemaphoreCounterValue;
     PFN_vkGetSemaphoreCounterValueKHR p_vkGetSemaphoreCounterValueKHR;
     PFN_vkSignalSemaphore p_vkSignalSemaphore;
@@ -392,7 +403,10 @@ struct client_surface;
 struct vulkan_driver_funcs
 {
     VkResult (*p_vulkan_surface_create)(HWND, BOOL, const struct vulkan_instance *, VkSurfaceKHR *, struct client_surface **);
+    VkColorSpaceKHR (*p_vulkan_map_colorspace)( VkColorSpaceKHR, struct client_surface * );
+    void (*p_vulkan_surface_set_alpha)( VkCompositeAlphaFlagBitsKHR, struct client_surface * );
     VkBool32 (*p_get_physical_device_presentation_support)(struct vulkan_physical_device *, uint32_t);
+    UINT (*p_vulkan_get_hwnd_dmabuf_caps)( HWND, void *, void *, UINT, UINT * );
     void (*p_map_instance_extensions)( struct vulkan_instance_extensions *extensions );
     void (*p_map_device_extensions)( struct vulkan_device_extensions *extensions );
 };

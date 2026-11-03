@@ -1136,6 +1136,11 @@
 @ stub -syscall NtUserHidePointerContactVisualization
 @ stdcall -syscall NtUserHiliteMenuItem(long long long long)
 @ stub -syscall NtUserHungWindowFromGhostWindow
+@ stdcall -syscall NtUserHwndDmaBufCloseProducer(long long)
+@ stdcall -syscall NtUserHwndDmaBufDrainRelease(long ptr)
+@ stdcall -syscall NtUserHwndDmaBufGetCaps(long ptr ptr long ptr)
+@ stdcall -syscall NtUserHwndDmaBufOpenProducer(long)
+@ stdcall -syscall NtUserHwndDmaBufPublish(long long ptr long)
 @ stub -syscall NtUserHwndQueryRedirectionInfo
 @ stub -syscall NtUserHwndSetRedirectionInfo
 @ stub -syscall NtUserImpersonateDdeClientWindow

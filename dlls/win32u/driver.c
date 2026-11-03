@@ -25,6 +25,7 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <stdlib.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -683,6 +684,10 @@ static BOOL nulldrv_SetIMECompositionRect( HWND hwnd, RECT rect )
     return FALSE;
 }
 
+static void nulldrv_EnableIMEContext( HWND hwnd, BOOL enabled )
+{
+}
+
 static LRESULT nulldrv_DesktopWindowProc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
     return default_window_proc( hwnd, msg, wparam, lparam, FALSE );
@@ -883,6 +888,11 @@ static BOOL nulldrv_GetWindowStateUpdates( HWND hwnd, UINT *state_cmd, UINT *swp
     return FALSE;
 }
 
+static BOOL nulldrv_GetWindowMaxTrackSize( HWND hwnd, SIZE *size )
+{
+    return FALSE;
+}
+
 static BOOL nulldrv_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *surface_rect, struct window_surface **surface )
 {
     return FALSE;
@@ -896,6 +906,11 @@ static void nulldrv_MoveWindowBits( HWND hwnd, const struct window_rects *old_re
 static void nulldrv_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UINT swp_flags,
                                       const struct window_rects *new_rects, struct window_surface *surface )
 {
+}
+
+static UINT nulldrv_GetForeignGdiSurfaceCaps(void)
+{
+    return 0;
 }
 
 static BOOL nulldrv_SystemParametersInfo( UINT action, UINT int_param, void *ptr_param, UINT flags )
@@ -1033,7 +1048,15 @@ static const struct user_driver_funcs *load_driver(void)
 
 void init_display_driver(void)
 {
+    const char *env;
+
     if (user_driver == &lazy_load_driver) load_display_driver();
+    if (user_driver == &null_user_driver) return;
+
+    env = getenv( "WINE_WAYLAND_STEAM_OVERLAY_LAYER" );
+    if (env && atoi( env ) && !vulkan_init_in_progress() &&
+        (!(env = getenv( "DISABLE_WINE_WAYLAND_STEAM_OVERLAY_LAYER" )) || !atoi( env )))
+        (void)get_d3dkmt_vulkan_instance();
 }
 
 /**********************************************************************
@@ -1114,6 +1137,11 @@ static void loaderdrv_NotifyIMEStatus( HWND hwnd, UINT status )
 static BOOL loaderdrv_SetIMECompositionRect( HWND hwnd, RECT rect )
 {
     return load_driver()->pSetIMECompositionRect( hwnd, rect );
+}
+
+static void loaderdrv_EnableIMEContext( HWND hwnd, BOOL enabled )
+{
+    return load_driver()->pEnableIMEContext( hwnd, enabled );
 }
 
 static LONG loaderdrv_ChangeDisplaySettings( LPDEVMODEW displays, LPCWSTR primary_name, HWND hwnd,
@@ -1248,6 +1276,11 @@ static UINT loaderdrv_OpenGLInit( UINT version, const struct opengl_funcs *openg
     return load_driver()->pOpenGLInit( version, opengl_funcs, driver_funcs );
 }
 
+static UINT loaderdrv_GetForeignGdiSurfaceCaps(void)
+{
+    return load_driver()->pGetForeignGdiSurfaceCaps();
+}
+
 static const struct user_driver_funcs lazy_load_driver =
 {
     { NULL },
@@ -1266,6 +1299,7 @@ static const struct user_driver_funcs lazy_load_driver =
     loaderdrv_ImeProcessKey,
     loaderdrv_NotifyIMEStatus,
     loaderdrv_SetIMECompositionRect,
+    loaderdrv_EnableIMEContext,
     /* cursor/icon functions */
     nulldrv_DestroyCursorIcon,
     loaderdrv_SetCursor,
@@ -1312,9 +1346,11 @@ static const struct user_driver_funcs lazy_load_driver =
     nulldrv_WindowPosChanging,
     nulldrv_GetWindowStyleMasks,
     nulldrv_GetWindowStateUpdates,
+    nulldrv_GetWindowMaxTrackSize,
     nulldrv_CreateWindowSurface,
     nulldrv_MoveWindowBits,
     nulldrv_WindowPosChanged,
+    loaderdrv_GetForeignGdiSurfaceCaps,
     /* system parameters */
     nulldrv_SystemParametersInfo,
     /* wintab support */
@@ -1371,6 +1407,7 @@ void __wine_set_user_driver( const struct user_driver_funcs *funcs, UINT version
     SET_USER_FUNC(ImeProcessKey);
     SET_USER_FUNC(NotifyIMEStatus);
     SET_USER_FUNC(SetIMECompositionRect);
+    SET_USER_FUNC(EnableIMEContext);
     SET_USER_FUNC(DestroyCursorIcon);
     SET_USER_FUNC(SetCursor);
     SET_USER_FUNC(GetCursorPos);
@@ -1412,9 +1449,11 @@ void __wine_set_user_driver( const struct user_driver_funcs *funcs, UINT version
     SET_USER_FUNC(WindowPosChanging);
     SET_USER_FUNC(GetWindowStyleMasks);
     SET_USER_FUNC(GetWindowStateUpdates);
+    SET_USER_FUNC(GetWindowMaxTrackSize);
     SET_USER_FUNC(CreateWindowSurface);
     SET_USER_FUNC(MoveWindowBits);
     SET_USER_FUNC(WindowPosChanged);
+    SET_USER_FUNC(GetForeignGdiSurfaceCaps);
     SET_USER_FUNC(SystemParametersInfo);
     SET_USER_FUNC(WintabProc);
     SET_USER_FUNC(VulkanInit);

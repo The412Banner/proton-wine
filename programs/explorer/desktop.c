@@ -1003,17 +1003,22 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
     HMODULE module = 0;
     HKEY hkey;
     char error[80];
+    DWORD size;
 
     if (!driver)
     {
-        lstrcpyW( buffer, default_driver );
-
-        /* @@ Wine registry key: HKCU\Software\Wine\Drivers */
-        if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Drivers", &hkey ))
+        size = GetEnvironmentVariableW( L"WINE_GRAPHICS_DRIVER", buffer, ARRAY_SIZE(buffer) );
+        if (!size || size >= ARRAY_SIZE(buffer))
         {
-            DWORD count = sizeof(buffer);
-            RegQueryValueExW( hkey, L"Graphics", 0, NULL, (LPBYTE)buffer, &count );
-            RegCloseKey( hkey );
+            lstrcpyW( buffer, default_driver );
+
+            /* @@ Wine registry key: HKCU\Software\Wine\Drivers */
+            if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Drivers", &hkey ))
+            {
+                DWORD count = sizeof(buffer);
+                RegQueryValueExW( hkey, L"Graphics", 0, NULL, (LPBYTE)buffer, &count );
+                RegCloseKey( hkey );
+            }
         }
     }
     else lstrcpynW( buffer, driver, ARRAY_SIZE( buffer ));

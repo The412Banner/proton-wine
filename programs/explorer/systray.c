@@ -553,6 +553,12 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     {
         MSG message = {.hwnd = hwnd, .message = msg, .wParam = wparam, .lParam = lparam};
         SendMessageW( icon->tooltip, TTM_RELAYEVENT, 0, (LPARAM)&message );
+        /* The click belongs to the application, although explorer receives it.
+         * Let its callback activate a reused popup without activating the owner
+         * window ourselves. Hover notifications must not grant this permission. */
+        if (msg != WM_MOUSEMOVE)
+            NtUserMessageCall( icon->owner, WINE_SYSTRAY_NOTIFY_INPUT, 0, 0,
+                               NULL, NtUserSystemTrayCall, FALSE );
         if (!notify_owner( icon, msg, lparam )) break;
         if (icon->version > 0)
         {
@@ -671,8 +677,11 @@ static void hide_icon(struct icon *icon)
 
     if (icon->display == ICON_DISPLAY_HIDDEN) return;  /* already hidden */
 
-    if (enable_dock && NtUserMessageCall( icon->window, WINE_SYSTRAY_DOCK_REMOVE, 0, 0,
-                                          NULL, NtUserSystemTrayCall, FALSE ))
+    /* A formerly docked icon can now belong to our fallback tray. In that
+     * case systray_remove_icon must remove it from the displayed icon count. */
+    if (icon->display == ICON_DISPLAY_DOCKED && enable_dock &&
+        NtUserMessageCall( icon->window, WINE_SYSTRAY_DOCK_REMOVE, 0, 0,
+                           NULL, NtUserSystemTrayCall, FALSE ))
     {
         icon->display = ICON_DISPLAY_HIDDEN;
         icon->layered = FALSE;

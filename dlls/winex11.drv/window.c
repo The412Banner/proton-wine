@@ -49,6 +49,7 @@
 
 #include "x11drv.h"
 #include "wingdi.h"
+#include "ntuser.h"
 #include "winuser.h"
 
 #include "wine/debug.h"
@@ -56,6 +57,14 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(x11drv);
 WINE_DECLARE_DEBUG_CHANNEL(systray);
+
+static void mark_direct_draw_child( HWND hwnd, HWND top )
+{
+    if (!hwnd || hwnd == top) return;
+
+    /* The owner process latches the flag, so repeated posts from foreign drawing processes are harmless. */
+    NtUserPostMessage( hwnd, WM_WINE_SETWINDOWSURFACECLIP, 0, 0 );
+}
 
 #define _NET_WM_MOVERESIZE_SIZE_TOPLEFT      0
 #define _NET_WM_MOVERESIZE_SIZE_TOP          1
@@ -106,6 +115,8 @@ static const WCHAR clip_window_prop[] =
     {'_','_','w','i','n','e','_','x','1','1','_','c','l','i','p','_','w','i','n','d','o','w',0};
 static const WCHAR focus_time_prop[] =
     {'_','_','w','i','n','e','_','x','1','1','_','f','o','c','u','s','_','t','i','m','e',0};
+static const WCHAR frameless_window_prop[] =
+    {'_','_','w','i','n','e','_','w','i','n','3','2','u','_','f','r','a','m','e','l','e','s','s',0};
 
 static const char *debugstr_mwm_hints( const MwmHints *hints )
 {
@@ -556,6 +567,8 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style 
 static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD style, DWORD ex_style )
 {
     if (EqualRect( &data->rects.window, &data->rects.visible )) return 0;
+    /* Frameless windows may still keep non-client borders. */
+    if (NtUserGetProp( data->hwnd, frameless_window_prop )) return 0;
     return get_mwm_decorations_for_style( style, ex_style );
 }
 
@@ -2077,6 +2090,8 @@ BOOL X11DRV_GetWindowStateUpdates( HWND hwnd, UINT *state_cmd, UINT *swp_flags, 
     struct x11drv_thread_data *thread_data = x11drv_thread_data();
     struct x11drv_win_data *data;
     HWND old_foreground;
+    UINT resize_edge = 0;
+    BOOL sizing = FALSE;
 
     if (!state_cmd)
     {
@@ -2116,7 +2131,30 @@ BOOL X11DRV_GetWindowStateUpdates( HWND hwnd, UINT *state_cmd, UINT *swp_flags, 
         *state_cmd = window_update_client_state( data );
         *swp_flags = window_update_client_config( data );
         *rect = window_rect_from_visible( &data->rects, data->current_state.rect );
+        resize_edge = data->resize_edge;
+        sizing = !*state_cmd && *swp_flags && !(*swp_flags & (SWP_NOSIZE | SWP_NOSENDCHANGING)) &&
+                 !data->is_fullscreen && !data->embedded;
         release_win_data( data );
+    }
+
+    if (sizing && !resize_edge)
+    {
+        Window root, child;
+        int root_x, root_y, x, y;
+        unsigned int mask;
+
+        /* Server-side decorations bypass WM_SYSCOMMAND. Only report sizing
+         * for mouse-driven changes, not ordinary window-manager placement. */
+        sizing = (old_foreground == hwnd || *foreground == hwnd) &&
+                 XQueryPointer( thread_data->display, root_window, &root, &child,
+                                &root_x, &root_y, &x, &y, &mask ) && (mask & Button1Mask);
+    }
+    /* Application callbacks must run after releasing the driver window lock. */
+    if (sizing)
+    {
+        RECT proposed = *rect;
+        NtUserSendSizingMessage( hwnd, resize_edge, rect );
+        if (rect->left != proposed.left || rect->top != proposed.top) *swp_flags &= ~SWP_NOMOVE;
     }
 
     if (!*state_cmd && !*swp_flags && !*foreground) return FALSE;
@@ -3009,14 +3047,17 @@ done:
  */
 void X11DRV_DestroyWindow( HWND hwnd )
 {
-    struct x11drv_thread_data *thread_data = x11drv_thread_data();
+    struct x11drv_thread_data *thread_data;
     struct x11drv_win_data *data;
 
     if (!(data = get_win_data( hwnd ))) return;
 
     destroy_whole_window( data, FALSE );
-    if (thread_data->last_focus == hwnd) thread_data->last_focus = 0;
-    if (thread_data->last_xic_hwnd == hwnd) thread_data->last_xic_hwnd = 0;
+    if ((thread_data = x11drv_thread_data()))
+    {
+        if (thread_data->last_focus == hwnd) thread_data->last_focus = 0;
+        if (thread_data->last_xic_hwnd == hwnd) thread_data->last_xic_hwnd = 0;
+    }
     if (data->icon_pixmap) XFreePixmap( gdi_display, data->icon_pixmap );
     if (data->icon_mask) XFreePixmap( gdi_display, data->icon_mask );
     if (data->parent) host_window_release( data->parent );
@@ -3371,6 +3412,14 @@ BOOL X11DRV_SystrayDockInsert( HWND hwnd, UINT cx, UINT cy, void *icon )
 
     if (!(data = get_win_data( hwnd ))) return FALSE;
     set_window_visual( data, &visual, TRUE );
+    /* The tray host may have destroyed the embedded X window. An unchanged
+     * visual does not recreate it, but a new dock request needs a valid XID. */
+    if (!data->whole_window) create_whole_window( data );
+    if (!data->whole_window)
+    {
+        release_win_data( data );
+        return FALSE;
+    }
     make_window_embedded( data );
     window = data->whole_window;
     release_win_data( data );
@@ -3455,6 +3504,7 @@ void X11DRV_GetDC( HDC hdc, HWND hwnd, HWND top, const RECT *win_rect,
     {
         escape.drawable = X11DRV_get_whole_window( top );
         escape.visual = default_visual; /* FIXME: use the right visual for other process window */
+        if (escape.drawable) mark_direct_draw_child( hwnd, top );
     }
 
     if (!escape.drawable) return; /* don't create a GC for foreign windows */
@@ -4011,6 +4061,8 @@ LRESULT X11DRV_WindowMessage( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
     case WM_X11DRV_ADD_TAB:
         taskbar_add_tab( hwnd );
         return 0;
+    case WM_WINE_MAP_NOTIFY_ICON_POINT:
+        return 0;
     default:
         FIXME( "got window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, (long)wp, lp );
         return 0;
@@ -4062,6 +4114,7 @@ static LRESULT start_screensaver(void)
 LRESULT X11DRV_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT *pos )
 {
     WPARAM hittest = wparam & 0x0f;
+    UINT old_resize_edge;
     int dir;
     struct x11drv_win_data *data;
 
@@ -4119,8 +4172,16 @@ LRESULT X11DRV_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
         goto failed;
     }
 
+    old_resize_edge = data->resize_edge;
+    data->resize_edge = (wparam & 0xfff0) == SC_SIZE && hittest >= WMSZ_LEFT && hittest <= WMSZ_BOTTOMRIGHT ?
+                       hittest : 0;
     release_win_data( data );
     move_resize_window( hwnd, dir, *pos );
+    if ((data = get_win_data( hwnd )))
+    {
+        data->resize_edge = old_resize_edge;
+        release_win_data( data );
+    }
     return 0;
 
 failed:
