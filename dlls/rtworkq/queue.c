@@ -658,6 +658,18 @@ static HRESULT grab_queue(DWORD queue_id, struct queue **ret)
         struct queue_desc desc;
 
         EnterCriticalSection(&queues_section);
+        /* Don't create a system queue after shutdown_system_queues() went past it. */
+        if (!system_queues[SYS_QUEUE_STANDARD].pool)
+        {
+            LeaveCriticalSection(&queues_section);
+            return RTWQ_E_SHUTDOWN;
+        }
+        if (queue->pool)
+        {
+            LeaveCriticalSection(&queues_section);
+            *ret = queue;
+            return S_OK;
+        }
         switch (queue_id)
         {
             case RTWQ_CALLBACK_QUEUE_IO:
@@ -1302,17 +1314,26 @@ static void shutdown_system_queues(void)
     unsigned int i;
     HRESULT hr;
 
+    /* Shutting down a pool queue waits for its running callbacks, which may
+     * need queues_section themselves, e.g. to unlock a user queue. Don't hold
+     * it while waiting.
+     *
+     * Once the standard queue is shut down, grab_queue() fails and creates no
+     * more system queues. Taking the lock waits for one that is still being
+     * created, so that it is shut down below. */
+    shutdown_queue(&system_queues[SYS_QUEUE_STANDARD]);
+
     EnterCriticalSection(&queues_section);
+    LeaveCriticalSection(&queues_section);
 
     for (i = 0; i < ARRAY_SIZE(system_queues); ++i)
     {
+        if (i == SYS_QUEUE_STANDARD) continue;
         shutdown_queue(&system_queues[i]);
     }
 
     if (FAILED(hr = CoDecrementMTAUsage(mta_cookie)))
         WARN("Failed to uninitialize MTA, hr %#lx.\n", hr);
-
-    LeaveCriticalSection(&queues_section);
 }
 
 HRESULT WINAPI RtwqShutdown(void)
