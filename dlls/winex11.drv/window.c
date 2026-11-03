@@ -1803,10 +1803,40 @@ static int skip_iconify(void)
     return cached;
 }
 
+static BOOL window_minimize_unsupported( struct x11drv_win_data *data )
+{
+    /* Satellite ignores WM_CHANGE_STATE. Do not infer this for other WMs from
+     * missing EWMH hints alone, since legacy ICCCM WMs can still minimize. */
+    return data->managed && !data->embedded && !is_virtual_desktop() &&
+           X11DRV_HasWindowManager( "xwayland-satellite" ) &&
+           !is_net_supported( x11drv_atom(_NET_WM_STATE_HIDDEN) );
+}
+
 static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, BOOL activate )
 {
     UINT old_state = data->pending_state.wm_state;
     HWND foreground = NtUserGetForegroundWindow();
+
+    /* These compositors may stack Forza's black backing window above the game
+     * despite _NET_WM_STATE_BELOW. Keep it unmapped, including on state replay
+     * and focus changes, without hiding its Win32 window from the game. */
+    if (data->force_below_hack && (X11DRV_HasWindowManager( "steamcompmgr" ) ||
+                                 X11DRV_HasWindowManager( "wlroots wm" )))
+    {
+        new_state = WithdrawnState;
+        activate = FALSE;
+    }
+
+    if (new_state == IconicState && window_minimize_unsupported( data ))
+    {
+        /* Keep the mapped host state instead of waiting for an acknowledgment
+         * that will never arrive. Reconcile Win32 state on the window thread. */
+        TRACE( "window %p/%lx, host minimization unsupported, keeping NormalState\n",
+               data->hwnd, data->whole_window );
+        new_state = NormalState;
+        activate = FALSE;
+        NtUserPostMessage( data->hwnd, WM_WINE_WINDOW_STATE_CHANGED, 0, 0 );
+    }
 
     data->desired_state.wm_state = new_state;
     data->desired_state.activate = activate;
@@ -1972,6 +2002,12 @@ static UINT window_update_client_state( struct x11drv_win_data *data )
     if (data->net_wm_state_serial) return 0; /* another _NET_WM_STATE update is pending, wait for it to complete */
     if (data->mwm_hints_serial) return 0; /* another MWM_HINT update is pending, wait for it to complete */
     if (data->configure_serial) return 0; /* another config update is pending, wait for it to complete */
+
+    /* An ignored minimize must not bring a background window back to the
+     * foreground. Satellite sends WM_STATE again when the user focuses it. */
+    if ((old_style & WS_MINIMIZE) && window_minimize_unsupported( data ) &&
+        get_net_active_window( data->display ) != data->whole_window)
+        return 0;
 
     new_style = old_style & ~(WS_VISIBLE | WS_MINIMIZE | WS_MAXIMIZE);
     if (data->current_state.wm_state != WithdrawnState) new_style |= WS_VISIBLE;
@@ -2291,6 +2327,11 @@ void window_mwm_hints_notify( struct x11drv_win_data *data, unsigned long serial
 
     /* send any pending changes from the desired state */
     window_request_desired_state( data );
+
+    /* The unsupported-minimize restore may have waited for these hints. */
+    if ((NtUserGetWindowLongW( data->hwnd, GWL_STYLE ) & WS_MINIMIZE) &&
+        window_minimize_unsupported( data ))
+        NtUserPostMessage( data->hwnd, WM_WINE_WINDOW_STATE_CHANGED, 0, 0 );
 }
 
 void window_wm_normal_hints_notify( struct x11drv_win_data *data, unsigned long serial, const XSizeHints *value )
@@ -2383,9 +2424,15 @@ static BOOL get_window_net_wm_name( Display *display, Window window, char **name
 
     *name = NULL;
     X11DRV_expect_error( display, host_window_error, NULL );
-    ret = XGetWindowProperty( display, window, x11drv_atom(_NET_WM_NAME), 0, 65536 / sizeof(CARD32), False, x11drv_atom(UTF8_STRING),
+    /* Satellite supplies its ASCII WM name as STRING rather than UTF8_STRING.
+     * A type mismatch otherwise succeeds with an empty buffer from Xlib. */
+    ret = XGetWindowProperty( display, window, x11drv_atom(_NET_WM_NAME), 0, 65536 / sizeof(CARD32), False, AnyPropertyType,
                               &type, &format, &count, &remaining, (unsigned char **)name );
-    return !X11DRV_check_error() && !ret && *name;
+    if (!X11DRV_check_error() && !ret && *name && format == 8 && count &&
+        (type == x11drv_atom(UTF8_STRING) || type == XA_STRING)) return TRUE;
+    XFree( *name );
+    *name = NULL;
+    return FALSE;
 }
 
 static BOOL get_window_wm_name( Display *display, Window window, char **name )
@@ -3790,11 +3837,16 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     if (use_force_below_hack())
     {
-        if (insert_after != HWND_BOTTOM && insert_after != HWND_NOTOPMOST && insert_after != HWND_TOP && insert_after != HWND_TOPMOST)
+        /* Login dialogs also use explicit Z order. Only the disabled fullscreen
+         * tool popup is a backing window; retain its flag across focus changes. */
+        if ((new_style & (WS_POPUP | WS_DISABLED | WS_CHILD)) != (WS_POPUP | WS_DISABLED) ||
+            (ex_style & (WS_EX_TOOLWINDOW | WS_EX_APPWINDOW)) != WS_EX_TOOLWINDOW)
+            data->force_below_hack = 0;
+        else if (fullscreen && insert_after != HWND_BOTTOM && insert_after != HWND_NOTOPMOST &&
+                 insert_after != HWND_TOP && insert_after != HWND_TOPMOST)
         {
             WARN( "%p/%#lx setting force_below_hack.\n", hwnd, data->whole_window );
             data->force_below_hack = 1;
-            if (X11DRV_HasWindowManager( "steamcompmgr" )) new_style &= ~WS_VISIBLE;
         }
     }
 

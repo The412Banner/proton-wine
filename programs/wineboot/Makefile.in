@@ -1,5 +1,5 @@
 MODULE    = wineboot.exe
-IMPORTS   = uuid advapi32 ws2_32 kernelbase
+IMPORTS   = uuid advapi32 ws2_32 kernelbase rpcrt4
 DELAYIMPORTS = shell32 shlwapi version user32 gdi32 setupapi newdev wininet crypt32
 
 EXTRADLLFLAGS = -mconsole

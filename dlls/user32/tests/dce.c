@@ -711,6 +711,61 @@ static void test_dc_layout(void)
     DestroyWindow(hwnd_cache_rtl);
 }
 
+static void test_minimized_dc_visrgn(void)
+{
+    static const char *classes[] = { "cache_class", "owndc_class" };
+    RECT desktop, rect, intersect;
+    HWND hwnd;
+    HDC hdc, window_dc;
+    unsigned int i;
+    int ret;
+
+    SetRect( &desktop, GetSystemMetrics( SM_XVIRTUALSCREEN ), GetSystemMetrics( SM_YVIRTUALSCREEN ), 0, 0 );
+    desktop.right = desktop.left + GetSystemMetrics( SM_CXVIRTUALSCREEN );
+    desktop.bottom = desktop.top + GetSystemMetrics( SM_CYVIRTUALSCREEN );
+
+    for (i = 0; i < ARRAY_SIZE(classes); ++i)
+    {
+        winetest_push_context( "%s", classes[i] );
+        hwnd = CreateWindowA( classes[i], NULL, WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                              0, 0, 200, 150, 0, 0, GetModuleHandleA(0), NULL );
+        ok( !!hwnd, "CreateWindow failed, error %lu\n", GetLastError() );
+        if (!hwnd)
+        {
+            winetest_pop_context();
+            continue;
+        }
+
+        hdc = GetDC( hwnd );
+        ok( !!hdc, "GetDC failed\n" );
+        ShowWindow( hwnd, SW_SHOWMINNOACTIVE );
+        GetWindowRect( hwnd, &rect );
+        if (!IsIconic( hwnd ) || IntersectRect( &intersect, &desktop, &rect ))
+            skip( "Window manager did not park the minimized window outside the desktop\n" );
+        else
+        {
+            ret = GetClipBox( hdc, &rect );
+            ok( ret == NULLREGION, "Minimized client region %d, %s\n", ret, wine_dbgstr_rect(&rect) );
+            window_dc = GetWindowDC( hwnd );
+            ok( !!window_dc, "GetWindowDC failed\n" );
+            ret = GetClipBox( window_dc, &rect );
+            ok( ret == NULLREGION, "Minimized window region %d, %s\n", ret, wine_dbgstr_rect(&rect) );
+            ReleaseDC( hwnd, window_dc );
+        }
+
+        ShowWindow( hwnd, SW_RESTORE );
+        ret = GetClipBox( hdc, &rect );
+        ok( ret > NULLREGION, "Restored client region %d, %s\n", ret, wine_dbgstr_rect(&rect) );
+        ReleaseDC( hwnd, hdc );
+        window_dc = GetWindowDC( hwnd );
+        ret = GetClipBox( window_dc, &rect );
+        ok( ret > NULLREGION, "Restored window region %d, %s\n", ret, wine_dbgstr_rect(&rect) );
+        ReleaseDC( hwnd, window_dc );
+        DestroyWindow( hwnd );
+        winetest_pop_context();
+    }
+}
+
 static void test_destroyed_window(void)
 {
     HDC dc, old_dc;
@@ -833,6 +888,7 @@ START_TEST(dce)
     test_scroll_window();
     test_invisible_create();
     test_dc_layout();
+    test_minimized_dc_visrgn();
     /* this should be last */
     test_destroyed_window();
 }

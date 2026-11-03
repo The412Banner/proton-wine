@@ -200,6 +200,7 @@ struct gl_drawable
 {
     struct opengl_drawable         base;
     GLXDrawable                    drawable;     /* drawable for rendering with GL */
+    BOOL                           x11_window;    /* drawable is the client X window */
 };
 
 static struct gl_drawable *impl_from_opengl_drawable( struct opengl_drawable *base )
@@ -228,6 +229,19 @@ static BOOL has_swap_control_tear = FALSE;
 static BOOL has_swap_method = FALSE;
 
 static const BOOL is_win64 = sizeof(void *) > sizeof(int);
+
+static BOOL steam_overlay_uses_x11_drawables(void)
+{
+    static int enabled = -1;
+    const char *preload;
+
+    if (enabled != -1) return enabled;
+
+    preload = getenv("LD_PRELOAD");
+    enabled = preload && strstr(preload, "gameoverlayrenderer.so");
+    if (enabled) TRACE("Using X11 windows as GLX drawables for Steam overlay compatibility.\n");
+    return enabled;
+}
 
 static BOOL glxRequireVersion(int requiredVersion);
 
@@ -908,7 +922,7 @@ static void x11drv_surface_destroy( struct opengl_drawable *base )
 
     TRACE( "drawable %s\n", debugstr_opengl_drawable( base ) );
 
-    if (gl->drawable) pglXDestroyWindow( gdi_display, gl->drawable );
+    if (gl->drawable && !gl->x11_window) pglXDestroyWindow( gdi_display, gl->drawable );
 }
 
 static BOOL set_swap_interval( struct gl_drawable *gl, int interval )
@@ -976,7 +990,12 @@ static BOOL x11drv_surface_create( HWND hwnd, BOOL raw, int format, struct openg
     client_surface_release( client );
     if (!gl) return FALSE;
 
-    if (!(gl->drawable = pglXCreateWindow( gdi_display, fmt->fbconfig, window, NULL )))
+    if (steam_overlay_uses_x11_drawables() && fmt->visual)
+    {
+        gl->drawable = window;
+        gl->x11_window = TRUE;
+    }
+    else if (!(gl->drawable = pglXCreateWindow( gdi_display, fmt->fbconfig, window, NULL )))
     {
         opengl_drawable_release( &gl->base );
         return FALSE;

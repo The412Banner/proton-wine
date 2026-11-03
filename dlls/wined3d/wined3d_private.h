@@ -2465,6 +2465,7 @@ const struct wined3d_gpu_description *wined3d_get_gpu_description(enum wined3d_p
         enum wined3d_pci_device device);
 const struct wined3d_gpu_description *wined3d_get_user_override_gpu_description(enum wined3d_pci_vendor vendor,
         enum wined3d_pci_device device);
+enum wined3d_display_driver wined3d_guess_display_driver(enum wined3d_pci_vendor vendor);
 enum wined3d_pci_device wined3d_gpu_from_feature_level(enum wined3d_pci_vendor *vendor,
         enum wined3d_feature_level feature_level);
 

@@ -702,6 +702,17 @@ const struct wined3d_gpu_description *wined3d_get_gpu_description(enum wined3d_p
     return NULL;
 }
 
+enum wined3d_display_driver wined3d_guess_display_driver(enum wined3d_pci_vendor vendor)
+{
+    switch (vendor)
+    {
+        case HW_VENDOR_AMD:    return DRIVER_AMD_RX;
+        case HW_VENDOR_INTEL:  return DRIVER_INTEL_HD4000;
+        case HW_VENDOR_NVIDIA: return DRIVER_NVIDIA_GEFORCE8;
+        default:               return DRIVER_WINE;
+    }
+}
+
 const struct wined3d_gpu_description *wined3d_get_user_override_gpu_description(enum wined3d_pci_vendor vendor,
         enum wined3d_pci_device device)
 {

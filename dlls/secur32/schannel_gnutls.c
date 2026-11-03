@@ -434,7 +434,8 @@ static int pull_timeout(gnutls_transport_ptr_t transport, unsigned int timeout)
 
 static NTSTATUS set_priority(schan_credentials *cred, gnutls_session_t session)
 {
-    char priority[160] = "NORMAL:%LATEST_RECORD_VERSION:%NO_SHUFFLE_EXTENSIONS", *p;
+    static const char no_shuffle[] = ":%NO_SHUFFLE_EXTENSIONS";
+    char priority[160] = "NORMAL:%LATEST_RECORD_VERSION:%NO_SHUFFLE_EXTENSIONS", *option, *p;
     BOOL server = !!(cred->credential_use & SECPKG_CRED_INBOUND);
     const struct protocol_priority_flag *protocols =
         server ? server_protocol_priority_flags : client_protocol_priority_flags;
@@ -442,6 +443,7 @@ static NTSTATUS set_priority(schan_credentials *cred, gnutls_session_t session)
                                : ARRAYSIZE(client_protocol_priority_flags);
     BOOL using_vers_all = FALSE, disabled;
     int i, err;
+    const char *error = NULL;
 
     if (system_priority_file && strcmp(system_priority_file, "/dev/null"))
     {
@@ -481,7 +483,17 @@ static NTSTATUS set_priority(schan_credentials *cred, gnutls_session_t session)
     }
 
     TRACE("Using %s priority\n", debugstr_a(priority));
-    err = pgnutls_priority_set_direct(session, priority, NULL);
+    err = pgnutls_priority_set_direct(session, priority, &error);
+    if (err == GNUTLS_E_INVALID_REQUEST && error &&
+        !strncmp(error, no_shuffle + 1, sizeof(no_shuffle) - 2) &&
+        (option = strstr(priority, no_shuffle)))
+    {
+        WARN("GnuTLS does not support NO_SHUFFLE_EXTENSIONS; retrying without it.\n");
+        memmove(option, option + sizeof(no_shuffle) - 1,
+                strlen(option + sizeof(no_shuffle) - 1) + 1);
+        TRACE("Retrying with %s priority\n", debugstr_a(priority));
+        err = pgnutls_priority_set_direct(session, priority, NULL);
+    }
     if (err != GNUTLS_E_SUCCESS)
     {
         pgnutls_perror(err);

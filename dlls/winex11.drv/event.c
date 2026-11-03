@@ -336,6 +336,18 @@ static void wait_grab_pointer( Display *display )
                          None, None, CurrentTime ) != GrabSuccess)
     {
         LARGE_INTEGER timeout = {.QuadPart = -10 * (ULONGLONG)10000};
+
+        /* The grab can be held by another thread of this process which is
+         * waiting for us to process a sent message, in which case it will
+         * never be released. Stop waiting so that the message can be
+         * processed. Nested driver events are not processed while we are
+         * handling an event, so checking the queue doesn't recurse here. */
+        if (HIWORD( NtUserGetQueueStatus( QS_SENDMESSAGE ) ))
+        {
+            WARN( "sent message pending, not waiting for pointer grab\n" );
+            break;
+        }
+
         NtDelayExecution( FALSE, &timeout );
     }
 

@@ -286,7 +286,7 @@ static void testAddCert(void)
 static void checkHash(const BYTE *data, DWORD dataLen, ALG_ID algID,
  PCCERT_CONTEXT context, DWORD propID)
 {
-    BYTE hash[20] = { 0 }, hashProperty[20];
+    BYTE hash[32] = { 0 }, hashProperty[32];
     BOOL ret;
     DWORD size;
     DWORD dwSizeWithNull;
@@ -470,6 +470,8 @@ static void testCertProperties(void)
     /* Check a few other implicit properties */
     checkHash(bigCert, sizeof(bigCert), CALG_MD5, context,
      CERT_MD5_HASH_PROP_ID);
+    checkHash(bigCert, sizeof(bigCert), CALG_SHA_256, context,
+     CERT_SHA256_HASH_PROP_ID);
 
     /* Getting the signature hash fails with this bogus certificate */
     size = 0;

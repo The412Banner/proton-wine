@@ -64,7 +64,12 @@ extern struct d2d_settings d2d_settings;
 
 struct d2d_clip_stack
 {
-    D2D1_RECT_F *stack;
+    struct d2d_clip_entry
+    {
+        ID2D1Image *target;
+        D2D1_RECT_F rect;
+        size_t depth;
+    } *stack;
     size_t size;
     size_t count;
 };
@@ -85,7 +90,8 @@ struct d2d_brush_cb
 {
     enum d2d_brush_type type;
     float opacity;
-    unsigned int pad[2];
+    BOOL clamp_source;
+    unsigned int pad;
     union
     {
         struct
@@ -112,6 +118,7 @@ struct d2d_brush_cb
             float _11, _21, _31, pad;
             float _12, _22, _32;
             BOOL ignore_alpha;
+            D2D1_RECT_F source_bounds;
         } bitmap;
     } u;
 };
@@ -120,9 +127,11 @@ struct d2d_ps_cb
 {
     BOOL outline;
     BOOL is_arc;
-    BOOL pad[2];
+    BOOL tint;
+    BOOL clamp_output;
     struct d2d_brush_cb colour_brush;
     struct d2d_brush_cb opacity_brush;
+    D2D1_COLOR_F colour;
 };
 
 struct d2d_vec4
@@ -168,6 +177,16 @@ struct d2d_indexed_objects
     } *elements;
     size_t size;
     size_t count;
+};
+
+struct d2d_layer_state
+{
+    struct d2d_bitmap *bitmap;
+    ID2D1Image *target;
+    ID2D1Layer *resource;
+    D2D1_LAYER_PARAMETERS1 parameters;
+    D2D1_MATRIX_3X2_F transform;
+    size_t clip_depth;
 };
 
 struct d2d_device_context
@@ -219,6 +238,9 @@ struct d2d_device_context
     D2D1_RENDER_TARGET_PROPERTIES desc;
     D2D1_SIZE_U pixel_size;
     struct d2d_clip_stack clip_stack;
+
+    struct d2d_layer_state *layers;
+    size_t layers_size, layers_count, layers_initialized;
 
     struct d2d_indexed_objects vertex_buffers;
 };
@@ -353,6 +375,9 @@ struct d2d_brush
             D2D1_EXTEND_MODE extend_mode_x;
             D2D1_EXTEND_MODE extend_mode_y;
             D2D1_INTERPOLATION_MODE interpolation_mode;
+            BOOL tint, clamp_output, clamp_source;
+            D2D1_COLOR_F colour;
+            D2D1_RECT_F source_bounds;
         } bitmap;
         struct
         {
@@ -403,6 +428,7 @@ struct d2d_layer
 {
     ID2D1Layer ID2D1Layer_iface;
     LONG refcount;
+    LONG in_use;
 
     ID2D1Factory *factory;
     D2D1_SIZE_F size;
