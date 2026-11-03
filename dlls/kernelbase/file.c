@@ -2963,6 +2963,35 @@ BOOL WINAPI DECLSPEC_HOTPATCH SetCurrentDirectoryW( LPCWSTR dir )
 {
     UNICODE_STRING dirW;
 
+    /* Vanguard: Saga of Heroes builds a directory path that ends in '.' and
+     * then appends to it without a separator, asking for paths such as
+     * bin\\.VS_UIRectangle.fx. Those fail with c0000034, so strip the dot.
+     *
+     * This is matched on the executable name rather than on SteamGameId.
+     * Steam sets the STEAM_GAME window property from SteamGameId, and
+     * gamescope uses that property to decide which window to put on screen.
+     * Asking users to set SteamGameId=218210 therefore tags every window with
+     * an ID that does not match the one Steam launched, the window is never
+     * displayed, and Game Mode sits on the loading screen indefinitely while
+     * the game runs behind it. */
+    {
+        const WCHAR *p, *app = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
+
+        if (app && (p = wcsrchr( app, '\\' ))) app = p + 1;
+        if (app && (!wcsicmp( app, L"VGOEmuLauncher.exe" ) || !wcsicmp( app, L"VGClient.exe" )))
+        {
+            SIZE_T len = wcslen( dir );
+
+            if (len > 0 && dir[len - 1] == '.')
+            {
+                WCHAR *q = (WCHAR *)dir + len - 1;
+
+                *q = '\0';
+                FIXME( "%s . fixed\n", debugstr_w(dir) );
+            }
+        }
+    }
+
     RtlInitUnicodeString( &dirW, dir );
     return set_ntstatus( RtlSetCurrentDirectory_U( &dirW ));
 }

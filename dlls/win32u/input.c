@@ -2049,12 +2049,67 @@ static HWND set_focus_window( HWND hwnd, BOOL from_active )
     return previous;
 }
 
+static BOOL black_desert_keep_fullscreen_on_focus_loss( HWND hwnd )
+{
+    static const WCHAR black_desertW[] =
+        {'b','l','a','c','k','d','e','s','e','r','t','6','4','.','e','x','e',0};
+    static LONG enabled = -1;
+    LONG value = InterlockedCompareExchange( &enabled, -1, -1 );
+    HWND foreground;
+    DWORD style, pid;
+    RECT rect;
+
+    if (value == -1)
+    {
+        const WCHAR *p, *name = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
+        const char *env = getenv( "WINE_BLACK_DESERT_KEEP_FULLSCREEN" );
+
+        if ((p = wcsrchr( name, '/' ))) name = p + 1;
+        if ((p = wcsrchr( name, '\\' ))) name = p + 1;
+        value = !wcsicmp( name, black_desertW ) && (!env || strcmp( env, "0" ));
+        InterlockedCompareExchange( &enabled, value, -1 );
+    }
+    if (!value || !hwnd) return FALSE;
+
+    style = get_window_long( hwnd, GWL_STYLE );
+    if ((style & (WS_VISIBLE | WS_MINIMIZE | WS_CHILD | WS_DISABLED | WS_CAPTION | WS_THICKFRAME))
+        != WS_VISIBLE) return FALSE;
+
+    foreground = NtUserGetForegroundWindow();
+    if (foreground == hwnd) return FALSE;
+    if (foreground && get_window_thread( foreground, &pid ) && pid == GetCurrentProcessId()) return FALSE;
+
+    /* Only cover DXGI exclusive fullscreen, not borderless windows or dialogs. */
+    return get_present_rect( hwnd, &rect, get_thread_dpi() );
+}
+
+static DWORD get_activateapp_thread_id( HWND hwnd, HWND previous, DWORD old_thread, DWORD new_thread )
+{
+    if (old_thread || !new_thread || previous)
+        return old_thread;
+
+    if (hwnd != NtUserGetForegroundWindow())
+        return old_thread;
+
+    if (NtUserGetAncestor( hwnd, GA_PARENT ) != get_desktop_window())
+        return old_thread;
+
+    /*
+     * When Wine activates its first foreground top-level window, there may be
+     * no previous Wine active window even though the host desktop did have a
+     * foreground application. Windows normally reports the old foreground
+     * thread here; use a non-zero placeholder so applications do not mistake
+     * the activation for an inactive/no-focus transition.
+     */
+    return new_thread;
+}
+
 /*******************************************************************
  *		set_active_window
  */
 BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new_active_thread_id )
 {
-    HWND previous = get_active_window();
+    HWND previous = get_active_window(), fullscreen_window;
     BOOL ret;
     DWORD old_thread, new_thread;
     CBTACTIVATESTRUCT cbt;
@@ -2073,11 +2128,17 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new
     cbt.hWndActive = previous;
     if (call_hooks( WH_CBT, HCBT_ACTIVATE, (WPARAM)hwnd, (LPARAM)&cbt, sizeof(cbt) )) return FALSE;
 
+    fullscreen_window = !hwnd && black_desert_keep_fullscreen_on_focus_loss( previous ) ? previous : 0;
+    if (fullscreen_window) TRACE( "Keeping Black Desert fullscreen on deactivation of %p\n", previous );
+
     if (is_window( previous ))
     {
         send_message( previous, WM_NCACTIVATE, FALSE, (LPARAM)hwnd );
-        send_message( previous, WM_ACTIVATE,
-                      MAKEWPARAM( WA_INACTIVE, is_iconic(previous) ? 0x20 : 0 ), (LPARAM)hwnd );
+        /* Avoid the game's windowed-mode reaction, but still update the real
+         * active/focus state below and deliver WM_KILLFOCUS for input cleanup. */
+        if (previous != fullscreen_window)
+            send_message( previous, WM_ACTIVATE,
+                          MAKEWPARAM( WA_INACTIVE, is_iconic(previous) ? 0x20 : 0 ), (LPARAM)hwnd );
     }
 
     SERVER_START_REQ( set_active_window )
@@ -2116,16 +2177,18 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new
                 if (!new_active_thread_id) new_active_thread_id = new_thread;
                 for (phwnd = list; *phwnd; phwnd++)
                 {
-                    if (get_window_thread( *phwnd, NULL ) == old_thread)
+                    if (get_window_thread( *phwnd, NULL ) == old_thread && *phwnd != fullscreen_window)
                         send_message( *phwnd, WM_ACTIVATEAPP, 0, new_active_thread_id );
                 }
             }
             if (new_thread)
             {
+                DWORD activate_thread = get_activateapp_thread_id( hwnd, previous, old_thread, new_thread );
+
                 for (phwnd = list; *phwnd; phwnd++)
                 {
                     if (get_window_thread( *phwnd, NULL ) == new_thread)
-                        send_message( *phwnd, WM_ACTIVATEAPP, 1, old_thread );
+                        send_message( *phwnd, WM_ACTIVATEAPP, 1, activate_thread );
                 }
             }
             free( list );
