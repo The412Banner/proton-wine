@@ -494,12 +494,15 @@ VOID WINAPI GlobalMemoryStatus( LPMEMORYSTATUS lpBuffer )
     if ( lpBuffer->dwAvailPhys +  lpBuffer->dwAvailPageFile >= 2U*1024*1024*1024)
          lpBuffer->dwAvailPageFile = 2U*1024*1024*1024 -  lpBuffer->dwAvailPhys - 1;
 
-    /* limit page file size for really old binaries */
+    /* limit value for really old binaries */
+    /* use MAXLONG/2, so that dwAvailPhys + dwAvailPageFile < MAXLONG */
     if (nt->OptionalHeader.MajorSubsystemVersion < 4 ||
         nt->OptionalHeader.MajorOperatingSystemVersion < 4)
     {
-        if (lpBuffer->dwTotalPageFile > MAXLONG) lpBuffer->dwTotalPageFile = MAXLONG;
-        if (lpBuffer->dwAvailPageFile > MAXLONG) lpBuffer->dwAvailPageFile = MAXLONG;
+        lpBuffer->dwTotalPhys = min(lpBuffer->dwTotalPhys, MAXLONG / 2);
+        lpBuffer->dwAvailPhys = min(lpBuffer->dwAvailPhys, MAXLONG / 2);
+        lpBuffer->dwTotalPageFile = min(lpBuffer->dwTotalPageFile, MAXLONG / 2);
+        lpBuffer->dwAvailPageFile = min(lpBuffer->dwAvailPageFile, MAXLONG / 2);
     }
 #endif
 

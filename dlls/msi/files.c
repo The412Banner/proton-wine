@@ -833,7 +833,7 @@ UINT ACTION_PatchFiles( MSIPACKAGE *package )
             data.cb      = patchfiles_cb;
             data.user    = &cursor;
 
-            if (!msi_cabextract( package, mi, &data ))
+            if (mi->cabinet && !msi_cabextract( package, mi, &data ))
             {
                 ERR("Failed to extract cabinet: %s\n", debugstr_w(mi->cabinet));
                 rc = ERROR_INSTALL_FAILURE;

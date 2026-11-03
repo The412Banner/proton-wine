@@ -1457,6 +1457,15 @@ static const struct IDirect3DRMTexture3Vtbl d3drm_texture3_vtbl =
     d3drm_texture3_SetValidationCallback,
 };
 
+struct d3drm_texture *unsafe_impl_from_IDirect3DRMTexture(IDirect3DRMTexture *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3drm_texture1_vtbl);
+
+    return impl_from_IDirect3DRMTexture(iface);;
+}
+
 HRESULT d3drm_texture_create(struct d3drm_texture **texture, IDirect3DRM *d3drm)
 {
     static const char classname[] = "Texture";

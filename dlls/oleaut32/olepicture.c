@@ -165,6 +165,8 @@ typedef struct OLEPictureImpl {
     BOOL bIsDirty;                  /* Set to TRUE if picture has changed */
     unsigned int loadtime_magic;    /* If a length header was found, saves value */
     unsigned int loadtime_format;   /* for PICTYPE_BITMAP only, keeps track of image format (GIF/BMP/JPEG) */
+    DWORD desiredWidth;
+    DWORD desiredHeight;
 } OLEPictureImpl;
 
 static inline OLEPictureImpl *impl_from_IPicture(IPicture *iface)
@@ -1265,13 +1267,19 @@ static HRESULT OLEPictureImpl_LoadIcon(OLEPictureImpl *This, BYTE *xbuf, ULONG x
         return E_FAIL;
     }
     i=0;
-    /* If we have more than one icon, try to find the best.
-     * this currently means '32 pixel wide'.
-     */
     if (cifd->idCount!=1) {
+	/* First try exact match on the desired dimensions */
 	for (i=0;i<cifd->idCount;i++) {
-	    if (cifd->idEntries[i].bWidth == 32)
+	    if (cifd->idEntries[i].bWidth == This->desiredWidth &&
+		cifd->idEntries[i].bHeight == This->desiredHeight)
 		break;
+	}
+	/* Otherwise, try to find the best. This currently means '32 pixel wide'. */
+	if (i==cifd->idCount) {
+	    for (i=0;i<cifd->idCount;i++) {
+		if (cifd->idEntries[i].bWidth == 32)
+		    break;
+	    }
 	}
 	if (i==cifd->idCount) i=0;
     }
@@ -2530,14 +2538,21 @@ HRESULT WINAPI OleLoadPictureEx( LPSTREAM lpstream, LONG lSize, BOOL fRunmode,
 {
   LPPERSISTSTREAM ps;
   IPicture	*newpic;
+  OLEPictureImpl *pictureImpl;
   HRESULT hr;
 
   FIXME("%p, %ld, %d, %s, %lu, %lu, %#lx, %p, partially implemented.\n",
 	lpstream, lSize, fRunmode, debugstr_guid(riid), xsiz, ysiz, flags, ppvObj);
+  /* hack to prevent this patch from applying in the wrong place */
 
   hr = OleCreatePictureIndirect(NULL,riid,!fRunmode,(LPVOID*)&newpic);
   if (hr != S_OK)
     return hr;
+  if (xsiz == LP_DEFAULT && ysiz == LP_DEFAULT)
+      xsiz = ysiz = 32;
+  pictureImpl = impl_from_IPicture(newpic);
+  pictureImpl->desiredWidth = xsiz;
+  pictureImpl->desiredHeight = ysiz;
   hr = IPicture_QueryInterface(newpic,&IID_IPersistStream, (LPVOID*)&ps);
   if (hr != S_OK) {
       ERR("Could not get IPersistStream iface from Ole Picture?\n");

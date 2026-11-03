@@ -58,6 +58,7 @@ bool use_precise_scrolling = true;
 int gl_surface_mode = GL_SURFACE_IN_FRONT_OPAQUE;
 bool retina_enabled = false;
 bool enable_app_nap = false;
+BOOL force_backing_store = FALSE;
 
 UINT64 app_icon_callback = 0;
 UINT64 app_quit_request_callback = 0;
@@ -371,6 +372,9 @@ static void setup_options(void)
 
     if (!get_config_key(hkey, appkey, "EnableAppNap", buffer, sizeof(buffer)))
         enable_app_nap = IS_OPTION_TRUE(buffer[0]);
+
+    if (!get_config_key(hkey, appkey, "ForceOpenGLBackingStore", buffer, sizeof(buffer)))
+        force_backing_store = IS_OPTION_TRUE(buffer[0]);
 
     /* Don't use appkey.  The DPI and monitor sizes should be consistent for all
        processes in the prefix. */
