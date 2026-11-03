@@ -162,7 +162,8 @@ static HRESULT STDMETHODCALLTYPE api_information_statics_IsMethodPresent(
     if (!type_name)
         return E_INVALIDARG;
 
-    return E_NOTIMPL;
+    *value = FALSE;
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE api_information_statics_IsMethodPresentWithArity(
@@ -1797,6 +1798,8 @@ HRESULT WINAPI DllGetActivationFactory(HSTRING classid, IActivationFactory **fac
         IActivationFactory_AddRef((*factory = property_set_factory));
     if (!wcscmp(buffer, L"Windows.Storage.Streams.Buffer"))
         IActivationFactory_AddRef((*factory = buffer_activation_factory));
+    if (!wcscmp(buffer, L"Windows.Storage.Streams.DataReader"))
+        IActivationFactory_AddRef((*factory = data_reader_activation_factory));
     if (!wcscmp(buffer, L"Windows.Storage.Streams.DataWriter"))
         IActivationFactory_AddRef((*factory = data_writer_activation_factory));
 

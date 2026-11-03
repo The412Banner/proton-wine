@@ -27,7 +27,9 @@
 #include "winsvc.h"
 #include "winternl.h"
 #include "winuser.h"
+#include "winreg.h"
 #include "dbt.h"
+#include "setupapi.h"
 
 #include "wine/debug.h"
 #include "wine/exception.h"
@@ -2014,6 +2016,13 @@ BOOL WINAPI DECLSPEC_HOTPATCH StartServiceCtrlDispatcherW( const SERVICE_TABLE_E
 
 static HANDLE device_notify_thread;
 static struct list device_notify_list = LIST_INIT(device_notify_list);
+static struct list pending_sony_hid_list = LIST_INIT(pending_sony_hid_list);
+static SRWLOCK pending_sony_hid_lock = SRWLOCK_INIT;
+
+static const GUID hid_device_interface_guid =
+        {0x4d1e55b2, 0xf16f, 0x11cf, {0x88, 0xcb, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30}};
+static const DEVPROPKEY device_container_id_key =
+        {{0x8c7ed206, 0x3f8a, 0x4827, {0xb3, 0xab, 0xae, 0x9e, 0x1f, 0xae, 0xfc, 0x6c}}, 2};
 
 struct device_notify
 {
@@ -2022,6 +2031,17 @@ struct device_notify
     HANDLE handle;
     device_notify_callback callback;
     DEV_BROADCAST_HDR header[]; /* variable size */
+};
+
+struct pending_sony_hid
+{
+    struct list entry;
+    GUID container_id;
+    HANDLE ready_event;
+    HANDLE dispatched_event;
+    WCHAR *path;
+    DEV_BROADCAST_HDR *header;
+    BOOL cancelled;
 };
 
 C_ASSERT( sizeof(struct device_notify) == offsetof(struct device_notify, header[0]) );
@@ -2065,14 +2085,340 @@ static BOOL notification_filter_matches( DEV_BROADCAST_HDR *filter, const WCHAR 
     return TRUE;
 }
 
+static void dispatch_device_notification( DWORD code, const WCHAR *path, DEV_BROADCAST_HDR *header )
+{
+    struct device_notify *notify, *event, *next;
+    struct list events = LIST_INIT(events);
+
+    /* Make a copy to avoid a hang if a callback tries to register or unregister for notifications. */
+    EnterCriticalSection( &service_cs );
+    LIST_FOR_EACH_ENTRY( notify, &device_notify_list, struct device_notify, entry )
+    {
+        if (!notification_filter_matches( notify->header, notify->path, header, path )) continue;
+        if (!(event = device_notify_copy( notify, header ))) break;
+        list_add_tail( &events, &event->entry );
+    }
+    LeaveCriticalSection( &service_cs );
+
+    LIST_FOR_EACH_ENTRY_SAFE( event, next, &events, struct device_notify, entry )
+    {
+        event->callback( event->handle, code, event->header );
+        list_remove( &event->entry );
+        free( event );
+    }
+}
+
+static BOOL contains_string_i( const WCHAR *string, const WCHAR *substring )
+{
+    SIZE_T length = wcslen( substring );
+
+    while (*string)
+    {
+        if (!wcsnicmp( string, substring, length )) return TRUE;
+        string++;
+    }
+    return FALSE;
+}
+
+static BOOL is_sony_usb_audio_hid( const DEV_BROADCAST_HDR *header )
+{
+    const DEV_BROADCAST_DEVICEINTERFACE_W *iface = (const DEV_BROADCAST_DEVICEINTERFACE_W *)header;
+    const WCHAR *name;
+
+    if (header->dbch_devicetype != DBT_DEVTYP_DEVICEINTERFACE ||
+            header->dbch_size < offsetof(DEV_BROADCAST_DEVICEINTERFACE_W, dbcc_name[1]) ||
+            !IsEqualGUID( &iface->dbcc_classguid, &hid_device_interface_guid ))
+        return FALSE;
+
+    name = iface->dbcc_name;
+    if (!contains_string_i( name, L"vid_054c" ) || !contains_string_i( name, L"mi_03" ))
+        return FALSE;
+
+    return contains_string_i( name, L"pid_05c4" ) || contains_string_i( name, L"pid_09cc" ) ||
+            contains_string_i( name, L"pid_0ce6" ) || contains_string_i( name, L"pid_0df2" );
+}
+
+static BOOL use_sony_usb_parent_container_fallback(void)
+{
+    const char *env = getenv("PROTON_KEEP_SONY_AUDIO_ENDPOINT_VISIBLE");
+    const char *death_stranding = getenv("PROTON_DEATH_STRANDING_CONTROLLER_EFFECTS");
+    HANDLE event;
+    BOOL enabled;
+
+    if ((env && env[0] == '1' && !env[1]) ||
+            (death_stranding && death_stranding[0] == '1' && !death_stranding[1]))
+        return TRUE;
+
+    if (!(event = OpenEventW(SYNCHRONIZE, FALSE, L"__wine_sony_windows_audio_mode")))
+        return FALSE;
+    enabled = WaitForSingleObject(event, 0) == WAIT_OBJECT_0;
+    CloseHandle(event);
+    return enabled;
+}
+
+static const GUID null_guid;
+
+static BOOL get_sony_usb_parent_container_id( const WCHAR *path, GUID *container_id )
+{
+    WCHAR instance[256], *dst = instance;
+    const WCHAR *src = path;
+    SP_DEVINFO_DATA device = {sizeof(device)};
+    DEVPROPTYPE type;
+    HDEVINFO set;
+    BOOL ret = FALSE;
+
+    while (*src && wcsnicmp( src, L"hid#", 4 )) src++;
+    if (!*src) return FALSE;
+    src += 4;
+
+    memcpy( dst, L"USB\\", 4 * sizeof(*dst) );
+    dst += 4;
+    while (*src && !(src[0] == '#' && src[1] == '{') && dst < instance + ARRAY_SIZE(instance) - 1)
+    {
+        WCHAR ch = *src++;
+        *dst++ = ch == '#' ? '\\' : ch;
+    }
+    *dst = 0;
+
+    if (!*src || dst == instance + ARRAY_SIZE(instance) - 1 ||
+            (set = SetupDiCreateDeviceInfoList( NULL, NULL )) == INVALID_HANDLE_VALUE)
+        return FALSE;
+
+    if (SetupDiOpenDeviceInfoW( set, instance, NULL, 0, &device ))
+        ret = SetupDiGetDevicePropertyW( set, &device, &device_container_id_key, &type,
+                (BYTE *)container_id, sizeof(*container_id), NULL, 0 ) &&
+                type == DEVPROP_TYPE_GUID && !IsEqualGUID( container_id, &null_guid );
+
+    if (ret)
+        TRACE( "Resolved Sony HID container %s through USB parent %s.\n",
+                debugstr_guid( container_id ), debugstr_w( instance ) );
+    SetupDiDestroyDeviceInfoList( set );
+    return ret;
+}
+
+static BOOL get_interface_container_id( const WCHAR *path, GUID *container_id )
+{
+    SP_DEVICE_INTERFACE_DETAIL_DATA_W *detail = NULL;
+    SP_DEVICE_INTERFACE_DATA iface = {sizeof(iface)};
+    SP_DEVINFO_DATA device = {sizeof(device)};
+    DEVPROPTYPE type;
+    HDEVINFO set;
+    DWORD size;
+    BOOL ret = FALSE;
+
+    if ((set = SetupDiCreateDeviceInfoList( NULL, NULL )) == INVALID_HANDLE_VALUE)
+        return FALSE;
+
+    if (!SetupDiOpenDeviceInterfaceW( set, path, 0, &iface ))
+        goto done;
+
+    SetupDiGetDeviceInterfaceDetailW( set, &iface, NULL, 0, &size, NULL );
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !(detail = malloc( size )))
+        goto done;
+
+    detail->cbSize = sizeof(*detail);
+    if (!SetupDiGetDeviceInterfaceDetailW( set, &iface, detail, size, NULL, &device ))
+        goto done;
+
+    ret = SetupDiGetDevicePropertyW( set, &device, &device_container_id_key, &type,
+            (BYTE *)container_id, sizeof(*container_id), NULL, 0 ) && type == DEVPROP_TYPE_GUID;
+
+done:
+    free( detail );
+    SetupDiDestroyDeviceInfoList( set );
+    if (ret && !IsEqualGUID( container_id, &null_guid )) return TRUE;
+
+    if (!use_sony_usb_parent_container_fallback())
+        return ret;
+
+    return get_sony_usb_parent_container_id( path, container_id );
+}
+
+static void get_sony_audio_ready_event_name( const GUID *container_id, WCHAR *name )
+{
+    swprintf( name, 80,
+            L"__wine_sony_audio_ready_%08x%04x%04x%02x%02x%02x%02x%02x%02x%02x%02x",
+            (unsigned int)container_id->Data1, (unsigned int)container_id->Data2,
+            (unsigned int)container_id->Data3, (unsigned int)container_id->Data4[0],
+            (unsigned int)container_id->Data4[1], (unsigned int)container_id->Data4[2],
+            (unsigned int)container_id->Data4[3], (unsigned int)container_id->Data4[4],
+            (unsigned int)container_id->Data4[5], (unsigned int)container_id->Data4[6],
+            (unsigned int)container_id->Data4[7] );
+}
+
+static HANDLE create_sony_audio_ready_event( const GUID *container_id )
+{
+    WCHAR name[80];
+
+    get_sony_audio_ready_event_name( container_id, name );
+    return CreateEventW( NULL, TRUE, FALSE, name );
+}
+
+static DWORD WINAPI pending_sony_hid_proc( void *arg )
+{
+    struct pending_sony_hid *pending = arg;
+    BOOL dispatch;
+    DWORD wait;
+
+    wait = WaitForSingleObject( pending->ready_event, 3000 );
+
+    /* The gate is released even when no speaker was published. Enumerators
+     * can keep the named event alive after this worker closes its handle. */
+    SetEvent( pending->ready_event );
+
+    AcquireSRWLockExclusive( &pending_sony_hid_lock );
+    dispatch = !pending->cancelled;
+    ReleaseSRWLockExclusive( &pending_sony_hid_lock );
+
+    if (dispatch)
+    {
+        TRACE( "Dispatching original Sony HID arrival for container %s.\n",
+                debugstr_guid( &pending->container_id ) );
+        dispatch_device_notification( DBT_DEVICEARRIVAL, pending->path, pending->header );
+    }
+
+    SetEvent( pending->dispatched_event );
+
+    AcquireSRWLockExclusive( &pending_sony_hid_lock );
+    list_remove( &pending->entry );
+    ReleaseSRWLockExclusive( &pending_sony_hid_lock );
+
+    if (wait == WAIT_TIMEOUT)
+        WARN( "Timed out waiting for Sony speaker container %s before HID arrival.\n",
+                debugstr_guid( &pending->container_id ) );
+
+    CloseHandle( pending->dispatched_event );
+    CloseHandle( pending->ready_event );
+    free( pending->header );
+    free( pending->path );
+    free( pending );
+    return 0;
+}
+
+static BOOL queue_sony_hid_arrival( const WCHAR *path, const DEV_BROADCAST_HDR *header )
+{
+    const DEV_BROADCAST_DEVICEINTERFACE_W *iface = (const DEV_BROADCAST_DEVICEINTERFACE_W *)header;
+    struct pending_sony_hid *pending = NULL, *old;
+    HANDLE thread;
+
+    if (!is_sony_usb_audio_hid( header ) ||
+            !(pending = calloc( 1, sizeof(*pending) )) ||
+            !(pending->path = wcsdup( path ? path : L"" )) ||
+            !(pending->header = malloc( header->dbch_size )) ||
+            !get_interface_container_id( iface->dbcc_name, &pending->container_id ))
+        goto failed;
+    if (!(pending->ready_event = create_sony_audio_ready_event( &pending->container_id )))
+        goto failed;
+    if (!(pending->dispatched_event = CreateEventW( NULL, TRUE, FALSE, NULL )))
+        goto failed;
+
+    memcpy( pending->header, header, header->dbch_size );
+
+    AcquireSRWLockExclusive( &pending_sony_hid_lock );
+    LIST_FOR_EACH_ENTRY( old, &pending_sony_hid_list, struct pending_sony_hid, entry )
+    {
+        if (!IsEqualGUID( &old->container_id, &pending->container_id )) continue;
+        TRACE( "Ignoring duplicate pending Sony HID arrival for container %s.\n",
+                debugstr_guid( &pending->container_id ) );
+        ReleaseSRWLockExclusive( &pending_sony_hid_lock );
+        CloseHandle( pending->dispatched_event );
+        CloseHandle( pending->ready_event );
+        free( pending->header );
+        free( pending->path );
+        free( pending );
+        return TRUE;
+    }
+    list_add_tail( &pending_sony_hid_list, &pending->entry );
+    ReleaseSRWLockExclusive( &pending_sony_hid_lock );
+
+    TRACE( "Holding original Sony HID arrival for speaker container %s.\n",
+            debugstr_guid( &pending->container_id ) );
+    if ((thread = CreateThread( NULL, 0, pending_sony_hid_proc, pending, 0, NULL )))
+    {
+        CloseHandle( thread );
+        return TRUE;
+    }
+
+    AcquireSRWLockExclusive( &pending_sony_hid_lock );
+    list_remove( &pending->entry );
+    ReleaseSRWLockExclusive( &pending_sony_hid_lock );
+
+failed:
+    if (pending)
+    {
+        if (pending->dispatched_event) CloseHandle( pending->dispatched_event );
+        if (pending->ready_event) CloseHandle( pending->ready_event );
+        free( pending->header );
+        free( pending->path );
+        free( pending );
+    }
+    return FALSE;
+}
+
+static void cancel_pending_sony_hid( const DEV_BROADCAST_HDR *header )
+{
+    const DEV_BROADCAST_DEVICEINTERFACE_W *iface = (const DEV_BROADCAST_DEVICEINTERFACE_W *)header;
+    struct pending_sony_hid *pending;
+
+    if (!is_sony_usb_audio_hid( header )) return;
+
+    AcquireSRWLockExclusive( &pending_sony_hid_lock );
+    LIST_FOR_EACH_ENTRY( pending, &pending_sony_hid_list, struct pending_sony_hid, entry )
+    {
+        const DEV_BROADCAST_DEVICEINTERFACE_W *pending_iface =
+                (const DEV_BROADCAST_DEVICEINTERFACE_W *)pending->header;
+
+        if (wcsicmp( pending_iface->dbcc_name, iface->dbcc_name )) continue;
+        pending->cancelled = TRUE;
+        SetEvent( pending->ready_event );
+    }
+    ReleaseSRWLockExclusive( &pending_sony_hid_lock );
+}
+
+void WINAPI __wine_sechost_signal_sony_audio_endpoint_ready( const GUID *container_id )
+{
+    struct pending_sony_hid *pending;
+    HANDLE dispatched_event = NULL;
+    WCHAR name[80];
+    HANDLE event;
+
+    TRACE( "container %s\n", debugstr_guid( container_id ) );
+
+    AcquireSRWLockShared( &pending_sony_hid_lock );
+    LIST_FOR_EACH_ENTRY( pending, &pending_sony_hid_list, struct pending_sony_hid, entry )
+    {
+        if (!IsEqualGUID( &pending->container_id, container_id )) continue;
+        DuplicateHandle( GetCurrentProcess(), pending->dispatched_event, GetCurrentProcess(),
+                &dispatched_event, SYNCHRONIZE, FALSE, 0 );
+        break;
+    }
+    ReleaseSRWLockShared( &pending_sony_hid_lock );
+
+    get_sony_audio_ready_event_name( container_id, name );
+    if ((event = OpenEventW( EVENT_MODIFY_STATE, FALSE, name )))
+    {
+        SetEvent( event );
+        CloseHandle( event );
+    }
+    else
+        TRACE( "No pending cross-process Sony HID arrival for container %s.\n",
+                debugstr_guid( container_id ) );
+
+    if (dispatched_event)
+    {
+        if (WaitForSingleObject( dispatched_event, 1000 ) == WAIT_TIMEOUT)
+            WARN( "Timed out waiting for local Sony HID arrival dispatch for container %s.\n",
+                    debugstr_guid( container_id ) );
+        CloseHandle( dispatched_event );
+    }
+}
+
 static DWORD WINAPI device_notify_proc( void *arg )
 {
     WCHAR endpoint[] = L"\\pipe\\wine_plugplay";
     WCHAR protseq[] = L"ncacn_np";
     RPC_WSTR binding_str;
     DWORD err = ERROR_SUCCESS;
-    struct device_notify *notify, *event, *next;
-    struct list events = LIST_INIT(events);
     plugplay_rpc_handle handle = NULL;
     DWORD code = 0;
     unsigned int size;
@@ -2131,22 +2477,17 @@ static DWORD WINAPI device_notify_proc( void *arg )
             break;
         }
 
-        /* Make a copy to avoid a hang if a callback tries to register or unregister for notifications. */
-        EnterCriticalSection( &service_cs );
-        LIST_FOR_EACH_ENTRY( notify, &device_notify_list, struct device_notify, entry )
+        if (code == DBT_DEVICEARRIVAL && queue_sony_hid_arrival( path, (DEV_BROADCAST_HDR *)buf ))
         {
-            if (!notification_filter_matches( notify->header, notify->path, (DEV_BROADCAST_HDR *)buf, path )) continue;
-            if (!(event = device_notify_copy( notify, (DEV_BROADCAST_HDR *)buf ))) break;
-            list_add_tail( &events, &event->entry );
+            MIDL_user_free(buf);
+            MIDL_user_free(path);
+            continue;
         }
-        LeaveCriticalSection(&service_cs);
 
-        LIST_FOR_EACH_ENTRY_SAFE( event, next, &events, struct device_notify, entry )
-        {
-            event->callback( event->handle, code, event->header );
-            list_remove( &event->entry );
-            free( event );
-        }
+        if (code == DBT_DEVICEREMOVECOMPLETE)
+            cancel_pending_sony_hid( (DEV_BROADCAST_HDR *)buf );
+
+        dispatch_device_notification( code, path, (DEV_BROADCAST_HDR *)buf );
 
         MIDL_user_free(buf);
         MIDL_user_free(path);

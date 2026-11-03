@@ -349,9 +349,14 @@ static HRESULT evr_copy_sample_buffer(struct evr *filter, const GUID *subtype, I
     IDirect3DSurface9 *surface;
     D3DLOCKED_RECT locked_rect;
     IMFMediaBuffer *buffer;
+    REFERENCE_TIME start, end;
     UINT64 frame_size = 0;
     UINT32 width, lines;
     LONG src_stride;
+    LONG src_plane_stride;
+    BYTE *src_base;
+    BYTE *src_uv;
+    LONG src_uv_stride;
     HRESULT hr;
     BYTE *src;
     BYTE *dst_uv;
@@ -371,11 +376,20 @@ static HRESULT evr_copy_sample_buffer(struct evr *filter, const GUID *subtype, I
         WARN("Failed to get pointer to sample data, hr %#lx.\n", hr);
         return hr;
     }
+    src_plane_stride = src_stride < 0 ? -src_stride : src_stride;
+    src_base = src;
 
     if (FAILED(hr = IMFVideoSampleAllocator_AllocateSample(filter->allocator, sample)))
     {
         WARN("Failed to allocate a sample, hr %#lx.\n", hr);
         return hr;
+    }
+
+    if (SUCCEEDED(IMediaSample_GetTime(input_sample, &start, &end)))
+    {
+        IMFSample_SetSampleTime(*sample, start);
+        if (end >= start)
+            IMFSample_SetSampleDuration(*sample, end - start);
     }
 
     if (SUCCEEDED(hr = IMFSample_GetBufferByIndex(*sample, 0, &buffer)))
@@ -393,16 +407,21 @@ static HRESULT evr_copy_sample_buffer(struct evr *filter, const GUID *subtype, I
                 }
                 else if (IsEqualGUID(subtype, &MFVideoFormat_NV12))
                 {
+                    BYTE *src_y = src_stride < 0 ? src_base : src;
+                    LONG src_y_stride = src_stride < 0 ? src_plane_stride : src_stride;
+
                     /* Width and height must be rounded up to even. */
                     width = (width + 1) & ~1;
                     lines = (lines + 1) & ~1;
 
                     /* Y plane */
-                    MFCopyImage(locked_rect.pBits, locked_rect.Pitch, src, src_stride, width, lines);
+                    MFCopyImage(locked_rect.pBits, locked_rect.Pitch, src_y, src_y_stride, width, lines);
 
                     /* UV plane */
                     dst_uv = (BYTE *)locked_rect.pBits + (lines * locked_rect.Pitch);
-                    MFCopyImage(dst_uv, locked_rect.Pitch, src + (lines * src_stride), src_stride, width, lines / 2);
+                    src_uv = src_base + lines * src_plane_stride;
+                    src_uv_stride = src_y_stride;
+                    MFCopyImage(dst_uv, locked_rect.Pitch, src_uv, src_uv_stride, width, lines / 2);
                 }
                 else
                 {

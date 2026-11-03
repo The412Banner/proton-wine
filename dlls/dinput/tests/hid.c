@@ -58,6 +58,7 @@
 #include "gameinput.h"
 
 #include "wine/mssign.h"
+#include "wine/hid.h"
 
 #include "dinput_test.h"
 
@@ -4227,6 +4228,208 @@ done:
     hid_device_stop( &desc, 1 );
 }
 
+static void test_sony_fallback_read( HANDLE file, HANDLE sender )
+{
+    struct hid_expect input =
+    {
+        .code = IOCTL_HID_READ_REPORT,
+        .report_len = 2,
+        .report_buf = {1, 0x42},
+        .ret_length = 2,
+        .ret_status = STATUS_SUCCESS,
+    };
+    OVERLAPPED overlapped = {0};
+    BYTE report[2];
+    DWORD size, wait;
+    BOOL ret;
+
+    overlapped.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL );
+    ret = ReadFile( file, report, sizeof(report), &size, &overlapped );
+    ok( ret || GetLastError() == ERROR_IO_PENDING, "ReadFile failed, error %lu\n", GetLastError() );
+    if (!ret && GetLastError() == ERROR_IO_PENDING)
+    {
+        send_hid_input( sender, &input, sizeof(input) );
+        wait = WaitForSingleObject( overlapped.hEvent, 5000 );
+        ok( wait == WAIT_OBJECT_0, "ReadFile timed out, wait %#lx\n", wait );
+        if (wait != WAIT_OBJECT_0) CancelIoEx( file, &overlapped );
+        ret = GetOverlappedResult( file, &overlapped, &size, TRUE );
+        ok( ret, "GetOverlappedResult failed, error %lu\n", GetLastError() );
+    }
+    if (ret) ok( size == sizeof(report), "Unexpected report size %lu\n", size );
+    CloseHandle( overlapped.hEvent );
+}
+
+static void test_sony_xinput_takeover(void)
+{
+#include "psh_hid_macros.h"
+    const BYTE report_desc[] =
+    {
+        USAGE_PAGE(1, HID_USAGE_PAGE_GENERIC),
+        USAGE(1, HID_USAGE_GENERIC_GAMEPAD),
+        COLLECTION(1, Application),
+            REPORT_ID(1, 1),
+            USAGE(1, HID_USAGE_GENERIC_X),
+            LOGICAL_MINIMUM(1, 0),
+            LOGICAL_MAXIMUM(2, 255),
+            REPORT_SIZE(1, 8),
+            REPORT_COUNT(1, 1),
+            INPUT(1, Data|Var|Abs),
+        END_COLLECTION,
+    };
+#include "pop_hid_macros.h"
+    struct hid_device_desc desc[2] = {0};
+    struct hid_xinput_fallback_registration registration;
+    HANDLE fallback[2] = {INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE}, events[2] = {0};
+    HANDLE native = INVALID_HANDLE_VALUE, second = INVALID_HANDLE_VALUE, second_event = NULL;
+    HANDLE dinput_reader = INVALID_HANDLE_VALUE;
+    WCHAR path[2][MAX_PATH];
+    HIDD_ATTRIBUTES attributes = {sizeof(attributes)};
+    BOOL ret, active;
+    unsigned int i;
+    DWORD wait;
+
+    if (strcmp( winetest_platform, "wine" ))
+    {
+        win_skip( "Wine-specific Sony fallback ownership protocol.\n" );
+        return;
+    }
+
+    for (i = 0; i < 2; ++i)
+    {
+        desc[i].use_report_id = TRUE;
+        desc[i].caps.InputReportByteLength = 2;
+        desc[i].attributes.Size = sizeof(desc[i].attributes);
+        desc[i].attributes.VendorID = 0x054c;
+        desc[i].attributes.ProductID = 0x0ce6;
+        desc[i].attributes.VersionNumber = 0x0100;
+        swprintf( desc[i].serial_str, ARRAY_SIZE(desc[i].serial_str), L"sony-fallback-test-%u", i );
+        desc[i].report_descriptor_len = sizeof(report_desc);
+        memcpy( desc[i].report_descriptor_buf, report_desc, sizeof(report_desc) );
+    }
+    if (!hid_device_start( desc, 2 )) return;
+
+    for (i = 0; i < 2; ++i)
+    {
+        swprintf( path[i], MAX_PATH, L"\\\\?\\hid#vid_054c&pid_0ce6#sony-fallback-test-%u", i );
+        ret = find_hid_device_path( path[i] );
+        ok( ret, "Missing test device %s\n", debugstr_w(path[i]) );
+        if (!ret) goto done;
+        fallback[i] = CreateFileW( path[i], GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL );
+        ok( fallback[i] != INVALID_HANDLE_VALUE, "Open failed, error %lu\n", GetLastError() );
+        if (fallback[i] == INVALID_HANDLE_VALUE) goto done;
+        events[i] = CreateEventW( NULL, TRUE, FALSE, NULL );
+        registration.takeover_event = (ULONG_PTR)events[i];
+        ret = sync_ioctl( fallback[i], IOCTL_HID_WINE_REGISTER_XINPUT_FALLBACK, &registration,
+                          sizeof(registration) - 1, NULL, NULL, 5000 );
+        ok( !ret && GetLastError() == ERROR_INVALID_PARAMETER, "Invalid registration returned %u, error %lu\n",
+            ret, GetLastError() );
+        ret = sync_ioctl( fallback[i], IOCTL_HID_WINE_REGISTER_XINPUT_FALLBACK, &registration,
+                          sizeof(registration), NULL, NULL, 5000 );
+        ok( ret, "Registration failed, error %lu\n", GetLastError() );
+        if (!ret) goto done;
+    }
+
+    native = CreateFileW( path[0], GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL );
+    ok( native != INVALID_HANDLE_VALUE, "Native open failed, error %lu\n", GetLastError() );
+    if (native == INVALID_HANDLE_VALUE) goto done;
+    ret = HidD_GetAttributes( native, &attributes );
+    ok( ret, "Attributes query failed, error %lu\n", GetLastError() );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "Enumeration claimed native ownership\n" );
+
+    test_sony_fallback_read( fallback[0], fallback[0] );
+    test_sony_fallback_read( fallback[0], fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "Internal reads claimed native ownership\n" );
+
+    dinput_reader = CreateFileW( path[0], GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                 NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL );
+    ok( dinput_reader != INVALID_HANDLE_VALUE, "DirectInput reader open failed, error %lu\n", GetLastError() );
+    if (dinput_reader == INVALID_HANDLE_VALUE) goto done;
+    active = TRUE;
+    ret = sync_ioctl( dinput_reader, IOCTL_HID_WINE_MARK_DINPUT_READER, &active, sizeof(active), NULL, NULL, 5000 );
+    ok( !ret && GetLastError() == ERROR_INVALID_PARAMETER, "Invalid reader registration returned %u, error %lu\n",
+        ret, GetLastError() );
+    ret = sync_ioctl( dinput_reader, IOCTL_HID_WINE_MARK_DINPUT_READER, NULL, 0, NULL, NULL, 5000 );
+    ok( ret, "DirectInput reader registration failed, error %lu\n", GetLastError() );
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "DirectInput reads claimed native ownership\n" );
+
+    test_sony_fallback_read( native, fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "One probe claimed native ownership\n" );
+    test_sony_fallback_read( native, fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_OBJECT_0, "Native reads did not withdraw fallback\n" );
+    ok( WaitForSingleObject( events[1], 0 ) == WAIT_TIMEOUT, "Native reads affected another controller\n" );
+
+    ret = sync_ioctl( dinput_reader, IOCTL_HID_WINE_MARK_DINPUT_READER, NULL, 0, NULL, NULL, 5000 );
+    ok( ret, "Repeated reader registration failed, error %lu\n", GetLastError() );
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_OBJECT_0, "DirectInput reader released a native owner\n" );
+
+    second = CreateFileW( path[0], GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL );
+    ok( second != INVALID_HANDLE_VALUE, "Second fallback open failed, error %lu\n", GetLastError() );
+    if (second == INVALID_HANDLE_VALUE) goto done;
+    second_event = CreateEventW( NULL, TRUE, FALSE, NULL );
+    registration.takeover_event = (ULONG_PTR)second_event;
+    ret = sync_ioctl( second, IOCTL_HID_WINE_REGISTER_XINPUT_FALLBACK, &registration,
+                      sizeof(registration), NULL, NULL, 5000 );
+    ok( ret, "Second registration failed, error %lu\n", GetLastError() );
+    ok( WaitForSingleObject( second_event, 0 ) == WAIT_OBJECT_0, "Late fallback missed native owner\n" );
+
+    active = FALSE;
+    ret = sync_ioctl( native, IOCTL_HID_WINE_NATIVE_INPUT_ACTIVITY, &active, sizeof(active), NULL, NULL, 5000 );
+    ok( ret, "Release failed, error %lu\n", GetLastError() );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "Release did not restore fallback\n" );
+    ok( WaitForSingleObject( second_event, 0 ) == WAIT_TIMEOUT, "Release missed second fallback\n" );
+    active = TRUE;
+    for (i = 0; i < 2; ++i)
+    {
+        ret = sync_ioctl( native, IOCTL_HID_WINE_NATIVE_INPUT_ACTIVITY, &active, sizeof(active), NULL, NULL, 5000 );
+        ok( ret, "Raw Input activity failed, error %lu\n", GetLastError() );
+    }
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_OBJECT_0, "Raw Input did not withdraw fallback\n" );
+    CloseHandle( native );
+    native = INVALID_HANDLE_VALUE;
+    for (i = 0; i < 500 && (wait = WaitForSingleObject( events[0], 0 )) == WAIT_OBJECT_0; ++i) Sleep( 10 );
+    ok( wait == WAIT_TIMEOUT, "Closing native consumer did not restore fallback, wait %#lx\n", wait );
+    ok( WaitForSingleObject( second_event, 0 ) == WAIT_TIMEOUT, "Close missed second fallback\n" );
+
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "Remaining DirectInput reader reclaimed ownership\n" );
+
+    /* Classification belongs to the file, not the device or process. */
+    CloseHandle( dinput_reader );
+    dinput_reader = CreateFileW( path[0], GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                 NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL );
+    ok( dinput_reader != INVALID_HANDLE_VALUE, "Reader reopen failed, error %lu\n", GetLastError() );
+    if (dinput_reader == INVALID_HANDLE_VALUE) goto done;
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_OBJECT_0, "Reader exemption leaked to a new handle\n" );
+    ret = sync_ioctl( dinput_reader, IOCTL_HID_WINE_MARK_DINPUT_READER, NULL, 0, NULL, NULL, 5000 );
+    ok( ret, "Late reader registration failed, error %lu\n", GetLastError() );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "Late registration did not release its claim\n" );
+    ok( WaitForSingleObject( second_event, 0 ) == WAIT_TIMEOUT, "Late registration missed second fallback\n" );
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    test_sony_fallback_read( dinput_reader, fallback[0] );
+    ok( WaitForSingleObject( events[0], 0 ) == WAIT_TIMEOUT, "Late-registered reader reclaimed ownership\n" );
+
+done:
+    if (dinput_reader != INVALID_HANDLE_VALUE) CloseHandle( dinput_reader );
+    if (native != INVALID_HANDLE_VALUE) CloseHandle( native );
+    if (second != INVALID_HANDLE_VALUE) CloseHandle( second );
+    if (second_event) CloseHandle( second_event );
+    for (i = 0; i < 2; ++i)
+    {
+        if (fallback[i] != INVALID_HANDLE_VALUE) CloseHandle( fallback[i] );
+        if (events[i]) CloseHandle( events[i] );
+    }
+    hid_device_stop( desc, 2 );
+}
+
 START_TEST( hid )
 {
     dinput_test_init();
@@ -4240,6 +4443,7 @@ START_TEST( hid )
     test_hid_driver( 0, TRUE );
     test_hid_driver( 1, TRUE );
     test_hid_multiple_tlc();
+    test_sony_xinput_takeover();
 
 done:
     bus_device_stop();

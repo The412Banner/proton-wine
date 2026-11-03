@@ -293,7 +293,21 @@ static HRESULT vmr_render(struct strmbase_renderer *iface, IMediaSample *sample)
         return hr;
     }
 
-    if (bitmap_header->biCompression == mmioFOURCC('N','V','1','2'))
+    if ((bitmap_header->biCompression == mmioFOURCC('N','V','1','2')
+            || bitmap_header->biCompression == mmioFOURCC('Y','V','1','2'))
+            && (dst_desc.Format == D3DFMT_X8R8G8B8 || dst_desc.Format == D3DFMT_A8R8G8B8))
+    {
+        /* A custom allocator can give an RGB32 surface for a YUV stream: copying the planes
+         * there would write the chroma past the end of the surface, convert them instead,
+         * clipped to the surface. */
+        unsigned int rgb_width = min(width, dst_desc.Width), rgb_height = min(abs(height), dst_desc.Height);
+
+        if (bitmap_header->biCompression == mmioFOURCC('N','V','1','2'))
+            convert_nv12_to_rgb32(locked_rect.pBits, locked_rect.Pitch, data, src_pitch, abs(height), rgb_width, rgb_height);
+        else
+            convert_yv12_to_rgb32(locked_rect.pBits, locked_rect.Pitch, data, src_pitch, abs(height), rgb_width, rgb_height);
+    }
+    else if (bitmap_header->biCompression == mmioFOURCC('N','V','1','2'))
     {
         BYTE *dst = locked_rect.pBits;
         const BYTE *src = data;
@@ -1197,7 +1211,7 @@ static HRESULT WINAPI VMR9WindowlessControl_GetNativeVideoSize(IVMRWindowlessCon
         LONG *width, LONG *height, LONG *aspect_width, LONG *aspect_height)
 {
     struct quartz_vmr *filter = impl_from_IVMRWindowlessControl9(iface);
-    const BITMAPINFOHEADER *bmiheader = get_filter_bitmap_header(filter);
+    const BITMAPINFOHEADER *bmiheader;
 
     TRACE("filter %p, width %p, height %p, aspect_width %p, aspect_height %p.\n",
             filter, width, height, aspect_width, aspect_height);
@@ -1205,6 +1219,10 @@ static HRESULT WINAPI VMR9WindowlessControl_GetNativeVideoSize(IVMRWindowlessCon
     if (!width || !height)
         return E_POINTER;
 
+    if (!filter->renderer.sink.pin.mt.pbFormat)
+        return VFW_E_NOT_CONNECTED;
+
+    bmiheader = get_filter_bitmap_header(filter);
     *width = bmiheader->biWidth;
     *height = bmiheader->biHeight;
     if (aspect_width)
@@ -1237,6 +1255,11 @@ static HRESULT WINAPI VMR9WindowlessControl_SetVideoPosition(IVMRWindowlessContr
     struct quartz_vmr *filter = impl_from_IVMRWindowlessControl9(iface);
 
     TRACE("filter %p, src %s, dst %s.\n", filter, wine_dbgstr_rect(src), wine_dbgstr_rect(dst));
+
+    if (src && (src->right <= src->left || src->bottom <= src->top))
+        return E_INVALIDARG;
+    if (dst && (dst->right <= dst->left || dst->bottom <= dst->top))
+        return E_INVALIDARG;
 
     EnterCriticalSection(&filter->renderer.filter.filter_cs);
 

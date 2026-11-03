@@ -59,7 +59,7 @@ static LRESULT IYUV_Open(const ICINFO *icinfo)
     if (icinfo && compare_fourcc(icinfo->fccType, ICTYPE_VIDEO))
         return 0;
 
-    if (FAILED(winegstreamer_create_color_converter(&transform)))
+    if (FAILED(winedmo_create_color_converter(&transform)))
         transform = NULL;
 
     return (LRESULT)transform;

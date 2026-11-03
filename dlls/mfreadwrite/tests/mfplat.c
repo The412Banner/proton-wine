@@ -1154,6 +1154,130 @@ static void test_source_reader(const char *filename, bool video)
     winetest_pop_context();
 }
 
+static void test_source_reader_asf_timestamps(void)
+{
+    IMFMediaType *media_type;
+    IMFSourceReader *reader;
+    IMFByteStream *stream;
+    LONGLONG timestamp, sample_time, expected;
+    PROPVARIANT position;
+    IMFSample *sample;
+    unsigned int pass, i;
+    DWORD flags;
+    HRESULT hr;
+
+    if (!pMFCreateMFByteStreamOnStream)
+    {
+        win_skip("MFCreateMFByteStreamOnStream() not found\n");
+        return;
+    }
+
+    stream = get_resource_stream("test.wmv");
+    hr = MFCreateSourceReaderFromByteStream(stream, NULL, &reader);
+    IMFByteStream_Release(stream);
+    if (FAILED(hr))
+    {
+        skip("Failed to create ASF source reader, hr %#lx.\n", hr);
+        return;
+    }
+
+    hr = IMFSourceReader_SetStreamSelection(reader, MF_SOURCE_READER_ALL_STREAMS, FALSE);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = IMFSourceReader_SetStreamSelection(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    /* Read compressed samples to check demuxer timestamps without a decoder. */
+    hr = IMFSourceReader_GetNativeMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = IMFSourceReader_SetCurrentMediaType(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, media_type);
+    IMFMediaType_Release(media_type);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    for (pass = 0; pass < 2; ++pass)
+    {
+        if (pass)
+        {
+            position.vt = VT_I8;
+            position.hVal.QuadPart = 0;
+            hr = IMFSourceReader_SetCurrentPosition(reader, &GUID_NULL, &position);
+            ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+            if (FAILED(hr)) break;
+        }
+
+        /* The first video sample is at 46 ms, then 25 fps. Cross 200 ms on
+         * both initial playback and replay without resetting the timeline. */
+        for (i = 0; i < 16; ++i)
+        {
+            winetest_push_context("pass %u, sample %u", pass, i);
+            sample = NULL;
+            flags = 0;
+            timestamp = -1;
+            hr = IMFSourceReader_ReadSample(reader, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+                    0, NULL, &flags, &timestamp, &sample);
+            ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+            ok(!flags, "Unexpected stream flags %#lx.\n", flags);
+            ok(!!sample, "Expected sample object.\n");
+            if (SUCCEEDED(hr) && sample)
+            {
+                expected = 460000 + i * 400000;
+                ok(timestamp == expected, "Got timestamp %I64d, expected %I64d.\n", timestamp, expected);
+                sample_time = -1;
+                hr = IMFSample_GetSampleTime(sample, &sample_time);
+                ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+                ok(sample_time == expected, "Got sample time %I64d, expected %I64d.\n", sample_time, expected);
+            }
+            if (sample) IMFSample_Release(sample);
+            winetest_pop_context();
+            if (FAILED(hr) || !sample || flags & MF_SOURCE_READERF_ENDOFSTREAM) break;
+        }
+    }
+
+done:
+    IMFSourceReader_Release(reader);
+}
+
+static void check_source_reader_sample_lifetime(IMFSourceReader *reader, DWORD stream_index)
+{
+    IMFSample *first_sample = NULL, *sample;
+    DWORD actual_index, stream_flags;
+    LONGLONG timestamp;
+    unsigned int i;
+    ULONG refcount;
+    HRESULT hr;
+
+    winetest_push_context("stream %#lx", stream_index);
+
+    /* Read past the first sample so its delivery callback can finish, without
+     * flushing or seeking away any references retained by the reader. */
+    for (i = 0; i < 32; ++i)
+    {
+        sample = NULL;
+        hr = IMFSourceReader_ReadSample(reader, stream_index, 0, &actual_index, &stream_flags,
+                &timestamp, &sample);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        ok(!!sample, "Expected sample object.\n");
+        if (!sample) break;
+
+        if (!first_sample)
+            first_sample = sample;
+        else
+            IMFSample_Release(sample);
+    }
+
+    if (first_sample)
+    {
+        refcount = get_refcount(first_sample);
+        ok(refcount == 1, "Expected only the caller's sample reference, got %lu.\n", refcount);
+        IMFSample_Release(first_sample);
+    }
+
+    winetest_pop_context();
+}
+
 static void test_source_reader_from_media_source(void)
 {
     static const DWORD expected_sample_order[10] = {0, 0, 1, 1, 0, 0, 0, 0, 1, 0};
@@ -1302,6 +1426,9 @@ static void test_source_reader_from_media_source(void)
     ok(timestamp == 123, "Unexpected timestamp.\n");
     ok(!!sample, "Expected sample object.\n");
     IMFSample_Release(sample);
+
+    check_source_reader_sample_lifetime(reader, MF_SOURCE_READER_FIRST_AUDIO_STREAM);
+    check_source_reader_sample_lifetime(reader, MF_SOURCE_READER_ANY_STREAM);
 
     IMFSourceReader_Release(reader);
     IMFMediaSource_Release(source);
@@ -3895,6 +4022,7 @@ START_TEST(mfplat)
     test_interfaces();
     test_source_reader("test.wav", false);
     test_source_reader("test.mp4", true);
+    test_source_reader_asf_timestamps();
     test_source_reader_from_media_source();
     test_source_reader_transforms(FALSE, FALSE);
     test_source_reader_transforms(TRUE, FALSE);

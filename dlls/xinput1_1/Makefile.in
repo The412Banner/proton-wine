@@ -1,6 +1,6 @@
 EXTRADEFS = -DXINPUT_VER=1
 MODULE    = xinput1_1.dll
-IMPORTS   = hid setupapi advapi32 user32
+IMPORTS   = hid cfgmgr32 advapi32 user32
 PARENTSRC = ../xinput1_3
 
 SOURCES = \

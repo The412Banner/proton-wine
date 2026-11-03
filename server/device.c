@@ -39,6 +39,9 @@
 #include "request.h"
 #include "process.h"
 
+static unsigned int sony_active_controller[4];
+static int sony_active_controller_valid;
+
 /* IRP object */
 
 struct irp_call
@@ -898,6 +901,41 @@ DECL_HANDLER(create_device_manager)
         reply->handle = alloc_handle( current->process, manager, req->access, req->attributes );
         release_object( manager );
     }
+}
+
+
+/* publish transient Sony controller activity to audio clients */
+DECL_HANDLER(set_sony_active_controller)
+{
+    const unsigned int container[4] =
+    {
+        req->container0, req->container1, req->container2, req->container3
+    };
+    const int null_container = !container[0] && !container[1] &&
+            !container[2] && !container[3];
+
+    if (req->valid)
+    {
+        memcpy( sony_active_controller, container, sizeof(container) );
+        sony_active_controller_valid = 1;
+    }
+    else if (null_container || (sony_active_controller_valid &&
+            !memcmp( sony_active_controller, container, sizeof(container) )))
+    {
+        memset( sony_active_controller, 0, sizeof(sony_active_controller) );
+        sony_active_controller_valid = 0;
+    }
+}
+
+
+/* retrieve transient Sony controller activity for an audio client */
+DECL_HANDLER(get_sony_active_controller)
+{
+    reply->container0 = sony_active_controller[0];
+    reply->container1 = sony_active_controller[1];
+    reply->container2 = sony_active_controller[2];
+    reply->container3 = sony_active_controller[3];
+    reply->valid = sony_active_controller_valid;
 }
 
 

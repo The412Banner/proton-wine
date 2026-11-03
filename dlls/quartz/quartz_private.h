@@ -54,6 +54,7 @@ HRESULT acm_wrapper_create(IUnknown *outer, IUnknown **out);
 HRESULT async_reader_create(IUnknown *outer, IUnknown **out);
 HRESULT avi_dec_create(IUnknown *outer, IUnknown **out);
 HRESULT avi_splitter_create(IUnknown *outer, IUnknown **out);
+HRESULT colour_create(IUnknown *outer, IUnknown **out);
 HRESULT dsound_render_create(IUnknown *outer, IUnknown **out);
 HRESULT filter_graph_create(IUnknown *outer, IUnknown **out);
 HRESULT filter_graph_no_thread_create(IUnknown *outer, IUnknown **out);
@@ -69,6 +70,11 @@ HRESULT video_renderer_create(IUnknown *outer, IUnknown **out);
 HRESULT video_renderer_default_create(IUnknown *outer, IUnknown **out);
 HRESULT vmr7_presenter_create(IUnknown *outer, IUnknown **out);
 HRESULT vmr7_create(IUnknown *outer, IUnknown **out);
+
+void convert_nv12_to_rgb32(BYTE *dst, unsigned int dst_pitch,
+        const BYTE *src, unsigned int src_pitch, unsigned int src_height, unsigned int width, unsigned int height);
+void convert_yv12_to_rgb32(BYTE *dst, unsigned int dst_pitch,
+        const BYTE *src, unsigned int src_pitch, unsigned int src_height, unsigned int width, unsigned int height);
 HRESULT vmr9_create(IUnknown *outer, IUnknown **out);
 HRESULT wave_parser_create(IUnknown *outer, IUnknown **out);
 

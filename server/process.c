@@ -811,6 +811,7 @@ static void process_destroy( struct object *obj )
     assert( !process->sigkill_timeout );  /* timeout should hold a reference to the process */
 
     close_process_handles( process );
+    release_kept_inproc_syncs( process );
     set_process_startup_state( process, STARTUP_ABORTED );
 
     if (process->job)
@@ -1016,6 +1017,7 @@ static void process_killed( struct process *process )
     process->desktop = 0;
     cancel_terminating_process_asyncs( process );
     close_process_handles( process );
+    release_kept_inproc_syncs( process );
     if (process->idle_event) release_object( process->idle_event );
     process->idle_event = NULL;
     assert( !process->console );

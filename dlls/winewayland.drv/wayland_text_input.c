@@ -116,17 +116,17 @@ static void text_input_enter(void *private, struct zwp_text_input_v3 *zwp_text_i
     hwnd = wl_surface_get_user_data(surface);
     TRACE("hwnd %p.\n", hwnd);
 
-    pthread_mutex_lock(&text_input->mutex);
+    /* win_data_mutex before text_input->mutex, as wayland_surface_destroy()
+     * takes text_input->mutex with win_data_mutex held. */
+    if (!(data = wayland_win_data_get(hwnd))) return;
 
-    if (!(data = wayland_win_data_get(hwnd))) goto done;
+    pthread_mutex_lock(&text_input->mutex);
 
     text_input->focused_hwnd = hwnd;
     if (data->ime_ref) wayland_text_input_enable(text_input);
 
-    wayland_win_data_release(data);
-
-done:
     pthread_mutex_unlock(&text_input->mutex);
+    wayland_win_data_release(data);
 }
 
 static void text_input_leave(void *data, struct zwp_text_input_v3 *zwp_text_input_v3,
@@ -262,7 +262,7 @@ BOOL WAYLAND_SetIMECompositionRect(HWND hwnd, RECT rect)
 
     TRACE("hwnd %p, rect %s.\n", hwnd, wine_dbgstr_rect(&rect));
 
-    /* win_data_mutex before text_input->mutex, matching text_input_enter.
+    /* win_data_mutex before text_input->mutex, as in text_input_enter.
      * The reverse order deadlocks against the event thread. */
     if (!(data = wayland_win_data_get(hwnd)))
         return FALSE;
@@ -272,14 +272,8 @@ BOOL WAYLAND_SetIMECompositionRect(HWND hwnd, RECT rect)
     if (!text_input->zwp_text_input_v3 || !text_input->enabled || hwnd != text_input->focused_hwnd)
         goto err;
 
-    if (!(data = wayland_win_data_get(hwnd)))
-        goto err;
-
     if (!(surface = data->wayland_surface) || !data->ime_ref)
-    {
-        wayland_win_data_release(data);
         goto err;
-    }
 
     OffsetRect(&rect, -surface->window.rect.left, -surface->window.rect.top);
     surface_rect = map_rect_to_surface(surface, rect);
@@ -307,10 +301,12 @@ void WAYLAND_EnableIMEContext(HWND hwnd, BOOL enabled)
 
     TRACE("hwnd=%p enabled=%u\n", hwnd, enabled);
 
+    /* win_data_mutex before text_input->mutex, as in text_input_enter. */
+    if (!(data = wayland_win_data_get(toplevel))) return;
+
     pthread_mutex_lock(&text_input->mutex);
 
     if (!text_input->zwp_text_input_v3) goto done;
-    if (!(data = wayland_win_data_get(toplevel))) goto done;
 
     if (enabled) data->ime_ref++;
     else data->ime_ref--;
@@ -320,8 +316,7 @@ void WAYLAND_EnableIMEContext(HWND hwnd, BOOL enabled)
     if (data->ime_ref > 0) wayland_text_input_enable(text_input);
     else wayland_text_input_disable(text_input);
 
-    wayland_win_data_release(data);
-
 done:
     pthread_mutex_unlock(&text_input->mutex);
+    wayland_win_data_release(data);
 }

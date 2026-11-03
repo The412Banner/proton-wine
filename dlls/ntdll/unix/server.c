@@ -1623,6 +1623,10 @@ static int init_thread_pipe(void)
     wine_server_send_fd( reply_pipe[1] );
     wine_server_send_fd( ntdll_get_thread_data()->wait_fd[1] );
     ntdll_get_thread_data()->reply_fd = reply_pipe[0];
+    /* The server has its own copy now. If we kept ours until the init request
+     * returns, a thread killed before the server reads the request would wait
+     * for the reply forever. */
+    close( reply_pipe[1] );
     return reply_pipe[1];
 }
 
@@ -1780,7 +1784,6 @@ size_t server_init_process(void)
         }
     }
     SERVER_END_REQ;
-    close( reply_pipe );
 
     if (ret) server_protocol_error( "init_first_thread failed with status %x\n", ret );
 
@@ -1899,7 +1902,6 @@ void server_init_thread( void *entry_point, BOOL *suspend )
         *suspend = reply->suspend;
     }
     SERVER_END_REQ;
-    close( reply_pipe );
 }
 
 NTSTATUS WINAPI NtAllocateReserveObject( HANDLE *handle, const OBJECT_ATTRIBUTES *attr,

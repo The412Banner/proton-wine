@@ -405,6 +405,92 @@ static void test_mutex(void)
     CloseHandle(params.stop_event);
 }
 
+struct mutex_wait_all_params
+{
+    HANDLE mutex;
+    HANDLE event;
+    HANDLE ready_event;
+    HANDLE done_event;
+    HANDLE stop_event;
+    DWORD ret;
+};
+
+static DWORD WINAPI mutex_wait_all_thread(void *arg)
+{
+    struct mutex_wait_all_params *params = arg;
+    HANDLE objs[2] = {params->mutex, params->event};
+
+    SetEvent(params->ready_event);
+    params->ret = WaitForMultipleObjects(2, objs, TRUE, 5000);
+    SetEvent(params->done_event);
+    WaitForSingleObject(params->stop_event, INFINITE);
+    return 0;
+}
+
+static void test_mutex_wait_all(void)
+{
+    struct mutex_wait_all_params params[2];
+    HANDLE threads[2], mutex, ready, done, stop;
+    DWORD ret;
+    int i;
+
+    /* Nobody owns the mutex when its last handle is closed, but two threads are waiting for it together with an
+     * event each. The first one to get it dies owning it, which must abandon it for the second one. */
+    mutex = CreateMutexA(NULL, FALSE, NULL);
+    ready = CreateEventW(NULL, FALSE, FALSE, NULL);
+    done = CreateEventW(NULL, FALSE, FALSE, NULL);
+    stop = CreateEventW(NULL, TRUE, FALSE, NULL);
+    for (i = 0; i < ARRAY_SIZE(params); i++)
+    {
+        params[i].mutex = mutex;
+        params[i].event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        params[i].ready_event = ready;
+        params[i].done_event = done;
+        params[i].stop_event = stop;
+        params[i].ret = 0xdeadbeef;
+        threads[i] = CreateThread(NULL, 0, mutex_wait_all_thread, &params[i], 0, NULL);
+        ok(!!threads[i], "CreateThread failed, error %lu\n", GetLastError());
+        ret = WaitForSingleObject(ready, 1000);
+        ok(!ret, "got %#lx\n", ret);
+    }
+    ret = WaitForSingleObject(done, 100);
+    ok(ret == WAIT_TIMEOUT, "got %#lx\n", ret);
+
+    CloseHandle(mutex);
+    ret = WaitForSingleObject(done, 100);
+    ok(ret == WAIT_TIMEOUT, "got %#lx\n", ret);
+
+    SetEvent(params[0].event);
+    ret = WaitForSingleObject(done, 1000);
+    ok(!ret, "got %#lx\n", ret);
+    ok(params[0].ret == WAIT_OBJECT_0, "got %#lx\n", params[0].ret);
+    /* let it block on the stop event before killing it */
+    ret = WaitForSingleObject(threads[0], 100);
+    ok(ret == WAIT_TIMEOUT, "got %#lx\n", ret);
+
+    TerminateThread(threads[0], 0);
+    ret = WaitForSingleObject(threads[0], 1000);
+    ok(!ret, "got %#lx\n", ret);
+
+    SetEvent(params[1].event);
+    ret = WaitForSingleObject(done, 6000);
+    ok(!ret, "got %#lx\n", ret);
+    ok(params[1].ret == WAIT_ABANDONED_0 || params[1].ret == WAIT_ABANDONED_0 + 1, "got %#lx\n", params[1].ret);
+
+    SetEvent(stop);
+    ret = WaitForSingleObject(threads[1], 1000);
+    ok(!ret, "got %#lx\n", ret);
+
+    for (i = 0; i < ARRAY_SIZE(params); i++)
+    {
+        CloseHandle(threads[i]);
+        CloseHandle(params[i].event);
+    }
+    CloseHandle(ready);
+    CloseHandle(done);
+    CloseHandle(stop);
+}
+
 static void test_slist(void)
 {
     struct item
@@ -3550,6 +3636,7 @@ START_TEST(sync)
     test_signalandwait();
     test_temporary_objects();
     test_mutex();
+    test_mutex_wait_all();
     test_slist();
     test_event();
     test_semaphore();

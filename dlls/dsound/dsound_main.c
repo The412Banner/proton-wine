@@ -81,7 +81,12 @@ GUID *DSOUND_capture_guids;
 
 /* All default settings, you most likely don't want to touch these, see wiki on UsefulRegistryKeys */
 int ds_hel_buflen = 32768 * 2;
-int ds_hq_buffers_max = 4;
+/* Staging's linear resampler is used once more than this many buffers exist. It
+ * reads the live buffer instead of the committed region the other mixing paths
+ * use, so streamed audio can glitch when a game rewrites that region. Keep the
+ * high quality resampler for any number of buffers, like upstream Wine; the
+ * HQBuffersMax registry value can still lower it. */
+int ds_hq_buffers_max = 0x7fffffff;
 BOOL ds_eax_enabled = TRUE;
 
 #define IS_OPTION_TRUE(ch) \

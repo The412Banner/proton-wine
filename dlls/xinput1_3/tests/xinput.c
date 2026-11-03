@@ -797,6 +797,79 @@ static void test_hid_reports(void)
     SetupDiDestroyDeviceInfoList(set);
 }
 
+/* Run with and without PROTON_XINPUT_PERSISTENT_PLAYER1=1 in an isolated
+ * prefix without controllers. Physical hotplug is covered by the game test. */
+static void test_persistent_player1(HMODULE module)
+{
+    DWORD (WINAPI *get_device_vidpid)(DWORD, WORD *, WORD *);
+    XINPUT_GAMEPAD neutral = {0};
+    XINPUT_VIBRATION vibration = {0};
+    XINPUT_CAPABILITIES caps;
+    XINPUT_KEYSTROKE keystroke;
+    XINPUT_STATE state, previous;
+    WORD vendor, product;
+    DWORD index, ret, expected;
+    char value[2];
+    BOOL enabled;
+
+    get_device_vidpid = (void *)GetProcAddress(module, "__wine_XInputGetDeviceVidPid");
+    if (!get_device_vidpid) return;
+
+    enabled = GetEnvironmentVariableA("PROTON_XINPUT_PERSISTENT_PLAYER1", value, sizeof(value)) == 1 && value[0] == '1';
+    for (index = 0; index < XUSER_MAX_COUNT; index++)
+    {
+        ret = get_device_vidpid(index, &vendor, &product);
+        if (ret != ERROR_DEVICE_NOT_CONNECTED)
+        {
+            skip("Slot %lu has a physical device; skipping placeholder checks.\n", index);
+            continue;
+        }
+
+        winetest_push_context("persistent %u, slot %lu", enabled, index);
+        expected = enabled && !index ? ERROR_SUCCESS : ERROR_DEVICE_NOT_CONNECTED;
+        memset(&state, 0xcc, sizeof(state));
+        ret = pXInputGetState(index, &state);
+        ok(ret == expected, "XInputGetState returned %lu, expected %lu\n", ret, expected);
+        if (ret == ERROR_SUCCESS)
+        {
+            ok(!memcmp(&state.Gamepad, &neutral, sizeof(neutral)), "Non-neutral placeholder state\n");
+            ok(state.dwPacketNumber != 0, "Missing placeholder packet number\n");
+            previous = state;
+            ret = pXInputGetState(index, &state);
+            ok(ret == ERROR_SUCCESS, "XInputGetState returned %lu\n", ret);
+            ok(!memcmp(&state, &previous, sizeof(state)), "Unchanged state has a different packet\n");
+            if (pXInputGetStateEx)
+            {
+                ret = pXInputGetStateEx(index, &state);
+                ok(ret == ERROR_SUCCESS, "XInputGetStateEx returned %lu\n", ret);
+                ok(!memcmp(&state, &previous, sizeof(state)), "GetStateEx disagrees with GetState\n");
+            }
+        }
+
+        ret = pXInputGetCapabilities(index, XINPUT_FLAG_GAMEPAD, &caps);
+        ok(ret == expected, "XInputGetCapabilities returned %lu, expected %lu\n", ret, expected);
+        if (ret == ERROR_SUCCESS)
+        {
+            ok(caps.Type == XINPUT_DEVTYPE_GAMEPAD, "Unexpected type %u\n", caps.Type);
+            ok(caps.SubType == XINPUT_DEVSUBTYPE_GAMEPAD, "Unexpected subtype %u\n", caps.SubType);
+            ok(caps.Flags == XINPUT_CAPS_FFB_SUPPORTED, "Unexpected flags %#x\n", caps.Flags);
+        }
+
+        ret = pXInputSetState(index, &vibration);
+        ok(ret == expected, "XInputSetState returned %lu, expected %lu\n", ret, expected);
+        if (pXInputGetKeystroke)
+        {
+            ret = pXInputGetKeystroke(index, 0, &keystroke);
+            expected = enabled && !index ? ERROR_EMPTY : ERROR_DEVICE_NOT_CONNECTED;
+            ok(ret == expected, "XInputGetKeystroke returned %lu, expected %lu\n", ret, expected);
+        }
+
+        ret = get_device_vidpid(index, &vendor, &product);
+        ok(ret == ERROR_DEVICE_NOT_CONNECTED, "Placeholder created a physical device: %lu\n", ret);
+        winetest_pop_context();
+    }
+}
+
 START_TEST(xinput)
 {
     struct
@@ -839,6 +912,7 @@ START_TEST(xinput)
         if (!pXInputGetStateEx)
             pXInputGetStateEx = pXInputGetStateEx_Ordinal;
 
+        test_persistent_player1(hXinput);
         test_hid_reports();
         test_set_state();
         test_get_state();

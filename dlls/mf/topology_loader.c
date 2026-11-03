@@ -828,13 +828,32 @@ static HRESULT topology_branch_connect_optional_chain(IMFTopology *topology, str
 
         if (SUCCEEDED(hr = topology_branch_create_optional(topology, current, node, stream, &up_branch, &down_branch)))
         {
+            IMFMediaType *previous_up_type = NULL;
+
+            MFGetTopoNodeCurrentType(current->up.node, current->up.stream, TRUE, &previous_up_type);
+
             if (FAILED(hr = topology_branch_connect(topology, CONNECT_DIRECT, up_branch, NULL, !!method))
                     || FAILED(hr = topology_branch_connect(topology, CONNECT_DIRECT, down_branch, NULL, FALSE)))
             {
-                if (FAILED(hr = topology_branch_connect_with_type(topology, current, orig)))
+                IMFMediaTypeHandler *handler;
+
+                if (previous_up_type && SUCCEEDED(topology_node_get_type_handler(current->up.node,
+                        current->up.stream, TRUE, &handler)))
+                {
+                    if (FAILED(IMFMediaTypeHandler_SetCurrentMediaType(handler, previous_up_type)))
+                        WARN("Failed to restore previous upstream media type.\n");
+                    IMFMediaTypeHandler_Release(handler);
+                }
+
+                IMFTopologyNode_DisconnectOutput(down_branch->up.node, down_branch->up.stream);
+                if (FAILED(hr = IMFTopologyNode_ConnectOutput(current->up.node, current->up.stream,
+                        current->down.node, current->down.stream))
+                        && FAILED(hr = topology_branch_connect_with_type(topology, current, orig)))
                     WARN("Failed to restore previous branch %s\n", debugstr_topology_branch(current));
                 IMFTopology_RemoveNode(topology, down_branch->up.node);
             }
+            if (previous_up_type)
+                IMFMediaType_Release(previous_up_type);
             topology_branch_destroy(down_branch);
             topology_branch_destroy(up_branch);
         }
@@ -986,6 +1005,29 @@ static HRESULT topology_loader_connect_copier(IMFTopology *topology, IMFTopology
     return S_OK;
 }
 
+static BOOL topology_loader_types_match_for_copier(IMFTopologyNode *upstream_node, DWORD upstream_output,
+        IMFTopologyNode *downstream_node, DWORD downstream_input)
+{
+    const DWORD required_flags = MF_MEDIATYPE_EQUAL_MAJOR_TYPES | MF_MEDIATYPE_EQUAL_FORMAT_TYPES
+            | MF_MEDIATYPE_EQUAL_FORMAT_DATA;
+    IMFMediaType *up_type = NULL, *down_type = NULL;
+    DWORD flags = 0;
+    HRESULT hr;
+
+    if (FAILED(MFGetTopoNodeCurrentType(upstream_node, upstream_output, TRUE, &up_type)))
+        return FALSE;
+
+    hr = MFGetTopoNodeCurrentType(downstream_node, downstream_input, FALSE, &down_type);
+    if (SUCCEEDED(hr))
+        hr = IMFMediaType_IsEqual(up_type, down_type, &flags);
+
+    if (down_type)
+        IMFMediaType_Release(down_type);
+    IMFMediaType_Release(up_type);
+
+    return hr == S_OK || (SUCCEEDED(hr) && (flags & required_flags) == required_flags);
+}
+
 HRESULT topology_node_set_device_manager(IMFTopologyNode *node, IUnknown *device_manager)
 {
     IMFTransform *transform;
@@ -1038,16 +1080,36 @@ static HRESULT topology_loader_connect_d3d_aware_sink(IMFTopology *topology,
         IMFTopologyNode *node, MFTOPOLOGY_DXVA_MODE dxva_mode)
 {
     IMFTopologyNode *upstream_node;
+    IMFMediaTypeHandler *handler;
     IMFTransform *copier = NULL;
     IMFStreamSink *stream_sink;
     IUnknown *device_manager;
     DWORD upstream_output;
+    GUID major_type;
     HRESULT hr;
 
     if (FAILED(hr = topology_node_get_object(node, &IID_IMFStreamSink, (void **)&stream_sink)))
         return hr;
 
-    if (SUCCEEDED(hr = stream_sink_get_device_manager(stream_sink, &device_manager)))
+    if (SUCCEEDED(IMFStreamSink_GetMediaTypeHandler(stream_sink, &handler)))
+    {
+        hr = IMFMediaTypeHandler_GetMajorType(handler, &major_type);
+        IMFMediaTypeHandler_Release(handler);
+        if (SUCCEEDED(hr) && !IsEqualGUID(&major_type, &MFMediaType_Video))
+        {
+            IMFStreamSink_Release(stream_sink);
+            return S_OK;
+        }
+    }
+
+    hr = stream_sink_get_device_manager(stream_sink, &device_manager);
+    if (hr == E_NOINTERFACE || hr == MF_E_UNSUPPORTED_SERVICE)
+    {
+        IMFStreamSink_Release(stream_sink);
+        return S_OK;
+    }
+
+    if (SUCCEEDED(hr))
     {
         if (SUCCEEDED(IMFTopologyNode_GetInput(node, 0, &upstream_node, &upstream_output)))
         {
@@ -1060,6 +1122,9 @@ static HRESULT topology_loader_connect_d3d_aware_sink(IMFTopology *topology,
 
                 if (FAILED(IMFTransform_GetOutputStreamInfo(transform, upstream_output, &info))
                         || !(info.dwFlags & (MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES | MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)))
+                    needs_copier = FALSE;
+
+                if (needs_copier && !topology_loader_types_match_for_copier(upstream_node, upstream_output, node, 0))
                     needs_copier = FALSE;
 
                 IMFTransform_Release(transform);

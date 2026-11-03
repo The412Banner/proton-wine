@@ -697,6 +697,13 @@ static void test_media_types(void)
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
 
     mt = mpeg_mt;
+    mt.formattype = FORMAT_VideoInfo;
+    mt.cbFormat = sizeof(VIDEOINFOHEADER);
+    mt.pbFormat = (BYTE *)&mpg_format.hdr;
+    hr = IPin_QueryAccept(pin, &mt);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    mt = mpeg_mt;
     mt.subtype = MEDIASUBTYPE_MPEG1Packet;
     hr = IPin_QueryAccept(pin, &mt);
     todo_wine ok(hr == S_OK, "Got hr %#lx.\n", hr);
@@ -1344,7 +1351,7 @@ static void test_sink_allocator(IMemInputPin *input)
     IMemAllocator_Release(ret_allocator);
 }
 
-static void test_send_video(IMemInputPin *input, IMediaSample *sample);
+static void test_send_video(IMemInputPin *input, IMediaSample *sample, BOOL inband_header);
 
 static void test_source_allocator(IFilterGraph2 *graph, IMediaControl *control,
         IPin *sink, IPin *source, struct testfilter *testsource, struct testfilter *testsink,
@@ -1476,7 +1483,7 @@ static void test_source_allocator(IFilterGraph2 *graph, IMediaControl *control,
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
 
     testsink->expected_start_time = -1; /* native returns start and stop 0xff80000000000001 */
-    test_send_video(input, sample);
+    test_send_video(input, sample, TRUE);
     ok(testsink->got_sample == 1, "Got %u calls to Receive().\n", testsink->got_sample);
     ok(!testsink->wrapped_sample, "Sample was not fully released.\n");
     testsink->got_sample = 0;
@@ -1571,7 +1578,7 @@ static void test_send_sample(IMemInputPin *input, IMediaSample *sample, const BY
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
 }
 
-static void test_send_video(IMemInputPin *input, IMediaSample *sample)
+static void test_send_video(IMemInputPin *input, IMediaSample *sample, BOOL inband_header)
 {
     /* gst-launch-1.0 -v videotestsrc pattern=black num-buffers=10 ! video/x-raw,width=32,height=24 ! mpeg2enc ! filesink location=empty-es2.mpg */
     /* then truncate to taste */
@@ -1595,11 +1602,12 @@ static void test_send_video(IMemInputPin *input, IMediaSample *sample)
     static const BYTE empty_mpg_eos[] = {
         0x00, 0x00, 0x01, 0xb7,
     };
+    unsigned int offset = inband_header ? 0 : sizeof(mpg_format.bSequenceHeader);
     HRESULT hr;
     IPin *pin;
 
     /* native won't emit anything until an unknown-sized internal buffer is filled, or EOS is announced */
-    test_send_sample(input, sample, empty_mpg_frames, ARRAY_SIZE(empty_mpg_frames));
+    test_send_sample(input, sample, empty_mpg_frames + offset, sizeof(empty_mpg_frames) - offset);
     test_send_sample(input, sample, empty_mpg_eos, ARRAY_SIZE(empty_mpg_eos));
 
     hr = IMemInputPin_QueryInterface(input, &IID_IPin, (void **)&pin);
@@ -1609,7 +1617,8 @@ static void test_send_video(IMemInputPin *input, IMediaSample *sample)
     IPin_Release(pin);
 }
 
-static void test_sample_processing(IMediaControl *control, IMemInputPin *input, struct testfilter *sink)
+static void test_sample_processing(IMediaControl *control, IMemInputPin *input, struct testfilter *sink,
+        BOOL inband_header)
 {
     REFERENCE_TIME start, stop;
     IMemAllocator *allocator;
@@ -1652,7 +1661,7 @@ static void test_sample_processing(IMediaControl *control, IMemInputPin *input, 
     hr = IMediaSample_SetTime(sample, &sink->expected_start_time, &sink->expected_stop_time);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
 
-    test_send_video(input, sample);
+    test_send_video(input, sample, inband_header);
     ok(sink->got_sample >= 1, "Got %u calls to Receive().\n", sink->got_sample);
     ok(sink->got_eos == 1, "Got %u calls to EndOfStream().\n", sink->got_eos);
     sink->got_sample = 0;
@@ -1668,7 +1677,7 @@ static void test_sample_processing(IMediaControl *control, IMemInputPin *input, 
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
 
     sink->expected_start_time = -1; /* native returns start and stop 0xff80000000000001 */
-    test_send_video(input, sample);
+    test_send_video(input, sample, inband_header);
     ok(sink->got_sample >= 1, "Got %u calls to Receive().\n", sink->got_sample);
     ok(sink->got_eos == 1, "Got %u calls to EndOfStream().\n", sink->got_eos);
     sink->got_sample = 0;
@@ -1686,7 +1695,7 @@ static void test_sample_processing(IMediaControl *control, IMemInputPin *input, 
 
     sink->expected_start_time = 22222;
     sink->expected_stop_time = 22222;
-    test_send_video(input, sample);
+    test_send_video(input, sample, inband_header);
     ok(sink->got_sample >= 1, "Got %u calls to Receive().\n", sink->got_sample);
     ok(sink->got_eos == 1, "Got %u calls to EndOfStream().\n", sink->got_eos);
     sink->got_sample = 0;
@@ -1755,7 +1764,7 @@ static void test_streaming_events(IMediaControl *control, IPin *sink,
 
     testsink->expected_start_time = 0;
     testsink->expected_stop_time = 0;
-    test_send_video(input, sample);
+    test_send_video(input, sample, TRUE);
     ok(testsink->got_sample >= 1, "Got %u calls to Receive().\n", testsink->got_sample);
     testsink->got_sample = 0;
 
@@ -1782,7 +1791,7 @@ static void test_streaming_events(IMediaControl *control, IPin *sink,
 
     testsink->expected_start_time = 0;
     testsink->expected_stop_time = 0;
-    test_send_video(input, sample);
+    test_send_video(input, sample, TRUE);
     ok(testsink->got_sample >= 1, "Got %u calls to Receive().\n", testsink->got_sample);
     testsink->got_sample = 0;
 
@@ -1991,7 +2000,12 @@ static void test_connect_pin(void)
         hr = IMediaControl_Stop(control);
         ok(hr == S_OK, "%u: Got hr %#lx.\n", i, hr);
 
-        test_sample_processing(control, meminput, &testsink);
+        winetest_push_context("format %u, in-band sequence header", i);
+        test_sample_processing(control, meminput, &testsink, TRUE);
+        winetest_pop_context();
+        winetest_push_context("format %u, media-type sequence header only", i);
+        test_sample_processing(control, meminput, &testsink, FALSE);
+        winetest_pop_context();
         test_streaming_events(control, sink, meminput, &testsink);
 
         hr = IFilterGraph2_Disconnect(graph, source);

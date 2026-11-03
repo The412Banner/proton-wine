@@ -67,6 +67,23 @@ static unsigned int registered_device_count;
 static struct list devices = LIST_INIT( devices );
 static pthread_mutex_t rawinput_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+/* Keep the consuming file alive across rawinput's device-cache refreshes. */
+struct sony_consumer
+{
+    struct list entry;
+    HANDLE handle;
+    HANDLE file;
+    unsigned int reads;
+};
+static struct list sony_consumers = LIST_INIT( sony_consumers );
+
+static void remove_sony_consumer( struct sony_consumer *consumer )
+{
+    list_remove( &consumer->entry );
+    NtClose( consumer->file );
+    free( consumer );
+}
+
 static struct device *add_device( HKEY key, DWORD type )
 {
     static const WCHAR symbolic_linkW[] = {'S','y','m','b','o','l','i','c','L','i','n','k',0};
@@ -287,6 +304,7 @@ static void rawinput_update_device_list( BOOL force )
     unsigned int ticks = NtGetTickCount();
     static unsigned int last_check;
     struct device *device, *next;
+    struct sony_consumer *consumer, *next_consumer;
 
     TRACE( "\n" );
 
@@ -304,6 +322,14 @@ static void rawinput_update_device_list( BOOL force )
     enumerate_devices( RIM_TYPEMOUSE, guid_devinterface_mouseW );
     enumerate_devices( RIM_TYPEKEYBOARD, guid_devinterface_keyboardW );
     enumerate_devices( RIM_TYPEHID, guid_devinterface_hidW );
+
+    LIST_FOR_EACH_ENTRY_SAFE( consumer, next_consumer, &sony_consumers, struct sony_consumer, entry )
+    {
+        BOOL found = FALSE;
+        LIST_FOR_EACH_ENTRY( device, &devices, struct device, entry )
+            if (device->handle == consumer->handle) found = TRUE;
+        if (!found) remove_sony_consumer( consumer );
+    }
 }
 
 static struct device *find_device_from_handle( HANDLE handle, BOOL refresh )
@@ -320,6 +346,41 @@ static struct device *find_device_from_handle( HANDLE handle, BOOL refresh )
         if (device->handle == handle) return device;
 
     return NULL;
+}
+
+static void record_sony_rawinput( HANDLE handle )
+{
+    struct sony_consumer *consumer;
+    struct device *device;
+    IO_STATUS_BLOCK io;
+    BOOL active = TRUE;
+    const char *value = getenv( "PROTON_SONY_AUTO_XINPUT" );
+
+    if (!value || strcmp( value, "1" )) return;
+    pthread_mutex_lock( &rawinput_mutex );
+    LIST_FOR_EACH_ENTRY( consumer, &sony_consumers, struct sony_consumer, entry )
+        if (consumer->handle == handle) goto found;
+
+    if (!(device = find_device_from_handle( handle, TRUE )) || device->info.dwType != RIM_TYPEHID ||
+            device->info.hid.dwVendorId != 0x054c || device->info.hid.usUsagePage != HID_USAGE_PAGE_GENERIC ||
+            device->info.hid.usUsage != HID_USAGE_GENERIC_GAMEPAD) goto done;
+    if (device->info.hid.dwProductId != 0x05c4 && device->info.hid.dwProductId != 0x09cc &&
+            device->info.hid.dwProductId != 0x0ce6 && device->info.hid.dwProductId != 0x0df2) goto done;
+    if (!(consumer = calloc( 1, sizeof(*consumer) ))) goto done;
+    if (NtDuplicateObject( NtCurrentProcess(), device->file, NtCurrentProcess(), &consumer->file,
+                          0, 0, DUPLICATE_SAME_ACCESS ))
+    {
+        free( consumer );
+        goto done;
+    }
+    consumer->handle = handle;
+    list_add_tail( &sony_consumers, &consumer->entry );
+
+found:
+    if (consumer->reads < 2 && !NtDeviceIoControlFile( consumer->file, NULL, NULL, NULL, &io,
+            IOCTL_HID_WINE_NATIVE_INPUT_ACTIVITY, &active, sizeof(active), NULL, 0 )) ++consumer->reads;
+done:
+    pthread_mutex_unlock( &rawinput_mutex );
 }
 
 /**********************************************************************
@@ -520,7 +581,7 @@ UINT WINAPI NtUserGetRawInputDeviceInfo( HANDLE handle, UINT command, void *data
 UINT WINAPI NtUserGetRawInputBuffer( RAWINPUT *data, UINT *data_size, UINT header_size )
 {
     struct user_thread_info *thread_info;
-    UINT count;
+    UINT count, i, align = NtCurrentTeb()->WowTebOffset ? 3 : sizeof(void *) - 1;
 
     TRACE( "data %p, data_size %p, header_size %u\n", data, data_size, header_size );
 
@@ -551,6 +612,21 @@ UINT WINAPI NtUserGetRawInputBuffer( RAWINPUT *data, UINT *data_size, UINT heade
     }
     SERVER_END_REQ;
 
+    if (data && count != ~0u)
+    {
+        BYTE *ptr = (BYTE *)data;
+        for (i = 0; i < count; ++i)
+        {
+            RAWINPUTHEADER *header = (RAWINPUTHEADER *)ptr;
+            if (header->dwType == RIM_TYPEHID)
+            {
+                HANDLE handle = header_size == sizeof(RAWINPUTHEADER64) ?
+                        (HANDLE)(ULONG_PTR)((RAWINPUTHEADER64 *)ptr)->hDevice : header->hDevice;
+                record_sony_rawinput( handle );
+            }
+            ptr += (header->dwSize + align) & ~align;
+        }
+    }
     return count;
 }
 
@@ -616,6 +692,7 @@ UINT WINAPI NtUserGetRawInputData( HRAWINPUT handle, UINT command, void *data, U
         if (size < offsetof(RAWHID, bRawData[0])) goto failed;
         if (size != offsetof(RAWHID, bRawData[hid->dwCount * hid->dwSizeHid])) goto failed;
         memcpy( &rawinput->data.hid, msg_data + 1, size );
+        if (hid->dwCount) record_sony_rawinput( rawinput->header.hDevice );
     }
     else
     {
@@ -641,6 +718,12 @@ BOOL process_rawinput_message( MSG *msg, UINT hw_id, const struct hardware_msg_d
         struct device *device;
 
         pthread_mutex_lock( &rawinput_mutex );
+        if (msg->wParam == GIDC_REMOVAL)
+        {
+            struct sony_consumer *consumer, *next;
+            LIST_FOR_EACH_ENTRY_SAFE( consumer, next, &sony_consumers, struct sony_consumer, entry )
+                if (consumer->handle == UlongToHandle( msg_data->rawinput.device )) remove_sony_consumer( consumer );
+        }
         if ((device = find_device_from_handle( UlongToHandle( msg_data->rawinput.device ), refresh )))
         {
             if (msg->wParam == GIDC_REMOVAL)
@@ -703,6 +786,20 @@ static void register_rawinput_device( const RAWINPUTDEVICE *device )
 
     if (device->dwFlags & RIDEV_REMOVE)
     {
+        if (device->usUsagePage == HID_USAGE_PAGE_GENERIC &&
+                (!device->usUsage || device->usUsage == HID_USAGE_GENERIC_GAMEPAD))
+        {
+            struct sony_consumer *consumer, *next;
+            BOOL active = FALSE;
+            IO_STATUS_BLOCK io;
+
+            LIST_FOR_EACH_ENTRY_SAFE( consumer, next, &sony_consumers, struct sony_consumer, entry )
+            {
+                NtDeviceIoControlFile( consumer->file, NULL, NULL, NULL, &io,
+                        IOCTL_HID_WINE_NATIVE_INPUT_ACTIVITY, &active, sizeof(active), NULL, 0 );
+                remove_sony_consumer( consumer );
+            }
+        }
         if (pos != end && pos->usUsagePage == device->usUsagePage && pos->usUsage == device->usUsage)
         {
             memmove( pos, pos + 1, (char *)end - (char *)(pos + 1) );

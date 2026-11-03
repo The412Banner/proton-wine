@@ -41,8 +41,25 @@
 /* Get all characteristics for a GATT service */
 #define IOCTL_WINEBTH_LE_DEVICE_GET_GATT_CHARACTERISTICS CTL_CODE(FILE_DEVICE_BLUETOOTH, 0xc1, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+/* Read the associated value for a GATT characteristic */
+#define IOCTL_WINEBTH_GATT_SERVICE_READ_CHARACTERISITIC_VALUE CTL_CODE(FILE_DEVICE_BLUETOOTH, 0xd0, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+/* Write a GATT characteristic value. */
+#define IOCTL_WINEBTH_GATT_SERVICE_WRITE_CHARACTERISTIC_VALUE CTL_CODE(FILE_DEVICE_BLUETOOTH, 0xd1, METHOD_BUFFERED, FILE_ANY_ACCESS)
+/* Enable or disable value change notifications for a GATT characteristic. */
+#define IOCTL_WINEBTH_GATT_SERVICE_SET_CHARACTERISTIC_NOTIFY CTL_CODE(FILE_DEVICE_BLUETOOTH, 0xd2, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+/* Get the last received LE advertisement for every remote device currently in range. */
+#define IOCTL_WINEBTH_RADIO_GET_LE_ADVERTISEMENTS CTL_CODE(FILE_DEVICE_BLUETOOTH, 0xe0, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
 DEFINE_GUID( GUID_WINEBTH_AUTHENTICATION_REQUEST, 0xca67235f, 0xf621, 0x4c27, 0x85, 0x65, 0xa4,
              0xd5, 0x5e, 0xa1, 0x26, 0xe8 );
+/* Custom GATT service event raised whenever a characteristic value changes. The event data is a
+ * struct winebth_gatt_value_changed. */
+DEFINE_GUID( GUID_WINEBTH_GATT_VALUE_CHANGED, 0x6f0c2d13, 0x4c8e, 0x4b6a, 0x9a, 0x3f, 0x2c, 0x1e, 0x8d, 0x77, 0x51, 0x04 );
+/* Custom radio event raised whenever an LE advertisement is received from a remote device. The event data is a
+ * struct winebth_le_advertisement. */
+DEFINE_GUID( GUID_WINEBTH_LE_ADVERTISEMENT, 0x1c3b7a52, 0x9e4d, 0x4f0a, 0xb6, 0x2e, 0x5d, 0x0f, 0x3a, 0x71, 0xc9, 0x88 );
 
 #define WINEBTH_AUTH_DEVICE_PATH L"\\??\\WINEBTHAUTH"
 
@@ -55,6 +72,83 @@ struct winebth_radio_set_flag_params
 {
     unsigned int flag: 2;
     unsigned int enable : 1;
+};
+
+/* Optional input for IOCTL_WINEBTH_RADIO_START_DISCOVERY. Without it, only Bluetooth Classic devices are discovered. */
+struct winebth_radio_start_discovery_params
+{
+    unsigned int le : 1;
+};
+
+#define WINEBTH_LE_ADV_MAX_UUIDS             16
+#define WINEBTH_LE_ADV_MAX_MANUFACTURER_DATA 2
+#define WINEBTH_LE_ADV_MAX_SERVICE_DATA      2
+#define WINEBTH_LE_ADV_MAX_DATA              128
+
+#define WINEBTH_LE_ADV_FLAG_RANDOM_ADDRESS 0x01
+#define WINEBTH_LE_ADV_FLAG_RSSI           0x02
+#define WINEBTH_LE_ADV_FLAG_TX_POWER       0x04
+#define WINEBTH_LE_ADV_FLAG_APPEARANCE     0x08
+#define WINEBTH_LE_ADV_FLAG_NAME           0x10
+
+struct winebth_le_manufacturer_data
+{
+    UINT16 company_id;
+    UINT16 size;
+    BYTE data[WINEBTH_LE_ADV_MAX_DATA];
+};
+
+struct winebth_le_service_data
+{
+    GUID uuid;
+    UINT16 size;
+    BYTE data[WINEBTH_LE_ADV_MAX_DATA];
+};
+
+struct winebth_le_advertisement
+{
+    BTH_ADDR address;
+    UINT32 flags;
+    INT16 rssi;
+    INT16 tx_power;
+    UINT16 appearance;
+    CHAR name[BLUETOOTH_MAX_NAME_SIZE];
+    UINT16 uuid_count;
+    GUID uuids[WINEBTH_LE_ADV_MAX_UUIDS];
+    UINT16 manufacturer_data_count;
+    struct winebth_le_manufacturer_data manufacturer_data[WINEBTH_LE_ADV_MAX_MANUFACTURER_DATA];
+    UINT16 service_data_count;
+    struct winebth_le_service_data service_data[WINEBTH_LE_ADV_MAX_SERVICE_DATA];
+};
+
+struct winebth_gatt_service_write_characteristic_value_params
+{
+    BTH_LE_UUID uuid;
+    UINT16 handle;
+    unsigned int without_response : 1;
+    ULONG size;
+    BYTE buf[1];
+};
+
+struct winebth_gatt_service_set_characteristic_notify_params
+{
+    BTH_LE_UUID uuid;
+    UINT16 handle;
+    unsigned int enable : 1;
+};
+
+struct winebth_gatt_value_changed
+{
+    BTH_LE_UUID uuid;
+    UINT16 handle;
+    ULONG size;
+    BYTE data[1];
+};
+
+struct winebth_radio_get_le_advertisements_params
+{
+    ULONG count;
+    struct winebth_le_advertisement advertisements[1];
 };
 
 /* Associated data for GUID_WINEBTH_AUTHENTICATION_REQUEST events. */
@@ -91,6 +185,15 @@ struct winebth_le_device_get_gatt_characteristics_params
     BTH_LE_GATT_SERVICE service;
     ULONG count;
     BTH_LE_GATT_CHARACTERISTIC characteristics[0];
+};
+
+struct winebth_gatt_service_read_characterisitic_value_params
+{
+    BTH_LE_UUID uuid;
+    UINT16 handle;
+    unsigned int from_device : 1;
+    ULONG size;
+    BYTE buf[1];
 };
 
 #pragma pack(pop)

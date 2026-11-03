@@ -1,5 +1,5 @@
 MODULE    = msmpeg2vdec.dll
-IMPORTS   = combase mfplat mfuuid dmoguids strmiids wmcodecdspuuid uuid
+IMPORTS   = combase mfplat msdmo mfuuid dmoguids strmiids wmcodecdspuuid uuid
 PARENTSRC = ../wmvdecod
 
 SOURCES = \

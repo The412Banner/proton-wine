@@ -107,6 +107,11 @@ struct ddraw
 
     struct ddraw_surface *primary;
     RECT primary_lock;
+    /* The visible overlay, composited over its destination when the
+     * destination is presented. */
+    struct ddraw_surface *overlay, *overlay_dst;
+    RECT overlay_src_rect, overlay_dst_rect;
+    HWND gf_overlay_window, gf_previous_window;
     struct wined3d_texture *gdi_surface;
     struct wined3d_swapchain *wined3d_swapchain;
     struct wined3d_swapchain_state_parent state_parent;
@@ -114,6 +119,7 @@ struct ddraw
 
     /* DirectDraw things, which are not handled by WineD3D */
     DWORD                   cooperative_level;
+    LONGLONG                next_vblank_time;
 
     /* D3D things */
     HWND                    d3d_window;
@@ -147,6 +153,8 @@ HRESULT ddraw_init(struct ddraw *ddraw, DWORD flags, enum wined3d_device_type de
 void ddraw_d3dcaps1_from_7(D3DDEVICEDESC *caps1, D3DDEVICEDESC7 *caps7);
 HRESULT ddraw_get_d3dcaps(const struct ddraw *ddraw, D3DDEVICEDESC7 *caps);
 void ddraw_update_lost_surfaces(struct ddraw *ddraw);
+
+void ddraw_gf_close_overlay_window(struct ddraw *ddraw);
 
 static inline void ddraw_set_swapchain_window(struct ddraw *ddraw, HWND window)
 {

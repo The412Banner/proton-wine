@@ -57,7 +57,7 @@ IV50_Open( const ICINFO *icinfo )
     if ( icinfo && compare_fourcc( icinfo->fccType, ICTYPE_VIDEO ) )
         return 0;
 
-    if ( FAILED(winegstreamer_create_video_decoder( &decoder )) )
+    if ( FAILED(winedmo_create_video_decoder( &decoder )) )
         return 0;
 
     return (LRESULT)decoder;

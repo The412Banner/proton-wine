@@ -34,14 +34,14 @@ HRESULT WINAPI WMCreateSyncReader(IUnknown *reserved, DWORD rights, IWMSyncReade
 {
     TRACE("reserved %p, rights %#lx, reader %p.\n", reserved, rights, reader);
 
-    return winegstreamer_create_wm_sync_reader(NULL, (void **)reader);
+    return winedmo_create_wm_sync_reader(NULL, (void **)reader);
 }
 
 HRESULT WINAPI WMCreateSyncReaderPriv(IWMSyncReader **reader)
 {
     TRACE("reader %p.\n", reader);
 
-    return winegstreamer_create_wm_sync_reader(NULL, (void **)reader);
+    return winedmo_create_wm_sync_reader(NULL, (void **)reader);
 }
 
 HRESULT WINAPI WMCheckURLExtension(const WCHAR *url)

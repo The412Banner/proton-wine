@@ -118,6 +118,7 @@ struct ntdll_thread_data
     void                     *jmp_buf;       /* setjmp buffer for exception handling */
     BOOL                      system_thread; /* thread runs only on the Unix side */
     int                      *fsync_apc_futex;
+    TEB                      *next_killed;   /* next in the list of killed threads to free */
 };
 
 C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) );

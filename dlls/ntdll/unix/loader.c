@@ -581,6 +581,17 @@ NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info 
 
     if (ld_preload) setenv( "WINE_LD_PRELOAD", ld_preload, 1 );
 
+    /* HACK: NCSOFT PURPLE's VMProtect-packed purple-agent.exe fails its loader check
+     * ("Initialization Error 1") in old-style WoW64, but runs in new WoW64 mode.
+     * The agent is spawned by the launcher for every PURPLE game, so key on it. */
+    if (machine == IMAGE_FILE_MACHINE_I386 && is_machine_64bit( native_machine ) && argv[2])
+    {
+        const char *name = argv[2], *p;
+
+        for (p = argv[2]; *p; p++) if (*p == '\\' || *p == '/') name = p + 1;
+        if (!strcasecmp( name, "purple-agent.exe" )) setenv( "WINEARCH", "wow64", 1 );
+    }
+
     signal( SIGPIPE, SIG_DFL );
 
     snprintf( socket_env, sizeof(socket_env), "WINESERVERSOCKET=%u", socketfd );
@@ -2469,14 +2480,6 @@ static void hacks_init(void)
     if (kernel_stack_size != 0x100000)
         ERR( "HACK: setting kernel_stack_size to %luKB.\n", (long)(kernel_stack_size / 1024) );
 
-    if (sgi && (0
-        || !strcmp(sgi, "1364780") || !strcmp(sgi, "1952120") || !strcmp(sgi, "2154900") /* Street Fighter 6 */
-        || !strcmp(sgi, "1740720") /* Have a Nice Death  */
-    ))
-    {
-        ERR("HACK: setting WINE_ENABLE_GST_LIVE_LATENCY.\n");
-        setenv("WINE_ENABLE_GST_LIVE_LATENCY", "1", 0);
-    }
 
     if (sgi && !strcmp(sgi, "2379390"))
     {

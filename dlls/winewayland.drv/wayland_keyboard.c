@@ -1046,8 +1046,11 @@ static void keyboard_handle_leave(void *private, struct wl_keyboard *wl_keyboard
         wayland_cancel_layer_menu(hwnd);
     else if (hwnd == foreground || wayland_is_menu_popup(hwnd))
     {
+        /* Post, don't send: this runs on the event dispatcher thread, and the
+         * window's thread may be waiting for Wayland events itself, e.g. while
+         * tearing down its swapchain in WM_DESTROY. */
         if (!(NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_MINIMIZE))
-            send_message(hwnd, WM_CANCELMODE, 0, 0);
+            NtUserPostMessage(hwnd, WM_CANCELMODE, 0, 0);
     }
 
     if (hwnd == foreground)

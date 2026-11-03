@@ -3922,6 +3922,27 @@ struct handle_info
 @END
 
 
+/* Set or clear the Sony controller which most recently generated input */
+@REQ(set_sony_active_controller)
+    unsigned int container0;      /* physical container GUID bytes 0-3 */
+    unsigned int container1;      /* physical container GUID bytes 4-7 */
+    unsigned int container2;      /* physical container GUID bytes 8-11 */
+    unsigned int container3;      /* physical container GUID bytes 12-15 */
+    int          valid;           /* nonzero to set, zero to clear matching ID */
+@END
+
+
+/* Get the Sony controller which most recently generated input */
+@REQ(get_sony_active_controller)
+@REPLY
+    unsigned int container0;      /* physical container GUID bytes 0-3 */
+    unsigned int container1;      /* physical container GUID bytes 4-7 */
+    unsigned int container2;      /* physical container GUID bytes 8-11 */
+    unsigned int container3;      /* physical container GUID bytes 12-15 */
+    int          valid;           /* whether the returned ID is valid */
+@END
+
+
 /* Create a device */
 @REQ(create_device)
     obj_handle_t rootdir;         /* root directory */
@@ -4536,4 +4557,20 @@ enum fsync_type
     unsigned int   flags;               /* HWND_DMABUF_CHANNEL_* */
 @REPLY
     unsigned int   status;              /* enum hwnd_dmabuf_status */
+@END
+
+
+/* The next two requests are appended after every other one so that existing request numbers stay the same. */
+
+/* Keep the in-process sync of a mutex whose handle is about to be closed while another thread of the process
+ * is still using it, until release_kept_inproc_sync with the same serial or the death of the process */
+@REQ(keep_inproc_sync)
+    obj_handle_t handle;        /* handle that is about to be closed */
+    unsigned int serial;        /* id chosen by the client, unique within the process */
+@END
+
+
+/* Stop keeping an in-process sync that keep_inproc_sync kept: its last user is done */
+@REQ(release_kept_inproc_sync)
+    unsigned int serial;        /* serial given to keep_inproc_sync */
 @END

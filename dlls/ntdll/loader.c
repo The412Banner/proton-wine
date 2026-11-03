@@ -3809,6 +3809,90 @@ static NTSTATUS find_dll_file( const WCHAR *load_path, const WCHAR *libname, UNI
 
 
 /***********************************************************************
+ *	load_dll_optiscaler_hack
+ *
+ * Very silly hack to inject optiscaler
+ */
+BOOL load_dll_optiscaler_hack(LPCWSTR name, LPWSTR override, DWORD size)
+{
+    static WCHAR dllW[32] = {0};
+    static INT cached = -1;
+    UNICODE_STRING overrideW;
+    OBJECT_ATTRIBUTES attr;
+    IO_STATUS_BLOCK io;
+    NTSTATUS status;
+    HANDLE handle;
+
+    if ( cached == -1 ) {
+        cached = get_env( L"WINE_OPTISCALER_NAME", dllW, sizeof(dllW));
+        if ( !cached ) return FALSE;
+    }
+
+    if ( cached && !_wcsicmp( name, dllW ) )
+    {
+        swprintf( override, size, L"\\??\\c:\\windows\\system32\\umu\\%s", dllW );
+        if ( cached != 2 )
+        {
+            RtlInitUnicodeString( &overrideW, override );
+            InitializeObjectAttributes( &attr, &overrideW, OBJ_CASE_INSENSITIVE, 0, NULL );
+            status = NtOpenFile( &handle, GENERIC_READ | SYNCHRONIZE, &attr, &io,
+                                 FILE_SHARE_READ | FILE_SHARE_DELETE,
+                                 FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE );
+            TRACE ( "trying to open %s, status=%lx\n", debugstr_w(override), status );
+            NtClose( handle );
+            RtlFreeUnicodeString( &overrideW );
+            if ( !status ) cached = 2;
+        }
+        return cached == 2;
+    }
+
+    return FALSE;
+}
+
+
+/***********************************************************************
+ *	load_dll_streamline_hack
+ *
+ * Redirect NVIDIA Streamline modules (sl.*.dll) to the upgraded copy that
+ * protonfixes installs when WINE_UPSCALER_REPLACE contains "streamline".
+ * This also covers static imports of sl.interposer.dll, and only applies to
+ * files that exist in the upgraded copy.
+ */
+static BOOL load_dll_streamline_hack( const WCHAR *name, WCHAR *override, DWORD size )
+{
+    static const WCHAR dirW[] = L"\\??\\c:\\windows\\system32\\umu\\streamline\\";
+    static INT enabled = -1;
+    FILE_BASIC_INFORMATION info;
+    UNICODE_STRING overrideW;
+    OBJECT_ATTRIBUTES attr;
+    const WCHAR *base, *p;
+    WCHAR envW[64];
+    size_t len;
+
+    if (enabled == -1)
+        enabled = get_env( L"WINE_UPSCALER_REPLACE", envW, sizeof(envW) ) && wcsstr( envW, L"streamline" );
+    if (!enabled) return FALSE;
+
+    base = name;
+    if ((p = wcsrchr( base, '\\' ))) base = p + 1;
+    if ((p = wcsrchr( base, '/' ))) base = p + 1;
+    len = wcslen( base );
+    if (len < 8 || wcsnicmp( base, L"sl.", 3 ) || wcsicmp( base + len - 4, L".dll" )) return FALSE;
+    if (ARRAY_SIZE(dirW) + len > size) return FALSE;
+
+    swprintf( override, size, L"%s%s", dirW, base );
+    RtlInitUnicodeString( &overrideW, override );
+    InitializeObjectAttributes( &attr, &overrideW, OBJ_CASE_INSENSITIVE, 0, NULL );
+    if (NtQueryAttributesFile( &attr, &info ))
+    {
+        override[0] = 0;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+
+/***********************************************************************
  *	load_dll  (internal)
  *
  * Load a PE style module according to the load order.
@@ -3823,6 +3907,8 @@ static NTSTATUS load_dll( const WCHAR *load_path, const WCHAR *libname, DWORD fl
     NTSTATUS nts = STATUS_DLL_NOT_FOUND;
     BOOL redirected;
     void *prev;
+    WCHAR override[260] = {0};
+    BOOL do_override = FALSE;
 
     TRACE( "looking for %s in %s\n", debugstr_w(libname), debugstr_w(load_path) );
 
@@ -3831,7 +3917,10 @@ static NTSTATUS load_dll( const WCHAR *load_path, const WCHAR *libname, DWORD fl
 
     if (nts)
     {
-        nts = find_dll_file( load_path, libname, &nt_name, pwm, &mapping, &image_info, &id,
+        if ( (do_override = load_dll_optiscaler_hack(libname, override, ARRAY_SIZE(override))) ||
+             (do_override = load_dll_streamline_hack(libname, override, ARRAY_SIZE(override))) )
+            FIXME ( "HACK: redirecting %s to %s\n", debugstr_w(libname), debugstr_w(override) );
+        nts = find_dll_file( load_path, do_override ? override : libname, &nt_name, pwm, &mapping, &image_info, &id,
                              &redirected, FALSE );
         system = FALSE;
     }

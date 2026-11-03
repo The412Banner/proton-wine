@@ -136,12 +136,23 @@ struct wayland_keyboard
     unsigned char keystate[0x300];
 };
 
+struct wayland_cursor_frame
+{
+    struct wayland_shm_buffer *shm_buffer;
+    int hotspot_x, hotspot_y;
+    UINT delay_ms;
+};
+
 struct wayland_cursor
 {
     struct wayland_shm_buffer *shm_buffer;
     struct wl_surface *wl_surface;
     struct wp_viewport *wp_viewport;
     int hotspot_x, hotspot_y;
+    double scale;
+    /* Frames of an animated cursor, NULL for a static one. */
+    struct wayland_cursor_frame *frames;
+    UINT num_frames, current_frame;
 };
 
 enum wayland_pointer_frame_flags

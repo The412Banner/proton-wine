@@ -24,6 +24,8 @@
 
 #ifdef HAVE_FFMPEG
 
+#include <stdio.h>
+
 #include "unix_private.h"
 #include "wine/debug.h"
 
@@ -91,6 +93,7 @@ int unix_read_callback( void *opaque, uint8_t *buffer, int size )
         int step, buffer_offset = context->position % context->capacity;
 
         if (!context->size && (ret = stream_context_read( context )) < 0) return ret;
+        if (!context->size) break; /* 0 bytes returned: stream signalled EOF */
         if (!(step = min( size, context->size - buffer_offset ))) break;
         memcpy( buffer, context->buffer + buffer_offset, step );
         buffer += step;
@@ -107,10 +110,25 @@ int unix_read_callback( void *opaque, uint8_t *buffer, int size )
 
 static void vlog( void *ctx, int level, const char *fmt, va_list va_args )
 {
+    static const char * const classes[] = {"fixme", "err", "warn", "trace"};
     enum __wine_debug_class dbcl = __WINE_DBCL_TRACE;
+    char buffer[512];
+    char *p;
+    int prefix = 1;
+
     if (level <= AV_LOG_ERROR) dbcl = __WINE_DBCL_ERR;
-    if (level <= AV_LOG_WARNING) dbcl = __WINE_DBCL_WARN;
-    wine_dbg_vlog( dbcl, __wine_dbch___default, __func__, fmt, va_args );
+    else if (level <= AV_LOG_WARNING) dbcl = __WINE_DBCL_WARN;
+
+    if (!(__wine_dbg_get_channel_flags( __wine_dbch___default ) & (1 << dbcl))) return;
+
+    av_log_format_line( ctx, level, fmt, va_args, buffer, sizeof(buffer), &prefix );
+    for (p = buffer; *p; ++p)
+    {
+        if (*p == '\r' || *p == '\n') *p = ' ';
+    }
+    /* FFmpeg workers are native pthreads without a TEB. Channel lookup is safe,
+     * but Wine's log header and output buffer require Wine thread-local state. */
+    fprintf( stderr, "%s:dmo:vlog %.160s\n", classes[dbcl], buffer );
 }
 
 static const char *debugstr_version( UINT version )
@@ -157,6 +175,23 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     X( demuxer_stream_lang ),
     X( demuxer_stream_name ),
     X( demuxer_stream_type ),
+
+    X( transform_create ),
+    X( transform_destroy ),
+    X( transform_push_input ),
+    X( transform_get_output ),
+    X( transform_drain ),
+    X( transform_flush ),
+    X( transform_get_output_format ),
+    X( transform_set_output_format ),
+
+    X( muxer_create ),
+    X( muxer_destroy ),
+    X( muxer_add_stream ),
+    X( muxer_start ),
+    X( muxer_push_sample ),
+    X( muxer_read_data ),
+    X( muxer_finalize ),
 };
 
 C_ASSERT(ARRAY_SIZE(__wine_unix_call_funcs) == unix_funcs_count);
@@ -220,6 +255,23 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     X( demuxer_stream_lang ),
     X( demuxer_stream_name ),
     X( demuxer_stream_type ),
+
+    X( transform_create ),
+    X( transform_destroy ),
+    X( transform_push_input ),
+    X( transform_get_output ),
+    X( transform_drain ),
+    X( transform_flush ),
+    X( transform_get_output_format ),
+    X( transform_set_output_format ),
+
+    X( muxer_create ),
+    X( muxer_destroy ),
+    X( muxer_add_stream ),
+    X( muxer_start ),
+    X( muxer_push_sample ),
+    X( muxer_read_data ),
+    X( muxer_finalize ),
 };
 
 C_ASSERT(ARRAY_SIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count);
