@@ -438,7 +438,6 @@ do
       "dlls/mf/session.c|session_select_topo_streams|mf session deselects streams outside the topology (Valve fda79a58)"
       "dlls/winebus.sys/main.c|if (!*ext->desc.serialnumber) return STATUS_INVALID_PARAMETER;|winebus GET_STRING fails without a serial number (CachyOS b3795230)"
       "dlls/hidclass.sys/pnp.c|fdo->base.instance_id, i );|hidclass multi-TLC child ids from the FDO instance id (CachyOS 447acb9a)"
-      "dlls/ntdll/unix/signal_x86_64.c|->system_thread)|x86_64 system threads keep %fs (GE em-fixups 0073)"
       "dlls/winevulkan/vulkan.c|Managed (cross-process dmabuf) swapchains have no host swapchain and no|no time domain queries for managed swapchains (GE 0087)"
       "dlls/ddraw/ddraw.c|ddraw_gf_close_overlay_window|The Godfather FMV overlay window (GE 0076, AITUS95)"
       "dlls/quartz/filtergraph.c|paused = graph->state == State_Paused;|quartz keeps a graph run started after StopWhenReady (GE 0099)"
