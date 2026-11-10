@@ -1,0 +1,71 @@
+From: The412Banner <the412banner@gmail.com>
+Subject: [PATCH] ws2_32: Report 0 bytes sent for sendto() on a closed socket in DiRT 3 and DiRT Showdown.
+
+DiRT 3 (dirt3_game.exe) and DiRT Showdown (showdown.exe, showdown_avx.exe) close their
+motion telemetry UDP socket at the end of a race (and when leaving Joyride) but keep calling
+sendto() on it. sendto() fails with WSAENOTSOCK and the game stops with
+"sendto failed with error 10038: (null)". The same happens on Windows with telemetry on.
+
+For these executables only, sendto() failing with WSAENOTSOCK now returns 0 (no bytes sent)
+with the last error cleared. Other games and every other sendto() result are unchanged.
+
+Same behaviour as DiRTTelemetryErrorFix by RoccoC (MIT), based on the original fix by
+Carsten Gottschling: https://github.com/RoccoC/DiRTTelemetryErrorFix
+
+Tested 2026-10-31 on a Retroid Pocket Duo (DroidDeck, DroidDeck-Proton 11-11.9) with the same
+rule in a stand-in ws2_32.dll: DiRT Showdown with telemetry on, leaving Joyride no longer shows
+the 10038 error and the game exits cleanly.
+---
+ dlls/ws2_32/socket.c | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+--- a/dlls/ws2_32/socket.c
++++ b/dlls/ws2_32/socket.c
+@@ -3261,6 +3261,32 @@
+                 lpOverlapped, lpCompletionRoutine );
+ }
+ 
++/* DiRT 3 and DiRT Showdown close their motion telemetry UDP socket at the end of a race and keep
++ * calling sendto() on it. The WSAENOTSOCK failure makes them stop with "sendto failed with error
++ * 10038". For these executables only, such a send reports 0 bytes sent instead, as the Windows fix
++ * DiRTTelemetryErrorFix by RoccoC (based on Carsten Gottschling's fix) does. */
++static BOOL ignore_sendto_on_closed_socket(void)
++{
++    static const WCHAR *const games[] = { L"dirt3_game.exe", L"showdown.exe", L"showdown_avx.exe" };
++    static LONG cached = -1;
++    const WCHAR *app, *p;
++    LONG found = 0;
++    unsigned int i;
++
++    if (cached != -1) return cached;
++    app = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
++    if (app)
++    {
++        if ((p = wcsrchr( app, '\\' ))) app = p + 1;
++        if ((p = wcsrchr( app, '/' ))) app = p + 1;
++        for (i = 0; i < ARRAY_SIZE(games); i++)
++            if (!wcsicmp( app, games[i] )) found = 1;
++    }
++    if (found) FIXME_(winediag)( "sendto() on a closed socket reports 0 bytes sent for %s.\n", debugstr_w(app) );
++    InterlockedExchange( &cached, found );
++    return found;
++}
++
+ /***********************************************************************
+  *		sendto		(WS2_32.20)
+  */
+@@ -3273,7 +3299,14 @@
+     wsabuf.buf = (char*) buf;
+ 
+     if ( WS2_sendto(s, &wsabuf, 1, &n, flags, to, tolen, NULL, NULL) == SOCKET_ERROR )
++    {
++        if (GetLastError() == WSAENOTSOCK && ignore_sendto_on_closed_socket())
++        {
++            SetLastError( 0 );
++            return 0;
++        }
+         return SOCKET_ERROR;
++    }
+     else
+         return n;
+ }

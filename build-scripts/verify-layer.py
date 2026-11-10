@@ -273,6 +273,12 @@ def main():
     print("-- DroidDeck-Proton 11-11.9 fixes")
     report(b"WINE_OFFSCREEN_CHECK_MS" in read(os.path.join(unix, "winex11.so")), "winex11.so: offscreen check cache (WINE_OFFSCREEN_CHECK_MS, opt-in)")
 
+    # DroidDeck-Proton 11-12.3 layer (proton_11.12.3-DroidDeck): Valve fda79a585939 + DroidDeck-Proton
+    # 11-11.10 / 11-12.2 + GE-Proton11-12 picks. The rest have no string of their own (build-step MARKERS).
+    print("-- DroidDeck-Proton 11-12.3 fixes")
+    report(os.path.isfile(os.path.join(pe, "mfwmaaec.dll")), "mfwmaaec.dll present (Valve Voice Capture DSP)")
+    report(u16("showdown_avx.exe") in read(os.path.join(pe, "ws2_32.dll")), "ws2_32.dll: DiRT 3 / DiRT Showdown telemetry sendto fix")
+
     print("== verify-layer: %s" % ("PASS" if fails == 0 else "%d FATAL check(s)" % fails))
     return 0 if fails == 0 else 1
 

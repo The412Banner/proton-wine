@@ -1,0 +1,376 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Fri, 6 Nov 2026 02:00:00 -0500
+Subject: [PATCH] winebuild, ntdll: Give ARM64X import thunks the x86_64 hotpatch prologue.
+
+On x86_64, winebuild emits every -import export as a thunk that starts
+with the 8-byte hotpatch prologue (lea rsp,[rsp+0]) before jumping through
+the IAT, matching what Windows ships (upstream commit "winebuild: Correct
+hotpatching prologue in import thunks for x86_64", bug 48938).
+
+On ARM64EC, exports are passed to the linker, which builds the x64 view's
+thunks itself as a bare "jmp [iat]" in a 16-byte slot. Code that inspects
+export prologues treats that shape as an inline hook: in DroidDeck-Proton
+11-12.1 an x64 process sees 800 such exports in kernel32, 209 in user32,
+200 in advapi32 and 2993 across 34 DLLs, and anti-tamper checks refuse to
+start (reported with Forza Horizon 6).
+
+When winebuild marks a linked ARM64X image as builtin, read the x64 view
+through the ARM64X dynamic relocations (export directory, IAT and the
+delay-import descriptors, which the x64 view relocates with delta fixups),
+and rewrite each export in AMD64 code that is exactly a 16-byte-aligned
+"jmp [import slot]" with uniform padding into the x86_64 thunk shape. The
+jump keeps its target.
+
+Research and the original observation: TimmyTurner51,
+https://github.com/TimmyTurner51/fh6-wine-fex
+
+The last thunk in .text can end exactly at the section's VirtualSize, so
+the bytes the prologue moves the jump into lie past the section and
+llvm-strip drops them. Grow VirtualSize to the end of the rewritten thunk
+when the raw data and section alignment already cover it, and leave the
+thunk alone otherwise.
+
+ARM64EC callers go through arm64x_check_call, which follows a bare
+"jmp [iat]" to the native target. Let it step over the hotpatch prologue
+too, so these calls still skip the emulator.
+---
+ dlls/ntdll/signal_arm64ec.c |  10 +-
+ tools/winebuild/spec32.c    | 275 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 284 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/ntdll/signal_arm64ec.c b/dlls/ntdll/signal_arm64ec.c
+index 6a455c0919..ec60cc5a55 100644
+--- a/dlls/ntdll/signal_arm64ec.c
++++ b/dlls/ntdll/signal_arm64ec.c
+@@ -1939,7 +1939,7 @@ static void __attribute__((naked)) arm64x_check_call(void)
+          /* check for fast-forward sequence */
+          "ldr x17, .Lffwd_seq\n\t"
+          "cmp x16, x17\n\t"
+-         "b.ne .Lsyscall\n\t"
++         "b.ne .Lhotpatch\n\t"
+          "ldr x16, [x11, #8]\n\t"
+          "ldr x17, .Lffwd_seq + 8\n\t"
+          "eor x17, x16, x17\n\t"            /* compare only first two bytes */
+@@ -1949,6 +1949,12 @@ static void __attribute__((naked)) arm64x_check_call(void)
+          "lsr x9, x16, #16\n\t"
+          "add x11, x11, w9, sxtw\n\t"       /* add offset */
+          "ret\n"
++         ".Lhotpatch:\n\t"
++         "ldr x17, .Lhotpatch_seq\n\t"
++         "cmp x16, x17\n\t"
++         "b.ne .Lsyscall\n\t"
++         "add x11, x11, #8\n\t"
++         "b .Ljmp\n"
+          /* check for syscall sequence */
+          ".Lsyscall:\n\t"
+          "ldr w17, .Lsyscall_seq\n\t"
+@@ -1988,6 +1994,8 @@ static void __attribute__((naked)) arm64x_check_call(void)
+          "ret\n"
+          ".seh_endproc\n\t"
+ 
++         ".Lhotpatch_seq:\n\t"
++         ".byte 0x48, 0x8d, 0xa4, 0x24, 0, 0, 0, 0\n"
+          ".Lffwd_seq:\n\t"
+          ".byte 0x48, 0x8b, 0xc4\n\t"       /* mov  %rsp,%rax */
+          ".byte 0x48, 0x89, 0x58, 0x20\n\t" /* mov  %rbx,0x20(%rax) */
+diff --git a/tools/winebuild/spec32.c b/tools/winebuild/spec32.c
+index 062e65c73c..221827e1f9 100644
+--- a/tools/winebuild/spec32.c
++++ b/tools/winebuild/spec32.c
+@@ -45,6 +45,17 @@
+ #define IMAGE_NT_OPTIONAL_HDR64_MAGIC 0x20b
+ #define IMAGE_ROM_OPTIONAL_HDR_MAGIC  0x107
+ 
++#define IMAGE_DIRECTORY_ENTRY_EXPORT      0
++#define IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG 10
++#define IMAGE_DIRECTORY_ENTRY_IAT         12
++#define IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT 13
++
++#define IMAGE_DYNAMIC_RELOCATION_ARM64X 6
++
++#define IMAGE_DVRT_ARM64X_FIXUP_TYPE_ZEROFILL 0
++#define IMAGE_DVRT_ARM64X_FIXUP_TYPE_VALUE    1
++#define IMAGE_DVRT_ARM64X_FIXUP_TYPE_DELTA    2
++
+ int needs_get_pc_thunk = 0;
+ 
+ static const char builtin_signature[32] = "Wine builtin DLL";
+@@ -1430,6 +1441,269 @@ void output_def_file( DLLSPEC *spec, struct exports *exports, int import_only )
+ }
+ 
+ 
++static unsigned int pe_word( const unsigned char *p )
++{
++    return p[0] | (p[1] << 8);
++}
++
++static unsigned int pe_dword( const unsigned char *p )
++{
++    return pe_word( p ) | (pe_word( p + 2 ) << 16);
++}
++
++struct pe_image
++{
++    unsigned char       *data;
++    size_t               size;
++    unsigned int         headers_size;
++    const unsigned char *sections;
++    unsigned int         nb_sections;
++    const unsigned char *dvrt;
++    unsigned int         dvrt_size;
++};
++
++static unsigned char *pe_rva( const struct pe_image *pe, unsigned int rva, unsigned int len )
++{
++    unsigned int i;
++
++    if (rva < pe->headers_size && len <= pe->headers_size - rva && pe->headers_size <= pe->size)
++        return pe->data + rva;
++    for (i = 0; i < pe->nb_sections; i++)
++    {
++        const unsigned char *sec = pe->sections + i * 40;
++        unsigned int va = pe_dword( sec + 12 ), raw_size = pe_dword( sec + 16 ), raw_ptr = pe_dword( sec + 20 );
++
++        if (rva < va || rva - va >= raw_size || len > raw_size - (rva - va)) continue;
++        if (raw_ptr > pe->size || (size_t)(rva - va) + len > pe->size - raw_ptr) return NULL;
++        return pe->data + raw_ptr + (rva - va);
++    }
++    return NULL;
++}
++
++static int pe_cover_rva( const struct pe_image *pe, unsigned int rva, unsigned int len, unsigned int align )
++{
++    unsigned int i;
++
++    for (i = 0; i < pe->nb_sections; i++)
++    {
++        unsigned char *sec = pe->sections + i * 40;
++        unsigned int vsize = pe_dword( sec + 8 ), va = pe_dword( sec + 12 ), raw_size = pe_dword( sec + 16 );
++        unsigned int end = rva - va + len;
++
++        if (rva < va || rva - va >= raw_size) continue;
++        if (end <= vsize) return 1;
++        if (end > raw_size || !align || end > ((vsize + align - 1) & ~(align - 1))) return 0;
++        sec[8] = end;
++        sec[9] = end >> 8;
++        sec[10] = end >> 16;
++        sec[11] = end >> 24;
++        return 1;
++    }
++    return 0;
++}
++
++static int arm64x_fixup( const struct pe_image *pe, unsigned int rva, unsigned int *value )
++{
++    unsigned int pos, end;
++
++    for (pos = 8; pos + 12 <= 8 + pe->dvrt_size; pos = end)
++    {
++        unsigned int block, block_end;
++
++        end = pos + 12 + pe_dword( pe->dvrt + pos + 8 );
++        if (end > 8 + pe->dvrt_size || pe_dword( pe->dvrt + pos + 4 )) return 0;
++        if (pe_dword( pe->dvrt + pos ) != IMAGE_DYNAMIC_RELOCATION_ARM64X) continue;
++
++        for (block = pos + 12; block + 8 <= end; block = block_end)
++        {
++            unsigned int page = pe_dword( pe->dvrt + block ), rec;
++
++            block_end = block + pe_dword( pe->dvrt + block + 4 );
++            if (block_end <= block + 8 || block_end > end) return 0;
++
++            for (rec = block + 8; rec + 2 <= block_end; )
++            {
++                unsigned int entry = pe_word( pe->dvrt + rec ), target = page + (entry & 0xfff);
++                unsigned int len = 1 << (entry >> 14);
++
++                rec += 2;
++                if (!entry) continue;
++                switch ((entry >> 12) & 3)
++                {
++                case IMAGE_DVRT_ARM64X_FIXUP_TYPE_ZEROFILL:
++                    if (rva >= target && rva + 4 <= target + len) *value = 0;
++                    break;
++                case IMAGE_DVRT_ARM64X_FIXUP_TYPE_VALUE:
++                    if (rec + len > block_end) return 0;
++                    if (rva >= target && rva + 4 <= target + len) *value = pe_dword( pe->dvrt + rec + rva - target );
++                    rec += len;
++                    break;
++                case IMAGE_DVRT_ARM64X_FIXUP_TYPE_DELTA:
++                    if (rec + 2 > block_end) return 0;
++                    if (rva == target)
++                    {
++                        unsigned int delta = pe_word( pe->dvrt + rec ) << ((entry & 0x8000) ? 3 : 2);
++                        *value = (entry & 0x4000) ? *value - delta : *value + delta;
++                    }
++                    rec += 2;
++                    break;
++                default:
++                    return 0;
++                }
++            }
++        }
++    }
++    return 1;
++}
++
++static int x64_dword( const struct pe_image *pe, unsigned int rva, unsigned int *value )
++{
++    const unsigned char *ptr = pe_rva( pe, rva, 4 );
++
++    if (!ptr) return 0;
++    *value = pe_dword( ptr );
++    return arm64x_fixup( pe, rva, value );
++}
++
++static int is_x64_code( const unsigned char *code_map, unsigned int count, unsigned int rva, unsigned int len )
++{
++    unsigned int i;
++
++    for (i = 0; i < count; i++)
++    {
++        unsigned int start = pe_dword( code_map + 8 * i ), size = pe_dword( code_map + 8 * i + 4 );
++
++        if ((start & 3) != 2) continue;
++        start &= ~3;
++        if (rva >= start && rva - start <= size && len <= size - (rva - start)) return 1;
++    }
++    return 0;
++}
++
++static int is_import_slot( const struct pe_image *pe, unsigned int dirs, unsigned int rva )
++{
++    unsigned int iat_rva, iat_size, desc, table, names, entry_lo, entry_hi, i;
++
++    if (rva & 7) return 0;
++    if (x64_dword( pe, dirs + 8 * IMAGE_DIRECTORY_ENTRY_IAT, &iat_rva ) &&
++        x64_dword( pe, dirs + 8 * IMAGE_DIRECTORY_ENTRY_IAT + 4, &iat_size ) &&
++        rva >= iat_rva && rva - iat_rva < iat_size)
++        return 1;
++
++    if (!x64_dword( pe, dirs + 8 * IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT, &desc ) || !desc) return 0;
++    for (;; desc += 32)
++    {
++        unsigned int dll_name;
++
++        if (!x64_dword( pe, desc + 4, &dll_name ) || !x64_dword( pe, desc + 12, &table ) ||
++            !x64_dword( pe, desc + 16, &names ))
++            return 0;
++        if (!dll_name && !table) return 0;
++        if (rva < table || (rva - table) % 8) continue;
++        for (i = 0; x64_dword( pe, names + 8 * i, &entry_lo ) && x64_dword( pe, names + 8 * i + 4, &entry_hi ); i++)
++        {
++            if (!entry_lo && !entry_hi) break;
++            if (rva == table + 8 * i) return 1;
++        }
++    }
++}
++
++static unsigned int fixup_arm64x_import_thunks( unsigned char *data, size_t size )
++{
++    static const unsigned char hotpatch[8] = { 0x48, 0x8d, 0xa4, 0x24, 0x00, 0x00, 0x00, 0x00 };
++    struct pe_image pe = { data, size };
++    unsigned int nt, opt, dirs, load_config_rva, load_config_size, dvrt_section, dvrt_rva;
++    unsigned int code_map_count, exp_rva, exp_size, nb_funcs, funcs_rva, i, j, count = 0;
++    unsigned char *load_config, *chpe, *code_map, *dvrt;
++    unsigned long long image_base, chpe_va;
++
++    if (size < 0x40) return 0;
++    nt = pe_dword( data + 0x3c );
++    if (nt > size || size - nt < 24 + 112 + 16 * 8 || memcmp( data + nt, "PE\0\0", 4 )) return 0;
++    if (pe_word( data + nt + 4 ) != IMAGE_FILE_MACHINE_ARM64) return 0;
++    opt = nt + 24;
++    if (pe_word( data + opt ) != IMAGE_NT_OPTIONAL_HDR64_MAGIC) return 0;
++    if (pe_dword( data + opt + 108 ) <= IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT) return 0;
++    dirs = opt + 112;
++    pe.nb_sections = pe_word( data + nt + 6 );
++    if ((size_t)opt + pe_word( data + nt + 20 ) + pe.nb_sections * 40 > size) return 0;
++    pe.sections = data + opt + pe_word( data + nt + 20 );
++    pe.headers_size = pe_dword( data + opt + 60 );
++    if (pe.headers_size > size) return 0;
++    image_base = pe_dword( data + opt + 24 ) | ((unsigned long long)pe_dword( data + opt + 28 ) << 32);
++
++    load_config_rva = pe_dword( data + dirs + 8 * IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG );
++    if (!(load_config = pe_rva( &pe, load_config_rva, 4 ))) return 0;
++    load_config_size = pe_dword( load_config );
++    if (load_config_size < 0xe8 || !(load_config = pe_rva( &pe, load_config_rva, load_config_size ))) return 0;
++
++    chpe_va = pe_dword( load_config + 0xc8 ) | ((unsigned long long)pe_dword( load_config + 0xcc ) << 32);
++    if (chpe_va <= image_base || !(chpe = pe_rva( &pe, chpe_va - image_base, 12 ))) return 0;
++    code_map_count = pe_dword( chpe + 8 );
++    if (code_map_count > size / 8 || !(code_map = pe_rva( &pe, pe_dword( chpe + 4 ), code_map_count * 8 ))) return 0;
++
++    dvrt_section = pe_word( load_config + 0xe4 );
++    if (!dvrt_section || dvrt_section > pe.nb_sections) return 0;
++    dvrt_rva = pe_dword( pe.sections + (dvrt_section - 1) * 40 + 12 ) + pe_dword( load_config + 0xe0 );
++    if (!(dvrt = pe_rva( &pe, dvrt_rva, 8 )) || pe_dword( dvrt ) != 1) return 0;
++    pe.dvrt_size = pe_dword( dvrt + 4 );
++    if (!(pe.dvrt = pe_rva( &pe, dvrt_rva, 8 + pe.dvrt_size ))) return 0;
++
++    if (!x64_dword( &pe, dirs + 8 * IMAGE_DIRECTORY_ENTRY_EXPORT, &exp_rva ) ||
++        !x64_dword( &pe, dirs + 8 * IMAGE_DIRECTORY_ENTRY_EXPORT + 4, &exp_size ) ||
++        !x64_dword( &pe, exp_rva + 20, &nb_funcs ) || !x64_dword( &pe, exp_rva + 28, &funcs_rva ))
++        return 0;
++    if (nb_funcs > size / 4) return 0;
++
++    for (i = 0; i < nb_funcs; i++)
++    {
++        unsigned int func, target;
++        unsigned char *code, pad;
++        int rel;
++
++        if (!x64_dword( &pe, funcs_rva + 4 * i, &func )) return count;
++        if (!func || (func & 15) || (func >= exp_rva && func - exp_rva < exp_size)) continue;
++        if (!is_x64_code( code_map, code_map_count, func, 16 )) continue;
++        if (!(code = pe_rva( &pe, func, 16 )) || code[0] != 0xff || code[1] != 0x25) continue;
++        pad = code[6];
++        if (pad && pad != 0xcc) continue;
++        for (j = 7; j < 16; j++) if (code[j] != pad) break;
++        if (j < 16) continue;
++        rel = (int)pe_dword( code + 2 );
++        target = func + 6 + rel;
++        if (!is_import_slot( &pe, dirs, target )) continue;
++        if (!pe_cover_rva( &pe, func, sizeof(hotpatch) + 6, pe_dword( data + opt + 32 ) )) continue;
++
++        rel -= sizeof(hotpatch);
++        memcpy( code, hotpatch, sizeof(hotpatch) );
++        code[8] = 0xff;
++        code[9] = 0x25;
++        code[10] = rel;
++        code[11] = rel >> 8;
++        code[12] = rel >> 16;
++        code[13] = rel >> 24;
++        code[14] = code[15] = pad;
++        count++;
++    }
++    return count;
++}
++
++static void fixup_import_thunks( const char *file, int fd )
++{
++    struct stat st;
++    unsigned char *data;
++
++    if (fstat( fd, &st ) || st.st_size <= 0) return;
++    data = xmalloc( st.st_size );
++    if (lseek( fd, 0, SEEK_SET ) == 0 && read( fd, data, st.st_size ) == st.st_size &&
++        fixup_arm64x_import_thunks( data, st.st_size ))
++    {
++        if (lseek( fd, 0, SEEK_SET ) != 0 || write( fd, data, st.st_size ) != st.st_size)
++            fatal_perror( "%s: Cannot write", file );
++    }
++    free( data );
++}
++
+ /*******************************************************************
+  *         make_builtin_files
+  */
+@@ -1471,6 +1745,7 @@ void make_builtin_files( struct strarray files )
+                     write( fd, &dll_charact, sizeof(dll_charact) );
+                 }
+             }
++            fixup_import_thunks( file, fd );
+         }
+         else fatal_error( "%s: Unrecognized file format\n", file );
+         close( fd );

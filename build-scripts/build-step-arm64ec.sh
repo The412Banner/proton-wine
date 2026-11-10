@@ -363,6 +363,14 @@ do
       # ntdll: World of Warcraft Forever ARM64EC syscall dispatch, NLS and map-time fixes (DroidDeck-Proton #3,
       # arusiasotto). arm64ec only: its start_thread hunk calls an __aarch64__-only function.
       "dlls_ntdll_wow_forever_arm64ec.patch"
+      # 11-12.3 (2026-11-09): DroidDeck-Proton 11-11.10..11-12.3 Wine fixes (Droid-Deck/DroidDeck-Proton
+      # 540d3df7 patches, unchanged).
+      # ws2_32: DiRT 3 / DiRT Showdown keep calling sendto() on their closed telemetry socket; report 0 bytes
+      # sent instead of WSAENOTSOCK (error 10038) for those executables only (11-11.10)
+      "dlls_ws2_32_socket.c_dirt_telemetry.patch"
+      # winebuild, ntdll: ARM64X import thunks get the x86_64 hotpatch prologue, so x86-64 hooks on system DLL
+      # exports land and ARM64EC callers still skip the emulator (11-12.2, maxjivi05). arm64ec only.
+      "dlls_ntdll_signal_arm64ec.c_arm64x_import_thunk_hotpatch.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -455,6 +463,29 @@ do
       "programs/cmd/builtins.c|Console handles are synchronous, so the overlapped read below would block|cmd CHOICE /T times out on a console (GE)"
       "dlls/winewayland.drv/wayland_data_device.c|'c','l','i','p','b','o','a','r','d','_','m','a','n','a','g','e','r',0}|winewayland clipboard class name null-terminated (Wine 039ad9fe)"
       "dlls/win32u/vulkan.c|sort_surface_formats2( formats, *format_count )|B8G8R8A8_UNORM reported as the first surface format (GE)"
+      "dlls/mfwmaaec/mfwmaaec.c|AEC_VAD_FOR_SILENCE_SUPPRESSION|Voice Capture DSP MFT/DMO with capture and voice activity (Valve fda79a58 series, Paul Gofman)"
+      "dlls/winepulse.drv/pulse.c|p->qpcpos = stamp.QuadPart;|mmdevapi position QPC not converted, no overflow (Valve eec8f484)"
+      "dlls/ntdll/threadpool.c|#define THREADPOOL_WORKER_TIMEOUT 60000|threadpool worker timeout 60 s (Valve 51c33c93)"
+      "dlls/winegstreamer/media_source.c|if (!source->streams[i]->active)|winegstreamer skips inactive streams (Valve ec514cc4)"
+      "dlls/mf/session.c|session_select_topo_streams|mf session deselects streams outside the topology (Valve fda79a58)"
+      "dlls/winebus.sys/main.c|if (!*ext->desc.serialnumber) return STATUS_INVALID_PARAMETER;|winebus GET_STRING fails without a serial number (CachyOS b3795230)"
+      "dlls/hidclass.sys/pnp.c|fdo->base.instance_id, i );|hidclass multi-TLC child ids from the FDO instance id (CachyOS 447acb9a)"
+      "dlls/ntdll/unix/signal_x86_64.c|->system_thread)|x86_64 system threads keep %fs (GE em-fixups 0073)"
+      "dlls/winevulkan/vulkan.c|Managed (cross-process dmabuf) swapchains have no host swapchain and no|no time domain queries for managed swapchains (GE 0087)"
+      "dlls/ddraw/ddraw.c|ddraw_gf_close_overlay_window|The Godfather FMV overlay window (GE 0076, AITUS95)"
+      "dlls/quartz/filtergraph.c|paused = graph->state == State_Paused;|quartz keeps a graph run started after StopWhenReady (GE 0099)"
+      "dlls/mfreadwrite/reader.c|get_dmo_rgb_subtype|mfreadwrite finds the WMV decoder for RGB output (GE 0105)"
+      "dlls/winex11.drv/event.c|sent message pending, not waiting for pointer grab|winex11 pointer grab wait bounded by sent messages (GE, Syrupdesu)"
+      "dlls/ntdll/heap.c|ReadAcquire( &group->free_bits ) != ~GROUP_FLAG_FREE|LFH reuses partially used groups (GE, Grigory Romodanovskiy)"
+      "dlls/ntdll/unix/loader.c|purple-agent|NCSOFT PURPLE purple-agent.exe in new WoW64 mode (GE)"
+      "dlls/rtworkq/queue.c|Don't create a system queue after shutdown_system_queues() went past it.|rtworkq system queue shutdown without queues_section (GE)"
+      "dlls/ntdll/unix/thread.c|free_killed_threads|TEB and stacks of killed threads freed (GE, Jason Eggleston)"
+      "dlls/ntdll/unix/server.c|close( reply_pipe[1] );|reply pipe write end closed during thread init (GE, Jason Eggleston)"
+      "lsteamclient/steam_matchmaking_manual.c|untrack_request|repeated server list ReleaseRequest ignored (GE lsteamclient 0018, Thomas Belway)"
+      "dlls/winewayland.drv/wayland_pointer.c|wayland_cursor_create_frames|winewayland animated cursors (GE, ported)"
+      "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (DroidDeck-Proton 11-11.10)"
+      "dlls/winewayland.drv/window.c|!(surface->window.state & surface->current.state &|winewayland keeps maximized while fullscreen (GE 0086)"
+      "dlls/ntdll/signal_arm64ec.c|.Lhotpatch_seq|ARM64X import thunks with the x86_64 hotpatch prologue (DroidDeck-Proton 11-12.2, maxjivi05)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
