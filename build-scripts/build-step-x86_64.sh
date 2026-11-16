@@ -349,6 +349,20 @@ do
       # ws2_32: DiRT 3 / DiRT Showdown keep calling sendto() on their closed telemetry socket; report 0 bytes
       # sent instead of WSAENOTSOCK (error 10038) for those executables only (11-11.10)
       "dlls_ws2_32_socket.c_dirt_telemetry.patch"
+      # 11-12.8 (2026-11-16): DroidDeck-Proton 11-12.4..11-12.8 Wine fixes plus one from its main after 11-12.8
+      # (Droid-Deck/DroidDeck-Proton 9956783f + d03ba52e patches).
+      # server: directories grant Users read access, as on Windows; Steam's DRM helper looks for it
+      # (11-12.4, xXJSONDeruloXx)
+      "server_file.c_directory_users_ace.patch"
+      # ntdll: no extended attribute queries on a filesystem that reported ENOTSUP once (11-12.6, maxjivi05;
+      # context rebased)
+      "dlls_ntdll_unix_file.c_xattr_less_filesystems.patch"
+      # ntdll: no directory listing for a missing file on a case-folding volume unless the name can be a hashed
+      # short name (11-12.7, maxjivi05)
+      "dlls_ntdll_unix_file.c_case_folding_missing_file.patch"
+      # ntdll: RtlWaitOnAddress() queue entries from a static pool, so a thread killed in a wait leaves no
+      # dangling stack entry (Forza Horizon 6 loading stall; main d03ba52e, l4nr3; one line ported)
+      "dlls_ntdll_sync.c_futex_entry_pool.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -420,7 +434,7 @@ do
       "dlls/winex11.drv/init.c|Failing it makes Chromium-based launchers fall back to software compositing|Vulkan OPWR off by default on Android (GameNative #82)"
       "dlls/winex11.drv/opengl.c|GLX has no create_context_no_error|WGL no_error attribute dropped without GLX support (GameNative #66)"
       "server/file.c|security_unix_uid_to_sid( file_sd_owner( unix_fd, &st ) )|Android shared storage files owned by the user (DroidDeck-Proton #4)"
-      "dlls/ntdll/sync.c|ret = wait_for_wake( &entry, timeout );|i386 RtlWaitOnAddress lost-wake recovery (DroidDeck-Proton #5)"
+      "dlls/ntdll/sync.c|static NTSTATUS wait_for_wake( struct futex_entry *entry, const LARGE_INTEGER *timeout )|i386 RtlWaitOnAddress lost-wake recovery (DroidDeck-Proton #5)"
       "dlls/ntdll/unix/file.c|is_wine_install_fd( fd )|Wine's own files not read-only (DroidDeck-Proton #6)"
       "dlls/ntdll/unix/file.c|else if (dir_folds_case( root_fd, dir, fd ))|Android shared storage case-insensitive (DroidDeck-Proton #7)"
       "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in)"
@@ -452,6 +466,10 @@ do
       "dlls/winewayland.drv/wayland_pointer.c|wayland_cursor_create_frames|winewayland animated cursors (GE, ported)"
       "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (DroidDeck-Proton 11-11.10)"
       "dlls/winewayland.drv/window.c|!(surface->window.state & surface->current.state &|winewayland keeps maximized while fullscreen (GE 0086)"
+      "server/file.c|Windows grants Users read access to system directories|directories grant Users read access (DroidDeck-Proton 11-12.4, xXJSONDeruloXx)"
+      "dlls/ntdll/unix/file.c|if (xattr_less( st )) return ret;|no xattr queries on filesystems without them (DroidDeck-Proton 11-12.6, maxjivi05)"
+      "dlls/ntdll/unix/file.c|static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )|no directory listing for a missing file on case-folding volumes (DroidDeck-Proton 11-12.7, maxjivi05)"
+      "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"

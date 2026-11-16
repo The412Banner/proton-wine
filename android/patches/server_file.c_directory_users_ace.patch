@@ -1,0 +1,37 @@
+From: xXJsonDeruloXx
+Subject: [PATCH] server: Grant Users read access to directories for Steam's DRM helper.
+
+DroidDeck-Proton 11-12.4 (Droid-Deck/DroidDeck-Proton a362645522c), unchanged.
+---
+diff --git a/server/file.c b/server/file.c
+--- a/server/file.c
++++ b/server/file.c
+@@ -425,6 +425,7 @@ struct security_descriptor *mode_to_sd( mode_t mode, const struct sid *user, con
+         (!(mode & S_IXUSR) && (mode & (S_IXGRP|S_IXOTH))))
+         dacl_size += sizeof(*ace) + sid_len( user );
+     if (mode & S_IRWXO) dacl_size += sizeof(*ace) + sid_len( &world_sid );
++    if (S_ISDIR(mode) && (mode & S_IRUSR)) dacl_size += sizeof(*ace) + sid_len( &builtin_users_sid );
+ 
+     sd = mem_alloc( sizeof(*sd) + sid_len( user ) + sid_len( group ) + dacl_size );
+     if (!sd) return sd;
+@@ -450,6 +451,7 @@ struct security_descriptor *mode_to_sd( mode_t mode, const struct sid *user, con
+         (!(mode & S_IXUSR) && (mode & (S_IXGRP|S_IXOTH))))
+         dacl->count++;
+     if (mode & S_IRWXO) dacl->count++;
++    if (S_ISDIR(mode) && (mode & S_IRUSR)) dacl->count++;
+ 
+     flags = (mode & S_IFDIR) ? OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE : 0;
+ 
+@@ -483,6 +485,12 @@ struct security_descriptor *mode_to_sd( mode_t mode, const struct sid *user, con
+         if (mode & S_IROTH) ace->mask |= FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
+         if (mode & S_IWOTH) ace->mask |= FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD;
+     }
++    if (S_ISDIR(mode) && (mode & S_IRUSR))
++    {
++        /* Windows grants Users read access to system directories; Steam's DRM helper looks for one */
++        ace = set_ace( ace_next( ace ), &builtin_users_sid, ACCESS_ALLOWED_ACE_TYPE, flags,
++                       FILE_GENERIC_READ | FILE_GENERIC_EXECUTE );
++    }
+ 
+     return sd;
+ }

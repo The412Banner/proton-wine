@@ -1,0 +1,46 @@
+From 288024a5af948a47774bc2b0a65ca721b2dd2342 Mon Sep 17 00:00:00 2001
+From: xXJSONDeruloXx <136133082+xXJSONDeruloXx@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 20:50:44 -0500
+Subject: [PATCH] ntdll: Skip the process breakpoint at the ARM64EC context's
+ Rip.
+
+process_breakpoint's SEH handler steps over its brk by adding 4 to the
+Pc at offset 0x108 of the context it is handed. That is the offset in
+ARM64_NT_CONTEXT, but call_seh_handlers() in signal_arm64ec.c hands
+native handlers the AMD64-layout ARM64EC_NT_CONTEXT, where the
+instruction pointer is at 0xf8 and 0x108 lies in the floating point
+save area.
+
+The handler therefore returns ExceptionContinueExecution without moving
+the instruction pointer, the brk runs again, and the process loops
+raising EXCEPTION_BREAKPOINT at the same address forever. It starts
+whenever ProcessDebugPort is set at process start and the debugger does
+not consume the event itself, which a game that debugs a copy of itself
+under FEX (Metal Gear Solid V: Ground Zeroes) does, so the game never
+gets past its splash screen.
+
+Use the Rip offset, as the other assembly in this file that edits the
+context does.
+---
+ dlls/ntdll/signal_arm64ec.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/ntdll/signal_arm64ec.c b/dlls/ntdll/signal_arm64ec.c
+index 6a455c0..7f610a6 100644
+--- a/dlls/ntdll/signal_arm64ec.c
++++ b/dlls/ntdll/signal_arm64ec.c
+@@ -2174,9 +2174,9 @@ __ASM_GLOBAL_FUNC( "#process_breakpoint",
+                    "brk #0xf000\n\t"
+                    "ret\n"
+                    "process_breakpoint_handler:\n\t"
+-                   "ldr x4, [x2, #0x108]\n\t" /* context->Pc */
++                   "ldr x4, [x2, #0xf8]\n\t"  /* context->Rip */
+                    "add x4, x4, #4\n\t"
+-                   "str x4, [x2, #0x108]\n\t"
++                   "str x4, [x2, #0xf8]\n\t"
+                    "mov w0, #0\n\t"           /* ExceptionContinueExecution */
+                    "ret" )
+ 
+-- 
+2.53.0
+

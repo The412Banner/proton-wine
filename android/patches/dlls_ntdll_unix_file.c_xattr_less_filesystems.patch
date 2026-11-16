@@ -1,0 +1,88 @@
+From 60774e20a7106028a733bdeb6fb4babf555204e4 Mon Sep 17 00:00:00 2001
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Thu, 12 Nov 2026 21:11:11 -0500
+Subject: [PATCH] ntdll: Skip extended attribute queries on filesystems that do
+ not support them.
+
+
+DroidDeck-Proton 11-12.6 (Droid-Deck/DroidDeck-Proton 403a7370f9b). Context rebased
+for this tree; the code is unchanged.
+---
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index 16eccf4..9e93ff4 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -452,6 +452,28 @@ static BOOL xattr_exists( const char **path, int *filedes, const char *name )
+ #endif
+ 
+ 
++static dev_t xattr_less_devs[16];
++static LONG xattr_less_count;
++
++static BOOL xattr_less( const struct stat *st )
++{
++    LONG i, count = min( ReadNoFence( &xattr_less_count ), (LONG)ARRAY_SIZE(xattr_less_devs) );
++
++    for (i = 0; i < count; i++) if (xattr_less_devs[i] == st->st_dev) return TRUE;
++    return FALSE;
++}
++
++static void set_xattr_less( const struct stat *st )
++{
++    LONG i;
++
++    if (!S_ISREG( st->st_mode ) && !S_ISDIR( st->st_mode )) return;
++    if (xattr_less( st )) return;
++    i = InterlockedIncrement( &xattr_less_count ) - 1;
++    if (i < (LONG)ARRAY_SIZE(xattr_less_devs)) xattr_less_devs[i] = st->st_dev;
++}
++
++
+ static int xattr_get( const char *path, const char *name, void *value, size_t size )
+ {
+ #ifdef __APPLE__
+@@ -1760,12 +1782,19 @@ static int fd_get_file_info( HANDLE handle, int fd, unsigned int options,
+         }
+     }
+ 
++    if (xattr_less( st )) return ret;
++
+     attr_len = xattr_fget( fd, XATTR_REPARSE, buffer, sizeof(buffer) );
+     if (attr_len >= 0 && attr_len >= sizeof(ULONG))
+     {
+         *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
+         if (reparse_tag) memcpy( reparse_tag, buffer, sizeof(ULONG) );
+     }
++    else if (attr_len == -1 && errno == ENOTSUP)
++    {
++        set_xattr_less( st );
++        return ret;
++    }
+ 
+     attr_len = xattr_fget( fd, SAMBA_XATTR_DOS_ATTRIB, attr_data, sizeof(attr_data)-1 );
+     if (attr_len != -1)
+@@ -1902,12 +1931,24 @@ static int get_file_info( const char *path, struct stat *st, ULONG *attr, ULONG
+     if ((*attr & FILE_ATTRIBUTE_READONLY) && S_ISREG( st->st_mode ) && is_wine_install_path( path ))
+         *attr &= ~FILE_ATTRIBUTE_READONLY;
+ 
++    if (xattr_less( st ))
++    {
++        if (is_hidden_file( path )) *attr |= FILE_ATTRIBUTE_HIDDEN;
++        return ret;
++    }
++
+     attr_len = xattr_get( path, XATTR_REPARSE, buffer, sizeof(buffer) );
+     if (attr_len >= 0 && attr_len >= sizeof(ULONG))
+     {
+         *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
+         if (reparse_tag) memcpy( reparse_tag, buffer, sizeof(ULONG) );
+     }
++    else if (attr_len == -1 && errno == ENOTSUP)
++    {
++        set_xattr_less( st );
++        if (is_hidden_file( path )) *attr |= FILE_ATTRIBUTE_HIDDEN;
++        return ret;
++    }
+ 
+     attr_len = xattr_get( path, SAMBA_XATTR_DOS_ATTRIB, attr_data, sizeof(attr_data)-1 );
+     if (attr_len != -1)

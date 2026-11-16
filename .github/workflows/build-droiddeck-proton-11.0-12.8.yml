@@ -1,10 +1,18 @@
-name: DroidDeck-Proton 11.0-12.3 (bionic layer)
-run-name: "DroidDeck-Proton 11.0-12.3 — ${{ github.ref_name }} (${{ github.event_name }})"
+name: DroidDeck-Proton 11.0-12.8 (bionic layer)
+run-name: "DroidDeck-Proton 11.0-12.8 — ${{ github.ref_name }} (${{ github.event_name }})"
 
-# DroidDeck-Proton 11.0-12.3 layer: the Bannerlator bionic port of DroidDeck-Proton 11-12.3
-# (wine banner-proton/11.12). proton_11.11.9-DroidDeck (8e2653cb) + Valve wine fda79a585939 merged,
+# DroidDeck-Proton 11.0-12.8 layer: the Bannerlator bionic port of DroidDeck-Proton 11-12.8
+# (Droid-Deck/DroidDeck-Proton 9956783f, wine banner-proton/11.12 303894db, unchanged since 11-12.3).
+# proton_11.12.3-DroidDeck (0e6671fa) + the DroidDeck-Proton 11-12.4..11-12.8 Wine fixes and two from
+# its main after 11-12.8 (92b57e73, d03ba52e) (android/patches, see build-step-*.sh "11-12.8").
+# Not taken from 11-12.4..11-12.8: the three in-process sync patches (event sync fd on create, handle
+# close outside fd_cache_mutex, closed private event reuse; left out by the user: they build on the
+# ntsync mutex patches left out of 11-12.3 and only touch the ntsync path, esync is the default here),
+# the two winedmo decoder drain fixes (this tree's winedmo has no unix_transform.c). Not taken from
+# main: the Death Stranding mmdevapi hooks fix (this tree has no such hooks).
+# proton_11.12.3-DroidDeck: proton_11.11.9-DroidDeck (8e2653cb) + Valve wine fda79a585939 merged,
 # the two CachyOS HID fixes of DroidDeck-Proton tier 3, the DroidDeck-Proton 11-11.10 and 11-12.2 Wine
-# fixes (android/patches, see build-step-*.sh "11-12.3") and GE-Proton11-12 picks that fit this tree.
+# fixes and GE-Proton11-12 picks that fit this tree.
 # Not taken: the ntsync mutex abandon patches (this tree keeps esync/fsync/ntsync mutexes on one list),
 # winex11 IME focus reporting (DroidDeck only, needs BL_LAUNCH_DIR), the 32-bit preferred-base patch
 # (this tree never relocated executables), patches for GE code this tree does not have (x86_64
@@ -24,8 +32,8 @@ run-name: "DroidDeck-Proton 11.0-12.3 — ${{ github.ref_name }} (${{ github.eve
 # 20261015 crypt32 / WineHQ MR 11824). Not taken: GE video-rework (incl. MF 0093/0094) and EM
 # wayland patches (no target here), the ACE anti-cheat set (its lsass program needs configure.ac,
 # which this build generates before patching), the PlayStation lsteamclient fallback (this
-# layer's lsteamclient is the server-browser build), DroidDeck esync (bionic has its own). versionName 11.0-12.3,
-# versionCode 16 (same generation as v16: v15 + the rpcrt4 service-manager fix + the 11-11.9 and 11-12.3 fixes). Artifacts only: the release job is disabled.
+# layer's lsteamclient is the server-browser build), DroidDeck esync (bionic has its own). versionName 11.0-12.8,
+# versionCode 16 (same generation as v16: v15 + the rpcrt4 service-manager fix + the 11-11.9, 11-12.3 and 11-12.8 fixes). Artifacts only: the release job is disabled.
 
 # Collapsed SDK matrix: one dispatch builds every SDK (api_level) x arch leg.
 # The old build-proton-sdk28.yml + build-proton-sdk35.yml were near-identical; their
@@ -46,7 +54,7 @@ on:
   push:
     # Self-builds on push to its own branch only: GitHub registers workflow_dispatch
     # only for workflows on the default branch, so a bare dispatch 404s here.
-    branches: [ proton_11.12.3-DroidDeck, 'staging/proton_11.12.3-DroidDeck/**' ]
+    branches: [ proton_11.12.8-DroidDeck, 'staging/proton_11.12.8-DroidDeck/**' ]
   workflow_dispatch:
 
 jobs:
@@ -323,19 +331,19 @@ jobs:
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
             ARCH_NAME="x86_64"
-            DESC="DroidDeck-Proton 11.0-12.3 ${ARCH_NAME} (bionic, box64) — Valve Wine fda79a585939 base (bleeding-edge, 2026-10-31, as GE-Proton11-12) + our Android stack: fast-yield gate (WINE_FAST_YIELD) + esync + userspace ntsync (WINENTSYNC=1) + xrandr/xrender + XP desktop + xinput controller-dies fix + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 (opt-in; pulse/alsa default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-9 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + GE-Proton11-9 staging/hotfix/proton/video picks (staging default drivers, WC3/MTA crypt32, Le Mans d2d1, NCryptDecrypt, FSR fullscreen hack, OptiScaler, standalone DirectShow/MF fixes). Media Foundation cutscene fixes + shared-texture driver (v10), winedmo FFmpeg opt-in (v12), Headless Steam server browser (v13), SSBS fix (Wine MR 12262, WINE_FORCE_SSBS=0 for stock) (v14), FEX unixlib name fix + GameNative fixes (virtual-desktop mode list, image map pool, high fixed allocations, GetNativeSystemInfo AMD64, crypt32 EKU, Vulkan OPWR off, WGL no_error, emulator cpu-area release) + WinRT classes registered in both prefix views + GE-Proton11-11 picks (SRW lock wake, Space Marine 2) + DroidDeck-Proton CachyOS tier (20 fixes incl. 20261015 crypt32) (v15). Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains)."
-            DESC_WINE="DroidDeck-Proton 11.0-12.3 ${ARCH_NAME} (bionic, box64) — Valve Wine fda79a585939 base (as GE-Proton11-12) + our Android stack + GE-Proton11-9 game-fixes. Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains)."
+            DESC="DroidDeck-Proton 11.0-12.8 ${ARCH_NAME} (bionic, box64) — Valve Wine fda79a585939 base (bleeding-edge, 2026-10-31, as GE-Proton11-12) + our Android stack: fast-yield gate (WINE_FAST_YIELD) + esync + userspace ntsync (WINENTSYNC=1) + xrandr/xrender + XP desktop + xinput controller-dies fix + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 (opt-in; pulse/alsa default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-9 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + GE-Proton11-9 staging/hotfix/proton/video picks (staging default drivers, WC3/MTA crypt32, Le Mans d2d1, NCryptDecrypt, FSR fullscreen hack, OptiScaler, standalone DirectShow/MF fixes). Media Foundation cutscene fixes + shared-texture driver (v10), winedmo FFmpeg opt-in (v12), Headless Steam server browser (v13), SSBS fix (Wine MR 12262, WINE_FORCE_SSBS=0 for stock) (v14), FEX unixlib name fix + GameNative fixes (virtual-desktop mode list, image map pool, high fixed allocations, GetNativeSystemInfo AMD64, crypt32 EKU, Vulkan OPWR off, WGL no_error, emulator cpu-area release) + WinRT classes registered in both prefix views + GE-Proton11-11 picks (SRW lock wake, Space Marine 2) + DroidDeck-Proton CachyOS tier (20 fixes incl. 20261015 crypt32) (v15). Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains). 11-12.8: DroidDeck-Proton 11-12.4..11-12.8 fixes (Steam DRM helper directory access, faster SD-card file lookups: no extended attribute queries where unsupported and no folder listing for a missing file on case-folding volumes) + Forza Horizon 6 loading stall (WaitOnAddress entries off the stack)."
+            DESC_WINE="DroidDeck-Proton 11.0-12.8 ${ARCH_NAME} (bionic, box64) — Valve Wine fda79a585939 base (as GE-Proton11-12) + our Android stack + GE-Proton11-9 game-fixes. Runs x86_64 Wine through box64; Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 container. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains). 11-12.8: DroidDeck-Proton 11-12.4..11-12.8 fixes (Steam DRM helper directory access, faster SD-card file lookups: no extended attribute queries where unsupported and no folder listing for a missing file on case-folding volumes) + Forza Horizon 6 loading stall (WaitOnAddress entries off the stack)."
           else
             ARCH_NAME="arm64ec"
-            DESC="DroidDeck-Proton 11.0-12.3 ${ARCH_NAME} (bionic) — Valve Wine fda79a585939 base (bleeding-edge, 2026-10-31, as GE-Proton11-12) + our Android stack: FEX-unixlib loader + RtlIsEcCode guard + fast-yield gate (WINE_FAST_YIELD) + esync + userspace ntsync (WINENTSYNC=1) + xrandr/xrender + XP desktop + xinput controller-dies fix + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 (opt-in; pulse/alsa default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-9 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + GE-Proton11-9 staging/hotfix/proton/video picks (staging default drivers, WC3/MTA crypt32, Le Mans d2d1, NCryptDecrypt, FSR fullscreen hack, OptiScaler, standalone DirectShow/MF fixes). Media Foundation cutscene fixes + shared-texture driver (v10), winedmo FFmpeg opt-in (v12), Headless Steam server browser (v13), SSBS fix (Wine MR 12262, WINE_FORCE_SSBS=0 for stock) (v14), FEX unixlib name fix + GameNative fixes (virtual-desktop mode list, image map pool, high fixed allocations, GetNativeSystemInfo AMD64, crypt32 EKU, Vulkan OPWR off, WGL no_error, emulator cpu-area release) + WinRT classes registered in both prefix views + GE-Proton11-11 picks (SRW lock wake, Space Marine 2) + DroidDeck-Proton CachyOS tier (20 fixes incl. 20261015 crypt32) (v15). Wayland + HDR10. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes + WoW Forever ARM64EC ntdll fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + ARM64X import thunk hotpatch + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains)."
-            DESC_WINE="DroidDeck-Proton 11.0-12.3 ${ARCH_NAME} (bionic) — Valve Wine fda79a585939 base (as GE-Proton11-12) + our Android stack + GE-Proton11-9 game-fixes. Wayland + HDR10. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes + WoW Forever ARM64EC ntdll fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + ARM64X import thunk hotpatch + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains)."
+            DESC="DroidDeck-Proton 11.0-12.8 ${ARCH_NAME} (bionic) — Valve Wine fda79a585939 base (bleeding-edge, 2026-10-31, as GE-Proton11-12) + our Android stack: FEX-unixlib loader + RtlIsEcCode guard + fast-yield gate (WINE_FAST_YIELD) + esync + userspace ntsync (WINENTSYNC=1) + xrandr/xrender + XP desktop + xinput controller-dies fix + EA network fixes + realized-font-handle cap 32768 + DirectAudio v1.3.2 (opt-in; pulse/alsa default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale) + GE-Proton11-9 game-fixes (ai-limit, assettocorsa, black-desert, dai_xinput, eac, maplestory, max-payne, pso2, return-to-krondor, silence-starcitizen, vgsoh, WM_ACTIVATEAPP) + GE-Proton11-9 staging/hotfix/proton/video picks (staging default drivers, WC3/MTA crypt32, Le Mans d2d1, NCryptDecrypt, FSR fullscreen hack, OptiScaler, standalone DirectShow/MF fixes). Media Foundation cutscene fixes + shared-texture driver (v10), winedmo FFmpeg opt-in (v12), Headless Steam server browser (v13), SSBS fix (Wine MR 12262, WINE_FORCE_SSBS=0 for stock) (v14), FEX unixlib name fix + GameNative fixes (virtual-desktop mode list, image map pool, high fixed allocations, GetNativeSystemInfo AMD64, crypt32 EKU, Vulkan OPWR off, WGL no_error, emulator cpu-area release) + WinRT classes registered in both prefix views + GE-Proton11-11 picks (SRW lock wake, Space Marine 2) + DroidDeck-Proton CachyOS tier (20 fixes incl. 20261015 crypt32) (v15). Wayland + HDR10. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes + WoW Forever ARM64EC ntdll fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + ARM64X import thunk hotpatch + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains). 11-12.8: DroidDeck-Proton 11-12.4..11-12.8 fixes (Steam DRM helper directory access, faster SD-card file lookups: no extended attribute queries where unsupported and no folder listing for a missing file on case-folding volumes, MGS V Ground Zeroes ARM64EC breakpoint loop) + Crash Bandicoot N. Sane ARM64EC NULL thread context + Forza Horizon 6 loading stall (WaitOnAddress entries off the stack)."
+            DESC_WINE="DroidDeck-Proton 11.0-12.8 ${ARCH_NAME} (bionic) — Valve Wine fda79a585939 base (as GE-Proton11-12) + our Android stack + GE-Proton11-9 game-fixes. Wayland + HDR10. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app). 11-11.9: DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Android shared-storage file owner + case-insensitive lookups, 32-bit WaitOnAddress lost wake under FEX, Wine DLLs not read-only, winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS) + Valve wine 674d3cddcbef (xinput rescans only on device change, winebus overlong reports truncated) + GE cmd CHOICE timeout and B8G8R8A8_UNORM-first surface formats + winewayland dummy-buffer leak and clipboard class name fixes + WoW Forever ARM64EC ntdll fixes. 11-12.3: Valve wine fda79a585939 (Voice Capture DSP, mmdevapi QPC overflow, threadpool worker timeout 60 s, media stream selection) + CachyOS HID serial and multi-TLC id fixes + DiRT 3 / DiRT Showdown telemetry fix (error 10038) + ARM64X import thunk hotpatch + GE-Proton11-12 picks (LFH heap reuse, killed-thread TEB and stack free, reply pipe at thread init, NCSOFT PURPLE, rtworkq shutdown, winex11 pointer grab wait, Godfather FMV, quartz StopWhenReady, mfreadwrite WMV, Headless Steam ReleaseRequest, winewayland maximized fullscreen and animated cursors, managed swapchain time domains). 11-12.8: DroidDeck-Proton 11-12.4..11-12.8 fixes (Steam DRM helper directory access, faster SD-card file lookups: no extended attribute queries where unsupported and no folder listing for a missing file on case-folding volumes, MGS V Ground Zeroes ARM64EC breakpoint loop) + Crash Bandicoot N. Sane ARM64EC NULL thread context + Forza Horizon 6 loading stall (WaitOnAddress entries off the stack)."
           fi
 
           # Generate Proton profile.json
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
-            "versionName": "11.0-12.3-${ARCH_NAME}",
+            "versionName": "11.0-12.8-${ARCH_NAME}",
             "versionCode": 16,
             "description": "${DESC}",
             "files": [],
@@ -351,7 +359,7 @@ jobs:
           cat > $GITHUB_WORKSPACE/profile-wine.json << EOF
           {
             "type": "Wine",
-            "versionName": "11.0-12.3-${ARCH_NAME}",
+            "versionName": "11.0-12.8-${ARCH_NAME}",
             "versionCode": 16,
             "description": "${DESC_WINE}",
             "files": [],
@@ -387,13 +395,13 @@ jobs:
           # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar -I 'zstd -T0 -19' -cf DroidDeck-Proton-11.0-12.3-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
-          mv DroidDeck-Proton-11.0-12.3-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
+          tar -I 'zstd -T0 -19' -cf DroidDeck-Proton-11.0-12.8-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
+          mv DroidDeck-Proton-11.0-12.8-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
 
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
           cp $GITHUB_WORKSPACE/profile-wine.json profile.json
-          tar cJf DroidDeck-proton-wine-11.0-12.3-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
-          mv DroidDeck-proton-wine-11.0-12.3-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
+          tar cJf DroidDeck-proton-wine-11.0-12.8-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
+          mv DroidDeck-proton-wine-11.0-12.8-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
 
       # The packaged archive must carry exactly what the app's ContentsManager expects.
       - name: Verify wcp archives
@@ -481,7 +489,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: DroidDeck-Proton-11.0-12.3-${{ env.ARCH_NAME }}.wcp
+          path: DroidDeck-Proton-11.0-12.8-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
 
       # Just the Wayland driver, for replacing it in an installed copy of this same build
@@ -499,7 +507,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-wine-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: DroidDeck-proton-wine-11.0-12.3-${{ env.ARCH_NAME }}.wcp.xz
+          path: DroidDeck-proton-wine-11.0-12.8-${{ env.ARCH_NAME }}.wcp.xz
           retention-days: 30
 
   release:
@@ -525,7 +533,7 @@ jobs:
         id: generate_tag
         run: |
           DATE=$(date +%Y%m%d)
-          TAG_NAME="build-p11-${DATE}-droiddeck11.12.3"
+          TAG_NAME="build-p11-${DATE}-droiddeck11.12.8"
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Generated tag: ${TAG_NAME}"
 
@@ -533,7 +541,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: DroidDeck-Proton Wine 11.0-12.3 (${{ steps.generate_tag.outputs.tag_name }})
+          name: DroidDeck-Proton Wine 11.0-12.8 (${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
@@ -542,7 +550,7 @@ jobs:
 
             ## DroidDeck-Proton Wine Build based on Valve [Wine fda79a585939](https://github.com/ValveSoftware/wine/commit/fda79a585939fb7512dc220a11249f9ffe825fcf) (GE-Proton11-12 base) + GE-Proton11-9 game-fixes
 
-            ### Proton Version: 11.0-12.3
+            ### Proton Version: 11.0-12.8
 
             Built from commit: ${{ github.sha }}
 
@@ -552,11 +560,11 @@ jobs:
 
             ### WCP Files
             **Proton Type:**
-            - `DroidDeck-Proton-11.0-12.3-arm64ec.wcp` - For GameNative
-            - `DroidDeck-Proton-11.0-12.3-x86_64.wcp` - For GameNative
+            - `DroidDeck-Proton-11.0-12.8-arm64ec.wcp` - For GameNative
+            - `DroidDeck-Proton-11.0-12.8-x86_64.wcp` - For GameNative
 
             **Wine Type:**
-            - `DroidDeck-proton-wine-11.0-12.3-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
-            - `DroidDeck-proton-wine-11.0-12.3-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
+            - `DroidDeck-proton-wine-11.0-12.8-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
+            - `DroidDeck-proton-wine-11.0-12.8-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

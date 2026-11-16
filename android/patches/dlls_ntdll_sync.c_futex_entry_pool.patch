@@ -1,0 +1,133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: l4nr3 <122608495+l4nr3@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 22:32:35 +0300
+Subject: [PATCH] ntdll: Keep RtlWaitOnAddress() queue entries off the waiter's
+ stack.
+
+RtlWaitOnAddress() links a futex_entry on the waiter's stack into a
+shared queue. If the thread is terminated during the wait, the entry
+stays queued after its stack is gone, and the next RtlWakeAddress*()
+on that queue reads freed memory while holding the queue's spinlock.
+The access violation leaves the lock taken, and every later wait or
+wake hashed to that queue spins forever.
+
+ntdll-free-teb-and-stacks-of-killed-threads.patch frees a killed
+thread's stack at the next thread create or exit, as Windows does, so
+the stale entry now faults instead of reading a stack that stayed
+mapped. Forza Horizon 6 stalls on its loading screen this way: one
+thread spins in spin_lock() on a queue whose only entry sits in a
+---p region, and the other threads end up suspended behind it.
+SRW locks, critical sections and condition variables wait through
+RtlWaitOnAddress() too, so a thread killed in any of them leaves the
+same entry behind.
+
+Take the entry from a static pool instead, claimed by thread id and
+released when the wait returns. A terminated waiter's entry stays
+readable; the wake removes it and alerts a thread id that no longer
+exists, which is harmless. Its slot is lost for the process lifetime,
+and if all 4096 slots are taken the wait falls back to the stack
+entry as before.
+
+DroidDeck-Proton main d03ba52e226 (#30, after 11-12.8). Ported: this tree tests
+`entry.addr != NULL` where upstream has `!!entry.addr`; the change is otherwise the same.
+---
+diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
+index 5109a89..8aa14d4 100644
+--- a/dlls/ntdll/sync.c
++++ b/dlls/ntdll/sync.c
+@@ -837,6 +837,32 @@ struct futex_queue
+ 
+ static struct futex_queue futex_queues[256];
+ 
++/* Waiters take their queue entry from here rather than from their stack. A thread terminated inside
++ * RtlWaitOnAddress() leaves its entry queued, and its stack is freed with it, so a later wake on that queue
++ * would fault while holding the spinlock. An entry here stays readable; the wake removes it and alerting the
++ * dead thread's id does nothing. Its slot is lost, which is why running out falls back to the stack. */
++static struct futex_entry futex_entries[4096];
++
++static struct futex_entry *get_futex_entry( struct futex_entry *fallback )
++{
++    DWORD tid = GetCurrentThreadId();
++    unsigned int i;
++
++    for (i = 0; i < ARRAY_SIZE(futex_entries); i++)
++    {
++        struct futex_entry *entry = &futex_entries[((tid >> 2) + i) % ARRAY_SIZE(futex_entries)];
++
++        if (!InterlockedCompareExchange( (LONG *)&entry->tid, tid, 0 )) return entry;
++    }
++    fallback->tid = tid;
++    return fallback;
++}
++
++static void put_futex_entry( struct futex_entry *entry )
++{
++    InterlockedExchange( (LONG *)&entry->tid, 0 );
++}
++
+ static struct futex_queue *get_futex_queue( const void *addr )
+ {
+     ULONG_PTR val = (ULONG_PTR)addr;
+@@ -918,7 +944,7 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
+                                   const LARGE_INTEGER *timeout )
+ {
+     struct futex_queue *queue = get_futex_queue( addr );
+-    struct futex_entry entry;
++    struct futex_entry stack_entry, *entry;
+     BOOL queued = FALSE;
+     NTSTATUS ret;
+ 
+@@ -927,8 +953,8 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
+     if (size != 1 && size != 2 && size != 4 && size != 8)
+         return STATUS_INVALID_PARAMETER;
+ 
+-    entry.addr = addr;
+-    entry.tid = GetCurrentThreadId();
++    entry = get_futex_entry( &stack_entry );
++    entry->addr = addr;
+ 
+     spin_lock( &queue->lock );
+ 
+@@ -937,27 +963,28 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
+     if (!compare_addr( addr, cmp, size ))
+     {
+         spin_unlock( &queue->lock );
++        put_futex_entry( entry );
+         return STATUS_SUCCESS;
+     }
+ 
+     if (!queue->queue.next)
+         list_init( &queue->queue );
+-    list_add_tail( &queue->queue, &entry.entry );
++    list_add_tail( &queue->queue, &entry->entry );
+ 
+     spin_unlock( &queue->lock );
+ 
+ #ifdef __i386__
+-    ret = wait_for_wake( &entry, timeout );
++    ret = wait_for_wake( entry, timeout );
+ #else
+     ret = NtWaitForAlertByThreadId( NULL, timeout );
+ #endif
+ 
+     /* We may have already been removed by a call to RtlWakeAddressSingle() or RtlWakeAddressAll(). */
+-    if (ReadPointerAcquire( (void * volatile *)&entry.addr ))
++    if (ReadPointerAcquire( (void * volatile *)&entry->addr ))
+     {
+         spin_lock( &queue->lock );
+-        if ((queued = entry.addr != NULL))
+-            list_remove( &entry.entry );
++        if ((queued = entry->addr != NULL))
++            list_remove( &entry->entry );
+         spin_unlock( &queue->lock );
+     }
+ 
+@@ -976,6 +1003,8 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
+         ret = STATUS_SUCCESS;
+     }
+ 
++    put_futex_entry( entry );
++
+     TRACE("returning %#lx\n", ret);
+ 
+     if (ret == STATUS_ALERTED) ret = STATUS_SUCCESS;
