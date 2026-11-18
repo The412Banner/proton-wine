@@ -3029,7 +3029,13 @@ BOOL is_emulated_code( ULONG_PTR ptr )
 static void alloc_arm64ec_map(void)
 {
     unsigned int status;
-    SIZE_T size = ((ULONG_PTR)address_space_limit + page_size) >> (page_shift + 3);  /* one bit per page */
+    /* RtlIsEcCode indexes the map for any address below 2^47. On a 39-bit host (Android)
+     * address_space_limit ends at 2^39 and a map sized from it covers only that, so a stray
+     * pointer above it (an exception unwound through JIT frames) faulted in RtlIsEcCode, and that
+     * fault's own unwind faulted again until the thread ran out of stack. Unread pages of the map
+     * cost no memory. */
+    ULONG_PTR limit = max( (ULONG_PTR)address_space_limit, (ULONG_PTR)1 << 47 );
+    SIZE_T size = (limit + page_size) >> (page_shift + 3);  /* one bit per page */
 
     size = ROUND_SIZE( 0, size, host_page_mask );
     status = map_view( &arm64ec_view, NULL, size, MEM_TOP_DOWN, VPROT_READ | VPROT_COMMITTED, 0, 0, 0 );
