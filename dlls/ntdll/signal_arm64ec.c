@@ -1202,6 +1202,7 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
     ARM64EC_NT_CONTEXT context;
     NTSTATUS status;
     ULONG_PTR frame;
+    ULONG64 prev_pc, prev_sp;
     DWORD res;
 
     context.AMD64_Context = *orig_context;
@@ -1214,8 +1215,19 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
 
     for (;;)
     {
+        prev_pc = context.Pc;
+        prev_sp = context.Sp;
         status = virtual_unwind( UNW_FLAG_EHANDLER, &dispatch, &context, need_backtrace( rec->ExceptionCode ) );
         if (status != STATUS_SUCCESS) return status;
+
+        /* Code without unwind data that unwinds to itself (an emulator's dispatcher, for one) would be
+         * walked forever; stop as for an invalid frame. */
+        if (context.Pc == prev_pc && context.Sp == prev_sp)
+        {
+            ERR( "unwind made no progress at pc %I64x sp %I64x\n", prev_pc, prev_sp );
+            rec->ExceptionFlags |= EXCEPTION_STACK_INVALID;
+            break;
+        }
 
     unwind_done:
         if (!dispatch.EstablisherFrame) break;
@@ -1744,8 +1756,17 @@ void WINAPI RtlUnwindEx( PVOID end_frame, PVOID target_ip, EXCEPTION_RECORD *rec
 
     for (;;)
     {
+        ULONG64 prev_pc = new_context.Pc, prev_sp = new_context.Sp;
+
         status = virtual_unwind( UNW_FLAG_UHANDLER, &dispatch, &new_context, FALSE );
         if (status != STATUS_SUCCESS) raise_status( status, rec );
+
+        if (new_context.Pc == prev_pc && new_context.Sp == prev_sp)
+        {
+            ERR( "unwind made no progress at pc %I64x sp %I64x\n", prev_pc, prev_sp );
+            rec->ExceptionFlags |= EXCEPTION_STACK_INVALID;
+            break;
+        }
 
     unwind_done:
         if (!dispatch.EstablisherFrame) break;
