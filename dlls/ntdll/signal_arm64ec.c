@@ -1188,6 +1188,16 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
 
     for (;;)
     {
+        /* A frame that unwound to a stack pointer outside both stacks (seen at a game's exit: the module's
+         * relocation delta) would make the next unwind read through it, fault inside this loop and start a
+         * new dispatch that faults the same way, until the stack overflows. */
+        if (!is_valid_arm64ec_frame( context.Sp ))
+        {
+            ERR( "invalid stack pointer %I64x (%p-%p)\n", context.Sp,
+                 NtCurrentTeb()->Tib.StackLimit, NtCurrentTeb()->Tib.StackBase );
+            rec->ExceptionFlags |= EXCEPTION_STACK_INVALID;
+            break;
+        }
         prev_pc = context.Pc;
         prev_sp = context.Sp;
         status = virtual_unwind( UNW_FLAG_EHANDLER, &dispatch, &context, need_backtrace( rec->ExceptionCode ) );
@@ -1716,6 +1726,13 @@ void WINAPI RtlUnwindEx( PVOID end_frame, PVOID target_ip, EXCEPTION_RECORD *rec
     {
         ULONG64 prev_pc = new_context.Pc, prev_sp = new_context.Sp;
 
+        if (!is_valid_arm64ec_frame( new_context.Sp ))
+        {
+            ERR( "invalid stack pointer %I64x (%p-%p)\n", new_context.Sp,
+                 NtCurrentTeb()->Tib.StackLimit, NtCurrentTeb()->Tib.StackBase );
+            rec->ExceptionFlags |= EXCEPTION_STACK_INVALID;
+            break;
+        }
         status = virtual_unwind( UNW_FLAG_UHANDLER, &dispatch, &new_context, FALSE );
         if (status != STATUS_SUCCESS) raise_status( status, rec );
 
@@ -1895,6 +1912,7 @@ ULONG WINAPI RtlWalkFrameChain( void **buffer, ULONG count, ULONG flags )
 
     for (i = 0; i < count; i++)
     {
+        if (!is_valid_arm64ec_frame( context.Rsp )) break;
         pc = context.Rip;
         if ((context.ContextFlags & CONTEXT_UNWOUND_TO_CALL) && RtlIsEcCode( pc )) pc -= 4;
         func = RtlLookupFunctionEntry( pc, &base, &table );
