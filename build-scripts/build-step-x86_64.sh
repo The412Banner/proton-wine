@@ -367,6 +367,12 @@ do
       # winegstreamer: skip the "Proton audio converter with rate fixup" when mediaconv is off, the same as the
       # video converter, so avdec_wmav2 decodes WMA cutscene audio (proton-wine 8956410a, never shipped before)
       "dlls_winegstreamer_wg_parser.c.patch"
+      # ntdll: throttle Sleep(0) / SwitchToThread storms (DOOM 2016 idle worker, Cult of the Lamb dispatch thread;
+      # WINE_SLEEP0_THROTTLE=0 disables it) and fail would-block receives on nonblocking sockets without a server
+      # round trip (DOOM 2016 DTLS poll thread; WINE_SOCKET_POLL_FASTPATH=0 disables it) (GameNative #119, Utkarsh
+      # Dalal; sleep0 patch: one context line added for this tree's next_killed field in unix_private.h)
+      "dlls_ntdll_unix_sync.c_sleep0_yield_throttle.patch"
+      "dlls_ntdll_unix_socket.c_recv_fastpath.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -475,6 +481,9 @@ do
       "dlls/ntdll/unix/file.c|static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )|no directory listing for a missing file on case-folding volumes (DroidDeck-Proton 11-12.7, maxjivi05)"
       "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
       "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|winegstreamer skips the Proton audio converter when mediaconv is off (FMV WMA audio, proton-wine 8956410a)"
+      "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
+      "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path (GameNative #119)"
+      "server/sock.c|poll_fastpath|would-block receive fast path, server grant (GameNative #119)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
