@@ -2,6 +2,25 @@
 
 Newest entry at the top.
 
+## 2026-11-24 — v17 RELEASED — six layers (`build-bionic-layers-20261124-v17`, Latest + catalog)
+- Why: user 11-24 ~13:00 EST: "include 11.0-3, replace 11-9, release as latest".
+- Layers (CI run, built commit): Proton 10.0-4 arm64ec (45330300133, 66e4bbe0), GE-Proton 10.0-34 arm64ec (45330405700, b80955db),
+  Proton 11.0-2 arm64ec + x86_64 (45423026560, 5cad2d70), Proton 11.0-3 arm64ec + x86_64 (45423225032, ffdd0555, new line on Valve
+  wine 957ac7cf), DroidDeck-Proton 11.0-12.8 arm64ec + x86_64 (45423082880, c3bd0d3f), GE-Proton 11.0-14 arm64ec + x86_64
+  (45423140943, db1ea2c2, replaces 11.0-9). Every build: feature checks ok (FEX unixlib loader, force_anon, drive-root guard,
+  C.UTF-8, fast-yield), verify-layer PASS, stripped .so (0 debug sections), zstd wcp, winex11 with XRandR.
+- v17 content: ARM64EC code map + unwind fixes, DiRT telemetry, offscreen check cache, WMA cutscene audio; Wine 11 lines also GameNative
+  #119 (Sleep(0) throttle + receive fast path) with our frame-loop work reset (50 us / 500 us) and WINE_SLEEP0_THROTTLE_SKIP (default
+  dx7; graphics DLLs noted at image map time), #128, #133/#131, #67 ntdll part, DroidDeck-Proton #34, userspace-ntsync alert_fd close fix.
+- Device: Pocket FIT AIO per API + DiRT on every line (v16 vs v17); 11.0-2 and 11.0-3 also on the Elite. DX7 full speed again on all
+  Wine 11 lines (2655-2900 fps). x86_64 not device-tested.
+- Release (all on GitHub's side): draft 457139557 -> temp branch tmp/release-v17 run 45454853253 pulled the CI artifacts, renamed
+  (DroidDeck-proton-*), attached 10 wcp; GitHub sha256 digests == staged/tested builds (10/10). Published Latest, tag == this branch's
+  5cad2d70. Delivery copy winlator-contents bionic-layers-20261124-v17 (tmp/mirror-v17 run 45455635889, 10/10 digests), catalog
+  winlator-contents 5a77857d (v16 -> v17, GE 11-9 -> 11-14, Proton 11.0-3 rows without versionName: GE-Proton 11.0-3 v14 shares
+  "11.0-3-arm64ec"). Temp branches deleted on the user's word (backups refs/backup/20261124/tmp-release-v17, tmp-mirror-v17).
+- Open: Bannerlator family-aware updater (branch feat/layer-family-updates) before the 11.0-3 rows get a versionName.
+
 ## 2026-11-23 — v17 layers round: 11.0-2 + P10.0-4 + GE10.0-34 + DroidDeck 11.0-12.8 (staging/<parent>/v17, building; NO release)
 - **Why (user, 2026-11-23 ~23:20 EST):** build v17 layers overnight and stage them in /sdcard/Download/v17-layers/ for the morning tests. No release, no catalog change, no install. A separate session ports the new GE-Proton 11-14 line.
 - **Branches (new, off the v16 commits):** `staging/proton_11.0-2/v17` off a190d333 (= release 2c0670d0 + 6 log commits, checked: only PROGRESS_LOG.md differs), `staging/proton_10.0/v17` off cc815410, `staging/proton_10.34-GE/v17` off b76055cc, `staging/proton_11.12.8-DroidDeck/v17` off d48e30a1 (fix-unwind-loop).
