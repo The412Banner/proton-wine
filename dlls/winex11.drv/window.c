@@ -1057,6 +1057,7 @@ static void window_set_mwm_hints( struct x11drv_win_data *data, const MwmHints *
     const MwmHints *old_hints = &data->pending_state.mwm_hints;
 
     data->desired_state.mwm_hints = *new_hints;
+    if (data->state_locks) return; /* win32 state is being updated, delay the change */
     if (!data->whole_window || !data->managed || data->embedded) return; /* no window or not managed, nothing to update */
     if (!memcmp( old_hints, new_hints, sizeof(*new_hints) )) return; /* hints are the same, nothing to update */
 
@@ -1361,6 +1362,7 @@ static void window_set_monitors( struct x11drv_win_data *data, const struct moni
     data->desired_state.monitors = *new_monitors;
 
     if (!(force || is_fullscreen) || is_virtual_desktop()) return; /* window isn't fullscreen, delay updating */
+    if (data->state_locks) return; /* win32 state is being updated, delay the change */
     if (!data->whole_window || !data->managed || data->embedded) return; /* no window or not managed, nothing to update */
     if (!memcmp( old_monitors, new_monitors, sizeof(*new_monitors) )) return; /* states are the same, nothing to update */
 
@@ -1451,6 +1453,7 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
 
     new_state &= x11drv_init_thread_data()->net_wm_state_mask;
     data->desired_state.net_wm_state = new_state;
+    if (data->state_locks) return; /* win32 state is being updated, delay the change */
     if (!data->whole_window || !data->managed || data->embedded) return; /* no window or not managed, nothing to update */
     if (data->wm_state_serial) return; /* another WM_STATE update is pending, wait for it to complete */
     /* we ignore and override previous _NET_WM_STATE update requests */
@@ -1543,22 +1546,13 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
 static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL above )
 {
     static const UINT fullscreen_mask = (1 << NET_WM_STATE_MAXIMIZED) | (1 << NET_WM_STATE_FULLSCREEN);
-    UINT style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE ), mask = 0;
     const RECT *old_rect = &data->pending_state.rect;
     BOOL old_above = data->pending_state.above, is_maximized;
     unsigned long net_wm_state = -1;
     XWindowChanges changes;
     RECT *new_rect = &rect;
+    UINT mask = 0;
 
-    /* Gamescope has broken _NET_WM_STATE_FULLSCREEN / _NET_WM_STATE_MAXIMIZED support, always allow resizing instead */
-    if (X11DRV_HasWindowManager( "steamcompmgr" )) style &= ~WS_MAXIMIZE;
-
-    /* resizing a managed maximized window is not allowed */
-    if ((style & WS_MAXIMIZE) && data->managed)
-    {
-        new_rect->right = new_rect->left + old_rect->right - old_rect->left;
-        new_rect->bottom = new_rect->top + old_rect->bottom - old_rect->top;
-    }
     /* only the size is allowed to change for the desktop window or systray docked windows */
     if (data->whole_window == root_window || data->embedded)
     {
@@ -1567,6 +1561,7 @@ static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL abo
 
     data->desired_state.rect = *new_rect;
     data->desired_state.above = above;
+    if (data->state_locks) return; /* win32 state is being updated, delay the change */
     if (!data->whole_window) return; /* no window, nothing to update */
     if (EqualRect( old_rect, new_rect ) && (old_above || !above || data->managed)) return; /* rects are the same, no need to be raised, nothing to update */
     if (window_needs_config_change_delay( data ))
@@ -1797,6 +1792,7 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
 
     data->desired_state.wm_state = new_state;
     data->desired_state.activate = activate;
+    if (data->state_locks) return; /* win32 state is being updated, delay the change */
     if (!data->whole_window) return; /* no window, nothing to update */
     if (data->wm_state_serial && !data->current_state.wm_state != !data->pending_state.wm_state)
         return; /* another map/unmap WM_STATE update is pending, wait for it to complete */
@@ -1857,8 +1853,8 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
 
     if (new_state == NormalState)
     {
-        /* try forcing activation if the window is supposed to be foreground or if it is fullscreen */
-        if (data->hwnd == foreground || data->is_fullscreen) activate = TRUE;
+        /* try forcing activation if the window is supposed to be foreground */
+        if (data->hwnd == foreground) activate = TRUE;
         /* Some older Mutter versions get confused when mapping a window while another has focus
          * and if there's another window with _NET_WM_STATE_ABOVE. It then decides that the newly
          * mapped window doesn't deserve to be raised or focused, even if the topmost window isn't
@@ -1875,7 +1871,7 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
     TRACE( "window %p/%lx, requesting WM_STATE %#x -> %#x serial %lu, foreground %p, activate %u\n", data->hwnd, data->whole_window,
            old_state, new_state, data->wm_state_serial, NtUserGetForegroundWindow(), activate );
 
-    if (new_state == IconicState && X11DRV_HasWindowManager( "steamcompmgr" ) && skip_iconify())
+    if (new_state == IconicState && x11drv_thread_data()->ignore_focus_hack && skip_iconify())
     {
         /* Gamescope will restore window when attempting to iconify it. Do not call XIconifyWindow() and
          * pretend that window is already minimized for the games which depend on some windows to be minimized. */
@@ -1919,7 +1915,7 @@ static void window_set_wm_state( struct x11drv_win_data *data, UINT new_state, B
      * Still, it changes it to NormalState on IconifyWindow, or when giving focus to a window so we will
      * mostly only lack response for transitions to Withdrawn and shouldn't wait for it.
      */
-    if (X11DRV_HasWindowManager( "steamcompmgr" ) && new_state == WithdrawnState) data->wm_state_serial = 0;
+    if (x11drv_thread_data()->ignore_focus_hack && new_state == WithdrawnState) data->wm_state_serial = 0;
 }
 
 static void window_set_managed( struct x11drv_win_data *data, BOOL new_managed )
@@ -2064,6 +2060,15 @@ static UINT window_update_client_config( struct x11drv_win_data *data )
     return flags;
 }
 
+static void window_request_desired_state( struct x11drv_win_data *data )
+{
+    window_set_wm_state( data, data->desired_state.wm_state, data->desired_state.activate );
+    window_set_net_wm_state( data, data->desired_state.net_wm_state );
+    window_set_monitors( data, &data->desired_state.monitors, FALSE );
+    window_set_mwm_hints( data, &data->desired_state.mwm_hints );
+    window_set_config( data, data->desired_state.rect, FALSE );
+}
+
 /***********************************************************************
  *      GetWindowStateUpdates   (X11DRV.@)
  */
@@ -2072,6 +2077,17 @@ BOOL X11DRV_GetWindowStateUpdates( HWND hwnd, UINT *state_cmd, UINT *swp_flags, 
     struct x11drv_thread_data *thread_data = x11drv_thread_data();
     struct x11drv_win_data *data;
     HWND old_foreground;
+
+    if (!state_cmd)
+    {
+        if ((data = get_win_data( hwnd )))
+        {
+            if (!--data->state_locks) TRACE( "Unlocked window %p/%lx state\n", data->hwnd, data->whole_window );
+            window_request_desired_state( data );
+            release_win_data( data );
+        }
+        return FALSE;
+    }
 
     *state_cmd = *swp_flags = 0;
     *foreground = 0;
@@ -2096,6 +2112,7 @@ BOOL X11DRV_GetWindowStateUpdates( HWND hwnd, UINT *state_cmd, UINT *swp_flags, 
 
     if ((data = get_win_data( hwnd )))
     {
+        if (!data->state_locks++) TRACE( "Locked window %p/%lx state\n", data->hwnd, data->whole_window );
         *state_cmd = window_update_client_state( data );
         *swp_flags = window_update_client_config( data );
         *rect = window_rect_from_visible( &data->rects, data->current_state.rect );
@@ -2134,15 +2151,6 @@ static BOOL handle_state_change( unsigned long serial, unsigned long *expect_ser
     memcpy( current, value, size );
     *expect_serial = 0;
     return TRUE;
-}
-
-static void window_request_desired_state( struct x11drv_win_data *data )
-{
-    window_set_wm_state( data, data->desired_state.wm_state, data->desired_state.activate );
-    window_set_net_wm_state( data, data->desired_state.net_wm_state );
-    window_set_monitors( data, &data->desired_state.monitors, FALSE );
-    window_set_mwm_hints( data, &data->desired_state.mwm_hints );
-    window_set_config( data, data->desired_state.rect, FALSE );
 }
 
 void window_wm_state_notify( struct x11drv_win_data *data, unsigned long serial, UINT value, Time time )
@@ -4187,6 +4195,7 @@ static Window get_net_supporting_wm_check( Display *display, Window window )
 void net_supporting_wm_check_init( struct x11drv_thread_data *data )
 {
     Window window = None, other;
+    const char *env;
 
     if (!(window = get_net_supporting_wm_check( data->display, DefaultRootWindow( data->display ) ))) return;
 
@@ -4211,6 +4220,9 @@ void net_supporting_wm_check_init( struct x11drv_thread_data *data )
             data->window_manager = NULL;
         }
     }
+
+    if ((env = getenv( "WINE_IGNORE_FOCUS_HACK" ))) data->ignore_focus_hack = atoi( env );
+    else data->ignore_focus_hack = X11DRV_HasWindowManager( "steamcompmgr" );
 }
 
 BOOL X11DRV_HasWindowManager( const char *name )

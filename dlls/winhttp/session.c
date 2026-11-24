@@ -813,6 +813,22 @@ static BOOL request_query_option( struct object_header *hdr, DWORD option, void 
         *buflen = sizeof(cert);
         return TRUE;
     }
+    case WINHTTP_OPTION_SERVER_CERT_CHAIN_CONTEXT:
+    {
+        const CERT_CHAIN_CONTEXT *chain;
+
+        if (!validate_buffer( buffer, buflen, sizeof(chain) )) return FALSE;
+        if (!request->netconn || !request->netconn->chain)
+        {
+            SetLastError( ERROR_WINHTTP_INCORRECT_HANDLE_STATE );
+            *(CERT_CHAIN_CONTEXT **)buffer = NULL;
+            return FALSE;
+        }
+        if (!(chain = CertDuplicateCertificateChain( request->netconn->chain ))) return FALSE;
+        *(const CERT_CHAIN_CONTEXT **)buffer = chain;
+        *buflen = sizeof(chain);
+        return TRUE;
+    }
     case WINHTTP_OPTION_SECURITY_CERTIFICATE_STRUCT:
     {
         const CERT_CONTEXT *cert = request->server_cert;

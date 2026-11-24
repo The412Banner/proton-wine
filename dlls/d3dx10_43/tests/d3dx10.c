@@ -9941,79 +9941,73 @@ static void test_sprite(void)
     ok(!memcmp(&mat, &mat2, sizeof(mat)), "Unexpected matrix.\n");
 
     /* View transform */
+    hr = ID3DX10Sprite_GetViewTransform(sprite, NULL);
+    ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
+
+    memset(&mat, 0, sizeof(mat));
+    hr = ID3DX10Sprite_GetViewTransform(sprite, &mat);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    ok(!memcmp(&mat, &identity, sizeof(mat)), "Unexpected view transform.\n");
+
     hr = ID3DX10Sprite_SetViewTransform(sprite, NULL);
-    todo_wine
     ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_SetViewTransform(sprite, &mat);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     /* Begin */
     hr = ID3DX10Sprite_Begin(sprite, 0);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = ID3DX10Sprite_Begin(sprite, 0);
+    ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
 
     /* Flush/End */
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_End(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     /* May not be called before next Begin */
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
     hr = ID3DX10Sprite_End(sprite);
-    todo_wine
     ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
 
     /* Draw */
     hr = ID3DX10Sprite_DrawSpritesBuffered(sprite, NULL, 0);
-    todo_wine
     ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
 
     memset(&sprite_desc, 0, sizeof(sprite_desc));
     hr = ID3DX10Sprite_DrawSpritesBuffered(sprite, &sprite_desc, 0);
-    todo_wine
     ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_DrawSpritesBuffered(sprite, &sprite_desc, 1);
-    todo_wine
     ok(hr == E_FAIL, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_Begin(sprite, 0);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     memset(&sprite_desc, 0, sizeof(sprite_desc));
     hr = ID3DX10Sprite_DrawSpritesBuffered(sprite, &sprite_desc, 1);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     sprite_desc.pTexture = srv1;
     hr = ID3DX10Sprite_DrawSpritesBuffered(sprite, &sprite_desc, 1);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     hr = ID3DX10Sprite_End(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     /* D3DX10_SPRITE_ADDREF_TEXTURES */
     hr = ID3DX10Sprite_Begin(sprite, D3DX10_SPRITE_ADDREF_TEXTURES);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     memset(&sprite_desc, 0, sizeof(sprite_desc));
@@ -10021,18 +10015,14 @@ static void test_sprite(void)
 
     refcount = get_refcount(srv1);
     hr = ID3DX10Sprite_DrawSpritesBuffered(sprite, &sprite_desc, 1);
-todo_wine {
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(get_refcount(srv1) > refcount, "Unexpected refcount.\n");
-}
 
     hr = ID3DX10Sprite_Flush(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(get_refcount(srv1) == refcount, "Unexpected refcount.\n");
 
     hr = ID3DX10Sprite_End(sprite);
-    todo_wine
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     ID3DX10Sprite_Release(sprite);

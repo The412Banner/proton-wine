@@ -5085,7 +5085,7 @@ HMONITOR monitor_from_window( HWND hwnd, UINT flags, UINT dpi )
     TRACE( "(%p, 0x%08x)\n", hwnd, flags );
 
     wp.length = sizeof(wp);
-    if (is_iconic( hwnd ) && NtUserGetWindowPlacement( hwnd, &wp ))
+    if (is_iconic( hwnd ) && get_window_placement( hwnd, &wp ))
         return monitor_from_rect( &wp.rcNormalPosition, flags, dpi );
 
     if (get_window_rect( hwnd, &rect, dpi ))
@@ -6323,7 +6323,7 @@ void sysparams_init(void)
     if (!get_config_key( hkey, appkey, "EmulateModelist", buffer, sizeof(buffer) ))
         emulate_modelist = !IS_OPTION_TRUE( buffer[0] );
     if (!get_config_key( hkey, appkey, "EmulateModeset", buffer, sizeof(buffer) ))
-        emulate_modeset = !IS_OPTION_TRUE( buffer[0] );
+        emulate_modeset = IS_OPTION_TRUE( buffer[0] );
 
     {
         const char *s;

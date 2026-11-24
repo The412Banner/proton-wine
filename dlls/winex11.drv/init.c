@@ -245,6 +245,7 @@ static BOOL enable_fullscreen_hack( HWND hwnd )
 BOOL needs_offscreen_rendering( HWND hwnd )
 {
     UINT style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
+    UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE );
     struct window_surface *surface;
     struct x11drv_win_data *data;
     BOOL needs_offscreen;
@@ -257,7 +258,7 @@ BOOL needs_offscreen_rendering( HWND hwnd )
         release_win_data( data );
     }
 
-    if (!needs_offscreen && style & WS_EX_LAYERED && NtUserGetLayeredWindowAttributes( hwnd, NULL, NULL, &layered_flags )
+    if (!needs_offscreen && ex_style & WS_EX_LAYERED && NtUserGetLayeredWindowAttributes( hwnd, NULL, NULL, &layered_flags )
         && layered_flags & LWA_COLORKEY)
         needs_offscreen = TRUE;
 
@@ -403,8 +404,6 @@ static void client_surface_update_offscreen( HWND hwnd, struct x11drv_client_sur
 
     if (surface->other_process) offscreen = TRUE;
 
-    TRACE( "%s offscreen %u\n", debugstr_client_surface( &surface->client ), offscreen );
-
     if (InterlockedExchange( &surface->client.offscreen, offscreen ) == offscreen)
     {
         if (!offscreen && (data = get_win_data( hwnd )))
@@ -413,6 +412,10 @@ static void client_surface_update_offscreen( HWND hwnd, struct x11drv_client_sur
             release_win_data( data );
         }
         return;
+    }
+    else
+    {
+        TRACE( "%s offscreen %u\n", debugstr_client_surface( &surface->client ), offscreen );
     }
 
     if (!offscreen)
@@ -458,8 +461,6 @@ static void x11drv_client_surface_update( struct client_surface *client )
     struct x11drv_client_surface *surface = impl_from_client_surface( client );
     HWND hwnd = client->hwnd;
 
-    TRACE( "%s\n", debugstr_client_surface( client ) );
-
     client_surface_update_geometry( hwnd, surface );
     client_surface_update_offscreen( hwnd, surface );
 }
@@ -473,8 +474,6 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
     RECT rect_dst, rect;
     Drawable window;
     HRGN region;
-
-    TRACE( "%s\n", debugstr_client_surface( client ) );
 
     client_surface_update_geometry( hwnd, surface );
     client_surface_update_offscreen( hwnd, surface );
@@ -503,10 +502,9 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
 
     window = X11DRV_get_whole_window( toplevel );
 
-    if (NtUserGetPresentRect( toplevel, &rect_dst, -1 /* raw dpi */ ))
+    if (toplevel == hwnd && NtUserGetPresentRect( toplevel, &rect_dst, -1 /* raw dpi */ ))
     {
         region = 0; /* window is exclusive fullscreen, ignore everything else */
-        if (toplevel != hwnd) return; /* toplevel is exclusive fullscreen, don't present */
         OffsetRect( &rect_dst, -rect_dst.left, -rect_dst.top );
     }
     else

@@ -1610,9 +1610,9 @@ BOOL WINAPI SetProcessDefaultCpuSets(HANDLE process, const ULONG *cpu_set_ids, U
  */
 BOOL WINAPI DECLSPEC_HOTPATCH GetNumaHighestNodeNumber( ULONG *node )
 {
-    FIXME( "semi-stub: %p\n", node );
-    *node = 0;
-    return TRUE;
+    TRACE( "node %p.\n", node );
+
+    return set_ntstatus( NtQuerySystemInformation( SystemNumaProcessorMap, node, sizeof(*node), NULL ));
 }
 
 
@@ -1621,9 +1621,21 @@ BOOL WINAPI DECLSPEC_HOTPATCH GetNumaHighestNodeNumber( ULONG *node )
  */
 BOOL WINAPI DECLSPEC_HOTPATCH GetNumaNodeProcessorMaskEx( USHORT node, GROUP_AFFINITY *mask )
 {
-    FIXME( "stub: %hu %p\n", node, mask );
-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    SYSTEM_NUMA_INFORMATION info;
+    NTSTATUS status;
+
+    TRACE( "node %u, mask %p.\n", node, mask );
+
+    if ((status = NtQuerySystemInformation( SystemNumaProcessorMap, &info, sizeof(info), NULL )))
+        return set_ntstatus( status );
+
+    if (node > info.HighestNodeNumber)
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return FALSE;
+    }
+    *mask = info.ActiveProcessorsGroupAffinity[node];
+    return TRUE;
 }
 
 
@@ -1632,6 +1644,8 @@ BOOL WINAPI DECLSPEC_HOTPATCH GetNumaNodeProcessorMaskEx( USHORT node, GROUP_AFF
  */
 BOOL WINAPI DECLSPEC_HOTPATCH GetNumaProximityNodeEx( ULONG proximity_id, USHORT *node )
 {
+    FIXME( "proximity_id %lu, node %p stub.\n", proximity_id, node );
+
     SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
     return FALSE;
 }

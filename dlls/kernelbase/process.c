@@ -599,6 +599,11 @@ static const WCHAR *hack_append_command_line( const WCHAR *cmd )
     }
     options[] =
     {
+#if defined(__aarch64__) || defined(__arm64ec__)
+        {L"msedgewebview2.exe", L" --no-sandbox"},
+#endif
+        {L"8Bit Fiesta Steam\\nw.exe", L" --disable_direct_composition=1"},
+        {L"Elisa The Innkeeper - Prequel\\nw.exe", L" --disable_direct_composition=1"},
         {L"UniverseGenerator.exe", L" --disable_direct_composition=1"},
         {L"Blaite\\nw.exe", L" --disable_direct_composition=1"},
         {L"Click&Fight.exe", L" --disable_direct_composition=1"},

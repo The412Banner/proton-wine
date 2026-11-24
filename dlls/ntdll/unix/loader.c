@@ -549,8 +549,14 @@ static void preloader_exec( char **argv, WORD machine )
 {
 #ifdef HAVE_WINE_PRELOADER
 #if !defined(__arm__) && !defined(__aarch64__)
-    if (machine == IMAGE_FILE_MACHINE_AMD64)
-        asprintf( &argv[0], "%s64-preloader", argv[1] );
+    const char *p;
+
+    if (machine == IMAGE_FILE_MACHINE_AMD64
+        && ((p = remove_tail( argv[1], "x86_64-unix/wine" )) || (p = remove_tail( argv[1], "i386-unix/wine64" ))))
+    {
+        asprintf( &argv[0], "%si386-unix/wine64-preloader", p );
+        asprintf( &argv[1], "%si386-unix/wine64", p );
+    }
     else
 #endif
         asprintf( &argv[0], "%s-preloader", argv[1] );
@@ -599,7 +605,8 @@ NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info 
     char preloader_reserve[64], socket_env[64];
 
     if (pe_info->wine_fakedll) res_start = res_end = 0;
-    if (pe_info->image_flags & IMAGE_FLAGS_ComPlusNativeReady) machine = native_machine;
+    if (pe_info->image_flags & IMAGE_FLAGS_ComPlusNativeReady)
+        machine = is_machine_64bit( native_machine ) ? IMAGE_FILE_MACHINE_AMD64 : native_machine;
 
     unsetenv( "WINE_LD_PRELOAD" );
 
@@ -1728,7 +1735,7 @@ done:
     if (NT_SUCCESS(status) && ext)
     {
         strcpy( ext, ".so" );
-        load_builtin_unixlib( *module, ptr );
+        set_builtin_unixlib_name( *module, ptr );
     }
     free( file );
     return status;
@@ -1845,6 +1852,78 @@ NTSTATUS load_builtin( const struct pe_image_info *image_info, UNICODE_STRING *n
 }
 
 
+/***********************************************************************
+ *           load_unixlib_by_name
+ */
+NTSTATUS load_unixlib_by_name( const UNICODE_STRING *nt_name, void **handle_ret )
+{
+    unsigned int i, pos, namepos, maxlen = 0;
+    unsigned int len = nt_name->Length / sizeof(WCHAR);
+    const char *so_dir = get_so_dir( current_machine );
+    char *ptr = NULL, *file, *ext = NULL;
+    void *handle = NULL;
+
+    if (!len) return STATUS_DLL_NOT_FOUND;
+
+    for (i = namepos = 0; i < len; i++)
+        if (nt_name->Buffer[i] == '/' || nt_name->Buffer[i] == '\\') break;
+
+    if (i < len)  /* explicit path */
+    {
+        UNICODE_STRING true_nt_name;
+        OBJECT_ATTRIBUTES attr;
+
+        InitializeObjectAttributes( &attr, (UNICODE_STRING *)nt_name, 0, 0, NULL );
+        if (!get_nt_and_unix_names( &attr, &true_nt_name, &file, FILE_OPEN, FALSE ))
+            handle = dlopen( file, RTLD_NOW );
+        free( true_nt_name.Buffer );
+        goto done;
+    }
+
+    if (build_dir) maxlen = strlen(build_dir) + sizeof("/dlls/") + len;
+    maxlen = max( maxlen, dll_path_maxlen + 1 ) + len + sizeof("/aarch64-unix") + sizeof(".so");
+
+    if (!(file = malloc( maxlen ))) return STATUS_NO_MEMORY;
+
+    pos = maxlen - len - 4;
+    /* we don't want to depend on the current codepage here */
+    for (i = 0; i < len; i++)
+    {
+        if (nt_name->Buffer[namepos + i] > 127) goto done;
+        file[pos + i] = (char)nt_name->Buffer[namepos + i];
+        if (file[pos + i] >= 'A' && file[pos + i] <= 'Z') file[pos + i] += 'a' - 'A';
+        else if (file[pos + i] == '.') ext = file + pos + i;
+    }
+    file[pos + len] = 0;
+    file[--pos] = '/';
+    if (!ext) ext = file + pos + len;
+
+    if (build_dir)
+    {
+        ptr = prepend_build_dir_path( file + pos, ".so", "", "/dlls", build_dir );
+        strcpy( ext, ".so" );
+        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
+    }
+
+    strcpy( ext, ".so" );
+    for (i = 0; dll_paths[i]; i++)
+    {
+        ptr = prepend( file + pos, so_dir, strlen(so_dir) );
+        ptr = prepend( ptr, dll_paths[i], strlen(dll_paths[i]) );
+        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
+
+        ptr = prepend( file + pos, dll_paths[i], strlen(dll_paths[i]) );
+        if ((handle = dlopen( ptr, RTLD_NOW ))) goto done;
+    }
+
+ done:
+    free( file );
+    if (!handle) return STATUS_DLL_NOT_FOUND;
+    *handle_ret = handle;
+    return STATUS_SUCCESS;
+}
+
+
 /***************************************************************************
  *	get_machine_wow64_dir
  *
@@ -1922,7 +2001,7 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
         status = virtual_map_module( mapping, module, &size, info, 0, 0, machine );
         if (status == STATUS_IMAGE_MACHINE_TYPE_MISMATCH && info->ComPlusNativeReady)
         {
-            info->Machine = native_machine;
+            info->Machine = is_machine_64bit( native_machine ) ? IMAGE_FILE_MACHINE_AMD64 : native_machine;
             status = STATUS_SUCCESS;
         }
         NtClose( mapping );
@@ -2359,7 +2438,10 @@ static void hacks_init(void)
         env_str = getenv("WINE_SIMULATE_ASYNC_READ");
         if (env_str)
             ac_odyssey = !!atoi(env_str);
-        else if (main_argc > 1 && (strstr(main_argv[1], "ACOdyssey.exe") || strstr(main_argv[1], "ImmortalsFenyxRising.exe")))
+        else if (main_argc > 1 && (strstr(main_argv[1], "ACOdyssey.exe")
+                                || strstr(main_argv[1], "ACValhalla.exe")
+                                || strstr(main_argv[1], "ACValhalla_plus.exe")
+                                || strstr(main_argv[1], "ImmortalsFenyxRising.exe")))
             ac_odyssey = TRUE;
 
         if (ac_odyssey)
@@ -2422,6 +2504,7 @@ static void hacks_init(void)
     case 212910: /* CoD Black Ops II Zombies */
     case 247910: /* Sniper Elite: Nazi Zombie Army 2 */
     case 227100: /* Sniper Elite: Nazi Zombie Army */
+    case 63380:  /* Sniper Elite: V2 */
         setenv( "WINESTEAMNOEXEC", "1", 0 );
         break;
     }

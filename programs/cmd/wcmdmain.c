@@ -68,6 +68,11 @@ static BOOL unicodeOutput = FALSE;
 static HANDLE console_input;
 BOOL echo_mode = TRUE;
 
+/* Output handling */
+static DWORD orig_console_mode;
+static DWORD internal_console_mode = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT
+                                     | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+
 /* Variables pertaining to paging */
 static BOOL paged_mode;
 static const WCHAR *pagedMessage = NULL;
@@ -1798,6 +1803,8 @@ static RETURN_CODE spawn_external_full_path(const WCHAR *file, WCHAR *full_cmdli
         console = SHGetFileInfoW(exe_path, 0, &psfi, sizeof(psfi), SHGFI_EXETYPE);
 
     init_msvcrt_io_block(&si);
+    if (console && !HIWORD(console))
+        SetConsoleMode( GetStdHandle(STD_OUTPUT_HANDLE), orig_console_mode );
     ret = CreateProcessW(file, full_cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
     free(si.lpReserved2);
 
@@ -1868,15 +1875,6 @@ static RETURN_CODE run_command_file(const WCHAR *file, WCHAR *full_cmdline)
         echo_mode = prev_echo_mode;
     return return_code;
 }
-
-struct search_command
-{
-    WCHAR path[MAX_PATH];
-    BOOL has_path; /* if input has path part (ie cannot be a builtin command) */
-    BOOL has_extension; /* if extension was given to input */
-    BOOL is_command_file; /* when has_path is set, tells whether its a command file, or an external executable */
-    int cmd_index; /* potential index to builtin command */
-};
 
 static BOOL search_in_pathext(WCHAR *path)
 {
@@ -1956,7 +1954,7 @@ static BOOL search_in_pathext(WCHAR *path)
     return TRUE;
 }
 
-static RETURN_CODE search_command(WCHAR *command, struct search_command *sc, BOOL fast)
+RETURN_CODE WCMD_search_command(WCHAR *command, struct search_command *sc, BOOL fast)
 {
     WCHAR  temp[MAX_PATH];
     WCHAR  pathtosearch[MAXSTRING];
@@ -2391,7 +2389,7 @@ static RETURN_CODE execute_single_command(const WCHAR *command)
 
     TRACE("Command: '%s'\n", wine_dbgstr_w(cmd));
 
-    return_code = search_command(cmd, &sc, TRUE);
+    return_code = WCMD_search_command(cmd, &sc, TRUE);
     if (return_code != NO_ERROR && sc.cmd_index == WCMD_EXIT + 1)
     {
         /* Not found anywhere - give up */
@@ -2443,7 +2441,7 @@ RETURN_CODE WCMD_call_command(WCHAR *command)
   struct search_command sc;
   RETURN_CODE return_code;
 
-  return_code = search_command(command, &sc, FALSE);
+  return_code = WCMD_search_command(command, &sc, FALSE);
   if (return_code == NO_ERROR)
   {
       if (!*sc.path) return NO_ERROR;
@@ -4503,7 +4501,7 @@ static RETURN_CODE spawn_pipe_sub_command(CMD_NODE *node, HANDLE *child)
             struct search_command sc;
 
             /* command isn't delayed expanded... */
-            return_code = search_command(node->command, &sc, TRUE);
+            return_code = WCMD_search_command(node->command, &sc, TRUE);
             if (return_code != NO_ERROR && sc.cmd_index == WCMD_EXIT + 1)
                 return RETURN_CODE_CANT_LAUNCH;
             if ((sc.cmd_index <= WCMD_EXIT && (return_code != NO_ERROR || (!sc.has_path && !sc.has_extension))) ||
@@ -4689,6 +4687,7 @@ static RETURN_CODE node_execute_with_echo(CMD_NODE *node, BOOL with_echo)
 
 RETURN_CODE node_execute(CMD_NODE *node)
 {
+    SetConsoleMode( GetStdHandle(STD_OUTPUT_HANDLE), internal_console_mode );
     return node_execute_with_echo(node, echo_mode && WCMD_is_in_context(NULL));
 }
 
@@ -4885,7 +4884,7 @@ static void parse_command_line_parameters(struct cmd_parameters *parameters)
         {
             struct search_command sc;
 
-            if (search_command(parameters->initial_command, &sc, TRUE) != NO_ERROR) /* no command found */
+            if (WCMD_search_command(parameters->initial_command, &sc, TRUE) != NO_ERROR) /* no command found */
             {
                 WINE_TRACE("Binary not found, dropping back to old behaviour\n");
                 opt_s = TRUE;
@@ -4941,6 +4940,7 @@ static void WCMD_setup(void)
     /* init for loop context */
     forloopcontext = NULL;
     WCMD_save_for_loop_context(TRUE);
+    GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &orig_console_mode);
 }
 
 /*****************************************************************************

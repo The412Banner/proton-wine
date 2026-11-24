@@ -1088,6 +1088,9 @@ static void test_secure_connection(void)
     BOOL ret;
     CERT_CONTEXT *cert;
     WINHTTP_CERTIFICATE_INFO info;
+    PCCERT_CHAIN_CONTEXT chain;
+    CERT_CHAIN_POLICY_PARA chain_policy = { .cbSize = sizeof(chain_policy) };
+    CERT_CHAIN_POLICY_STATUS policy_status = { .cbSize = sizeof(policy_status) };
     char buffer[32];
 
     ses = WinHttpOpen(L"winetest", 0, NULL, NULL, 0);
@@ -1142,8 +1145,24 @@ static void test_secure_connection(void)
 
     WinHttpCloseHandle(req);
 
+    size = sizeof(chain);
+    chain = (void *)0xdeadbeef;
+    SetLastError(0xdeadbeef);
+    ret = WinHttpQueryOption(ses, WINHTTP_OPTION_SERVER_CERT_CHAIN_CONTEXT, &chain, &size);
+    ok(!ret, "unexpected success.\n");
+    todo_wine ok(GetLastError() == ERROR_WINHTTP_INCORRECT_HANDLE_TYPE, "got error %lu.\n", GetLastError());
+    ok(chain == (void *)0xdeadbeef, "got %p.\n", chain);
+
     req = WinHttpOpenRequest(con, NULL, NULL, NULL, NULL, NULL, WINHTTP_FLAG_SECURE);
     ok(req != NULL, "failed to open a request %lu\n", GetLastError());
+
+    size = sizeof(chain);
+    chain = (void *)0xdeadbeef;
+    SetLastError(0xdeadbeef);
+    ret = WinHttpQueryOption(req, WINHTTP_OPTION_SERVER_CERT_CHAIN_CONTEXT, &chain, &size);
+    ok(!ret, "unexpected success.\n");
+    ok(GetLastError() == ERROR_WINHTTP_INCORRECT_HANDLE_STATE, "got error %lu.\n", GetLastError());
+    ok(!chain, "got %p.\n", chain);
 
     flags = 0xdeadbeef;
     size = sizeof(flags);
@@ -1187,6 +1206,18 @@ static void test_secure_connection(void)
         goto cleanup;
     }
     ok(ret, "failed to send request %lu\n", GetLastError());
+
+    size = sizeof(chain);
+    chain = (void *)0xdeadbeef;
+    SetLastError(0xdeadbeef);
+    ret = WinHttpQueryOption(req, WINHTTP_OPTION_SERVER_CERT_CHAIN_CONTEXT, &chain, &size);
+    ok(ret, "got error %lu.\n", GetLastError());
+    ok(chain && chain != (void *)0xdeadbeef, "got %p.\n", chain);
+    ret = CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chain, &chain_policy, &policy_status);
+    ok(ret, "got error %lu.\n", GetLastError());
+    ok(!chain->TrustStatus.dwErrorStatus, "got %#lx.\n", chain->TrustStatus.dwErrorStatus);
+    ok(!policy_status.dwError, "got %#lx.\n", policy_status.dwError);
+    CertFreeCertificateChain(chain);
 
     size = sizeof(cert);
     ret = WinHttpQueryOption(req, WINHTTP_OPTION_SERVER_CERT_CONTEXT, &cert, &size );
@@ -1266,6 +1297,7 @@ static void test_request_parameter_defaults(void)
     HINTERNET ses, con, req;
     DWORD size, status, error;
     WCHAR *version;
+    ULONG64 val64;
     BOOL ret;
 
     ses = WinHttpOpen(L"winetest", 0, NULL, NULL, 0);
@@ -1294,6 +1326,16 @@ static void test_request_parameter_defaults(void)
     ret = WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, NULL, &status, &size, NULL);
     ok(ret, "failed unexpectedly %lu\n", GetLastError());
     ok(status == HTTP_STATUS_OK, "request failed unexpectedly %lu\n", status);
+
+    val64 = 0xdeadbeeffeedcafe;
+    size = sizeof(val64) * 2;
+    SetLastError(0xdeadbeef);
+    ret = WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER64, NULL, &val64, &size, NULL);
+    error = GetLastError();
+    ok(!ret, "succeeded unexpectedly\n");
+    ok(size == sizeof(val64) * 2, "got %#lx.\n", size);
+    ok(error == ERROR_WINHTTP_INVALID_QUERY_REQUEST, "got %lu.\n", error);
+    ok(val64 == 0xdeadbeeffeedcafe, "got %#I64x.\n", val64);
 
     WinHttpCloseHandle(req);
 
@@ -3447,6 +3489,7 @@ static void test_websocket(int port)
     WCHAR header[32];
     char buf[128], *large_buf;
     USHORT close_status;
+    ULONG64 val64;
     BOOL ret;
 
     if (!pWinHttpWebSocketCompleteUpgrade)
@@ -3562,6 +3605,13 @@ static void test_websocket(int port)
     ret = WinHttpQueryHeaders(request, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER, NULL, &len,
                               &size, NULL);
     ok(!ret, "success\n");
+
+    val64 = 0xdeadbeeffeedcafe;
+    size = sizeof(val64) * 2;
+    ret = WinHttpQueryHeaders(request, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER64, NULL, &val64, &size, NULL);
+    ok(ret, "failed unexpectedly %lu\n", GetLastError());
+    ok(size == sizeof(val64), "got %lu.\n", size);
+    ok(val64 == 4, "request failed unexpectedly %lu\n", status);
 
     index = 0;
     size = sizeof(buf);

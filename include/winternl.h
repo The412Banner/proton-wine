@@ -2457,8 +2457,11 @@ typedef enum _MEMORY_INFORMATION_CLASS {
     MemoryBadInformationAllProcesses = 13,
     MemoryImageExtensionInformation = 14,
 #ifdef __WINESRC__
-    MemoryWineUnixFuncs = 1000,
-    MemoryWineUnixWow64Funcs,
+    MemoryWineLoadUnixLib = 1000,
+    MemoryWineLoadUnixLibWow64,
+    MemoryWineLoadUnixLibByName,
+    MemoryWineLoadUnixLibByNameWow64,
+    MemoryWineUnloadUnixLib,
 #endif
 } MEMORY_INFORMATION_CLASS;
 
@@ -3251,6 +3254,22 @@ typedef struct _SYSTEM_TIME_ADJUSTMENT {
     ULONG   TimeAdjustment;
     BOOLEAN TimeAdjustmentDisabled;
 } SYSTEM_TIME_ADJUSTMENT, *PSYSTEM_TIME_ADJUSTMENT;
+
+#ifdef _WIN64
+#define MAXIMUM_NUMA_NODE_COUNT 16
+#else
+#define MAXIMUM_NUMA_NODE_COUNT 64
+#endif
+
+typedef struct _SYSTEM_NUMA_INFORMATION {
+    ULONG HighestNodeNumber;
+    ULONG Reserved;
+    union {
+        GROUP_AFFINITY ActiveProcessorsGroupAffinity[MAXIMUM_NUMA_NODE_COUNT];
+        ULONGLONG AvailableMemory[MAXIMUM_NUMA_NODE_COUNT];
+        ULONGLONG Pad[MAXIMUM_NUMA_NODE_COUNT * 2];
+    };
+} SYSTEM_NUMA_INFORMATION;
 
 typedef enum _SYSTEM_FIRMWARE_TABLE_ACTION
 {

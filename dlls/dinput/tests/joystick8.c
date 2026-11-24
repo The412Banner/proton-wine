@@ -1012,6 +1012,27 @@ static void test_action_map( IDirectInputDevice8W *device, HANDLE file, HANDLE e
             .uAppData = 11,
         },
     };
+    DIACTIONW filled_actions_3[] =
+    {
+        {
+            .dwSemantic = DIMOUSE_BUTTON0,
+            .lptszActionName = L"Button 0",
+            .guidInstance = GUID_SysMouse,
+            .dwObjID = DIDFT_PSHBUTTON | DIDFT_MAKEINSTANCE( 3 ),
+            .dwFlags = DIA_APPMAPPED | DIA_APPFIXED,
+            .dwHow = DIAH_DEFAULT,
+            .uAppData = 1,
+        },
+        {
+            .dwSemantic = DIKEYBOARD_2,
+            .lptszActionName = L"Key",
+            .guidInstance = GUID_SysKeyboard,
+            .dwObjID = DIDFT_PSHBUTTON | DIDFT_MAKEINSTANCE( 3 ),
+            .dwFlags = DIA_APPMAPPED | DIA_APPFIXED,
+            .dwHow = DIAH_DEFAULT,
+            .uAppData = 2,
+        }
+    };
     DIACTIONFORMATW action_format_2_filled =
     {
         .dwSize = sizeof(DIACTIONFORMATW),
@@ -1024,6 +1045,18 @@ static void test_action_map( IDirectInputDevice8W *device, HANDLE file, HANDLE e
         .dwBufferSize = 32,
         .lAxisMin = -128,
         .lAxisMax = +128,
+        .tszActionMap = L"Action Map Filled",
+    };
+    DIACTIONFORMATW action_format_3_filled =
+    {
+        .dwSize = sizeof(DIACTIONFORMATW),
+        .dwActionSize = sizeof(*default_actions),
+        .dwNumActions = ARRAY_SIZE(filled_actions_3),
+        .dwDataSize = 4 * ARRAY_SIZE(filled_actions_3),
+        .rgoAction = filled_actions_3,
+        .dwGenre = DIVIRTUAL_DRIVING_RACE,
+        .guidActionMap = GUID_action_mapping_2,
+        .dwBufferSize = 32,
         .tszActionMap = L"Action Map Filled",
     };
     DIPROPRANGE prop_range =
@@ -1455,6 +1488,28 @@ static void test_action_map( IDirectInputDevice8W *device, HANDLE file, HANDLE e
     hr = IDirectInputDevice8_BuildActionMap( device, &action_format, L"username", DIDBAM_PRESERVE );
     ok( hr == DI_OK, "BuildActionMap returned %#lx\n", hr );
     check_diactionformatw( &action_format, &expect_action_format_4 );
+
+    /* Test setting two actions with the same control identifier/dwObjID */
+    hr = IDirectInputDevice8_SetActionMap( mouse, &action_format_3_filled, L"username", DIDSAM_DEFAULT );
+    todo_wine
+    ok( hr == DI_SETTINGSNOTSAVED, "SetActionMap returned %#lx\n", hr );
+    hr = IDirectInputDevice8_SetActionMap( keyboard, &action_format_3_filled, L"username", DIDSAM_DEFAULT );
+    todo_wine
+    ok( hr == DI_SETTINGSNOTSAVED, "SetActionMap returned %#lx\n", hr );
+
+    prop_pointer.diph.dwHow = DIPH_BYID;
+    prop_pointer.diph.dwObj = DIDFT_PSHBUTTON | DIDFT_MAKEINSTANCE( 3 );
+    prop_pointer.uData = 0;
+    hr = IDirectInputDevice8_GetProperty( mouse, DIPROP_APPDATA, &prop_pointer.diph );
+    ok( hr == DI_OK, "GetProperty returned %#lx\n", hr );
+    ok( prop_pointer.uData == 1, "got uData %#Ix\n", prop_pointer.uData );
+
+    prop_pointer.diph.dwHow = DIPH_BYID;
+    prop_pointer.diph.dwObj = DIDFT_PSHBUTTON | DIDFT_MAKEINSTANCE( 3 );
+    prop_pointer.uData = 0;
+    hr = IDirectInputDevice8_GetProperty( keyboard, DIPROP_APPDATA, &prop_pointer.diph );
+    ok( hr == DI_OK, "GetProperty returned %#lx\n", hr );
+    ok( prop_pointer.uData == 2, "got uData %#Ix\n", prop_pointer.uData );
 
     IDirectInputDevice8_Release( keyboard );
     IDirectInputDevice8_Release( mouse );
@@ -4622,6 +4677,12 @@ static void test_winmm_joystick(void)
         .caps = { .InputReportByteLength = 18 },
         .attributes = default_attributes,
     };
+    struct hid_device_desc desc2 =
+    {
+        .use_report_id = TRUE,
+        .caps = { .InputReportByteLength = 18 },
+        .attributes = { sizeof(HID_DEVICE_ATTRIBUTES), LOWORD(EXPECT_VIDPID), 2, 0x0100, },
+    };
     static const JOYCAPS2W expect_regcaps =
     {
         .szRegKey = L"DINPUT.DLL",
@@ -4645,6 +4706,11 @@ static void test_winmm_joystick(void)
         .wNumAxes = 5,
         .wMaxButtons = 32,
         .szRegKey = L"DINPUT.DLL",
+    };
+    static const JOYCAPS2W expect_caps2 =
+    {
+        .wMid = 0x1209,
+        .wPid = 0x0002,
     };
     struct hid_expect injected_input[] =
     {
@@ -4701,6 +4767,7 @@ static void test_winmm_joystick(void)
     JOYINFO info = {0};
     HANDLE event, file;
     HRESULT hr;
+    DWORD tick;
     UINT ret;
 
     cleanup_registry_keys();
@@ -4744,6 +4811,8 @@ static void test_winmm_joystick(void)
 
     desc.report_descriptor_len = sizeof(report_desc);
     memcpy( desc.report_descriptor_buf, report_desc, sizeof(report_desc) );
+    desc2.report_descriptor_len = sizeof(report_desc);
+    memcpy( desc2.report_descriptor_buf, report_desc, sizeof(report_desc) );
 
     if (!hid_device_start( &desc, 1 )) goto done;
 
@@ -4916,7 +4985,66 @@ static void test_winmm_joystick(void)
     CloseHandle( event );
     CloseHandle( file );
 
+    if (!hid_device_start( &desc2, 1 )) goto done;
+
+    /* The new joystick does not appear at once neither on Windows nor on Wine */
+    tick = GetTickCount();
+    do
+    {
+        ret = joyGetDevCapsW( 1, (JOYCAPSW *)&caps, sizeof(caps) );
+    } while (ret == JOYERR_PARMS && GetTickCount() - tick < 3000);
+
+    memset( &caps, 0xcd, sizeof(caps) );
+    ret = joyGetDevCapsW( 0, (JOYCAPSW *)&caps, sizeof(caps) );
+    ok( ret == 0, "joyGetDevCapsW returned %u\n", ret );
+    check_member( caps, expect_caps, "%#x", wPid );
+    memset( &caps, 0xcd, sizeof(caps) );
+    ret = joyGetDevCapsW( 1, (JOYCAPSW *)&caps, sizeof(caps) );
+    ok( ret == 0, "joyGetDevCapsW returned %u\n", ret );
+    check_member( caps, expect_caps2, "%#x", wPid );
+
+    infoex.dwSize = sizeof(JOYINFOEX);
+    infoex.dwFlags = JOY_RETURNALL;
+
+    ret = joyGetPosEx( 0, &infoex );
+    ok( !ret, "joyGetPosEx returned %u\n", ret );
+    ret = joyGetPosEx( 1, &infoex );
+    ok( !ret, "joyGetPosEx returned %u\n", ret );
+
+    hid_device_stop( &desc, 1 );
+
+    memset( &caps, 0xcd, sizeof(caps) );
+    ret = joyGetDevCapsW( 0, (JOYCAPSW *)&caps, sizeof(caps) );
+    ok( ret == 0, "joyGetDevCapsW returned %u\n", ret );
+    check_member( caps, expect_caps, "%#x", wPid );
+    memset( &caps, 0xcd, sizeof(caps) );
+    ret = joyGetDevCapsW( 1, (JOYCAPSW *)&caps, sizeof(caps) );
+    ok( ret == 0, "joyGetDevCapsW returned %u\n", ret );
+    check_member( caps, expect_caps2, "%#x", wPid );
+
+    ret = joyGetPosEx( 0, &infoex );
+    ok( ret == JOYERR_UNPLUGGED, "joyGetPosEx returned %u\n", ret );
+    ret = joyGetPosEx( 1, &infoex );
+    ok( !ret, "joyGetPosEx returned %u\n", ret );
+
+    if (!hid_device_start( &desc, 1 )) goto done;
+
+    memset( &caps, 0xcd, sizeof(caps) );
+    ret = joyGetDevCapsW( 0, (JOYCAPSW *)&caps, sizeof(caps) );
+    ok( ret == 0, "joyGetDevCapsW returned %u\n", ret );
+    check_member( caps, expect_caps, "%#x", wPid );
+    memset( &caps, 0xcd, sizeof(caps) );
+    ret = joyGetDevCapsW( 1, (JOYCAPSW *)&caps, sizeof(caps) );
+    ok( ret == 0, "joyGetDevCapsW returned %u\n", ret );
+    check_member( caps, expect_caps2, "%#x", wPid );
+
+    ret = joyGetPosEx( 0, &infoex );
+    ok( !ret, "joyGetPosEx returned %u\n", ret );
+    ret = joyGetPosEx( 1, &infoex );
+    ok( !ret, "joyGetPosEx returned %u\n", ret );
+
 done:
+    hid_device_stop( &desc2, 1 );
     hid_device_stop( &desc, 1 );
     cleanup_registry_keys();
 }

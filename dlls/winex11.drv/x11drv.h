@@ -429,6 +429,8 @@ struct x11drv_thread_data
     struct display_state pending_state;       /* display state tracking the pending / requested state */
     struct display_state current_state;       /* display state tracking the current X11 state */
     unsigned long net_active_window_serial;   /* serial of last pending _NET_ACTIVE_WINDOW request */
+
+    UINT ignore_focus_hack : 1;
 };
 
 extern struct x11drv_thread_data *x11drv_init_thread_data(void);
@@ -716,6 +718,7 @@ struct x11drv_win_data
     unsigned long wm_normal_hints_serial;/* serial of last pending WM_NORMAL_HINTS request */
     unsigned long configure_serial;    /* serial of last pending configure request */
     unsigned long net_wm_icon_serial;  /* serial of last pending _NET_WM_ICON request */
+    unsigned long state_locks;         /* X11 state requests lock while updating win32 state */
 };
 
 extern struct x11drv_win_data *get_win_data( HWND hwnd );

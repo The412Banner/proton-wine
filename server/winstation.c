@@ -879,7 +879,7 @@ DECL_HANDLER(set_thread_desktop)
     if (!current->process->desktop)
         set_process_default_desktop( current->process, new_desktop, req->handle );
 
-    if (old_desktop != new_desktop && current->queue) detach_thread_input( current );
+    if (old_desktop != new_desktop && current->queue) detach_thread_input( current->queue, NULL, new_desktop );
 
     if (old_desktop) release_object( old_desktop );
     release_object( new_desktop );
