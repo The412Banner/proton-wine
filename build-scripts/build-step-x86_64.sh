@@ -337,6 +337,12 @@ do
       # winegstreamer: skip the "Proton audio converter with rate fixup" when mediaconv is off, the same as the
       # video converter, so avdec_wmav2 decodes WMA cutscene audio (proton-wine 8956410a, never shipped before)
       "dlls_winegstreamer_wg_parser.c.patch"
+      # ntdll: throttle Sleep(0) / SwitchToThread storms (DOOM 2016 idle worker, Cult of the Lamb dispatch thread;
+      # WINE_SLEEP0_THROTTLE=0 disables it) and fail would-block receives on nonblocking sockets without a server
+      # round trip (DOOM 2016 DTLS poll thread; WINE_SOCKET_POLL_FASTPATH=0 disables it) (GameNative #119, Utkarsh
+      # Dalal; both patch files unchanged)
+      "dlls_ntdll_unix_sync.c_sleep0_yield_throttle.patch"
+      "dlls_ntdll_unix_socket.c_recv_fastpath.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -408,6 +414,9 @@ do
       "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (ours, DroidDeck-Proton 11-11.10)"
       "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in, WINE_OFFSCREEN_CHECK_MS)"
       "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|winegstreamer skips the Proton audio converter when mediaconv is off (FMV WMA audio, proton-wine 8956410a)"
+      "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
+      "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path (GameNative #119)"
+      "server/sock.c|poll_fastpath|would-block receive fast path, server grant (GameNative #119)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
