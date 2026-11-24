@@ -401,6 +401,9 @@ do
       # Dalal; sleep0 patch: one context line added for this tree's next_killed field in unix_private.h)
       "dlls_ntdll_unix_sync.c_sleep0_yield_throttle.patch"
       "dlls_ntdll_unix_socket.c_recv_fastpath.patch"
+      # ntdll: userspace ntsync wait-any accepts the same object more than once, as the kernel driver does
+      # (OMORI threadpool spin; GameNative #128, Utkarsh Dalal). Applies on top of ntsync_userspace.patch.
+      "dlls_ntdll_unix_sync.c_ntsync_wait_any_duplicates.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -528,6 +531,7 @@ do
       "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
       "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path (GameNative #119)"
       "server/sock.c|poll_fastpath|would-block receive fast path, server grant (GameNative #119)"
+      "dlls/ntdll/unix/sync.c|int distinct_objs[NTSYNC_MAX_WAIT_COUNT];|userspace ntsync wait-any with repeated objects (GameNative #128)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
