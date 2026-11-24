@@ -331,6 +331,9 @@ do
       # sent instead of WSAENOTSOCK (error 10038) for those executables only (ours, DroidDeck-Proton 11-11.10;
       # same patch as the DroidDeck 11.0-12.3 / 12.8 layers)
       "dlls_ws2_32_socket.c_dirt_telemetry.patch"
+      # winex11: needs_offscreen_rendering at most every WINE_OFFSCREEN_CHECK_MS ms on the present path;
+      # unset or 0 = every call (ours, proton-wine ff9db6f6 + bab12909, ported onto this tree's init.c)
+      "dlls_winex11.drv_init.c_offscreen_check_cache.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -400,6 +403,7 @@ do
       "dlls/winex11.drv/opengl.c|GLX has no create_context_no_error|WGL no_error attribute dropped without GLX support (GameNative #66)"
       "dlls/ntdll/loader.c|HideWineExports|HideWineExports option (GameNative #84)"
       "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (ours, DroidDeck-Proton 11-11.10)"
+      "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in, WINE_OFFSCREEN_CHECK_MS)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
