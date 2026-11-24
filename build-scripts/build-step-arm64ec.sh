@@ -390,6 +390,9 @@ do
       "dlls/winewayland.drv/wayland.c|banner_desktop_v1|Wayland virtual desktop (banner_desktop_v1)"
       "dlls/winewayland.drv/wayland_touch.c|touch_lparam|Wayland touch (wl_touch -> WM_POINTER*, normalized lparam)"
       "dlls/winewayland.drv/wayland_edid.c|wayland_edid_build|Wayland HDR10 monitor EDID"
+      "dlls/ntdll/unix/virtual.c|ULONG_PTR limit = max( (ULONG_PTR)address_space_limit, (ULONG_PTR)1 << 47 );|ARM64EC code map covers 47-bit addresses on a 39-bit host (proton-wine d4c9ffa7, Wine 10 port)"
+      "dlls/ntdll/signal_arm64ec.c|unwind made no progress at pc|ARM64EC exception search and unwind stop at a frame that does not move (proton-wine fecf7376)"
+      "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (proton-wine a188791d)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
