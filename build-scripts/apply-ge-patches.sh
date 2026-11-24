@@ -12,10 +12,14 @@
 # "applied" nascar25-protector into a comment block and a different function, and
 # the per-patch marker still matched.)
 #
-# Tier = GE-Proton11-9 patches/game-patches (same 15 files as 11-7; only
-# return-to-krondor and vgsoh changed). Not carried (all deliberate):
-#   layered-overlay-wine, multi-process-launcher-x11-fallback -- skipped on every
-#     one of our GE layers (desktop compositor / Wayland launcher paths).
+# Tier = GE-Proton11-14 patches/game-patches: GE-Proton11-9's 15 files (only
+# layered-overlay-wine changed since, not carried) + ddraw-max-game-ticks and
+# winex11-cursor-scale, new in 11-14 (both env-gated, AITUS95). The other new
+# 11-14 game patches, the ACE anti-cheat series, are in-tree (their lsass
+# program must exist before configure). Not carried (all deliberate):
+#   layered-overlay-wine, layered-overlay-direct-present (11-14, builds on it),
+#     multi-process-launcher-x11-fallback -- skipped on every one of our GE
+#     layers (desktop compositor / Wayland launcher paths).
 #   nascar25-protector -- rewrites the x86_64 Linux SIGSYS handler that GE's
 #     wine-wayland 0271 "Forward syscalls to linux when EAC EOS bootstrapper" hack
 #     adds; Valve 46b29104 has no Linux SIGSYS handler for it to hook (macOS only).
@@ -50,6 +54,12 @@ marker_for() {
       echo "dlls/dwrite/font.c|244210" ;;
     black-desert-keep-fullscreen-on-focus-loss.patch)
       echo "dlls/win32u/input.c|WINE_BLACK_DESERT_KEEP_FULLSCREEN" ;;
+    ddraw-max-game-ticks.patch)
+      # GE-Proton11-14, AITUS95: WINE_DDRAW_MAXGAMETICKS (Stronghold Crusader HD, protonfixes 40970)
+      echo "dlls/ddraw/ddraw.c|WINE_DDRAW_MAXGAMETICKS" ;;
+    winex11-cursor-scale.patch)
+      # GE-Proton11-14, AITUS95: WINE_CURSOR_SCALE for X cursors (Stronghold Crusader HD)
+      echo "dlls/winex11.drv/mouse.c|WINE_CURSOR_SCALE" ;;
     dai_xinput.patch)
       # dropped by GE in 11-7 for its Sony-XInput stack (not carried); ours from GE 11-6
       echo "dlls/win32u/input.c|GameLoop" ;;
