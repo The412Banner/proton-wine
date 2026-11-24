@@ -371,6 +371,7 @@ BOOL WINAPI NtUserSetCursorIconData( HCURSOR cursor, UNICODE_STRING *module, UNI
                                      struct cursoricon_desc *desc )
 {
     struct cursoricon_object *obj;
+    BOOL share = FALSE;
     UINT i, j;
 
     if (!(obj = get_icon_ptr( cursor ))) return FALSE;
@@ -461,10 +462,17 @@ BOOL WINAPI NtUserSetCursorIconData( HCURSOR cursor, UNICODE_STRING *module, UNI
         {
             obj->rsrc = desc->rsrc;
             list_add_head( &icon_cache, &obj->entry );
+            share = TRUE;
         }
     }
 
     release_user_handle_ptr( obj );
+
+    /* A process may hand a cursor to another one without ever selecting it
+     * itself, as Rockstar's in-game overlay does with the system cursors of
+     * its browser process. Shared resource cursors are never destroyed, so
+     * publishing them once at creation costs one small section each. */
+    if (share) share_cursor( cursor );
     return TRUE;
 }
 

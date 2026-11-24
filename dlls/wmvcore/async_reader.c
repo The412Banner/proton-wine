@@ -86,6 +86,30 @@ struct stream
     bool running;
 };
 
+/* An undocumented interface of native wmvcore's reader, which sets up its
+ * DRM secure channel: one method takes a peer object, queried for
+ * IWMSecureChannel, and the other creates the reader's IWMAuthorizer.
+ * Its name and real behaviour are unknown, so the stub below only
+ * answers QueryInterface and reports success.  The disc release of
+ * AngelWish refuses to create its WMA decoder without it. */
+DEFINE_GUID(IID_wm_reader_secure_auth, 0x7af7d5ed, 0x4ef9, 0x48da, 0xa4, 0xb6, 0x8e, 0xa7, 0xeb, 0x38, 0xf5, 0xcc);
+
+struct wm_reader_secure_auth;
+
+struct wm_reader_secure_auth_vtbl
+{
+    HRESULT (WINAPI *QueryInterface)(struct wm_reader_secure_auth *iface, REFIID iid, void **out);
+    ULONG (WINAPI *AddRef)(struct wm_reader_secure_auth *iface);
+    ULONG (WINAPI *Release)(struct wm_reader_secure_auth *iface);
+    HRESULT (WINAPI *SetPeer)(struct wm_reader_secure_auth *iface, IUnknown *peer);
+    HRESULT (WINAPI *CreateChannel)(struct wm_reader_secure_auth *iface);
+};
+
+struct wm_reader_secure_auth
+{
+    const struct wm_reader_secure_auth_vtbl *lpVtbl;
+};
+
 struct async_reader
 {
     IWMReader IWMReader_iface;
@@ -95,6 +119,7 @@ struct async_reader
     IWMReaderStreamClock IWMReaderStreamClock_iface;
     IWMReaderTypeNegotiation IWMReaderTypeNegotiation_iface;
     IReferenceClock IReferenceClock_iface;
+    struct wm_reader_secure_auth secure_auth_iface;
     IUnknown *reader_inner;
     LONG refcount;
 
@@ -862,6 +887,11 @@ static HRESULT WINAPI WMReader_QueryInterface(IWMReader *iface, REFIID iid, void
         return IUnknown_QueryInterface(reader->reader_inner, iid, out);
     else if (IsEqualIID(iid, &IID_IReferenceClock))
         *out = &reader->IReferenceClock_iface;
+    else if (IsEqualIID(iid, &IID_wm_reader_secure_auth))
+    {
+        FIXME("Returning a stub for the undocumented secure channel interface %s.\n", debugstr_guid(iid));
+        *out = &reader->secure_auth_iface;
+    }
     else
     {
         FIXME("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
@@ -2240,6 +2270,54 @@ static const IReferenceClockVtbl ReferenceClockVtbl =
     refclock_Unadvise
 };
 
+static struct async_reader *impl_from_secure_auth(struct wm_reader_secure_auth *iface)
+{
+    return CONTAINING_RECORD(iface, struct async_reader, secure_auth_iface);
+}
+
+static HRESULT WINAPI secure_auth_QueryInterface(struct wm_reader_secure_auth *iface, REFIID iid, void **out)
+{
+    struct async_reader *reader = impl_from_secure_auth(iface);
+    return IWMReader_QueryInterface(&reader->IWMReader_iface, iid, out);
+}
+
+static ULONG WINAPI secure_auth_AddRef(struct wm_reader_secure_auth *iface)
+{
+    struct async_reader *reader = impl_from_secure_auth(iface);
+    return IWMReader_AddRef(&reader->IWMReader_iface);
+}
+
+static ULONG WINAPI secure_auth_Release(struct wm_reader_secure_auth *iface)
+{
+    struct async_reader *reader = impl_from_secure_auth(iface);
+    return IWMReader_Release(&reader->IWMReader_iface);
+}
+
+static HRESULT WINAPI secure_auth_SetPeer(struct wm_reader_secure_auth *iface, IUnknown *peer)
+{
+    struct async_reader *reader = impl_from_secure_auth(iface);
+
+    FIXME("reader %p, peer %p, stub!\n", reader, peer);
+    return S_OK;
+}
+
+static HRESULT WINAPI secure_auth_CreateChannel(struct wm_reader_secure_auth *iface)
+{
+    struct async_reader *reader = impl_from_secure_auth(iface);
+
+    FIXME("reader %p, stub!\n", reader);
+    return S_OK;
+}
+
+static const struct wm_reader_secure_auth_vtbl secure_auth_vtbl =
+{
+    secure_auth_QueryInterface,
+    secure_auth_AddRef,
+    secure_auth_Release,
+    secure_auth_SetPeer,
+    secure_auth_CreateChannel,
+};
+
 static HRESULT WINAPI async_reader_create(IWMReader **reader)
 {
     struct async_reader *object;
@@ -2251,6 +2329,7 @@ static HRESULT WINAPI async_reader_create(IWMReader **reader)
         return E_OUTOFMEMORY;
 
     object->IReferenceClock_iface.lpVtbl = &ReferenceClockVtbl;
+    object->secure_auth_iface.lpVtbl = &secure_auth_vtbl;
     object->IWMReader_iface.lpVtbl = &WMReaderVtbl;
     object->IWMReaderAdvanced6_iface.lpVtbl = &WMReaderAdvanced6Vtbl;
     object->IWMReaderAccelerator_iface.lpVtbl = &WMReaderAcceleratorVtbl;

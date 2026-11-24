@@ -409,7 +409,13 @@ int receive_fd( struct process *process )
     {
         struct thread *thread;
 
-        if (data.tid) thread = get_thread_from_id( data.tid );
+        if (data.tid)
+        {
+            /* the sender may be gone already, which must not fail the current request */
+            unsigned int error = get_error();
+            thread = get_thread_from_id( data.tid );
+            set_error( error );
+        }
         else thread = (struct thread *)grab_object( get_process_first_thread( process ));
 
         if (!thread || thread->process != process || thread->state == TERMINATED)

@@ -26,6 +26,7 @@
 #include "winnls.h"
 #include "ntuser.h"
 #include "wine/debug.h"
+#include "wine/list.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(resource);
 WINE_DECLARE_DEBUG_CHANNEL(accel);
@@ -39,6 +40,26 @@ typedef struct
     WORD   pad;
 } PE_ACCEL;
 
+/* accelerator tables loaded from resources, LoadAccelerators returns the same handle for each load */
+struct accel_cache_entry
+{
+    struct list entry;
+    HINSTANCE   instance;
+    HRSRC       rsrc;
+    HACCEL      handle;
+};
+
+static struct list accel_cache = LIST_INIT( accel_cache );
+
+static CRITICAL_SECTION accel_cache_cs;
+static CRITICAL_SECTION_DEBUG critsect_debug =
+{
+    0, 0, &accel_cache_cs,
+    { &critsect_debug.ProcessLocksList, &critsect_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": accel_cache_cs") }
+};
+static CRITICAL_SECTION accel_cache_cs = { &critsect_debug, -1, 0, 0, 0, 0 };
+
 /**********************************************************************
  *			LoadAcceleratorsW	(USER32.@)
  */
@@ -51,20 +72,49 @@ HACCEL WINAPI LoadAcceleratorsW(HINSTANCE instance, LPCWSTR name)
     HACCEL handle;
     DWORD count;
 
+    struct accel_cache_entry *cache;
+
     if (!(rsrc = FindResourceW( instance, name, (LPWSTR)RT_ACCELERATOR ))) return 0;
+
+    EnterCriticalSection( &accel_cache_cs );
+    LIST_FOR_EACH_ENTRY( cache, &accel_cache, struct accel_cache_entry, entry )
+    {
+        if (cache->instance != instance || cache->rsrc != rsrc) continue;
+        /* the application may have destroyed it */
+        if (NtUserCopyAcceleratorTable( cache->handle, NULL, 0 ))
+        {
+            handle = cache->handle;
+            LeaveCriticalSection( &accel_cache_cs );
+            TRACE_(accel)("%p %s returning cached %p\n", instance, debugstr_w(name), handle );
+            return handle;
+        }
+        list_remove( &cache->entry );
+        HeapFree( GetProcessHeap(), 0, cache );
+        break;
+    }
+
+    handle = 0;
     pe_table = LoadResource( instance, rsrc );
     count = SizeofResource( instance, rsrc ) / sizeof(*pe_table);
-    if (!count) return 0;
-    table = HeapAlloc( GetProcessHeap(), 0, count * sizeof(*table) );
-    if (!table) return 0;
-    for (i = 0; i < count; i++)
+    if (count && (table = HeapAlloc( GetProcessHeap(), 0, count * sizeof(*table) )))
     {
-        table[i].fVirt = pe_table[i].fVirt;
-        table[i].key   = pe_table[i].key;
-        table[i].cmd   = pe_table[i].cmd;
+        for (i = 0; i < count; i++)
+        {
+            table[i].fVirt = pe_table[i].fVirt;
+            table[i].key   = pe_table[i].key;
+            table[i].cmd   = pe_table[i].cmd;
+        }
+        handle = NtUserCreateAcceleratorTable( table, count );
+        HeapFree( GetProcessHeap(), 0, table );
     }
-    handle = NtUserCreateAcceleratorTable( table, count );
-    HeapFree( GetProcessHeap(), 0, table );
+    if (handle && (cache = HeapAlloc( GetProcessHeap(), 0, sizeof(*cache) )))
+    {
+        cache->instance = instance;
+        cache->rsrc = rsrc;
+        cache->handle = handle;
+        list_add_head( &accel_cache, &cache->entry );
+    }
+    LeaveCriticalSection( &accel_cache_cs );
     TRACE_(accel)("%p %s returning %p\n", instance, debugstr_w(name), handle );
     return handle;
 }

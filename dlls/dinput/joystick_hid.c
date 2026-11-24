@@ -1995,6 +1995,27 @@ HRESULT hid_joystick_refresh_devices(void)
     return hr;
 }
 
+HRESULT hid_joystick_find_device( struct dinput *dinput, const GUID *rguidClass, const WCHAR *ptszname, GUID **out )
+{
+    struct cache_entry *entry;
+    HRESULT hr;
+
+    if (!ptszname || !*out) return DIERR_INVALIDPARAM;
+    if (FAILED(hr = hid_joystick_refresh_devices())) return hr;
+
+    hr = DIERR_DEVICENOTREG;
+    EnterCriticalSection( &joystick_cache_cs );
+    LIST_FOR_EACH_ENTRY( entry, &joystick_cache, struct cache_entry, entry )
+    {
+        if (!*entry->path || wcsicmp( entry->path, ptszname )) continue;
+        **out = entry->instance.guidInstance;
+        hr = DI_OK;
+        break;
+    }
+    LeaveCriticalSection( &joystick_cache_cs );
+    return hr;
+}
+
 HRESULT hid_joystick_enum_device( DWORD type, DWORD flags, DIDEVICEINSTANCEW *instance, DWORD version, int index )
 {
     struct cache_entry *entry;

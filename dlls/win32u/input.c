@@ -1340,7 +1340,8 @@ HKL WINAPI NtUserActivateKeyboardLayout( HKL layout, UINT flags )
     if (!user_driver->pActivateKeyboardLayout( layout, flags ))
         return 0;
 
-    old_layout = info->kbd_layout;
+    /* compare with the effective layout, kbd_layout is NULL until the first change */
+    old_layout = NtUserGetKeyboardLayout( 0 );
     if (old_layout != layout)
     {
         HWND ime_hwnd = get_default_ime_window( 0 );

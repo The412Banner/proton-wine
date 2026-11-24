@@ -1538,10 +1538,10 @@ static void send_server_task_port(void)
 static int get_unix_tid(void)
 {
     int ret = -1;
-#ifdef HAVE_PTHREAD_GETTHREADID_NP
-    ret = pthread_getthreadid_np();
-#elif defined(linux)
+#if defined(linux)
     ret = syscall( __NR_gettid );
+#elif defined(HAVE_PTHREAD_GETTHREADID_NP)
+    ret = pthread_getthreadid_np();
 #elif defined(__sun)
     ret = pthread_self();
 #elif defined(__APPLE__)

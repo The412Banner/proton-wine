@@ -809,7 +809,15 @@ static BOOL WINAPI start_update_thread_once( INIT_ONCE *once, void *param, void 
     if (!thread) ERR("failed to create update thread, error %lu\n", GetLastError());
     CloseHandle(thread);
 
-    WaitForSingleObject(start_event, INFINITE);
+    /* A new thread can't start while this thread holds the loader lock, so
+     * waiting for it here deadlocks. That happens when a game calls
+     * SteamAPI_Init() with the loader lock held and lsteamclient's
+     * controller fallback queries XInput. The update thread finds the
+     * controllers once the loader lock is released. */
+    if (RtlIsCriticalSectionLockedByThread(NtCurrentTeb()->Peb->LoaderLock))
+        WARN("loader lock held, not waiting for the update thread\n");
+    else
+        WaitForSingleObject(start_event, INFINITE);
     return TRUE;
 }
 

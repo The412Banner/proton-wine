@@ -959,6 +959,11 @@ static BOOL init_module_iterator( struct module_iterator *iter, HANDLE process )
     if (!ReadProcessMemory( process, &pbi.PebBaseAddress->LdrData, &ldr_data, sizeof(ldr_data), NULL ))
         return FALSE;
 
+    /* A real handle to our own process still needs a server round trip for
+     * every read. The read above went through the caller's handle and so
+     * checked its access; walk our own loader list directly from here on. */
+    if (pbi.UniqueProcessId == GetCurrentProcessId()) process = GetCurrentProcess();
+
     /* This happens when running "old" wow64 configuration. Mark it as such. */
     if (!ldr_data)
     {

@@ -359,7 +359,7 @@ static LRESULT CALLBACK callback_child(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 ok(!info.hbmColor, "Expected a monochrome cursor\n");
                 ret = GetObjectA( info.hbmMask, sizeof(bitmap), &bitmap );
                 ok(ret, "GetObject failed\n");
-                ok(bitmap.bmWidth == 32 && bitmap.bmHeight == 64, "Unexpected size %ld,%ld\n",
+                ok(bitmap.bmWidth == 32 && bitmap.bmHeight == 64, "Unexpected size %d,%d\n",
                    bitmap.bmWidth, bitmap.bmHeight);
                 memset( bits, 0, sizeof(bits) );
                 ok(GetBitmapBits( info.hbmMask, sizeof(bits), bits ) == sizeof(bits), "GetBitmapBits failed\n");
@@ -529,6 +529,11 @@ static void test_child_process(void)
             SetCursor(cursor);
             SendMessageA(child, WM_USER+2, ids[i], (LPARAM)cursor);
         }
+
+        /* A system cursor handed over without ever being selected here. */
+        cursor = LoadCursorA(NULL, MAKEINTRESOURCEA(32515)); /* cross */
+        ok(cursor != NULL, "LoadCursor failed\n");
+        SendMessageA(child, WM_USER+2, 32515, (LPARAM)cursor);
 
         memset(mask, 0xff, sizeof(mask) / 2);
         memset(mask + sizeof(mask) / 2, 0, sizeof(mask) / 2);

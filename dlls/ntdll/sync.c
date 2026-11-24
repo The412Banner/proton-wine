@@ -629,7 +629,7 @@ void WINAPI RtlReleaseSRWLockShared( RTL_SRWLOCK *lock )
         --new.s.owners;
     } while (InterlockedCompareExchange( u.l, new.l, old.l ) != old.l);
 
-    if (!new.s.owners)
+    if (!new.s.owners && new.s.exclusive_waiters)
         RtlWakeAddressSingle( &u.s->owners );
 }
 
@@ -880,6 +880,7 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
 {
     struct futex_queue *queue = get_futex_queue( addr );
     struct futex_entry entry;
+    BOOL queued = FALSE;
     NTSTATUS ret;
 
     TRACE("addr %p cmp %p size %#Ix timeout %s\n", addr, cmp, size, debugstr_timeout( timeout ));
@@ -912,10 +913,14 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
     if (ReadPointerAcquire( (void * volatile *)&entry.addr ))
     {
         spin_lock( &queue->lock );
-        if (entry.addr)
+        if ((queued = !!entry.addr))
             list_remove( &entry.entry );
         spin_unlock( &queue->lock );
     }
+
+    /* A waker took us off the queue and alerts us after releasing the lock. If our wait timed out first, take
+     * that alert, or it would end this thread's next wait early. */
+    if (!queued && ret == STATUS_TIMEOUT) ret = NtWaitForAlertByThreadId( NULL, NULL );
 
     TRACE("returning %#lx\n", ret);
 
@@ -959,8 +964,8 @@ void WINAPI RtlWakeAddressAll( const void *addr )
         }
     }
 
-    /* Try not to make a system call while holding a spinlock (even if that can be responsible for spurious wake
-     * up scenario). */
+    /* Try not to make a system call while holding a spinlock. A waiter whose wait times out before the alert
+     * arrives takes it in RtlWaitOnAddress(). */
     spin_unlock( &queue->lock );
     if (count)
         NtAlertMultipleThreadByThreadId( tids, count, NULL, NULL );

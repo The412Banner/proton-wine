@@ -23,6 +23,7 @@
 #define COBJMACROS
 #include "ole2.h"
 #include "wincodec.h"
+#include "winbase.h"
 
 #define BCDEC_IMPLEMENTATION
 #define BCDEC_STATIC
@@ -1139,6 +1140,97 @@ static const struct d3dx_file_format_signature file_format_signatures[] =
     { wmp_v1_file_signature,    sizeof(wmp_v1_file_signature),    D3DX_IMAGE_FILE_FORMAT_WMP },
 };
 
+static BOOL d3dx_extract_ico_entry(const void *src_data, uint32_t src_data_size,
+        const void **out_data, uint32_t *out_size)
+{
+    const BYTE *data = src_data;
+    uint16_t reserved, type, count;
+    uint32_t offset, size;
+
+    if (src_data_size < 6 + 16)
+    {
+        WARN("ico_entry: too small size %u.\n", src_data_size);
+        return FALSE;
+    }
+
+    reserved = data[0] | (data[1] << 8);
+    type = data[2] | (data[3] << 8);
+    count = data[4] | (data[5] << 8);
+
+    TRACE("ico_entry: reserved %u, type %u, count %u.\n", reserved, type, count);
+
+    if (reserved || (type != 1 && type != 2) || !count)
+        return FALSE;
+
+    offset = data[6 + 12] | (data[6 + 13] << 8) | (data[6 + 14] << 16) | ((uint32_t)data[6 + 15] << 24);
+    size = data[6 + 8] | (data[6 + 9] << 8) | (data[6 + 10] << 16) | ((uint32_t)data[6 + 11] << 24);
+
+    TRACE("ico_entry: offset %u, size %u, total %u.\n", offset, size, src_data_size);
+
+    if (!size || offset > src_data_size || size > src_data_size - offset)
+        return FALSE;
+
+    *out_data = data + offset;
+    *out_size = size;
+    return TRUE;
+}
+
+static BOOL d3dx_fixup_ico_dib(const void *src_data, uint32_t src_data_size,
+        const void **out_data, uint32_t *out_size)
+{
+    const BITMAPINFOHEADER *src_info = src_data;
+    uint32_t header_size, palette_count, extra_mask_bytes;
+    uint64_t palette_bytes, row_pitch, color_size, total_needed;
+    int32_t width, height;
+    BYTE *buf;
+
+    if (src_data_size < sizeof(*src_info))
+        return FALSE;
+
+    header_size = src_info->biSize;
+    if (header_size < sizeof(BITMAPINFOHEADER) || src_data_size < header_size)
+        return FALSE;
+
+    width = src_info->biWidth;
+    height = src_info->biHeight;
+    if (width <= 0 || height <= 0 || (height & 1))
+        return FALSE;
+
+    extra_mask_bytes = 0;
+    if (src_info->biSize == sizeof(BITMAPINFOHEADER) && src_info->biCompression == BI_BITFIELDS)
+        extra_mask_bytes = 3 * sizeof(DWORD);
+
+    if (src_info->biBitCount != 1 && src_info->biBitCount != 4 && src_info->biBitCount != 8
+            && src_info->biBitCount != 16 && src_info->biBitCount != 24 && src_info->biBitCount != 32)
+        return FALSE;
+    palette_count = src_info->biClrUsed;
+    if (!palette_count && src_info->biBitCount <= 8)
+        palette_count = 1u << src_info->biBitCount;
+    palette_bytes = (uint64_t)palette_count * sizeof(RGBQUAD);
+
+    row_pitch = (((uint64_t)width * src_info->biBitCount + 31) / 32) * 4;
+    color_size = row_pitch * (height / 2);
+
+    total_needed = (uint64_t)header_size + extra_mask_bytes + palette_bytes + color_size;
+    if (total_needed > src_data_size || color_size > UINT32_MAX)
+        return FALSE;
+
+    buf = malloc(total_needed);
+    if (!buf)
+        return FALSE;
+
+    memcpy(buf, src_data, total_needed);
+    {
+        BITMAPINFOHEADER *info = (BITMAPINFOHEADER *)buf;
+        info->biHeight = height / 2;
+        info->biSizeImage = color_size;
+    }
+
+    *out_data = buf;
+    *out_size = total_needed;
+    return TRUE;
+}
+
 static BOOL d3dx_get_image_file_format_from_file_signature(const void *src_data, uint32_t src_data_size,
         enum d3dx_image_file_format *out_iff)
 {
@@ -1345,8 +1437,9 @@ static BOOL convert_dib_to_bmp(const void **data, unsigned int *size)
 
     TRACE("Converting DIB file to BMP\n");
 
+    if (*size > UINT32_MAX - sizeof(BITMAPFILEHEADER)) return FALSE;
     new_size = *size + sizeof(BITMAPFILEHEADER);
-    new_data = malloc(new_size);
+    if (!(new_data = malloc(new_size))) return FALSE;
     CopyMemory(new_data + sizeof(BITMAPFILEHEADER), *data, *size);
 
     /* Add BMP header */
@@ -1501,6 +1594,85 @@ exit:
     return hr;
 }
 
+static HRESULT d3dx_initialize_image_from_bmp(const void *src_data, uint32_t src_data_size,
+        struct d3dx_image *image, uint32_t flags, BOOL preserve_alpha)
+{
+    const BITMAPFILEHEADER *file = src_data;
+    const BITMAPINFOHEADER *info;
+    uint32_t data_offset, header_size;
+    uint64_t row_pitch, slice_pitch, output_pitch;
+    int32_t width, height;
+    BOOL bottom_up;
+    BYTE *buffer = NULL;
+    const BYTE *pixels;
+    uint32_t y;
+
+    if (src_data_size < sizeof(*file) + sizeof(*info))
+        return D3DXERR_INVALIDDATA;
+    if (file->bfType != 0x4d42)
+        return D3DXERR_INVALIDDATA;
+
+    data_offset = file->bfOffBits;
+    if (data_offset >= src_data_size)
+        return D3DXERR_INVALIDDATA;
+
+    info = (const BITMAPINFOHEADER *)((const BYTE *)src_data + sizeof(*file));
+    header_size = info->biSize;
+    if (header_size < sizeof(*info) || header_size > src_data_size - sizeof(*file)
+            || data_offset < sizeof(*file) + header_size)
+        return D3DXERR_INVALIDDATA;
+
+    if (info->biCompression != BI_RGB)
+        return D3DXERR_INVALIDDATA;
+
+    width = info->biWidth;
+    height = info->biHeight;
+    if (width <= 0 || height == 0 || height == INT32_MIN)
+        return D3DXERR_INVALIDDATA;
+
+    bottom_up = height > 0;
+    if (height < 0)
+        height = -height;
+
+    if (info->biBitCount == 32)
+        image->format = preserve_alpha ? D3DX_PIXEL_FORMAT_B8G8R8A8_UNORM : D3DX_PIXEL_FORMAT_B8G8R8X8_UNORM;
+    else if (info->biBitCount == 24)
+        image->format = D3DX_PIXEL_FORMAT_B8G8R8_UNORM;
+    else
+        return D3DXERR_INVALIDDATA;
+
+    row_pitch = (((uint64_t)width * info->biBitCount + 31) / 32) * 4;
+    slice_pitch = row_pitch * height;
+    if (slice_pitch > src_data_size - data_offset || row_pitch > UINT32_MAX)
+        return D3DXERR_INVALIDDATA;
+
+    if (!(flags & D3DX_IMAGE_INFO_ONLY))
+    {
+        output_pitch = (uint64_t)width * (info->biBitCount / 8);
+        if (!(buffer = malloc(output_pitch * height)))
+            return E_OUTOFMEMORY;
+    
+        pixels = (const BYTE *)src_data + data_offset;
+        for (y = 0; y < (uint32_t)height; ++y)
+        {
+            uint32_t src_y = bottom_up ? (height - 1 - y) : y;
+            memcpy(buffer + y * output_pitch, pixels + src_y * row_pitch, output_pitch);
+        }
+    }
+
+    image->image_file_format = D3DX_IMAGE_FILE_FORMAT_BMP;
+    image->size.width = width;
+    image->size.height = height;
+    image->size.depth = 1;
+    image->mip_levels = 1;
+    image->layer_count = 1;
+    image->resource_type = D3DX_RESOURCE_TYPE_TEXTURE_2D;
+    image->image_buf = image->pixels = buffer;
+    image->image_palette = image->palette = NULL;
+
+    return S_OK;
+}
+
 static HRESULT d3dx_initialize_image_from_wic(const void *src_data, uint32_t src_data_size,
         struct d3dx_image *image, enum d3dx_image_file_format d3dx_file_format, uint32_t flags)
 {
@@ -1515,7 +1687,11 @@ static HRESULT d3dx_initialize_image_from_wic(const void *src_data, uint32_t src
 
     hr = WICCreateImagingFactory_Proxy(WINCODEC_SDK_VERSION, &wic_factory);
     if (FAILED(hr))
+    {
+        if (d3dx_file_format == D3DX_IMAGE_FILE_FORMAT_BMP)
+            return d3dx_initialize_image_from_bmp(src_data, src_data_size, image, flags, FALSE);
         return hr;
+    }
 
     hr = IWICImagingFactory_CreateDecoder(wic_factory, container_format_guid, NULL, &bitmap_decoder);
     if (FAILED(hr))
@@ -1835,6 +2011,63 @@ static HRESULT d3dx_initialize_image_from_tga(const void *src_data, uint32_t src
     return D3D_OK;
 }
 
+static HRESULT d3dx_apply_ico_mask(const void *data, uint32_t size, uint32_t mask_offset,
+        struct d3dx_image *image)
+{
+    const BITMAPINFOHEADER *info = data;
+    const struct pixel_format_desc *dst_desc = get_d3dx_pixel_format_info(D3DX_PIXEL_FORMAT_B8G8R8A8_UNORM);
+    struct d3dx_pixels src_pixels, dst_pixels;
+    RECT rect = {0, 0, image->size.width, image->size.height};
+    uint32_t row_pitch, slice_pitch, x, y;
+    uint64_t mask_pitch = (((uint64_t)image->size.width + 31) / 32) * 4;
+    BYTE *pixels;
+    HRESULT hr;
+
+    /* A nonzero 32-bit alpha channel takes precedence over the legacy AND mask. */
+    if (info->biBitCount == 32 && image->format == D3DX_PIXEL_FORMAT_B8G8R8A8_UNORM)
+    {
+        if (FAILED(hr = d3dx_image_get_pixels(image, 0, 0, &src_pixels))) return hr;
+        for (y = 0; y < image->size.height; ++y)
+            for (x = 0; x < image->size.width; ++x)
+                if (((const BYTE *)src_pixels.data)[y * src_pixels.row_pitch + x * 4 + 3])
+                    return S_OK;
+    }
+
+    if (mask_offset > size || mask_pitch * image->size.height > size - mask_offset)
+        return D3DXERR_INVALIDDATA;
+    if ((uint64_t)image->size.width * image->size.height > UINT32_MAX / 4)
+        return D3DXERR_INVALIDDATA;
+    if (FAILED(hr = d3dx_calculate_pixels_size(D3DX_PIXEL_FORMAT_B8G8R8A8_UNORM,
+            image->size.width, image->size.height, &row_pitch, &slice_pitch))) return hr;
+    if (!(pixels = malloc(slice_pitch))) return E_OUTOFMEMORY;
+    if (FAILED(hr = d3dx_image_get_pixels(image, 0, 0, &src_pixels)))
+    {
+        free(pixels);
+        return hr;
+    }
+    set_d3dx_pixels(&dst_pixels, pixels, row_pitch, slice_pitch, NULL,
+            image->size.width, image->size.height, 1, &rect);
+    hr = d3dx_load_pixels_from_pixels(&dst_pixels, dst_desc, &src_pixels,
+            get_d3dx_pixel_format_info(image->format), D3DX_FILTER_NONE, 0);
+    if (FAILED(hr))
+    {
+        free(pixels);
+        return hr;
+    }
+    for (y = 0; y < image->size.height; ++y)
+    {
+        const BYTE *mask = (const BYTE *)data + mask_offset + (image->size.height - y - 1) * mask_pitch;
+        for (x = 0; x < image->size.width; ++x)
+            pixels[y * row_pitch + x * 4 + 3] = mask[x / 8] & (0x80 >> (x % 8)) ? 0 : 255;
+    }
+    free(image->image_buf);
+    free(image->image_palette);
+    image->image_buf = image->pixels = pixels;
+    image->image_palette = image->palette = NULL;
+    image->format = D3DX_PIXEL_FORMAT_B8G8R8A8_UNORM;
+    return S_OK;
+}
+
 HRESULT d3dx_image_init(const void *src_data, uint32_t src_data_size, struct d3dx_image *image,
         uint32_t starting_mip_level, uint32_t flags)
 {
@@ -1850,8 +2083,52 @@ HRESULT d3dx_image_init(const void *src_data, uint32_t src_data_size, struct d3d
         uint32_t src_image_size = src_data_size;
         const void *src_image = src_data;
 
+        if (d3dx_extract_ico_entry(src_data, src_data_size, &src_image, &src_image_size))
+        {
+            if (src_image_size >= sizeof(png_file_signature)
+                    && !memcmp(src_image, png_file_signature, sizeof(png_file_signature)))
+            {
+                hr = d3dx_image_init(src_image, src_image_size, image, starting_mip_level, flags);
+                return hr;
+            }
+
+            {
+                const void *dib_data = NULL;
+                uint32_t dib_size = 0;
+
+                if (d3dx_fixup_ico_dib(src_image, src_image_size, &dib_data, &dib_size))
+                {
+                    const void *bmp_data = dib_data;
+                    unsigned int bmp_size = dib_size;
+
+                    if (convert_dib_to_bmp(&bmp_data, &bmp_size))
+                    {
+                        hr = d3dx_initialize_image_from_bmp(bmp_data, bmp_size, image, flags, TRUE);
+                        if (FAILED(hr))
+                            hr = d3dx_initialize_image_from_wic(bmp_data, bmp_size, image,
+                                    D3DX_IMAGE_FILE_FORMAT_BMP, flags);
+                        if (SUCCEEDED(hr) && !(flags & D3DX_IMAGE_INFO_ONLY))
+                        {
+                            hr = d3dx_apply_ico_mask(src_image, src_image_size, dib_size, image);
+                            if (FAILED(hr))
+                            {
+                                d3dx_image_cleanup(image);
+                                memset(image, 0, sizeof(*image));
+                            }
+                        }
+                        free((void *)bmp_data);
+                        free((void *)dib_data);
+                        return hr;
+                    }
+                    free((void *)dib_data);
+                }
+            }
+        }
+
         if (convert_dib_to_bmp(&src_image, &src_image_size))
         {
+            TRACE("image_init: converted DIB to BMP, size %u -> %u.\n",
+                    src_data_size, src_image_size);
             hr = d3dx_image_init(src_image, src_image_size, image, starting_mip_level, flags);
             free((void *)src_image);
             if (SUCCEEDED(hr))
