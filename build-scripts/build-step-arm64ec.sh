@@ -490,6 +490,9 @@ do
       "dlls/ntdll/ntdll.spec|__wine_arm64ec_extended_eflags|EFlags PF/AF in cpsr bits 26/27 announced to the emulator (GameNative #67)"
       "dlls/ntdll/unwind.h|parity and aux carry have no AArch64 equivalent|EFlags PF/AF carried through cpsr bits 26/27 (GameNative #67)"
       "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second image mappings (DroidDeck-Proton #34, Black Ops III)"
+      "dlls/ntdll/unix/virtual.c|ULONG_PTR limit = max( (ULONG_PTR)address_space_limit, (ULONG_PTR)1 << 47 );|ARM64EC code map sized for 47-bit addresses on a 39-bit host (v17, d4c9ffa7)"
+      "dlls/ntdll/signal_arm64ec.c|unwind made no progress at pc|ARM64EC exception search / unwind stops on a frame that does not move (v17, fecf7376)"
+      "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (v17, a188791d)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
