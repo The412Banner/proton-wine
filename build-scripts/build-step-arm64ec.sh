@@ -511,6 +511,9 @@ do
       "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
       "dlls/ntdll/signal_arm64ec.c|ldr x4, [x2, #0xf8]|ARM64EC process breakpoint stepped at Rip (DroidDeck-Proton 11-12.4, xXJSONDeruloXx)"
       "dlls/ntdll/signal_arm64ec.c|arm_ctx = (ARM64_NT_CONTEXT){ .ContextFlags = ctx_flags_x64_to_arm( context->ContextFlags ) };|ARM64EC NtGetContextThread NULL context (DroidDeck-Proton main 92b57e73, 66sam)"
+      "dlls/ntdll/unix/virtual.c|ULONG_PTR limit = max( (ULONG_PTR)address_space_limit, (ULONG_PTR)1 << 47 );|ARM64EC code map covers 47-bit addresses on a 39-bit host (proton-wine d4c9ffa7)"
+      "dlls/ntdll/signal_arm64ec.c|unwind made no progress at pc|ARM64EC exception search and unwind stop at a frame that does not move (proton-wine fecf7376)"
+      "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (proton-wine a188791d)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
