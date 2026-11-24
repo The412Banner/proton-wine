@@ -18,12 +18,13 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviou
 On a Pocket FIT Elite AIO DirectDraw runs at ~9800 fps (0.1 ms frames) with less than 50 us of work per
 frame, so it was still capped (50 us: ~4200 fps, GN default 1675). WINE_SLEEP0_THROTTLE_SKIP lists graphics
 APIs whose processes are never throttled (dx7 dx8 dx9 dx10 dx11 dx12 gl vk, or "none"), default dx7. The
-process's API is taken from the graphics DLLs in /proc/self/maps, once, when a thread first reaches the
-throttle (looked up again at most every 5 s while none is listed); one MESSAGE line says what was found.
+process's API is the first graphics DLL it mapped (noted in virtual_map_image / virtual_create_builtin_view;
+/proc/self/maps cannot be used, Android maps images anonymously); checked when a thread reaches the
+throttle; one MESSAGE line says what was found.
 
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
-@@ -2582,31 +2582,179 @@
+@@ -2582,31 +2582,176 @@
   *
   * WINE_SLEEP0_THROTTLE=0 disables it, WINE_SLEEP0_THROTTLE=<iters>[,<usec>] sets
   * the threshold and the sleep length.
@@ -42,7 +43,8 @@ throttle (looked up again at most every 5 s while none is listed); one MESSAGE l
 + * comma list of dx7 dx8 dx9 dx10 dx11 dx12 gl vk, or "none"; default dx7 (DirectDraw
 + * loops run at thousands of fps with too little work per frame to be told apart from
 + * an idle spinner on fast devices). A process's API is the first in sleep0_apis whose
-+ * DLL it has mapped; it is looked up when a thread first reaches the throttle.
++ * DLL it has mapped (noted by sleep0_note_image() at image map time; Android maps
++ * images into anonymous memory, so /proc/self/maps has no DLL names).
   */
  #define SLEEP0_DEFAULT_ITERS 50000  /* > 100 ms of uninterrupted Sleep(0) */
  #define SLEEP0_DEFAULT_USEC  250
@@ -74,7 +76,7 @@ throttle (looked up again at most every 5 s while none is listed); one MESSAGE l
 +};
 +static char sleep0_skip_list[128];
 +static int sleep0_skip;               /* this process is never throttled */
-+static ULONGLONG sleep0_skip_checked; /* time of the last lookup that found no listed API */
++static unsigned int sleep0_api_seen;  /* bit per sleep0_apis entry whose DLL was mapped */
  
  static void sleep0_init(void)
  {
@@ -144,34 +146,35 @@ throttle (looked up again at most every 5 s while none is listed); one MESSAGE l
 +    return FALSE;
 +}
 +
-+/* index into sleep0_apis of the process's graphics API, from /proc/self/maps; -1 if none */
++/* called for every image mapped into the process */
++void sleep0_note_image( const UNICODE_STRING *nt_name )
++{
++    const WCHAR *p, *end, *name;
++    char buf[32];
++    unsigned int j, k, len;
++
++    if (!nt_name || !nt_name->Buffer) return;
++    end = nt_name->Buffer + nt_name->Length / sizeof(WCHAR);
++    for (name = p = nt_name->Buffer; p < end; p++) if (*p == '\\' || *p == '/') name = p + 1;
++    if (!(len = end - name) || len >= sizeof(buf)) return;
++    for (k = 0; k < len; k++)
++    {
++        if (name[k] > 0x7f) return;
++        buf[k] = name[k];
++    }
++    buf[len] = 0;
++    for (j = 0; j < ARRAY_SIZE(sleep0_apis); j++)
++        for (k = 0; k < ARRAY_SIZE(sleep0_apis[j].dll) && sleep0_apis[j].dll[k]; k++)
++            if (sleep0_name_eq( buf, sleep0_apis[j].dll[k] ))
++                __atomic_fetch_or( &sleep0_api_seen, 1u << j, __ATOMIC_RELAXED );
++}
++
++/* index into sleep0_apis of the process's graphics API; -1 if none was mapped */
 +static int sleep0_process_api(void)
 +{
-+    char buf[4096], line[1024], *name;
-+    unsigned int found = 0, len = 0, j, k;
-+    ssize_t n, i;
-+    int fd = open( "/proc/self/maps", O_RDONLY | O_CLOEXEC );
++    unsigned int seen = __atomic_load_n( &sleep0_api_seen, __ATOMIC_RELAXED ), j;
 +
-+    if (fd == -1) return -1;
-+    while ((n = read( fd, buf, sizeof(buf) )) > 0)
-+    {
-+        for (i = 0; i < n; i++)
-+        {
-+            if (buf[i] != '\n')
-+            {
-+                if (len < sizeof(line) - 1) line[len++] = buf[i];
-+                continue;
-+            }
-+            line[len] = 0;
-+            len = 0;
-+            if (!(name = strrchr( line, '/' ))) continue;
-+            for (j = 0; j < ARRAY_SIZE(sleep0_apis); j++)
-+                for (k = 0; k < ARRAY_SIZE(sleep0_apis[j].dll) && sleep0_apis[j].dll[k]; k++)
-+                    if (sleep0_name_eq( name + 1, sleep0_apis[j].dll[k] )) found |= 1u << j;
-+        }
-+    }
-+    close( fd );
-+    for (j = 0; j < ARRAY_SIZE(sleep0_apis); j++) if (found & (1u << j)) return j;
++    for (j = 0; j < ARRAY_SIZE(sleep0_apis); j++) if (seen & (1u << j)) return j;
 +    return -1;
 +}
 +
@@ -179,15 +182,10 @@ throttle (looked up again at most every 5 s while none is listed); one MESSAGE l
 +static BOOL sleep0_skip_api(void)
 +{
 +    static BOOL reported;
-+    ULONGLONG now;
 +    int api;
 +
 +    if (sleep0_skip) return TRUE;
 +    if (!sleep0_skip_list[0]) return FALSE;
-+    now = monotonic_counter();
-+    /* a game may load its graphics DLL after a first spin: look again at most every 5 s */
-+    if (sleep0_skip_checked && now - sleep0_skip_checked < 5 * (ULONGLONG)TICKSPERSEC) return FALSE;
-+    sleep0_skip_checked = now;
 +    api = sleep0_process_api();
 +    if (api >= 0 && sleep0_tag_listed( sleep0_apis[api].tag ))
 +    {
@@ -206,7 +204,7 @@ throttle (looked up again at most every 5 s while none is listed); one MESSAGE l
  }
  
  static inline void sleep0_reset( const LARGE_INTEGER *timeout )
-@@ -2625,6 +2773,19 @@
+@@ -2625,6 +2770,19 @@
      if (!sleep0_iters) return;
  
      now = monotonic_counter();
@@ -226,7 +224,7 @@ throttle (looked up again at most every 5 s while none is listed); one MESSAGE l
      if (now - thread_data->sleep0_last > SLEEP0_WINDOW) thread_data->sleep0_count = 0;
      thread_data->sleep0_last = now;
  
-@@ -2637,6 +2798,11 @@
+@@ -2637,6 +2795,11 @@
      {
          static BOOL warned;
  
@@ -249,3 +247,30 @@ throttle (looked up again at most every 5 s while none is listed); one MESSAGE l
  };
  
  C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) );
+@@ -301,6 +303,7 @@
+ extern void *anon_mmap_fixed( void *start, size_t size, int prot, int flags );
+ extern void *anon_mmap_alloc( size_t size, int prot );
+ extern void virtual_init(void);
++extern void sleep0_note_image( const UNICODE_STRING *nt_name );
+ extern ULONG_PTR get_system_affinity_mask(void);
+ extern void virtual_get_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 );
+ extern NTSTATUS virtual_map_builtin_module( HANDLE mapping, void **module, SIZE_T *size,
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -3755,6 +3755,8 @@
+     unsigned int status;
+     sigset_t sigset;
+ 
++    sleep0_note_image( nt_name );
++
+     if (offset >= size)
+         return STATUS_INVALID_PARAMETER;
+ 
+@@ -4249,6 +4251,7 @@
+     void *base = wine_server_get_ptr( info->base );
+     int i;
+ 
++    sleep0_note_image( nt_name );
+     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+     status = create_view( &view, base, size, SEC_IMAGE | SEC_FILE | VPROT_SYSTEM |
+                           VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY | VPROT_EXEC );
