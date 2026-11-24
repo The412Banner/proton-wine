@@ -391,7 +391,7 @@ do
       # object index there and every thread exit closed an unrelated fd (Android fdsan double-close aborts).
       # The fsync index is not cached there (Valve 707bb01fbfc, Paul Gofman, in the base). Must follow ntsync_userspace.patch.
       "dlls_ntdll_unix_thread.c_alert_fd_close.patch"
-      # ntdll: the Sleep(0) throttle starts a new run after > 500 us of own CPU work, or two > 20 us work gaps < 2 ms apart, between
+      # ntdll: the Sleep(0) throttle starts a new run after > 500 us of own CPU work, or two > 50 us work gaps < 2 ms apart, between
       # yields (frame loops faster than 2 ms per frame were capped: AIO DirectDraw 2785 -> 1460 fps).
       "dlls_ntdll_unix_sync.c_sleep0_work_reset.patch"
     )
