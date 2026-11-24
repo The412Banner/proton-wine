@@ -90,8 +90,8 @@ index 74a0c93319c..07d0e395e24 100644
          {
              if (!server_call_unlocked( req ))
              {
--                if (do_fsync()) data->alert_fd = fd = reply->fsync_shm_idx;
-+                if (do_fsync()) data->alert_fd = fd = reply->sync_shm_idx;
+-                if (do_fsync()) fd = reply->fsync_shm_idx;
++                if (do_fsync()) fd = reply->sync_shm_idx;
                  else
                  {
                      data->alert_fd = fd = wine_server_receive_fd( &token );

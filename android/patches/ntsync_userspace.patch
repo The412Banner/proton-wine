@@ -359,7 +359,7 @@ index 7b257ca382c..6f67559fb6a 100644
 @@ -922,6 +1105,8 @@ int get_inproc_alert_fd(void)
              if (!server_call_unlocked( req ))
              {
-                 if (do_fsync()) data->alert_fd = fd = reply->sync_shm_idx;
+                 if (do_fsync()) fd = reply->sync_shm_idx;
 +                /* userspace ntsync alert event handle; valid in every process */
 +                else if (ntsync_userspace) data->alert_fd = fd = reply->sync_shm_idx;
                  else
