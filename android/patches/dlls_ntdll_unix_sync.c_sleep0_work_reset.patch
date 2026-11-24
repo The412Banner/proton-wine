@@ -7,11 +7,13 @@ yields every frame gets the 250 us sleep: AIO DirectDraw on the Pocket FIT went 
 (WINE_SLEEP0_THROTTLE=0: 2775/2789).
 
 Work = the thread's own CPU time (CLOCK_THREAD_CPUTIME_ID) since the previous non-switching yield. A new run
-also starts after more than 500 us of work, or after two gaps of more than 20 us of work less than 2 ms
+also starts after more than 500 us of work, or after two gaps of more than 50 us of work less than 2 ms
 apart (a frame loop). An idle Sleep(0) spinner (~1 us per yield on the Pocket FIT) also gets a 20-100 us gap
 every 10-50 ms (interrupt/scheduler time charged to the thread); measured there, resetting on each such
 gap let idle spinners run at 43-77 % CPU instead of the GN default's 2-4 %, so a single gap is ignored.
-WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviour).
+Default work limit 50 us, picked on the Pocket FIT (11.0-2, sleeptest.exe + AIO DirectDraw): 20 us kept AIO at
+2558 fps but idle spinners at 54 % CPU, 50 us gives 2455 fps and 11 % (GN default: ~1460 fps, 3 %; off: ~2780, 100 %).
+WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviour; 50000,250,20,500 = 20 us).
 
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
@@ -33,7 +35,7 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviou
  #define SLEEP0_DEFAULT_ITERS 50000  /* > 100 ms of uninterrupted Sleep(0) */
  #define SLEEP0_DEFAULT_USEC  250
  #define SLEEP0_WINDOW        (2 * TICKSPERSEC / 1000)  /* 2 ms */
-+#define SLEEP0_DEFAULT_WORK_USEC   20
++#define SLEEP0_DEFAULT_WORK_USEC   50
 +#define SLEEP0_DEFAULT_BIG_USEC    500
 +#define SLEEP0_WORK_PERIOD         (2 * TICKSPERSEC / 1000)  /* 2 ms */
  
