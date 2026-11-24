@@ -1,0 +1,94 @@
+ntdll: start a new Sleep(0) throttle run when the thread did work between two yields.
+
+The GameNative #119 throttle (dlls_ntdll_unix_sync.c_sleep0_yield_throttle.patch) starts a new run only
+after a gap of more than 2 ms or a wait with a non-zero timeout. A loop that yields once per frame while
+waiting on another thread and runs faster than 2 ms per frame never starts a new run, so after 50000
+yields every frame gets the 250 us sleep: AIO DirectDraw on the Pocket FIT went from ~2785 to ~1460 fps
+(WINE_SLEEP0_THROTTLE=0: 2775/2789).
+
+Now a run also restarts when the thread used more than 50 us of its own CPU time (CLOCK_THREAD_CPUTIME_ID)
+since the previous non-switching yield. An idle spinner's loop costs a few microseconds per yield, so it is
+still throttled; time spent preempted is not counted. WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us> sets
+the limit, work_us 0 gives the old behaviour.
+
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -2580,33 +2580,49 @@
+  * than 100 ms of continuous spinning, so frame limiters and flag waits, which
+  * all wait or work at least once per frame, never get here.
+  *
+- * WINE_SLEEP0_THROTTLE=0 disables it, WINE_SLEEP0_THROTTLE=<iters>[,<usec>] sets
+- * the threshold and the sleep length.
++ * WINE_SLEEP0_THROTTLE=0 disables it, WINE_SLEEP0_THROTTLE=<iters>[,<usec>[,<work_us>]]
++ * sets the threshold, the sleep length and the work reset below.
++ *
++ * Work reset: a thread that used more than SLEEP0_DEFAULT_WORK_USEC of its own CPU
++ * time between two yields did real work in between (a frame loop that yields once
++ * per frame while waiting on another thread), so a new run starts. Without it a
++ * loop running faster than SLEEP0_WINDOW per frame never starts a new run and every
++ * frame gets the sleep (AIO DirectDraw at ~2800 fps capped to ~1460). It is CPU
++ * time, not wall time, so time spent preempted is not counted as work. work_us 0
++ * turns the work reset off.
+  */
+ #define SLEEP0_DEFAULT_ITERS 50000  /* > 100 ms of uninterrupted Sleep(0) */
+ #define SLEEP0_DEFAULT_USEC  250
+ #define SLEEP0_WINDOW        (2 * TICKSPERSEC / 1000)  /* 2 ms */
++#define SLEEP0_DEFAULT_WORK_USEC 50
+ 
+ static pthread_once_t sleep0_once = PTHREAD_ONCE_INIT;
+ static unsigned int sleep0_iters;
+ static unsigned int sleep0_usec;
++static ULONGLONG sleep0_work_ns;
+ 
+ static void sleep0_init(void)
+ {
+     const char *env = getenv( "WINE_SLEEP0_THROTTLE" );
+-    unsigned long iters = SLEEP0_DEFAULT_ITERS, usec = SLEEP0_DEFAULT_USEC;
++    unsigned long iters = SLEEP0_DEFAULT_ITERS, usec = SLEEP0_DEFAULT_USEC, work = SLEEP0_DEFAULT_WORK_USEC;
+     char *end;
+ 
+     if (env && *env)
+     {
+         iters = strtoul( env, &end, 10 );
+-        if (*end == ',' && !(usec = strtoul( end + 1, NULL, 10 ))) usec = SLEEP0_DEFAULT_USEC;
++        if (*end == ',')
++        {
++            if (!(usec = strtoul( end + 1, &end, 10 ))) usec = SLEEP0_DEFAULT_USEC;
++            if (*end == ',') work = strtoul( end + 1, NULL, 10 );
++        }
+     }
+     if (iters > 0x7fffffff) iters = 0x7fffffff;
+     if (usec > 100000) usec = 100000;
+     sleep0_iters = iters;
+     sleep0_usec = usec;
+-    if (env) TRACE( "WINE_SLEEP0_THROTTLE %lu iterations, %lu us\n", iters, usec );
++    if (work > 1000000) work = 1000000;
++    sleep0_work_ns = (ULONGLONG)work * 1000;
++    if (env) TRACE( "WINE_SLEEP0_THROTTLE %lu iterations, %lu us, work reset %lu us\n", iters, usec, work );
+ }
+ 
+ static inline void sleep0_reset( const LARGE_INTEGER *timeout )
+@@ -2625,6 +2641,13 @@
+     if (!sleep0_iters) return;
+ 
+     now = monotonic_counter();
++    if (sleep0_work_ns && !clock_gettime( CLOCK_THREAD_CPUTIME_ID, &ts ))
++    {
++        ULONGLONG cpu = (ULONGLONG)ts.tv_sec * 1000000000 + ts.tv_nsec;
++
++        if (cpu - thread_data->sleep0_cpu > sleep0_work_ns) thread_data->sleep0_count = 0;
++        thread_data->sleep0_cpu = cpu;
++    }
+     if (now - thread_data->sleep0_last > SLEEP0_WINDOW) thread_data->sleep0_count = 0;
+     thread_data->sleep0_last = now;
+ 
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -120,6 +120,7 @@
+     TEB                      *next_killed;   /* next in the list of killed threads to free */
+     unsigned int              sleep0_count;  /* consecutive yields that did not switch */
+     ULONGLONG                 sleep0_last;   /* time of the last one, in Win32 ticks */
++    ULONGLONG                 sleep0_cpu;    /* thread CPU time at the last one, in ns */
+ };
+ 
+ C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) );

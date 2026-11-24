@@ -426,6 +426,9 @@ do
       # object index there and every thread exit closed an unrelated fd (Android fdsan double-close aborts).
       # The fsync index is not cached there at all (Valve 707bb01fbfc, Paul Gofman). Must follow ntsync_userspace.patch.
       "dlls_ntdll_unix_thread.c_alert_fd_close.patch"
+      # ntdll: the Sleep(0) throttle starts a new run when the thread used > 50 us of its own CPU between two
+      # yields (frame loops faster than 2 ms per frame were capped: AIO DirectDraw 2785 -> 1460 fps).
+      "dlls_ntdll_unix_sync.c_sleep0_work_reset.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -551,6 +554,7 @@ do
       "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (proton-wine a188791d)"
       "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|winegstreamer skips the Proton audio converter when mediaconv is off (FMV WMA audio, proton-wine 8956410a)"
       "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
+      "dlls/ntdll/unix/sync.c|sleep0_work_ns|Sleep(0) throttle work reset (frame loops start a new run)"
       "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path (GameNative #119)"
       "server/sock.c|poll_fastpath|would-block receive fast path, server grant (GameNative #119)"
       "dlls/ntdll/unix/sync.c|int distinct_objs[NTSYNC_MAX_WAIT_COUNT];|userspace ntsync wait-any with repeated objects (GameNative #128)"
