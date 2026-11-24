@@ -256,6 +256,11 @@ def main():
         report(u16("WINE_OPTISCALER_NAME") in read(os.path.join(pe, "ntdll.dll")), "ntdll.dll: OptiScaler injection hack")
         report(b"WINE_FULLSCREEN_FSR" in w32so, "win32u.so: fullscreen-hack FSR")
         report(b"WINE_NO_WM_DECORATION" in w32so, "win32u.so: WINE_NO_WM_DECORATION switch")
+        # GE-Proton11-14 picks (proton_11.14-GE)
+        print("-- GE 11-14 picks")
+        report(os.path.isfile(os.path.join(pe, "lsass.exe")), "lsass.exe present (ACE SamSs service stub)")
+        report(b"WINE_DDRAW_MAXGAMETICKS" in read(os.path.join(pe, "ddraw.dll")), "ddraw.dll: WINE_DDRAW_MAXGAMETICKS (GE 11-14)")
+        report(b"WINE_CURSOR_SCALE" in read(os.path.join(unix, "winex11.so")), "winex11.so: WINE_CURSOR_SCALE (GE 11-14)")
         if not arm64ec:
             # compiled only for x86_64 PE ntdll (#if __x86_64__ && !__arm64ec__); inert on arm64ec
             report(u16("AI-LIMIT.exe") in read(os.path.join(pe, "ntdll.dll")),

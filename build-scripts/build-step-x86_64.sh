@@ -399,6 +399,19 @@ do
       "dlls/crypt32/cert.c|Windows sets the last error to CRYPT_E_NOT_FOUND|crypt32 empty EKU last error (GameNative #46)"
       "dlls/winex11.drv/init.c|Failing it makes Chromium-based launchers fall back to software compositing|Vulkan OPWR off by default on Android (GameNative #82)"
       "dlls/winex11.drv/opengl.c|GLX has no create_context_no_error|WGL no_error attribute dropped without GLX support (GameNative #66)"
+      # GE-Proton 11.0-14 (proton_11.14-GE): Valve a47c73f52fd7 merge + GE-Proton11-14 picks
+      "dlls/ntdll/unix/sync.c|if (do_fsync()) fd = reply->sync_shm_idx;|fsync shm index kept out of alert_fd (Valve 707bb01fbfc, android hunk re-anchored)"
+      "dlls/winegstreamer/wg_transform.c|set_sample_flags_from_buffer(sample, buffer, total_size, src_video_info)|MF cutscene frame-interval fix kept across Valve h264 edge replication (48a3542ec3b)"
+      "dlls/xinput1_3/main.c|RegNotifyChangeKeyValue(deviface_key|xinput rescans controllers only when DeviceClasses changes (Valve 575131f3)"
+      "dlls/winebus.sys/main.c|overlong report %#x length|winebus truncates overlong input reports (Valve 674d3cdd)"
+      "dlls/ntdll/sync.c|if (sem) NtReleaseSemaphore( sem, 1, NULL );|RtlpUnWaitCriticalSection ignores semaphore errors (Valve d5c4b850)"
+      "programs/cmd/builtins.c|Console handles are synchronous, so the overlapped read below would block|cmd CHOICE /T times out on a console (GE 11-14)"
+      "dlls/win32u/vulkan.c|sort_surface_formats2( formats, *format_count )|B8G8R8A8_UNORM reported as the first surface format (GE 11-14)"
+      "dlls/winewayland.drv/wayland_pointer.c|cursor_animation_once|winewayland animated cursors (GE 11-14)"
+      "dlls/ntdll/unix/thread.c|queue_killed_thread|TEB and stacks of killed threads freed (GE 11-14, Helldivers 2)"
+      "dlls/ntdll/heap.c|InterlockedIncrement( &bin->group_freed );|LFH reuses free blocks of partially used groups (GE 11-14, Wine MR 12472)"
+      "programs/lsass/main.c|SamSs|lsass.exe SamSs service stub (GE 11-14 ACE)"
+      "programs/wineboot/wineboot.c|start_samss_service|wineboot starts SamSs (GE 11-14 ACE)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
