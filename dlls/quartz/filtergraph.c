@@ -2064,11 +2064,25 @@ static HRESULT WINAPI MediaControl_get_RegFilterCollection(IMediaControl *iface,
 static void CALLBACK wait_pause_cb(TP_CALLBACK_INSTANCE *instance, void *context)
 {
     IMediaControl *control = context;
+    struct filter_graph *graph = impl_from_IMediaControl(control);
     OAFilterState state;
+    BOOL paused;
     HRESULT hr;
 
     if ((hr = IMediaControl_GetState(control, 100, &state)) != S_OK && hr != VFW_S_STATE_INTERMEDIATE)
         ERR("Failed to get paused state, hr %#lx.\n", hr);
+
+    /* Run() or Stop() called since StopWhenReady() supersede it: a graph run meanwhile keeps
+     * running (Silent Hill: The Arcade runs its movie right after StopWhenReady()). */
+    EnterCriticalSection(&graph->cs);
+    paused = graph->state == State_Paused;
+    LeaveCriticalSection(&graph->cs);
+    if (!paused)
+    {
+        TRACE("Graph %p left the paused state, not stopping it.\n", graph);
+        IMediaControl_Release(control);
+        return;
+    }
 
     if (FAILED(hr = IMediaControl_Stop(control)))
         ERR("Failed to stop, hr %#lx.\n", hr);

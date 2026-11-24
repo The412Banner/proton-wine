@@ -1625,6 +1625,9 @@ static LRESULT DecompressQuery(CodecInfo *pi, LPCBITMAPINFOHEADER lpbiIn,
         hr = ICERR_UNSUPPORTED;
       if (lpbiIn->biBitCount > lpbiOut->biBitCount)
         hr = ICERR_UNSUPPORTED;
+      /* An uncompressed frame is copied as is (Decompress): no depth conversion. */
+      if (lpbiIn->biCompression == BI_RGB && lpbiIn->biBitCount != lpbiOut->biBitCount)
+        hr = ICERR_UNSUPPORTED;
     }
   }
 

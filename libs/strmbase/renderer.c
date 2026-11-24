@@ -285,6 +285,8 @@ static HRESULT renderer_cleanup_stream(struct strmbase_filter *iface)
     strmbase_passthrough_invalidate_time(&filter->passthrough);
     SetEvent(filter->state_event);
     SetEvent(filter->flush_event);
+    if (filter->ops->renderer_cleanup_stream)
+        filter->ops->renderer_cleanup_stream(filter);
 
     return S_OK;
 }

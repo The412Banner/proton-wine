@@ -332,6 +332,12 @@ static HRESULT WINAPI media_seeking_ChangeCurrent(IMediaSeeking *iface)
 
     TRACE("iface %p.\n", iface);
 
+    /* A stopped filter has no streaming to restart: the new position is used
+     * when the graph runs. Restarting the reader here would deliver samples
+     * to stopped renderers (the graph seeks every source when it stops). */
+    if (filter->filter.state == State_Stopped)
+        return S_OK;
+
     /* Send begin flush commands downstream. */
     for (i = 0; i < filter->stream_count; ++i)
     {

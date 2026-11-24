@@ -2479,7 +2479,8 @@ static HRESULT WINAPI VMR9_SurfaceAllocator_InitializeDevice(IVMRSurfaceAllocato
     d3dpp.BackBufferHeight = info->dwHeight;
 
     hr = IDirect3D9_CreateDevice(This->d3d9_ptr, d3d9_adapter, D3DDEVTYPE_HAL,
-            NULL, D3DCREATE_MIXED_VERTEXPROCESSING, &d3dpp, &device);
+            NULL, D3DCREATE_MIXED_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
+            &d3dpp, &device);
     if (FAILED(hr))
     {
         ERR("Failed to create device, hr %#lx.\n", hr);

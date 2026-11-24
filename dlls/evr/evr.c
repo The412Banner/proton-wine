@@ -477,6 +477,38 @@ static HRESULT evr_query_accept(struct strmbase_renderer *iface, const AM_MEDIA_
     return hr;
 }
 
+enum evr_clock_state
+{
+    EVR_CLOCK_STOPPED,
+    EVR_CLOCK_PAUSED,
+    EVR_CLOCK_RUNNING,
+};
+
+/* The presenter's clock state follows the filter's (a custom presenter, e.g. WPF's, waits for
+ * its clock to start before it shows frames). */
+static void evr_notify_clock_state(struct evr *filter, enum evr_clock_state state)
+{
+    IMFClockStateSink *sink;
+
+    if (!filter->presenter || FAILED(IMFVideoPresenter_QueryInterface(filter->presenter,
+            &IID_IMFClockStateSink, (void **)&sink)))
+        return;
+
+    switch (state)
+    {
+        case EVR_CLOCK_STOPPED:
+            IMFClockStateSink_OnClockStop(sink, MFGetSystemTime());
+            break;
+        case EVR_CLOCK_PAUSED:
+            IMFClockStateSink_OnClockPause(sink, MFGetSystemTime());
+            break;
+        case EVR_CLOCK_RUNNING:
+            IMFClockStateSink_OnClockStart(sink, MFGetSystemTime(), PRESENTATION_CURRENT_POSITION);
+            break;
+    }
+    IMFClockStateSink_Release(sink);
+}
+
 /* FIXME: errors should be propagated from init/start/stop handlers. */
 static void evr_init_stream(struct strmbase_renderer *iface)
 {
@@ -486,6 +518,7 @@ static void evr_init_stream(struct strmbase_renderer *iface)
 
     if (SUCCEEDED(IMFTransform_ProcessMessage(filter->mixer, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0)))
         IMFVideoPresenter_ProcessMessage(filter->presenter, MFVP_MESSAGE_BEGINSTREAMING, 0);
+    evr_notify_clock_state(filter, EVR_CLOCK_PAUSED);
 }
 
 static void evr_start_stream(struct strmbase_renderer *iface)
@@ -493,7 +526,10 @@ static void evr_start_stream(struct strmbase_renderer *iface)
     struct evr *filter = impl_from_strmbase_renderer(iface);
 
     if (filter->mixer)
+    {
         IMFTransform_ProcessMessage(filter->mixer, MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+        evr_notify_clock_state(filter, EVR_CLOCK_RUNNING);
+    }
 }
 
 static void evr_stop_stream(struct strmbase_renderer *iface)
@@ -502,11 +538,22 @@ static void evr_stop_stream(struct strmbase_renderer *iface)
 
     if (!filter->mixer) return;
 
+    evr_notify_clock_state(filter, EVR_CLOCK_PAUSED);
+
     if (SUCCEEDED(IMFTransform_ProcessMessage(filter->mixer, MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0)))
     {
         if (SUCCEEDED(IMFVideoPresenter_ProcessMessage(filter->presenter, MFVP_MESSAGE_ENDSTREAMING, 0)))
             IMFTransform_ProcessMessage(filter->mixer, MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
     }
+}
+
+static void evr_cleanup_stream(struct strmbase_renderer *iface)
+{
+    struct evr *filter = impl_from_strmbase_renderer(iface);
+
+    /* the filter's state is still the one it is stopped from */
+    if (filter->mixer && filter->renderer.filter.state != State_Stopped)
+        evr_notify_clock_state(filter, EVR_CLOCK_STOPPED);
 }
 
 static const struct strmbase_renderer_ops renderer_ops =
@@ -520,6 +567,7 @@ static const struct strmbase_renderer_ops renderer_ops =
     .renderer_init_stream = evr_init_stream,
     .renderer_start_stream = evr_start_stream,
     .renderer_stop_stream = evr_stop_stream,
+    .renderer_cleanup_stream = evr_cleanup_stream,
 };
 
 static struct evr *impl_from_IEVRFilterConfig(IEVRFilterConfig *iface)

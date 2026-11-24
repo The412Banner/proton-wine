@@ -57,6 +57,8 @@ static const struct
     {&MEDIASUBTYPE_RGB565, 16, {0xf800, 0x07e0, 0x001f}},
     {&MEDIASUBTYPE_RGB555, 16, {0x7c00, 0x03e0, 0x001f}},
     {&MEDIASUBTYPE_RGB8, 8},
+    /* Last: offered after the opaque formats. Its alpha bytes are set to 0xff. */
+    {&MEDIASUBTYPE_ARGB32, 32},
 };
 
 static DWORD image_size(const BITMAPINFOHEADER *header)
@@ -266,6 +268,12 @@ static HRESULT WINAPI sink_receive(struct strmbase_sink *pin, IMediaSample *samp
     }
     GdiFlush();
     memcpy(dst, bits, size);
+    if (IsEqualGUID(&filter->source.pin.mt.subtype, &MEDIASUBTYPE_ARGB32))
+    {
+        DWORD *pixel = (DWORD *)dst, count = size / sizeof(DWORD);
+
+        while (count--) *pixel++ |= 0xff000000;
+    }
     IMediaSample_SetActualDataLength(converted, size);
     IMediaSample_SetSyncPoint(converted, TRUE);
     IMediaSample_SetPreroll(converted, IMediaSample_IsPreroll(sample) == S_OK);

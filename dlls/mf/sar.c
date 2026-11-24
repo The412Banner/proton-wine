@@ -2149,7 +2149,8 @@ static void audio_renderer_render(struct audio_renderer *renderer, IMFAsyncResul
 
     if (list_empty(&renderer->queue))
     {
-        if (!(renderer->flags & SAR_SAMPLE_REQUESTED))
+        if (!(renderer->flags & SAR_SAMPLE_REQUESTED)
+                && (renderer->clock_state != MFCLOCK_STATE_STOPPED || renderer->flags & SAR_PREROLLED))
         {
             IMFMediaEventQueue_QueueEventParamVar(renderer->stream_event_queue, MEStreamSinkRequestSample, &GUID_NULL, S_OK, NULL);
             renderer->flags |= SAR_SAMPLE_REQUESTED;

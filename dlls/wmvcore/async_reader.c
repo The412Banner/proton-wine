@@ -773,6 +773,12 @@ static void async_reader_close(struct async_reader *reader)
     reader->streams = NULL;
     reader->stream_count = 0;
 
+    /* Only Stop() cleared this. A reader closed while started kept it, and
+     * Start() after reopening was then skipped as a duplicate. */
+    reader->clock_start = 0;
+    reader->active_start = 0;
+    reader->active_duration = 0;
+
     if (reader->allocator)
         IWMReaderAllocatorEx_Release(reader->allocator);
     reader->allocator = NULL;

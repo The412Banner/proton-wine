@@ -22,6 +22,7 @@
 #include "ole2.h"
 #include "dshow.h"
 #include "wmp.h"
+#include "wmpservices.h"
 
 #define TID_LIST \
     XIID(NULL) \
@@ -94,6 +95,11 @@ struct WindowsMediaPlayer {
     VARIANT_BOOL invoke_urls;
     VARIANT_BOOL enable_error_dialogs;
     LONG volume;
+    LONG balance;
+    double rate;
+
+    WMPOpenState open_state;
+    WMPPlayState play_state;
 
     ConnectionPoint *wmpocx;
 

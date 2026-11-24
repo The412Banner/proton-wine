@@ -751,12 +751,16 @@ static HRESULT dmo_wrapper_cleanup_stream(struct strmbase_filter *iface)
 
     IUnknown_QueryInterface(filter->dmo, &IID_IMediaObject, (void **)&dmo);
 
-    EnterCriticalSection(&filter->filter.stream_cs);
+    /* Decommit the downstream allocators before taking the streaming lock: the
+     * streaming thread holds it while it waits in a downstream GetBuffer(),
+     * which only returns once its allocator is decommitted. */
     for (i = 0; i < filter->source_count; ++i)
     {
         if (filter->sources[i].pin.pin.peer)
             IMemAllocator_Decommit(filter->sources[i].pin.pAllocator);
     }
+
+    EnterCriticalSection(&filter->filter.stream_cs);
 
     IMediaObject_Flush(dmo);
     IMediaObject_FreeStreamingResources(dmo);
