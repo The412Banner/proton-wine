@@ -74,7 +74,7 @@ index 3cbdc9f649f..98aa53a0517 100644
          }
      }
 diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
-index 7b257ca382c..6f67559fb6a 100644
+index 71af371d5ad..f5895fd5a4c 100644
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
 @@ -75,10 +75,20 @@
@@ -359,14 +359,14 @@ index 7b257ca382c..6f67559fb6a 100644
 @@ -922,6 +1105,8 @@ int get_inproc_alert_fd(void)
              if (!server_call_unlocked( req ))
              {
-                 if (do_fsync()) data->alert_fd = fd = reply->sync_shm_idx;
+                 if (do_fsync()) fd = reply->sync_shm_idx;
 +                /* userspace ntsync alert event handle; valid in every process */
 +                else if (ntsync_userspace) data->alert_fd = fd = reply->sync_shm_idx;
                  else
                  {
                      data->alert_fd = fd = wine_server_receive_fd( &token );
 diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
-index 2cdfcee14e4..816401897cd 100644
+index fa3a6101a85..8e48bc4bc2c 100644
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
 @@ -203,6 +203,8 @@ extern BOOL terminate_process_running;
@@ -677,7 +677,7 @@ index 287718adc66..5d23eb8af73 100644
      free( process->rawinput_devices );
      free( process->dir_cache );
 diff --git a/server/thread.c b/server/thread.c
-index 44d38043a13..b3ddbee6f4b 100644
+index 77ec67563ce..d4fd23df362 100644
 --- a/server/thread.c
 +++ b/server/thread.c
 @@ -65,6 +65,12 @@
@@ -693,7 +693,7 @@ index 44d38043a13..b3ddbee6f4b 100644
  /* thread queues */
  
  struct thread_wait
-@@ -1844,8 +1850,17 @@ DECL_HANDLER(init_first_thread)
+@@ -1845,8 +1851,17 @@ DECL_HANDLER(init_first_thread)
      }
      else if ((fd = get_inproc_device_fd()) >= 0)
      {
@@ -713,7 +713,7 @@ index 44d38043a13..b3ddbee6f4b 100644
      }
  }
  
-@@ -2486,6 +2501,8 @@ DECL_HANDLER(get_inproc_alert_fd)
+@@ -2487,6 +2502,8 @@ DECL_HANDLER(get_inproc_alert_fd)
  
      if ((fd = get_inproc_sync_fd( current->alert_sync )) < 0) set_error( STATUS_INVALID_PARAMETER );
      else if (do_fsync()) reply->sync_shm_idx = fd;

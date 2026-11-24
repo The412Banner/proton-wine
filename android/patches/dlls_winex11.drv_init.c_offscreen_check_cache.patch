@@ -1,7 +1,8 @@
 diff --git a/dlls/winex11.drv/init.c b/dlls/winex11.drv/init.c
+index 73b30324589..b9b4b16b72e 100644
 --- a/dlls/winex11.drv/init.c
 +++ b/dlls/winex11.drv/init.c
-@@ -320,6 +320,8 @@
+@@ -321,6 +321,8 @@ struct x11drv_client_surface
      HDC hdc_src;
      HDC hdc_dst;
      BOOL other_process;
@@ -10,7 +11,7 @@ diff --git a/dlls/winex11.drv/init.c b/dlls/winex11.drv/init.c
  };
  
  static struct x11drv_client_surface *impl_from_client_surface( struct client_surface *client )
-@@ -396,11 +398,31 @@
+@@ -397,11 +399,31 @@ static void client_surface_update_geometry( HWND hwnd, struct x11drv_client_surf
      XFlush( gdi_display );
  }
  
@@ -42,4 +43,4 @@ diff --git a/dlls/winex11.drv/init.c b/dlls/winex11.drv/init.c
 +
      if (surface->other_process) offscreen = TRUE;
  
-     TRACE( "%s offscreen %u\n", debugstr_client_surface( &surface->client ), offscreen );
+     if (InterlockedExchange( &surface->client.offscreen, offscreen ) == offscreen)

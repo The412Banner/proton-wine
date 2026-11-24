@@ -1,4 +1,4 @@
-ntdll: Don't close the userspace ntsync (or fsync) alert index as a file descriptor at thread exit.
+ntdll: Don't close the userspace ntsync alert index as a file descriptor at thread exit.
 
 With userspace ntsync (WINENTSYNC=1 without /dev/ntsync) get_inproc_alert_fd() caches the alert
 event's object index in ntdll_thread_data.alert_fd, and pthread_exit_wrapper() closed alert_fd as an
@@ -6,30 +6,21 @@ fd. Every thread exit closed whatever unrelated fd had that number; Android's fd
 fd's owner when it closed it later ("double-close of file descriptor", e.g. a Steam HTTP thread).
 alert_fd is now closed only when it holds an fd (kernel ntsync, esync). The index stays cached.
 
-The fsync index is no longer stored in alert_fd at all, as Valve did in 707bb01fbfc (Paul Gofman,
-"Don't store fsync shm idx in thread data alert_fd", CW-Bug-Id #28016), where the tree lacks it.
+The fsync index is not stored in alert_fd at all: Valve 957ac7cf (Paul Gofman, CW-Bug-Id #28016)
+is in the 11.0-3 base, so this patch no longer carries that part.
 
 diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index 054811ee249..cb5dadeaacf 100644
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
-@@ -1132,7 +1132,8 @@
-         {
-             if (!server_call_unlocked( req ))
-             {
--                if (do_fsync()) data->alert_fd = fd = reply->sync_shm_idx;
-+                /* not cached in alert_fd, pthread_exit_wrapper() would close it as an fd (Valve 707bb01fbfc) */
-+                if (do_fsync()) fd = reply->sync_shm_idx;
-                 /* userspace ntsync alert event handle; valid in every process */
-                 else if (ntsync_userspace) data->alert_fd = fd = reply->sync_shm_idx;
-                 else
-@@ -1150,6 +1151,15 @@
+@@ -1150,6 +1150,15 @@ int get_inproc_alert_fd(void)
      return fd;
  }
  
 +/* Whether the thread's alert_fd is a file descriptor that pthread_exit_wrapper() may close. With userspace
 + * ntsync it caches the alert event's object index instead, and closing that number closed an unrelated
 + * fd at every thread exit (Android fdsan then aborts the fd's owner). Same problem Valve fixed for the
-+ * fsync index in 707bb01fbfc (Paul Gofman). */
++ * fsync index in 957ac7cf (Paul Gofman, in the Valve 11.0-3 base). */
 +BOOL inproc_alert_fd_is_fd(void)
 +{
 +    return !ntsync_userspace && !do_fsync();
@@ -39,9 +30,10 @@ diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
                               BOOLEAN alertable, const LARGE_INTEGER *timeout )
  {
 diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
+index 7577548555f..b3dbe07eda6 100644
 --- a/dlls/ntdll/unix/thread.c
 +++ b/dlls/ntdll/unix/thread.c
-@@ -1105,7 +1105,7 @@
+@@ -1118,7 +1118,7 @@ static void contexts_from_server( CONTEXT *context, struct context_data server_c
   */
  static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
  {
@@ -51,9 +43,10 @@ diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
      close( ntdll_get_thread_data()->wait_fd[1] );
      close( ntdll_get_thread_data()->reply_fd );
 diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index 853aecb4933..5bbaa389ff2 100644
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
-@@ -251,6 +251,7 @@
+@@ -254,6 +254,7 @@ extern unsigned int server_select( const union select_op *select_op, data_size_t
  extern unsigned int server_wait( const union select_op *select_op, data_size_t size, UINT flags,
                                   const LARGE_INTEGER *timeout );
  extern int get_inproc_alert_fd(void);

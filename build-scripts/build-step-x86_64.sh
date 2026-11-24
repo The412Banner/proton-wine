@@ -246,14 +246,12 @@ do
       # Android bionic locale bring-up: force LC_ALL=C.UTF-8 before locale init
       # (bionic ships no locale data beyond C/C.UTF-8).
       "dlls_ntdll_unix_env.c.patch"
-	  "dlls_ntdll_unix_signal_x86_64.c.patch"
+      # signal_x86_64.c "jmp *%rcx" fix: in the Valve 11.0-3 tree (f545b276314, Arkadiusz Hiler), patch dropped.
 
-      # unixlib load-by-name (MemoryWineLoadUnixLibByName) — defining patches
-      # required because the shared loader.c/virtual.c patches reference them
-      "dlls_ntdll_unix_unix_private.h.patch"
-      "dlls_wow64_virtual.c.patch"
-      "include_wine_unixlib.h.patch"
-      "include_winternl.h.patch"
+      # unixlib load-by-name (MemoryWineLoadUnixLibByName) for the FEX companion unixlib: in the
+      # Valve 11.0-3 tree (upstream Wine bbe2f325 + 083a4694 + 5ffc0a61 + 39a9fa26, Alexandre Julliard),
+      # so the unix_private.h / wow64 virtual.c / unixlib.h / winternl.h patches are gone and the
+      # loader.c / virtual.c patches no longer add their own copy.
 	  
 	  # opengl32
 	  "dlls_opengl32_unix_wgl.c.patch"
@@ -348,7 +346,7 @@ do
       "dlls_ntdll_unix_sync.c_ntsync_wait_any_duplicates.patch"
       # ntdll: pthread_exit_wrapper() closes alert_fd only when it is an fd; userspace ntsync caches its alert
       # object index there and every thread exit closed an unrelated fd (Android fdsan double-close aborts).
-      # The fsync index is not cached there at all (Valve 707bb01fbfc, Paul Gofman). Must follow ntsync_userspace.patch.
+      # The fsync index is not cached there at all: Valve 957ac7cf (Paul Gofman) is in the 11.0-3 base. Must follow ntsync_userspace.patch.
       "dlls_ntdll_unix_thread.c_alert_fd_close.patch"
       # ntdll: the Sleep(0) throttle starts a new run after > 500 us of own CPU work, or two > 20 us work gaps < 2 ms apart, between
       # yields (frame loops faster than 2 ms per frame were capped: AIO DirectDraw 2785 -> 1460 fps).
@@ -430,7 +428,7 @@ do
       "server/sock.c|poll_fastpath|would-block receive fast path, server grant (GameNative #119)"
       "dlls/ntdll/unix/sync.c|int distinct_objs[NTSYNC_MAX_WAIT_COUNT];|userspace ntsync wait-any with repeated objects (GameNative #128)"
       "dlls/ntdll/unix/thread.c|if (inproc_alert_fd_is_fd()) close( ntdll_get_thread_data()->alert_fd );|thread exit closes alert_fd only when it is an fd (userspace ntsync index, fdsan double-close)"
-      "dlls/ntdll/unix/sync.c|if (do_fsync()) fd = reply->sync_shm_idx;|fsync alert index not cached in alert_fd (Valve 707bb01fbfc)"
+      "dlls/ntdll/unix/sync.c|if (do_fsync()) fd = reply->sync_shm_idx;|fsync alert index not cached in alert_fd (Valve 957ac7cf, base)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"

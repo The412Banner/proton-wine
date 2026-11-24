@@ -1,19 +1,19 @@
 diff --git a/dlls/winepulse.drv/pulse.c b/dlls/winepulse.drv/pulse.c
-index c051a9a2e1f..0b99cbf395b 100644
+index e3cb5d9c72e..5155e43ae6d 100644
 --- a/dlls/winepulse.drv/pulse.c
 +++ b/dlls/winepulse.drv/pulse.c
-@@ -268,8 +268,10 @@ static NTSTATUS pulse_process_attach(void *args)
+@@ -279,8 +279,10 @@ static NTSTATUS pulse_process_attach(void *args)
      pthread_mutexattr_t attr;
-
+ 
      pthread_mutexattr_init(&attr);
 +#ifndef __ANDROID__
      pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
      pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
 +#endif
-
+ 
      if (pthread_mutex_init(&pulse_mutex, &attr) != 0)
          pthread_mutex_init(&pulse_mutex, NULL);
-@@ -317,9 +319,13 @@ static NTSTATUS pulse_main_loop(void *args)
+@@ -330,9 +332,13 @@ static NTSTATUS pulse_main_loop(void *args)
      pulse_ml = pa_mainloop_new();
      pa_mainloop_set_poll_func(pulse_ml, pulse_poll_func, NULL);
      NtSetEvent(params->event, NULL);
@@ -27,9 +27,9 @@ index c051a9a2e1f..0b99cbf395b 100644
      pa_mainloop_free(pulse_ml);
      pulse_unlock();
      return STATUS_SUCCESS;
-@@ -1734,6 +1740,17 @@ static void pulse_add_stream_to_period(struct pulse_stream *stream)
-     period->timer_last_time = pa_rtclock_now();
-     period->time_event = pa_context_rttime_new(pulse_ctx, period->timer_last_time + period->period,
+@@ -1910,6 +1916,18 @@ static void pulse_add_stream_to_period(struct pulse_stream *stream)
+     period->timer_last_time = pa_rtclock_now() + period->period;
+     period->time_event = pa_context_rttime_new(pulse_ctx, period->timer_last_time,
              pa_streams_timer_cb, period);
 +
 +    // GN Patch
@@ -37,6 +37,7 @@ index c051a9a2e1f..0b99cbf395b 100644
 +    {
 +        WARN("Failed to create timer event, timer callbacks disabled (box64 < 0.4.0?)\n");
 +        list_remove(&period->entry);
++        free(period->device);
 +        free(period);
 +        stream->period = NULL;
 +        return;
@@ -44,4 +45,4 @@ index c051a9a2e1f..0b99cbf395b 100644
 +
      api = pa_mainloop_get_api(pulse_ml);
      api->time_set_destroy(period->time_event, pa_streams_timer_cb_destroy);
-     TRACE("Created period %p.\n", period);
+     TRACE("Created period %p, %s, %lld.\n", period, debugstr_a(period->device), (long long)period->period);
