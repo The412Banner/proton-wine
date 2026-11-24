@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: McDonaldsVibecoder <358046012+McDonaldsVibecoder@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 22:55:00 +0000
+Subject: [PATCH] ntdll: Fill ARM64EC dispatch pointers in second image
+ mappings of a loaded DLL
+
+Call of Duty: Black Ops III (Arxan) opens C:\windows\system32\gdi32.dll,
+maps it again with NtCreateSection(SEC_IMAGE) and NtMapViewOfSection, links
+the copy's imports itself and calls TextOutA through it. The x64 export
+thunk enters the copy's ARM64EC code, which calls through
+__os_arm64x_dispatch_icall and the other hybrid metadata pointers. Only the
+loader fills those (arm64ec_update_hybrid_metadata), so in the copy they
+are 0 and the game jumps to address 0 about 20 seconds after start.
+
+When a hybrid image is mapped again while its loaded instance sits at the
+mapping's address, copy the dispatch pointers from that instance.
+---
+ dlls/ntdll/unix/virtual.c | 72 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 72 insertions(+)
+
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -3121,6 +3121,75 @@
+ 
+ 
+ /***********************************************************************
++ *           copy_arm64ec_hybrid_pointers
++ *
++ * A program that maps a loaded hybrid DLL a second time (Arxan does this for
++ * gdi32) calls into the copy, but only the loader fills in the dispatch
++ * pointers. Take them from the loaded instance at the mapping's address.
++ */
++static void copy_arm64ec_hybrid_pointers( struct file_view *view, IMAGE_NT_HEADERS *nt,
++                                          const IMAGE_DATA_DIRECTORY *dir, client_ptr_t loaded_addr )
++{
++    static const size_t fields[] =
++    {
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_dispatch_call_no_redirect ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_dispatch_ret ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_dispatch_call ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_dispatch_icall ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_dispatch_icall_cfg ),
++        offsetof( IMAGE_ARM64EC_METADATA, GetX64InformationFunctionPointer ),
++        offsetof( IMAGE_ARM64EC_METADATA, SetX64InformationFunctionPointer ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_dispatch_fptr ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_helper3 ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_helper4 ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_helper5 ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_helper6 ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_helper7 ),
++        offsetof( IMAGE_ARM64EC_METADATA, __os_arm64x_helper8 ),
++    };
++    char *base = view->base, *loaded = wine_server_get_ptr( loaded_addr );
++    const IMAGE_LOAD_CONFIG_DIRECTORY *cfg = (void *)(base + dir->VirtualAddress);
++    const IMAGE_DOS_HEADER *loaded_dos;
++    const IMAGE_NT_HEADERS *loaded_nt;
++    const char *metadata;
++    struct file_view *loaded_view;
++    ULONG i, rva, size = min( dir->Size, cfg->Size );
++
++    if (!loaded || loaded == base || (ULONG_PTR)loaded != loaded_addr) return;
++    if (size <= offsetof( IMAGE_LOAD_CONFIG_DIRECTORY, CHPEMetadataPointer )) return;
++    if (!cfg->CHPEMetadataPointer) return;
++    if (cfg->CHPEMetadataPointer < nt->OptionalHeader.ImageBase ||
++        cfg->CHPEMetadataPointer - nt->OptionalHeader.ImageBase > view->size - sizeof(IMAGE_ARM64EC_METADATA))
++        return;
++    if (!(loaded_view = find_view( loaded, 0 )) || loaded_view->base != loaded) return;
++    if (!(loaded_view->protect & SEC_IMAGE) || loaded_view->size != view->size) return;
++    if ((get_page_vprot( loaded ) & (VPROT_COMMITTED | VPROT_READ)) != (VPROT_COMMITTED | VPROT_READ)) return;
++    loaded_dos = (const IMAGE_DOS_HEADER *)loaded;
++    if (loaded_dos->e_magic != IMAGE_DOS_SIGNATURE ||
++        loaded_dos->e_lfanew + sizeof(*loaded_nt) > page_mask + 1) return;
++    loaded_nt = (const IMAGE_NT_HEADERS *)(loaded + loaded_dos->e_lfanew);
++    if (loaded_nt->Signature != IMAGE_NT_SIGNATURE ||
++        loaded_nt->FileHeader.Machine != nt->FileHeader.Machine ||
++        loaded_nt->FileHeader.TimeDateStamp != nt->FileHeader.TimeDateStamp ||
++        loaded_nt->OptionalHeader.SizeOfImage != nt->OptionalHeader.SizeOfImage) return;
++
++    metadata = base + (cfg->CHPEMetadataPointer - nt->OptionalHeader.ImageBase);
++    for (i = 0; i < ARRAY_SIZE(fields); i++)
++    {
++        void **dst, *const *src;
++
++        rva = *(const ULONG *)(metadata + fields[i]);
++        if (!rva || rva > view->size - sizeof(void *) || (rva & (sizeof(void *) - 1))) continue;
++        if ((get_page_vprot( loaded + rva ) & (VPROT_COMMITTED | VPROT_READ)) != (VPROT_COMMITTED | VPROT_READ))
++            continue;
++        dst = (void **)(base + rva);
++        src = (void *const *)(loaded + rva);
++        if (!*dst && *src) *dst = *src;
++    }
++}
++
++
++/***********************************************************************
+  *           apply_arm64x_relocations
+  */
+ static void apply_arm64x_relocations( char *base, const IMAGE_BASE_RELOCATION *reloc, size_t size )
+@@ -3659,7 +3728,10 @@
+             image_info->machine = nt->FileHeader.Machine;
+         }
+         if (image_info->machine == IMAGE_FILE_MACHINE_AMD64)
++        {
+             update_arm64ec_ranges( view, nt, dir, &image_info->entry_point );
++            copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );
++        }
+     }
+ #endif
+     if (machine && machine != nt->FileHeader.Machine)
