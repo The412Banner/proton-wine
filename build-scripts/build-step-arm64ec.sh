@@ -391,6 +391,10 @@ do
       # ntdll: NtGetContextThread on a NULL context returns STATUS_ACCESS_VIOLATION on ARM64EC (Crash Bandicoot
       # N. Sane Trilogy; main 92b57e73, 66sam). arm64ec only.
       "dlls_ntdll_signal_arm64ec.c_get_context_null.patch"
+      # v17 (2026-11-23)
+      # winegstreamer: skip the "Proton audio converter with rate fixup" when mediaconv is off, the same as the
+      # video converter, so avdec_wmav2 decodes WMA cutscene audio (proton-wine 8956410a, never shipped before)
+      "dlls_winegstreamer_wg_parser.c.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -514,6 +518,7 @@ do
       "dlls/ntdll/unix/virtual.c|ULONG_PTR limit = max( (ULONG_PTR)address_space_limit, (ULONG_PTR)1 << 47 );|ARM64EC code map covers 47-bit addresses on a 39-bit host (proton-wine d4c9ffa7)"
       "dlls/ntdll/signal_arm64ec.c|unwind made no progress at pc|ARM64EC exception search and unwind stop at a frame that does not move (proton-wine fecf7376)"
       "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (proton-wine a188791d)"
+      "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|winegstreamer skips the Proton audio converter when mediaconv is off (FMV WMA audio, proton-wine 8956410a)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"

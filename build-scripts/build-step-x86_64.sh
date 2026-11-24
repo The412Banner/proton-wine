@@ -363,6 +363,10 @@ do
       # ntdll: RtlWaitOnAddress() queue entries from a static pool, so a thread killed in a wait leaves no
       # dangling stack entry (Forza Horizon 6 loading stall; main d03ba52e, l4nr3; one line ported)
       "dlls_ntdll_sync.c_futex_entry_pool.patch"
+      # v17 (2026-11-23)
+      # winegstreamer: skip the "Proton audio converter with rate fixup" when mediaconv is off, the same as the
+      # video converter, so avdec_wmav2 decodes WMA cutscene audio (proton-wine 8956410a, never shipped before)
+      "dlls_winegstreamer_wg_parser.c.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -470,6 +474,7 @@ do
       "dlls/ntdll/unix/file.c|if (xattr_less( st )) return ret;|no xattr queries on filesystems without them (DroidDeck-Proton 11-12.6, maxjivi05)"
       "dlls/ntdll/unix/file.c|static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )|no directory listing for a missing file on case-folding volumes (DroidDeck-Proton 11-12.7, maxjivi05)"
       "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
+      "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|winegstreamer skips the Proton audio converter when mediaconv is off (FMV WMA audio, proton-wine 8956410a)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
