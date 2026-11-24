@@ -1,0 +1,63 @@
+ntdll: Don't close the userspace ntsync (or fsync) alert index as a file descriptor at thread exit.
+
+With userspace ntsync (WINENTSYNC=1 without /dev/ntsync) get_inproc_alert_fd() caches the alert
+event's object index in ntdll_thread_data.alert_fd, and pthread_exit_wrapper() closed alert_fd as an
+fd. Every thread exit closed whatever unrelated fd had that number; Android's fdsan then aborted the
+fd's owner when it closed it later ("double-close of file descriptor", e.g. a Steam HTTP thread).
+alert_fd is now closed only when it holds an fd (kernel ntsync, esync). The index stays cached.
+
+The fsync index is no longer stored in alert_fd at all, as Valve did in 707bb01fbfc (Paul Gofman,
+"Don't store fsync shm idx in thread data alert_fd", CW-Bug-Id #28016), where the tree lacks it.
+
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -1132,7 +1132,8 @@
+         {
+             if (!server_call_unlocked( req ))
+             {
+-                if (do_fsync()) data->alert_fd = fd = reply->sync_shm_idx;
++                /* not cached in alert_fd, pthread_exit_wrapper() would close it as an fd (Valve 707bb01fbfc) */
++                if (do_fsync()) fd = reply->sync_shm_idx;
+                 /* userspace ntsync alert event handle; valid in every process */
+                 else if (ntsync_userspace) data->alert_fd = fd = reply->sync_shm_idx;
+                 else
+@@ -1150,6 +1151,15 @@
+     return fd;
+ }
+ 
++/* Whether the thread's alert_fd is a file descriptor that pthread_exit_wrapper() may close. With userspace
++ * ntsync it caches the alert event's object index instead, and closing that number closed an unrelated
++ * fd at every thread exit (Android fdsan then aborts the fd's owner). Same problem Valve fixed for the
++ * fsync index in 707bb01fbfc (Paul Gofman). */
++BOOL inproc_alert_fd_is_fd(void)
++{
++    return !ntsync_userspace && !do_fsync();
++}
++
+ static NTSTATUS inproc_wait( DWORD count, const HANDLE *handles, WAIT_TYPE type,
+                              BOOLEAN alertable, const LARGE_INTEGER *timeout )
+ {
+diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
+--- a/dlls/ntdll/unix/thread.c
++++ b/dlls/ntdll/unix/thread.c
+@@ -1119,7 +1119,7 @@
+  */
+ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
+ {
+-    close( ntdll_get_thread_data()->alert_fd );
++    if (inproc_alert_fd_is_fd()) close( ntdll_get_thread_data()->alert_fd );
+     close( ntdll_get_thread_data()->wait_fd[0] );
+     close( ntdll_get_thread_data()->wait_fd[1] );
+     close( ntdll_get_thread_data()->reply_fd );
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -258,6 +258,7 @@
+ extern unsigned int server_wait( const union select_op *select_op, data_size_t size, UINT flags,
+                                  const LARGE_INTEGER *timeout );
+ extern int get_inproc_alert_fd(void);
++extern BOOL inproc_alert_fd_is_fd(void);
+ extern unsigned int server_wait_for_object( HANDLE handle, BOOL alertable, const LARGE_INTEGER *timeout );
+ extern unsigned int server_queue_process_apc( HANDLE process, const union apc_call *call,
+                                               union apc_result *result );

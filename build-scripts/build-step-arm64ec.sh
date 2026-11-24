@@ -422,6 +422,10 @@ do
       # instance (Call of Duty: Black Ops III, Arxan maps gdi32 again and calls through the copy; DroidDeck-Proton
       # #34, McDonaldsVibecoder). arm64ec only.
       "dlls_ntdll_unix_virtual.c_arm64ec_image_copy_pointers.patch"
+      # ntdll: pthread_exit_wrapper() closes alert_fd only when it is an fd; userspace ntsync caches its alert
+      # object index there and every thread exit closed an unrelated fd (Android fdsan double-close aborts).
+      # The fsync index is not cached there at all (Valve 707bb01fbfc, Paul Gofman). Must follow ntsync_userspace.patch.
+      "dlls_ntdll_unix_thread.c_alert_fd_close.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -557,6 +561,8 @@ do
       "dlls/ntdll/signal_arm64ec.c|BTCpu64NotifyNonImageViews|non-image view notifications for emulators that ask for them (GameNative #67)"
       "dlls/ntdll/unwind.h|parity and aux carry have no AArch64 equivalent|EFlags PF/AF in cpsr bits 26/27 (GameNative #67)"
       "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second mappings of a loaded DLL (DroidDeck-Proton #34, Black Ops III)"
+      "dlls/ntdll/unix/thread.c|if (inproc_alert_fd_is_fd()) close( ntdll_get_thread_data()->alert_fd );|thread exit closes alert_fd only when it is an fd (userspace ntsync index, fdsan double-close)"
+      "dlls/ntdll/unix/sync.c|if (do_fsync()) fd = reply->sync_shm_idx;|fsync alert index not cached in alert_fd (Valve 707bb01fbfc)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
