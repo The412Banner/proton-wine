@@ -29,6 +29,7 @@
 #define WIN32_NO_STATUS
 #include "ddk/wdm.h"
 #include "excpt.h"
+#include "rtlsupportapi.h"
 #include "wine/debug.h"
 
 #define KSHARED_USER_DATA_PAGE_SIZE 0x1000
@@ -947,6 +948,49 @@ static DWORD emulate_instruction( EXCEPTION_RECORD *rec, CONTEXT *context )
 }
 
 
+#define KERNEL_RETURN_TAG 0xffff800000000000ull
+
+/* strip the tag added by call_driver_init(), only for returns into ntoskrnl */
+static BOOL strip_kernel_return( ULONG_PTR *addr )
+{
+    void *self, *target;
+
+    if ((*addr & KERNEL_RETURN_TAG) != KERNEL_RETURN_TAG) return FALSE;
+    RtlPcToFileHeader( (void *)strip_kernel_return, &self );
+    if (!RtlPcToFileHeader( (void *)(*addr & ~KERNEL_RETURN_TAG), &target ) || target != self)
+        return FALSE;
+    *addr &= ~KERNEL_RETURN_TAG;
+    return TRUE;
+}
+
+/* handle a driver returning to a tagged kernel-space address */
+static BOOL emulate_kernel_return( EXCEPTION_RECORD *record, CONTEXT *context )
+{
+    const BYTE *instr = (const BYTE *)context->Rip;
+    ULONG_PTR addr = context->Rip;
+    unsigned int pop = 0;
+
+    /* AMD reports the fault at the non-canonical target */
+    if (strip_kernel_return( &addr ))
+    {
+        context->Rip = addr;
+        return TRUE;
+    }
+
+    /* Intel reports a general protection fault at the ret instruction itself */
+    if (record->NumberParameters < 2 || record->ExceptionInformation[1] != ~(ULONG_PTR)0) return FALSE;
+    if (*instr == 0xf2 || *instr == 0xf3) instr++;  /* bnd / rep */
+    if (*instr == 0xc2) pop = *(const WORD *)(instr + 1);
+    else if (*instr != 0xc3) return FALSE;
+
+    addr = *(const ULONG_PTR *)context->Rsp;
+    if (!strip_kernel_return( &addr )) return FALSE;
+    context->Rip = addr;
+    context->Rsp += sizeof(ULONG_PTR) + pop;
+    return TRUE;
+}
+
+
 /***********************************************************************
  *           vectored_handler
  *
@@ -957,6 +1001,12 @@ LONG CALLBACK vectored_handler( EXCEPTION_POINTERS *ptrs )
 {
     EXCEPTION_RECORD *record = ptrs->ExceptionRecord;
     CONTEXT *context = ptrs->ContextRecord;
+
+    if (record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && emulate_kernel_return( record, context ))
+    {
+        TRACE( "returning from kernel-mode call to rip=%Ix\n", context->Rip );
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
 
     if (record->ExceptionCode == EXCEPTION_PRIV_INSTRUCTION ||
         (record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&

@@ -1195,6 +1195,17 @@ BITMAPINFO *copy_packed_dib( const BITMAPINFO *src_info, UINT usage )
     return ret;
 }
 
+static BOOL use_krondor_bitmap_readback(void)
+{
+    static const WCHAR rtkW[] = {'R','t','K','.','e','x','e',0};
+    const WCHAR *p, *name = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
+
+    if (!name) return FALSE;
+    if ((p = wcsrchr( name, '/' ))) name = p + 1;
+    if ((p = wcsrchr( name, '\\' ))) name = p + 1;
+    return !wcsicmp( name, rtkW );
+}
+
 /******************************************************************************
  *           NtGdiGetDIBitsInternal    (win32u.@)
  *
@@ -1349,9 +1360,13 @@ INT WINAPI NtGdiGetDIBitsInternal( HDC hdc, HBITMAP hbitmap, UINT startscan, UIN
 
     if (err) goto done;
 
+    /* RtK converts text drawn into display-depth DDBs to 8-bit sprites. Keep
+     * format-only queries unchanged, including SDL3's display-mode probe. */
     if (!is_bitmapobj_dib( bmp ) && NtGdiGetDeviceCaps( hdc, TECHNOLOGY ) == DT_RASDISPLAY &&
         src_info->bmiHeader.biBitCount != 1 && src_info->bmiHeader.biBitCount != 32 &&
-        !(src_info->bmiHeader.biBitCount == 8 && NtGdiGetDeviceCaps( hdc, BITSPIXEL ) == 8))
+        !(src_info->bmiHeader.biBitCount == 8 && NtGdiGetDeviceCaps( hdc, BITSPIXEL ) == 8) &&
+        !(bits && dst_info->bmiHeader.biBitCount == 8 && dst_info->bmiHeader.biCompression == BI_RGB &&
+          use_krondor_bitmap_readback()))
         goto done;
 
     /* fill out the src colour table, if it needs one */

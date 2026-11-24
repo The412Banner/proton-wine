@@ -495,6 +495,7 @@ INT WINAPI MessageBoxW( HWND hwnd, LPCWSTR text, LPCWSTR title, UINT type )
     return MessageBoxExW(hwnd, text, title, type, LANG_NEUTRAL);
 }
 
+const char *sc_unsupported = "You're trying to run the game on an unsupported Windows OS. This will likely result in undefined behavior.";
 
 /**************************************************************************
  *		MessageBoxExA (USER32.@)
@@ -503,6 +504,9 @@ INT WINAPI MessageBoxExA( HWND hWnd, LPCSTR text, LPCSTR title,
                               UINT type, WORD langid )
 {
     MSGBOXPARAMSA msgbox;
+
+    if (title && text && strcmp(title, "Star Citizen") == 0 && strcmp(text, sc_unsupported) == 0)
+            return 0;
 
     msgbox.cbSize = sizeof(msgbox);
     msgbox.hwndOwner = hWnd;

@@ -367,6 +367,9 @@ struct x11drv_escape_get_drawable
 };
 
 extern BOOL needs_offscreen_rendering( HWND hwnd );
+extern BOOL layered_overlay_shape_enabled(void);
+extern BOOL layered_overlay_alpha_enabled(void);
+extern BOOL layered_overlay_input_shape_enabled(void);
 extern void set_dc_drawable( HDC hdc, Drawable drawable, const RECT *rect, int mode );
 extern Drawable get_dc_drawable( HDC hdc, RECT *rect );
 extern HRGN get_dc_monitor_region( HWND hwnd, HDC hdc );
