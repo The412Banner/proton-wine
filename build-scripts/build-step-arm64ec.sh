@@ -387,6 +387,10 @@ do
       # Black Ops III / Arxan maps gdi32 again and calls into the copy; DroidDeck-Proton #34, FryMcNugget,
       # patch by McDonaldsVibecoder). arm64ec only.
       "dlls_ntdll_unix_virtual.c_arm64ec_hybrid_pointers_image_copies.patch"
+      # ntdll: pthread_exit_wrapper() closes alert_fd only when it is an fd; userspace ntsync caches its alert
+      # object index there and every thread exit closed an unrelated fd (Android fdsan double-close aborts).
+      # The fsync index is not cached there (Valve 707bb01fbfc, Paul Gofman, in the base). Must follow ntsync_userspace.patch.
+      "dlls_ntdll_unix_thread.c_alert_fd_close.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -493,6 +497,8 @@ do
       "dlls/ntdll/unix/virtual.c|ULONG_PTR limit = max( (ULONG_PTR)address_space_limit, (ULONG_PTR)1 << 47 );|ARM64EC code map sized for 47-bit addresses on a 39-bit host (v17, d4c9ffa7)"
       "dlls/ntdll/signal_arm64ec.c|unwind made no progress at pc|ARM64EC exception search / unwind stops on a frame that does not move (v17, fecf7376)"
       "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (v17, a188791d)"
+      "dlls/ntdll/unix/thread.c|if (inproc_alert_fd_is_fd()) close( ntdll_get_thread_data()->alert_fd );|thread exit closes alert_fd only when it is an fd (userspace ntsync index, fdsan double-close)"
+      "dlls/ntdll/unix/sync.c|if (do_fsync()) fd = reply->sync_shm_idx;|fsync alert index not cached in alert_fd (Valve 707bb01fbfc, in the base)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
