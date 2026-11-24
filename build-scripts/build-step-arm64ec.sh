@@ -418,6 +418,10 @@ do
       "dlls_ntdll_ntdll.spec_extended_eflags.patch"
       "dlls_ntdll_signal_arm64ec.c_protected_launcher_notify.patch"
       "dlls_ntdll_unwind.h_extended_eflags.patch"
+      # ntdll: a second image mapping of a loaded hybrid DLL gets its ARM64EC dispatch pointers from the loaded
+      # instance (Call of Duty: Black Ops III, Arxan maps gdi32 again and calls through the copy; DroidDeck-Proton
+      # #34, McDonaldsVibecoder). arm64ec only.
+      "dlls_ntdll_unix_virtual.c_arm64ec_image_copy_pointers.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -552,6 +556,7 @@ do
       "dlls/ntdll/ntdll.spec|__wine_arm64ec_extended_eflags|extended EFlags export for the emulator (GameNative #67)"
       "dlls/ntdll/signal_arm64ec.c|BTCpu64NotifyNonImageViews|non-image view notifications for emulators that ask for them (GameNative #67)"
       "dlls/ntdll/unwind.h|if (cpsr & 0x04000000) ret |= 0x0004;  /* parity */|EFlags PF/AF in cpsr bits 26/27 (GameNative #67)"
+      "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second mappings of a loaded DLL (DroidDeck-Proton #34, Black Ops III)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
