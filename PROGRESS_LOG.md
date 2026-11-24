@@ -2,6 +2,14 @@
 
 Newest entry at the top.
 
+## 2026-11-23 — v17 layers round: 11.0-2 + P10.0-4 + GE10.0-34 + DroidDeck 11.0-12.8 (staging/<parent>/v17, building; NO release)
+- **Why (user, 2026-11-23 ~23:20 EST):** build v17 layers overnight and stage them in /sdcard/Download/v17-layers/ for the morning tests. No release, no catalog change, no install. A separate session ports the new GE-Proton 11-14 line.
+- **Branches (new, off the v16 commits):** `staging/proton_11.0-2/v17` off a190d333 (= release 2c0670d0 + 6 log commits, checked: only PROGRESS_LOG.md differs), `staging/proton_10.0/v17` off cc815410, `staging/proton_10.34-GE/v17` off b76055cc, `staging/proton_11.12.8-DroidDeck/v17` off d48e30a1 (fix-unwind-loop).
+- **11.0-2 commits (one per item):** cherry-picks of d4c9ffa7 (ARM64EC code map 47-bit) + fecf7376 / a188791d (unwind stops) + MARKERS; DiRT telemetry patch (from the DD 12.x layers); offscreen check cache (hand-ported onto this init.c: TRACE line after the other_process check); WMA 8956410a; GameNative #119 (both files unchanged), #128 (separate patch after ntsync_userspace.patch), #133 with #131, #67 ntdll half (sechost part in-tree since v16), DroidDeck-Proton #34; Azure apt mirror pin (d48e30a1); versionCode 17.
+- **Checked locally:** patch step simulated (tools/make_requests + make_specfiles as autogen does, PATCHES, MARKERS, GE tier where present) PASS on both arches; #119's generated protocol hunks equal make_requests output.
+- **Skipped (user):** GameNative #122, #142, #102, ntsync-android v0.2.0, #124, #126, #135, #129, #118, #85, #86, #101, open PRs.
+- **CI / staged files / device test:** pending; NOT device-tested.
+
 ## 2026-10-30 — DroidDeck-Proton 11.0-11.9 added to v16 (parent branch `proton_11.11.9-DroidDeck` @8e2653cb, no own release)
 - **Why (user):** "build the new proton layer and make its own parent branch but don't create a release for it and add it as v16 to the v16 All in One release and update that release description to reflect it" + "add all of its new features fixes or patches since it is technically an update over DroidDeck 11-11.1". Asked about the in-app list → user chose **"Also add to the app list"** (mirror + catalog rows).
 - **Branch:** `proton_11.11.9-DroidDeck` created at `8e2653cb` (the device-tested commit; new ref, nothing rewritten). Push run **41119590016** (headSha 8e2653cb): aarch64 + x86_64 success, release job skipped (`if: false`). Logs read: arm64ec 65/65 patches, x86_64 63/63, 0 failed, all 11-11.9 / Valve / GE / winewayland markers ok, both rpcrt4 import checks ok, verify-layer PASS ×2; only warning = Node 20 deprecation.
