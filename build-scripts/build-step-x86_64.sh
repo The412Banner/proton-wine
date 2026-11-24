@@ -326,6 +326,11 @@ do
       "dlls_winex11.drv_opengl.c_no_error.patch"
       # ntdll: hide the wine_get_* exports on request, HideWineExports / WINE_HIDE_EXPORTS=1 (#84, Utkarsh Dalal)
       "dlls_ntdll_loader.c_hide_wine_exports.patch"
+      # v17 (2026-11-23)
+      # ws2_32: DiRT 3 / DiRT Showdown keep calling sendto() on their closed telemetry socket; report 0 bytes
+      # sent instead of WSAENOTSOCK (error 10038) for those executables only (ours, DroidDeck-Proton 11-11.10;
+      # same patch as the DroidDeck 11.0-12.3 / 12.8 layers)
+      "dlls_ws2_32_socket.c_dirt_telemetry.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -394,6 +399,7 @@ do
       "dlls/winex11.drv/init.c|Failing it makes Chromium-based launchers fall back to software compositing|Vulkan OPWR off by default on Android (GameNative #82)"
       "dlls/winex11.drv/opengl.c|GLX has no create_context_no_error|WGL no_error attribute dropped without GLX support (GameNative #66)"
       "dlls/ntdll/loader.c|HideWineExports|HideWineExports option (GameNative #84)"
+      "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (ours, DroidDeck-Proton 11-11.10)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
