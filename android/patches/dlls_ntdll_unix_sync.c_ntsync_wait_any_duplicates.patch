@@ -1,0 +1,56 @@
+ntdll: Let userspace ntsync wait-any take the same object more than once.
+
+GameNative/proton-wine #128 (e4651fed, Utkarsh Dalal), there folded into the patch that adds
+userspace_wait_objs; here a separate patch on top of ntsync_userspace.patch. The userspace
+ntsync library rejects a wait that names one object twice, the kernel driver only does that for
+wait-all. Wine's threadpool wait queue puts duplicated handles of one event into a single
+wait-any, which then failed with STATUS_INVALID_PARAMETER and spun (OMORI, 100 % of a core).
+For wait-any each distinct object is passed once and the index is mapped back.
+
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -418,6 +418,9 @@
+                                      int alert_fd, const LARGE_INTEGER *timeout )
+ {
+     struct ntsync_wait_args args = {0};
++    int distinct_objs[NTSYNC_MAX_WAIT_COUNT];
++    DWORD first_index[NTSYNC_MAX_WAIT_COUNT];
++    DWORD i, j, distinct = 0;
+     struct timespec now;
+     int ret;
+ 
+@@ -442,9 +445,34 @@
+     args.index = ~0u;
+     args.alert = alert_fd;
+ 
++    if ((type != WaitAll || count == 1) && count <= NTSYNC_MAX_WAIT_COUNT)
++    {
++        /* The kernel driver accepts the same object more than once in a wait-any
++         * and reports the lowest index; the userspace library rejects that with
++         * EINVAL. Wait on each object once and map the index back. */
++        for (i = 0; i < count; i++)
++        {
++            for (j = 0; j < distinct; j++) if (distinct_objs[j] == objs[i]) break;
++            if (j < distinct) continue;
++            distinct_objs[distinct] = objs[i];
++            first_index[distinct++] = i;
++        }
++        if (distinct < count)
++        {
++            args.objs = (uintptr_t)distinct_objs;
++            args.count = distinct;
++        }
++    }
++
+     if (type != WaitAll || count == 1) ret = ntsync_wait_any( &args );
+     else ret = ntsync_wait_all( &args );
+ 
++    if (args.count < count && (!ret || ret == -EOWNERDEAD))
++    {
++        if (args.index < args.count) args.index = first_index[args.index];
++        else if (args.index == args.count) args.index = count;
++    }
++
+     if (!ret)
+     {
+         if (args.index == count)
