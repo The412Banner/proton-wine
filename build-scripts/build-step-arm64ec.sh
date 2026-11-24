@@ -376,6 +376,13 @@ do
       # (GameNative #133, Utkarsh Dalal). arm64ec only.
       "dlls_ntdll_unix_virtual_c_report_emulated_code_write.patch"
       "dlls_ntdll_signal_arm64ec_c_cross_process_work_callback.patch"
+      # ntdll: gated emulator notifications for protected launchers (Battle.net): non-image section views are
+      # reported only to an emulator exporting BTCpu64NotifyNonImageViews (GameNative's FEX), and EFlags PF/AF
+      # ride in cpsr bits 26/27, announced by __wine_arm64ec_extended_eflags (#67, Utkarsh Dalal, fixes by
+      # Dmage22). Its sechost part is not taken: sechost already imports rpcrt4 directly here. arm64ec only.
+      "dlls_ntdll_ntdll.spec_arm64ec_extended_eflags.patch"
+      "dlls_ntdll_signal_arm64ec.c_emulator_notifications.patch"
+      "dlls_ntdll_unwind.h_emulator_notifications.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -475,6 +482,9 @@ do
       "dlls/ntdll/unix/virtual.c|BOOL virtual_handle_emulated_code_write( void *addr )|system call writes into emulator write-protected RWX pages succeed (GameNative #131/#133)"
       "dlls/ntdll/unix/virtual.c|static void queue_emulated_code_write( void *addr, SIZE_T size )|those writes reported to the emulator (GameNative #133)"
       "dlls/ntdll/signal_arm64ec.c|callback = enter_syscall_callback();|cross-process emulator work applied inside a syscall callback (GameNative #133)"
+      "dlls/ntdll/signal_arm64ec.c|pBTCpu64NotifyNonImageViews = RtlFindExportedRoutineByName|non-image view notifications gated on the emulator (GameNative #67)"
+      "dlls/ntdll/ntdll.spec|__wine_arm64ec_extended_eflags|EFlags PF/AF in cpsr bits 26/27 announced to the emulator (GameNative #67)"
+      "dlls/ntdll/unwind.h|parity and aux carry have no AArch64 equivalent|EFlags PF/AF carried through cpsr bits 26/27 (GameNative #67)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
