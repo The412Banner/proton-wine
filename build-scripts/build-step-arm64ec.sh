@@ -355,6 +355,9 @@ do
       # unset or 0 = every call (proton-wine ff9db6f6 + bab12909, the file our DroidDeck-Proton 11-11.9+
       # layers carry; opt-in)
       "dlls_winex11.drv_init.c_offscreen_check_cache.patch"
+      # winegstreamer: skip the Proton audio converter when mediaconv is off (symmetric to the video-converter
+      # skip) so native avdec_wmav2 decodes WMA cutscene audio (our 8956410a, feat/fmv-audio-converter-skip)
+      "dlls_winegstreamer_wg_parser.c.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -447,6 +450,7 @@ do
       # v17
       "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (v17)"
       "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in, v17)"
+      "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|WMA cutscene audio: Proton audio converter skipped when mediaconv is off (v17)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
