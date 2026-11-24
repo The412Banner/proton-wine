@@ -555,7 +555,7 @@ do
       "dlls/ntdll/signal_arm64ec.c|callback = enter_syscall_callback();|cross-process emulator work applied inside a syscall callback (GameNative #133)"
       "dlls/ntdll/ntdll.spec|__wine_arm64ec_extended_eflags|extended EFlags export for the emulator (GameNative #67)"
       "dlls/ntdll/signal_arm64ec.c|BTCpu64NotifyNonImageViews|non-image view notifications for emulators that ask for them (GameNative #67)"
-      "dlls/ntdll/unwind.h|if (cpsr & 0x04000000) ret |= 0x0004;  /* parity */|EFlags PF/AF in cpsr bits 26/27 (GameNative #67)"
+      "dlls/ntdll/unwind.h|parity and aux carry have no AArch64 equivalent|EFlags PF/AF in cpsr bits 26/27 (GameNative #67)"
       "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second mappings of a loaded DLL (DroidDeck-Proton #34, Black Ops III)"
     )
     for row in "${MARKERS[@]}"; do
