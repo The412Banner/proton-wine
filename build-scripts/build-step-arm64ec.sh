@@ -365,6 +365,9 @@ do
       # ntdll, server: fail would-block receives on nonblocking sockets without a server round trip (DOOM 2016
       # DTLS poll thread); WINE_SOCKET_POLL_FASTPATH=0 disables it (#119, Utkarsh Dalal)
       "dlls_ntdll_unix_socket_c_recv_fastpath.patch"
+      # ntdll: userspace ntsync wait-any accepts the same object more than once, like the kernel driver (OMORI
+      # spin; #128, Utkarsh Dalal; ported onto our ntsync_userspace.patch, must follow it)
+      "dlls_ntdll_unix_sync.c_ntsync_wait_any_duplicates.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -460,6 +463,7 @@ do
       "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|WMA cutscene audio: Proton audio converter skipped when mediaconv is off (v17)"
       "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
       "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path on nonblocking sockets (GameNative #119)"
+      "dlls/ntdll/unix/sync.c|first_index[distinct++] = i;|userspace ntsync wait-any with a repeated object (GameNative #128)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"

@@ -1,0 +1,57 @@
+ntdll: let userspace ntsync wait-any take the same object more than once.
+
+GameNative/proton-wine #128 (e4651fed55e, Utkarsh Dalal), ported onto our
+ntsync_userspace.patch: the userspace ntsync library rejects any wait that
+names the same object twice (EINVAL -> STATUS_INVALID_PARAMETER), while the
+kernel driver and Windows refuse a repeated object only for wait-all. OMORI
+spun at 100 % on such a wait-any. Wait on each object once and map the
+signalled index back to the caller's lowest index (alert index too).
+
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -418,6 +418,9 @@
+                                      int alert_fd, const LARGE_INTEGER *timeout )
+ {
+     struct ntsync_wait_args args = {0};
++    int distinct_objs[NTSYNC_MAX_WAIT_COUNT];
++    DWORD first_index[NTSYNC_MAX_WAIT_COUNT];
++    DWORD i, j, distinct = 0;
+     struct timespec now;
+     int ret;
+ 
+@@ -442,9 +445,34 @@
+     args.index = ~0u;
+     args.alert = alert_fd;
+ 
++    if ((type != WaitAll || count == 1) && count <= NTSYNC_MAX_WAIT_COUNT)
++    {
++        /* The kernel driver accepts the same object more than once in a wait-any
++         * and reports the lowest index; the userspace library rejects that with
++         * EINVAL. Wait on each object once and map the index back. */
++        for (i = 0; i < count; i++)
++        {
++            for (j = 0; j < distinct; j++) if (distinct_objs[j] == objs[i]) break;
++            if (j < distinct) continue;
++            distinct_objs[distinct] = objs[i];
++            first_index[distinct++] = i;
++        }
++        if (distinct < count)
++        {
++            args.objs = (uintptr_t)distinct_objs;
++            args.count = distinct;
++        }
++    }
++
+     if (type != WaitAll || count == 1) ret = ntsync_wait_any( &args );
+     else ret = ntsync_wait_all( &args );
+ 
++    if (args.count < count && (!ret || ret == -EOWNERDEAD))
++    {
++        if (args.index < args.count) args.index = first_index[args.index];
++        else if (args.index == args.count) args.index = count;
++    }
++
+     if (!ret)
+     {
+         if (args.index == count)
