@@ -40,6 +40,29 @@ LRESULT system_tray_call( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, voi
     case WINE_SYSTRAY_CLEANUP_ICONS:
         user_driver->pCleanupIcons( hwnd );
         return 0;
+    case WINE_SYSTRAY_NOTIFY_ICON_SNI:
+        return sni_notify_icon( hwnd, wparam, data );
+    case WINE_SYSTRAY_NOTIFY_BALLOON_SNI:
+        return sni_notify_balloon( data );
+    case WINE_SYSTRAY_DBUS_RUN:
+        sni_run_loop();
+        return 0;
+    case WINE_SYSTRAY_DBUS_HAS_ICONS:
+        return sni_has_icons();
+
+    case WINE_SYSTRAY_NOTIFY_INPUT:
+    {
+        BOOL ret;
+
+        SERVER_START_REQ( set_user_input_time )
+        {
+            req->forward = wine_server_user_handle( hwnd );
+            ret = !wine_server_call_err( req );
+        }
+        SERVER_END_REQ;
+        TRACE( "forwarded tray input permission to %p, ret %u\n", hwnd, ret );
+        return ret;
+    }
 
     case WINE_SYSTRAY_DOCK_INIT:
         user_driver->pSystrayDockInit( hwnd );

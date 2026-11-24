@@ -17,6 +17,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdlib.h>
+
 #include "cfgmgr32_private.h"
 #include "initguid.h"
 #include "devpkey.h"
@@ -224,9 +226,26 @@ static LSTATUS return_property_string( struct property *prop, const WCHAR *value
     return return_property( prop, DEVPROP_TYPE_STRING, value, (wcslen( value ) + 1) * sizeof(WCHAR) );
 }
 
+static BOOL is_disabled_steam_input_device( const WCHAR *path )
+{
+    static const WCHAR steam_input_id[] = L"VID_28DE&PID_11FF";
+    const char *env = getenv( "PROTON_NO_STEAMINPUT" );
+    const WCHAR *p;
+
+    if (!env || env[0] != '1' || env[1]) return FALSE;
+
+    for (p = path; *p; ++p)
+        if (!wcsnicmp( p, steam_input_id, ARRAY_SIZE(steam_input_id) - 1 ))
+            return TRUE;
+
+    return FALSE;
+}
+
 static LSTATUS enum_objects_size( HKEY hkey, const void *object, const WCHAR *path, UINT path_len, void *context )
 {
     UINT *total = context;
+
+    if (is_disabled_steam_input_device( path )) return ERROR_SUCCESS;
     *total += WideCharToMultiByte( CP_ACP, 0, path, path_len, NULL, 0, 0, 0 );
     return ERROR_SUCCESS;
 }
@@ -241,6 +260,7 @@ static LSTATUS enum_objects_append( HKEY hkey, const void *object, const WCHAR *
 {
     struct enum_objects_append_params *params = context;
 
+    if (is_disabled_steam_input_device( path )) return ERROR_SUCCESS;
     if (path_len > params->len) return ERROR_MORE_DATA;
     memcpy( params->buffer, path, path_len * sizeof(WCHAR) );
     params->buffer += path_len;

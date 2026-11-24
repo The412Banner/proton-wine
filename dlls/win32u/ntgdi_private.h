@@ -164,10 +164,18 @@ extern BOOL store_brush_pattern( LOGBRUSH *brush, struct brush_pattern *pattern 
 extern void free_brush_pattern( struct brush_pattern *pattern );
 
 /* clipping.c */
+enum surface_gdi_source
+{
+    SURFACE_GDI_DEFAULT,
+    SURFACE_GDI_OVER_CHILD,
+    SURFACE_GDI_OVER_SELF,
+};
+
 extern BOOL clip_device_rect( DC *dc, RECT *dst, const RECT *src );
 extern BOOL clip_visrect( DC *dc, RECT *dst, const RECT *src );
 extern void set_visible_region( HDC hdc, HRGN hrgn, const RECT *vis_rect, const RECT *device_rect,
-                                struct window_surface *surface, UINT dpi_from, UINT dpi_to );
+                                struct window_surface *surface, enum surface_gdi_source source,
+                                UINT dpi_from, UINT dpi_to );
 extern void update_dc_clipping( DC * dc );
 
 /* Return the total DC region (if any) */
@@ -225,7 +233,9 @@ extern UINT get_dib_dc_color_table( HDC hdc, UINT startpos, UINT entries,
                                     RGBQUAD *colors );
 extern UINT set_dib_dc_color_table( HDC hdc, UINT startpos, UINT entries,
                                     const RGBQUAD *colors );
-extern void dibdrv_set_window_surface( DC *dc, struct window_surface *surface );
+extern void dibdrv_set_window_surface( DC *dc, struct window_surface *surface, enum surface_gdi_source source );
+extern void window_surface_add_self_paint_rect( struct window_surface *surface, const RECT *rect );
+extern void window_surface_clear_self_paint( struct window_surface *surface );
 
 /* driver.c */
 extern const struct gdi_dc_funcs null_driver;

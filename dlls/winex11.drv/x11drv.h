@@ -592,6 +592,7 @@ enum x11drv_atoms
     XATOM_text_uri_list,
     XATOM_GAMESCOPE_XALIA_OVERLAY,
     XATOM_GAMESCOPE_DISPLAY_EDID_PATH,
+    XATOM_GAMESCOPE_HDR_OUTPUT_FEEDBACK,
     NB_XATOMS
 };
 
@@ -706,6 +707,7 @@ struct x11drv_win_data
     unsigned long *icon_bits;
     unsigned int   icon_size;
     Time           user_time;
+    UINT           resize_edge; /* WMSZ_* during a Wine-initiated native resize */
 
     struct window_state desired_state; /* window state tracking the desired / win32 state */
     struct window_state pending_state; /* window state tracking the pending / requested state */

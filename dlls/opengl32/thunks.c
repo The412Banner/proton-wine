@@ -24744,6 +24744,78 @@ static HPBUFFERARB WINAPI wglCreatePbufferARB( HDC hDC, int iPixelFormat, int iW
     return args.ret;
 }
 
+static BOOL WINAPI wglDXCloseDeviceNV( HANDLE hDevice )
+{
+    struct wglDXCloseDeviceNV_params args = { .teb = NtCurrentTeb(), .hDevice = hDevice };
+    NTSTATUS status;
+    TRACE( "hDevice %p\n", hDevice );
+    if ((status = UNIX_CALL( wglDXCloseDeviceNV, &args ))) WARN( "wglDXCloseDeviceNV returned %#lx\n", status );
+    return args.ret;
+}
+
+static BOOL WINAPI wglDXLockObjectsNV( HANDLE hDevice, GLint count, HANDLE *hObjects )
+{
+    struct wglDXLockObjectsNV_params args = { .teb = NtCurrentTeb(), .hDevice = hDevice, .count = count, .hObjects = hObjects };
+    NTSTATUS status;
+    TRACE( "hDevice %p, count %d, hObjects %p\n", hDevice, count, hObjects );
+    if ((status = UNIX_CALL( wglDXLockObjectsNV, &args ))) WARN( "wglDXLockObjectsNV returned %#lx\n", status );
+    return args.ret;
+}
+
+static BOOL WINAPI wglDXObjectAccessNV( HANDLE hObject, GLenum access )
+{
+    struct wglDXObjectAccessNV_params args = { .teb = NtCurrentTeb(), .hObject = hObject, .access = access };
+    NTSTATUS status;
+    TRACE( "hObject %p, access %d\n", hObject, access );
+    if ((status = UNIX_CALL( wglDXObjectAccessNV, &args ))) WARN( "wglDXObjectAccessNV returned %#lx\n", status );
+    return args.ret;
+}
+
+static HANDLE WINAPI wglDXOpenDeviceNV( void *dxDevice )
+{
+    struct wglDXOpenDeviceNV_params args = { .teb = NtCurrentTeb(), .dxDevice = dxDevice };
+    NTSTATUS status;
+    TRACE( "dxDevice %p\n", dxDevice );
+    if ((status = UNIX_CALL( wglDXOpenDeviceNV, &args ))) WARN( "wglDXOpenDeviceNV returned %#lx\n", status );
+    return args.ret;
+}
+
+static HANDLE WINAPI wglDXRegisterObjectNV( HANDLE hDevice, void *dxObject, GLuint name, GLenum type, GLenum access )
+{
+    struct wglDXRegisterObjectNV_params args = { .teb = NtCurrentTeb(), .hDevice = hDevice, .dxObject = dxObject, .name = name, .type = type, .access = access };
+    NTSTATUS status;
+    TRACE( "hDevice %p, dxObject %p, name %d, type %d, access %d\n", hDevice, dxObject, name, type, access );
+    if ((status = UNIX_CALL( wglDXRegisterObjectNV, &args ))) WARN( "wglDXRegisterObjectNV returned %#lx\n", status );
+    return args.ret;
+}
+
+static BOOL WINAPI wglDXSetResourceShareHandleNV( void *dxObject, HANDLE shareHandle )
+{
+    struct wglDXSetResourceShareHandleNV_params args = { .teb = NtCurrentTeb(), .dxObject = dxObject, .shareHandle = shareHandle };
+    NTSTATUS status;
+    TRACE( "dxObject %p, shareHandle %p\n", dxObject, shareHandle );
+    if ((status = UNIX_CALL( wglDXSetResourceShareHandleNV, &args ))) WARN( "wglDXSetResourceShareHandleNV returned %#lx\n", status );
+    return args.ret;
+}
+
+static BOOL WINAPI wglDXUnlockObjectsNV( HANDLE hDevice, GLint count, HANDLE *hObjects )
+{
+    struct wglDXUnlockObjectsNV_params args = { .teb = NtCurrentTeb(), .hDevice = hDevice, .count = count, .hObjects = hObjects };
+    NTSTATUS status;
+    TRACE( "hDevice %p, count %d, hObjects %p\n", hDevice, count, hObjects );
+    if ((status = UNIX_CALL( wglDXUnlockObjectsNV, &args ))) WARN( "wglDXUnlockObjectsNV returned %#lx\n", status );
+    return args.ret;
+}
+
+static BOOL WINAPI wglDXUnregisterObjectNV( HANDLE hDevice, HANDLE hObject )
+{
+    struct wglDXUnregisterObjectNV_params args = { .teb = NtCurrentTeb(), .hDevice = hDevice, .hObject = hObject };
+    NTSTATUS status;
+    TRACE( "hDevice %p, hObject %p\n", hDevice, hObject );
+    if ((status = UNIX_CALL( wglDXUnregisterObjectNV, &args ))) WARN( "wglDXUnregisterObjectNV returned %#lx\n", status );
+    return args.ret;
+}
+
 static BOOL WINAPI wglDestroyPbufferARB( HPBUFFERARB hPbuffer )
 {
     struct wglDestroyPbufferARB_params args = { .teb = NtCurrentTeb(), .hPbuffer = hPbuffer };
@@ -27607,6 +27679,14 @@ const void *extension_procs[] =
     wglChoosePixelFormatARB,
     wglCreateContextAttribsARB,
     wglCreatePbufferARB,
+    wglDXCloseDeviceNV,
+    wglDXLockObjectsNV,
+    wglDXObjectAccessNV,
+    wglDXOpenDeviceNV,
+    wglDXRegisterObjectNV,
+    wglDXSetResourceShareHandleNV,
+    wglDXUnlockObjectsNV,
+    wglDXUnregisterObjectNV,
     wglDestroyPbufferARB,
     wglFreeMemoryNV,
     wglGetCurrentReadDCARB,

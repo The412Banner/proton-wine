@@ -69,6 +69,21 @@ static const WCHAR Enum[] = L"System\\CurrentControlSet\\Enum";
 
 #define SERVICE_CONTROL_REENUMERATE_ROOT_DEVICES 128
 
+static BOOL is_disabled_steam_input_device(const WCHAR *instance)
+{
+    static const WCHAR steam_input_id[] = L"VID_28DE&PID_11FF";
+    const char *env = getenv("PROTON_NO_STEAMINPUT");
+    const WCHAR *p;
+
+    if (!env || env[0] != '1' || env[1]) return FALSE;
+
+    for (p = instance; *p; ++p)
+        if (!wcsnicmp(p, steam_input_id, ARRAY_SIZE(steam_input_id) - 1))
+            return TRUE;
+
+    return FALSE;
+}
+
 struct driver
 {
     DWORD rank;
@@ -2042,7 +2057,8 @@ static void SETUPDI_EnumerateMatchingInterfaces(HDEVINFO DeviceInfoSet,
                 if (!l && dataType == REG_SZ)
                 {
                     TRACE("found instance ID %s\n", debugstr_w(deviceInst));
-                    if (!enumstr || !lstrcmpiW(enumstr, deviceInst))
+                    if (!is_disabled_steam_input_device(deviceInst) &&
+                            (!enumstr || !lstrcmpiW(enumstr, deviceInst)))
                     {
                         HKEY deviceKey;
 
@@ -2281,6 +2297,7 @@ static void SETUPDI_EnumerateMatchingDeviceInstances(struct DeviceInfoSet *set,
 
                             if (swprintf(id, ARRAY_SIZE(id), fmt, enumerator,
                                         deviceName, deviceInstance) != -1 &&
+                                    !is_disabled_steam_input_device(id) &&
                                     (!(flags & DIGCF_PRESENT) ||
                                      is_device_instance_linked(subKey, interfacesKey, id)))
                             {

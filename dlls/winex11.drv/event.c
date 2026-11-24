@@ -1497,6 +1497,10 @@ static BOOL X11DRV_PropertyNotify( HWND hwnd, XEvent *xev )
     if (event->atom == x11drv_atom(_NET_SUPPORTED)) handle_net_supported_notify( event );
     if (event->atom == x11drv_atom(_NET_ACTIVE_WINDOW)) handle_net_active_window( event );
     if (event->atom == x11drv_atom(_NET_SUPPORTING_WM_CHECK)) handle_net_supporting_wm_check_notify( event );
+    if (event->atom == x11drv_atom(GAMESCOPE_HDR_OUTPUT_FEEDBACK) &&
+        event->window == DefaultRootWindow(event->display) && hwnd == NtUserGetDesktopWindow() &&
+        NtUserGetWindowThread( hwnd, NULL ) == GetCurrentThreadId())
+        NtUserCallNoParam( NtUserCallNoParam_DisplayModeChanged );
 
     return TRUE;
 }

@@ -26,8 +26,10 @@
 
 #include <assert.h>
 #include <dlfcn.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -45,11 +47,79 @@ WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 static const struct egl_platform *egl;
 static const struct opengl_funcs *funcs;
 static const struct opengl_drawable_funcs wayland_drawable_funcs;
+static EGLContext egl_fallback_context;
+
+/* Original (win32u) driver proc-address resolver, chained from
+ * wayland_get_proc_address so that names other than the WINE dmabuf-export
+ * extension keep their previous behavior. */
+static void *(*prev_get_proc_address)(const char *);
+
+/* dmabuf export leaf (GL texture/renderbuffer -> Linux dmabuf via
+ * EGL_MESA_image_dma_buf_export). Resolved lazily and gated behind the
+ * runtime extension check below. */
+static PFN_eglCreateImageKHR pfn_eglCreateImageKHR;
+static PFN_eglDestroyImageKHR pfn_eglDestroyImageKHR;
+static PFN_eglExportDMABUFImageMESA pfn_eglExportDMABUFImageMESA;
+static PFN_eglExportDMABUFImageQueryMESA pfn_eglExportDMABUFImageQueryMESA;
+
+static pthread_once_t dmabuf_export_init_once = PTHREAD_ONCE_INIT;
+static BOOL dmabuf_export_supported;
+
+static BOOL dmabuf_export_type_supported(GLenum type)
+{
+    if (!egl) return FALSE;
+    switch (type)
+    {
+    case GL_TEXTURE_2D:
+    case GL_RENDERBUFFER:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+static void dmabuf_export_init_support(void)
+{
+    const char *extensions;
+
+    if (!egl || !funcs || !funcs->p_eglGetProcAddress || !funcs->p_eglQueryString ||
+        !funcs->p_eglGetCurrentContext)
+        return;
+    if (!(extensions = funcs->p_eglQueryString(egl->display, EGL_EXTENSIONS))) return;
+    if (!strstr(extensions, "EGL_KHR_image_base") && !strstr(extensions, "EGL_KHR_image"))
+        return;
+    if (!strstr(extensions, "EGL_MESA_image_dma_buf_export"))
+        return;
+    if (!dmabuf_export_type_supported(GL_TEXTURE_2D))
+        return;
+
+    pfn_eglCreateImageKHR = (void *)funcs->p_eglGetProcAddress("eglCreateImageKHR");
+    pfn_eglDestroyImageKHR = (void *)funcs->p_eglGetProcAddress("eglDestroyImageKHR");
+    pfn_eglExportDMABUFImageMESA = (void *)funcs->p_eglGetProcAddress("eglExportDMABUFImageMESA");
+    pfn_eglExportDMABUFImageQueryMESA = (void *)funcs->p_eglGetProcAddress("eglExportDMABUFImageQueryMESA");
+
+    if (!pfn_eglCreateImageKHR || !pfn_eglDestroyImageKHR || !pfn_eglExportDMABUFImageMESA ||
+        !pfn_eglExportDMABUFImageQueryMESA)
+        return;
+
+    dmabuf_export_supported = TRUE;
+}
+
+static BOOL dmabuf_export_bridge_supported(void)
+{
+    pthread_once(&dmabuf_export_init_once, dmabuf_export_init_support);
+    return dmabuf_export_supported;
+}
 
 struct wayland_gl_drawable
 {
     struct opengl_drawable base;
     struct wl_egl_window *wl_egl_window;
+    EGLConfig config;
+    LONG attachment_generation;
+    BOOL present_opaque;
+    BOOL swap_interval_initialized;
+    BOOL manual_frame_throttle;
 };
 
 static struct wayland_gl_drawable *impl_from_opengl_drawable(struct opengl_drawable *base)
@@ -81,11 +151,80 @@ static void wayland_gl_drawable_sync_size(struct wayland_gl_drawable *gl)
     wl_egl_window_resize(gl->wl_egl_window, client_width, client_height, 0, 0);
 }
 
+static EGLSurface wayland_gl_drawable_create_egl_surface(struct wayland_gl_drawable *gl)
+{
+    EGLint attribs[4], *attrib = attribs;
+
+    if (gl->present_opaque)
+    {
+        *attrib++ = EGL_PRESENT_OPAQUE_EXT;
+        *attrib++ = EGL_TRUE;
+    }
+    *attrib++ = EGL_NONE;
+
+    return funcs->p_eglCreateWindowSurface(egl->display, gl->config,
+                                           gl->wl_egl_window, attribs);
+}
+
+static BOOL wayland_gl_drawable_recreate_egl_surface(struct wayland_gl_drawable *gl)
+{
+    EGLSurface old_surface = gl->base.surface;
+    EGLSurface draw_surface = EGL_NO_SURFACE, read_surface = EGL_NO_SURFACE;
+    EGLContext context = funcs->p_eglGetCurrentContext();
+    BOOL rebind = FALSE;
+
+    if (context != EGL_NO_CONTEXT)
+    {
+        draw_surface = funcs->p_eglGetCurrentSurface(EGL_DRAW);
+        read_surface = funcs->p_eglGetCurrentSurface(EGL_READ);
+        rebind = draw_surface == old_surface || read_surface == old_surface;
+        if (rebind && !funcs->p_eglMakeCurrent(egl->display, EGL_NO_SURFACE,
+                                              EGL_NO_SURFACE, EGL_NO_CONTEXT))
+        {
+            ERR("Failed to release EGL surface %p with error %#x.\n",
+                old_surface, funcs->p_eglGetError());
+            return FALSE;
+        }
+    }
+
+    if (old_surface != EGL_NO_SURFACE &&
+        !funcs->p_eglDestroySurface(egl->display, old_surface))
+    {
+        ERR("Failed to destroy stale EGL surface %p with error %#x.\n",
+            old_surface, funcs->p_eglGetError());
+        return FALSE;
+    }
+
+    gl->base.surface = wayland_gl_drawable_create_egl_surface(gl);
+    if (gl->base.surface == EGL_NO_SURFACE)
+    {
+        ERR("Failed to recreate EGL window surface with error %#x.\n",
+            funcs->p_eglGetError());
+        return FALSE;
+    }
+
+    if (rebind)
+    {
+        if (draw_surface == old_surface) draw_surface = gl->base.surface;
+        if (read_surface == old_surface) read_surface = gl->base.surface;
+        if (!funcs->p_eglMakeCurrent(egl->display, draw_surface, read_surface, context))
+        {
+            ERR("Failed to bind recreated EGL surface %p with error %#x.\n",
+                gl->base.surface, funcs->p_eglGetError());
+            return FALSE;
+        }
+    }
+
+    gl->swap_interval_initialized = FALSE;
+    TRACE("Recreated EGL surface %p as %p after a client role transition.\n",
+          old_surface, gl->base.surface);
+    return TRUE;
+}
+
 static BOOL wayland_opengl_surface_create(HWND hwnd, BOOL raw, int format, struct opengl_drawable **drawable)
 {
     EGLConfig config = egl_config_for_format(format);
     struct wayland_client_surface *client;
-    EGLint attribs[4], *attrib = attribs;
     struct opengl_drawable *previous;
     struct wayland_gl_drawable *gl;
     RECT rect;
@@ -100,12 +239,6 @@ static BOOL wayland_opengl_surface_create(HWND hwnd, BOOL raw, int format, struc
 
     if (!egl->has_EGL_EXT_present_opaque)
         WARN("Missing EGL_EXT_present_opaque extension\n");
-    else
-    {
-        *attrib++ = EGL_PRESENT_OPAQUE_EXT;
-        *attrib++ = EGL_TRUE;
-    }
-    *attrib++ = EGL_NONE;
 
     if (!(client = wayland_client_surface_create(hwnd))) return FALSE;
     gl = opengl_drawable_create(sizeof(*gl), &wayland_drawable_funcs, format, &client->client);
@@ -115,9 +248,14 @@ static BOOL wayland_opengl_surface_create(HWND hwnd, BOOL raw, int format, struc
     gl->base.buffer_map[1] = GL_BACK_RIGHT;
     gl->base.buffer_map[GL_FRONT - GL_FRONT_LEFT] = GL_BACK;
     gl->base.buffer_map[GL_FRONT_AND_BACK - GL_FRONT_LEFT] = GL_BACK;
+    gl->config = config;
+    gl->present_opaque = egl->has_EGL_EXT_present_opaque;
+    gl->attachment_generation = ReadAcquire(&client->attachment_generation);
+
+    NtCreateEvent(&client->throttle, EVENT_ALL_ACCESS, NULL, SynchronizationEvent, TRUE);
 
     if (!(gl->wl_egl_window = wl_egl_window_create(client->wl_surface, rect.right, rect.bottom))) goto err;
-    if (!(gl->base.surface = funcs->p_eglCreateWindowSurface(egl->display, config, gl->wl_egl_window, attribs))) goto err;
+    if (!(gl->base.surface = wayland_gl_drawable_create_egl_surface(gl))) goto err;
     set_client_surface(hwnd, client);
 
     TRACE("Created drawable %s with egl_surface %p\n", debugstr_opengl_drawable(&gl->base), gl->base.surface);
@@ -145,19 +283,125 @@ static void wayland_drawable_flush(struct opengl_drawable *base, UINT flags)
 
     TRACE("drawable %s, flags %#x\n", debugstr_opengl_drawable(base), flags);
 
-    if (flags & GL_FLUSH_INTERVAL) funcs->p_eglSwapInterval(egl->display, abs(base->interval));
-
     /* Since context_flush is called from operations that may latch the native size,
      * perform any pending resizes before calling them. */
     if (flags & GL_FLUSH_UPDATED) wayland_gl_drawable_sync_size(gl);
 }
 
+static void wayland_gl_frame_done(void *data, struct wl_callback *wl_callback, uint32_t callback_data)
+{
+    struct client_surface *client = data;
+    struct wayland_client_surface *surface = impl_from_client_surface(client);
+    BOOL current;
+
+    current = InterlockedCompareExchangePointer((void **)&surface->wl_callback, NULL,
+                                                wl_callback) == wl_callback;
+    if (!current) return;
+    wl_callback_destroy(wl_callback);
+
+    TRACE("hwnd=%p\n", client->hwnd);
+
+    if (surface->throttle) NtSetEvent(surface->throttle, NULL);
+}
+
+static const struct wl_callback_listener gl_throttle_listener =
+{
+    wayland_gl_frame_done,
+};
+
 static BOOL wayland_drawable_swap(struct opengl_drawable *base)
 {
     struct wayland_gl_drawable *gl = impl_from_opengl_drawable(base);
+    struct wayland_client_surface *surface = impl_from_client_surface(base->client);
+    struct wl_callback *callback;
+    LONG attachment_generation;
+    BOOL fallback_bound = FALSE;
+    EGLint error;
 
     client_surface_present(base->client);
-    funcs->p_eglSwapBuffers(egl->display, gl->base.surface);
+    if (!surface->toplevel && !surface->hwnd_dmabuf_producer)
+        return TRUE;
+
+    attachment_generation = ReadAcquire(&surface->attachment_generation);
+    if (gl->attachment_generation != attachment_generation)
+    {
+        if (!wayland_gl_drawable_recreate_egl_surface(gl)) return TRUE;
+        gl->attachment_generation = attachment_generation;
+    }
+
+    if (!funcs->p_eglGetCurrentContext())
+    {
+        if (!egl_fallback_context)
+        {
+            egl_fallback_context = funcs->p_eglCreateContext(egl->display, EGL_NO_CONFIG_KHR,
+                                                             EGL_NO_CONTEXT, NULL);
+            if (!egl_fallback_context)
+            {
+                ERR("Failed to create fallback EGL context with error %#x.\n",
+                    funcs->p_eglGetError());
+                return TRUE;
+            }
+        }
+
+        if (!funcs->p_eglMakeCurrent(egl->display, gl->base.surface,
+                                     gl->base.surface, egl_fallback_context))
+        {
+            ERR("Failed to bind fallback EGL context with error %#x.\n",
+                funcs->p_eglGetError());
+            return TRUE;
+        }
+        fallback_bound = TRUE;
+    }
+
+    if (!gl->swap_interval_initialized)
+    {
+        gl->manual_frame_throttle = funcs->p_eglSwapInterval(egl->display, 0);
+        gl->swap_interval_initialized = TRUE;
+        if (!gl->manual_frame_throttle)
+            WARN("Failed to disable the EGL swap interval; retaining native throttling (error %#x).\n",
+                 funcs->p_eglGetError());
+    }
+
+    if (gl->manual_frame_throttle && abs(base->interval))
+    {
+        const LARGE_INTEGER timeout = { .QuadPart = -10000 * 1000 };
+        NTSTATUS status;
+
+        if (surface->throttle)
+        {
+            status = NtWaitForSingleObject(surface->throttle, FALSE, &timeout);
+            if (status == STATUS_TIMEOUT) WARN("Present timed out!\n");
+        }
+
+        /* wp_fifo with commit timing could support intervals greater than one. */
+        if (!ReadPointerAcquire((void * const volatile *)&surface->wl_callback))
+        {
+            if (surface->throttle) NtResetEvent(surface->throttle, NULL);
+            callback = wl_surface_frame(surface->wl_surface);
+            wl_callback_add_listener(callback, &gl_throttle_listener, base->client);
+            InterlockedExchangePointer((void **)&surface->wl_callback, callback);
+        }
+    }
+    if (!funcs->p_eglSwapBuffers(egl->display, gl->base.surface))
+    {
+        error = funcs->p_eglGetError();
+        if (error == EGL_BAD_SURFACE && wayland_gl_drawable_recreate_egl_surface(gl))
+        {
+            gl->attachment_generation = ReadAcquire(&surface->attachment_generation);
+            if (funcs->p_eglSwapBuffers(egl->display, gl->base.surface)) goto done;
+            error = funcs->p_eglGetError();
+        }
+        ERR("eglSwapBuffers failed with error %#x.\n", error);
+    }
+
+done:
+    if (fallback_bound &&
+        !funcs->p_eglMakeCurrent(egl->display, EGL_NO_SURFACE,
+                                 EGL_NO_SURFACE, EGL_NO_CONTEXT))
+    {
+        WARN("Failed to release fallback EGL context with error %#x.\n",
+             funcs->p_eglGetError());
+    }
 
     return TRUE;
 }
@@ -225,6 +469,84 @@ static UINT wayland_pbuffer_bind(HDC hdc, struct opengl_drawable *base, GLenum b
     return -1; /* use default implementation */
 }
 
+static BOOL GLAPIENTRY wayland_wglWineExportDmaBufWINE(GLuint texture, GLenum target,
+        struct wgl_dmabuf_desc *desc, int *fd)
+{
+    const EGLint image_attribs[] = {EGL_NONE};
+    EGLuint64KHR modifiers[4] = {0};
+    EGLint offsets[4] = {0}, strides[4] = {0};
+    EGLImageKHR image = EGL_NO_IMAGE_KHR;
+    EGLClientBuffer client;
+    int export_fd = -1;
+    int fourcc = 0, planes = 0;
+    EGLenum egl_target;
+
+    TRACE("texture %u, target %#x, desc %p, fd %p.\n", texture, target, desc, fd);
+
+    if (!desc || !fd) return FALSE;
+    memset(desc, 0, sizeof(*desc));
+    *fd = -1;
+
+    if (!texture || !dmabuf_export_bridge_supported() || !dmabuf_export_type_supported(target))
+        return FALSE;
+
+    switch (target)
+    {
+    case GL_TEXTURE_2D:
+        egl_target = EGL_GL_TEXTURE_2D;
+        break;
+    case GL_RENDERBUFFER:
+        egl_target = EGL_GL_RENDERBUFFER;
+        break;
+    default:
+        return FALSE;
+    }
+
+    client = (EGLClientBuffer)(uintptr_t)texture;
+    image = pfn_eglCreateImageKHR(egl->display, funcs->p_eglGetCurrentContext(),
+            egl_target, client, image_attribs);
+    if (image == EGL_NO_IMAGE_KHR)
+        return FALSE;
+
+    /* The export path currently supports only single-plane RGB buffers. */
+    if (!pfn_eglExportDMABUFImageQueryMESA(egl->display, image, &fourcc, &planes, modifiers)
+            || planes != 1)
+        goto done;
+
+    if (!pfn_eglExportDMABUFImageMESA(egl->display, image, &export_fd, strides, offsets)
+            || export_fd < 0)
+        goto done;
+
+    desc->fourcc = fourcc;
+    desc->stride = strides[0];
+    desc->offset = offsets[0];
+    desc->modifier = modifiers[0];
+    *fd = export_fd;
+    export_fd = -1;
+
+done:
+    if (image != EGL_NO_IMAGE_KHR)
+        pfn_eglDestroyImageKHR(egl->display, image);
+    if (export_fd >= 0)
+        close(export_fd);
+    return *fd >= 0;
+}
+
+static BOOL GLAPIENTRY wayland_wglWineDmaBufExportSupportedWINE(void)
+{
+    return dmabuf_export_bridge_supported();
+}
+
+static void *wayland_get_proc_address(const char *name)
+{
+    if (!strcmp(name, "wglWineDmaBufExportSupportedWINE"))
+        return wayland_wglWineDmaBufExportSupportedWINE;
+    if (!strcmp(name, "wglWineExportDmaBufWINE"))
+        return dmabuf_export_bridge_supported() ? (void *)wayland_wglWineExportDmaBufWINE : NULL;
+
+    return prev_get_proc_address ? prev_get_proc_address(name) : NULL;
+}
+
 static struct opengl_driver_funcs wayland_driver_funcs =
 {
     .p_init_egl_platform = wayland_init_egl_platform,
@@ -256,7 +578,8 @@ UINT WAYLAND_OpenGLInit(UINT version, const struct opengl_funcs *opengl_funcs, c
     if (!opengl_funcs->egl_handle) return STATUS_NOT_SUPPORTED;
     funcs = opengl_funcs;
 
-    wayland_driver_funcs.p_get_proc_address = (*driver_funcs)->p_get_proc_address;
+    prev_get_proc_address = (*driver_funcs)->p_get_proc_address;
+    wayland_driver_funcs.p_get_proc_address = wayland_get_proc_address;
     wayland_driver_funcs.p_init_pixel_formats = (*driver_funcs)->p_init_pixel_formats;
     wayland_driver_funcs.p_describe_pixel_format = (*driver_funcs)->p_describe_pixel_format;
     wayland_driver_funcs.p_init_wgl_extensions = (*driver_funcs)->p_init_wgl_extensions;

@@ -24,12 +24,16 @@
 #endif
 
 #include <assert.h>
+#include <limits.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include "ntgdi_private.h"
 #include "ntuser_private.h"
+#include "win32u_private.h"
 #include "wine/opengl_driver.h"
+#include "wine/hwnd_dmabuf.h"
 #include "wine/server.h"
 #include "wine/debug.h"
 
@@ -47,11 +51,531 @@ struct dce
 };
 
 static struct list dce_list = LIST_INIT(dce_list);
+static pthread_key_t background_erase_key;
+static pthread_once_t background_erase_once = PTHREAD_ONCE_INIT;
+static pthread_key_t copy_bits_key;
+static pthread_once_t copy_bits_once = PTHREAD_ONCE_INIT;
 
 #define DCE_CACHE_SIZE 64
 
 static struct list window_surfaces = LIST_INIT( window_surfaces );
 static pthread_mutex_t surfaces_lock = PTHREAD_MUTEX_INITIALIZER;
+
+#define FOREIGN_GDI_RING_SIZE 3
+
+struct foreign_gdi_slot
+{
+    HANDLE section;
+    void *bits;
+    int fd;
+    RECT damage;
+    UINT64 release_token;
+    unsigned int image_id;
+    BOOL busy, initialized, has_damage;
+};
+
+struct foreign_gdi_surface
+{
+    struct window_surface header;
+    struct list entry;
+    HWND hwnd;
+    int channel_fd;
+    UINT64 producer_unique_id;
+    UINT64 next_release_token;
+    unsigned int frame_seq;
+    unsigned int ring_generation;
+    int width, height, stride, size;
+    BOOL lost, slots_created, linked;
+    struct foreign_gdi_slot slots[FOREIGN_GDI_RING_SIZE];
+};
+
+static struct list foreign_gdi_surfaces = LIST_INIT( foreign_gdi_surfaces );
+static pthread_mutex_t foreign_gdi_lock = PTHREAD_MUTEX_INITIALIZER;
+static LONGLONG volatile foreign_gdi_next_producer_id;
+
+static void init_background_erase_key(void)
+{
+    pthread_key_create( &background_erase_key, NULL );
+}
+
+static UINT get_background_erase_depth(void)
+{
+    pthread_once( &background_erase_once, init_background_erase_key );
+    return (UINT)(ULONG_PTR)pthread_getspecific( background_erase_key );
+}
+
+static void set_background_erase_depth( UINT depth )
+{
+    pthread_once( &background_erase_once, init_background_erase_key );
+    pthread_setspecific( background_erase_key, (void *)(ULONG_PTR)depth );
+}
+
+static void init_copy_bits_key(void)
+{
+    pthread_key_create( &copy_bits_key, NULL );
+}
+
+static UINT get_copy_bits_depth(void)
+{
+    pthread_once( &copy_bits_once, init_copy_bits_key );
+    return (UINT)(ULONG_PTR)pthread_getspecific( copy_bits_key );
+}
+
+static void set_copy_bits_depth( UINT depth )
+{
+    pthread_once( &copy_bits_once, init_copy_bits_key );
+    pthread_setspecific( copy_bits_key, (void *)(ULONG_PTR)depth );
+}
+
+static struct foreign_gdi_surface *foreign_gdi_surface_from_window_surface( struct window_surface *surface )
+{
+    return CONTAINING_RECORD( surface, struct foreign_gdi_surface, header );
+}
+
+static void foreign_gdi_slot_destroy( struct foreign_gdi_slot *slot )
+{
+    if (slot->fd >= 0) close( slot->fd );
+    if (slot->bits) NtUnmapViewOfSection( GetCurrentProcess(), slot->bits );
+    if (slot->section) NtClose( slot->section );
+    memset( slot, 0, sizeof(*slot) );
+    slot->fd = -1;
+}
+
+static BOOL foreign_gdi_slot_create( struct foreign_gdi_slot *slot, unsigned int image_id, int size )
+{
+    LARGE_INTEGER section_size;
+    SIZE_T view_size = 0;
+    NTSTATUS status;
+
+    memset( slot, 0, sizeof(*slot) );
+    slot->fd = -1;
+    slot->image_id = image_id;
+
+    section_size.QuadPart = size;
+    status = NtCreateSection( &slot->section, GENERIC_READ | SECTION_MAP_READ | SECTION_MAP_WRITE,
+                              NULL, &section_size, PAGE_READWRITE, SEC_COMMIT, 0 );
+    if (status)
+    {
+        WARN( "failed to create foreign GDI shm section status %#x\n", status );
+        return FALSE;
+    }
+
+    status = NtMapViewOfSection( slot->section, GetCurrentProcess(), &slot->bits, 0, 0, NULL,
+                                 &view_size, ViewUnmap, 0, PAGE_READWRITE );
+    if (status)
+    {
+        WARN( "failed to map foreign GDI shm section status %#x\n", status );
+        foreign_gdi_slot_destroy( slot );
+        return FALSE;
+    }
+
+    status = wine_server_handle_to_fd( slot->section, FILE_READ_DATA, &slot->fd, NULL );
+    if (status)
+    {
+        WARN( "failed to export foreign GDI shm section status %#x\n", status );
+        foreign_gdi_slot_destroy( slot );
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static BOOL foreign_gdi_surface_ensure_slots( struct foreign_gdi_surface *surface )
+{
+    unsigned int i;
+
+    if (surface->slots_created) return TRUE;
+
+    for (i = 0; i < FOREIGN_GDI_RING_SIZE; i++)
+        if (!foreign_gdi_slot_create( &surface->slots[i], i, surface->size ))
+        {
+            while (i--) foreign_gdi_slot_destroy( &surface->slots[i] );
+            return FALSE;
+        }
+
+    surface->slots_created = TRUE;
+    TRACE( "foreign_gdi hwnd=%p allocated %u shm slots size=%d\n",
+           surface->hwnd, FOREIGN_GDI_RING_SIZE, surface->size );
+    return TRUE;
+}
+
+static void foreign_gdi_surface_close_channel( struct foreign_gdi_surface *surface )
+{
+    if (surface->channel_fd >= 0)
+    {
+        hwnd_dmabuf_close_channel( surface->hwnd, surface->channel_fd );
+        surface->channel_fd = -1;
+    }
+}
+
+static BOOL foreign_gdi_surface_ensure_channel( struct foreign_gdi_surface *surface )
+{
+    LONGLONG producer_id;
+
+    if (surface->lost) return FALSE;
+    if (surface->channel_fd >= 0) return TRUE;
+
+    if ((surface->channel_fd = hwnd_dmabuf_open_channel( surface->hwnd )) < 0)
+    {
+        surface->lost = TRUE;
+        TRACE( "foreign_gdi hwnd=%p failed to open producer channel\n", surface->hwnd );
+        return FALSE;
+    }
+
+    producer_id = InterlockedIncrement64( &foreign_gdi_next_producer_id );
+    if (!producer_id) producer_id = InterlockedIncrement64( &foreign_gdi_next_producer_id );
+    surface->producer_unique_id = producer_id;
+    surface->ring_generation++;
+    if (!surface->ring_generation) surface->ring_generation++;
+    TRACE( "foreign_gdi hwnd=%p opened producer channel fd=%d producer=%s generation=%u\n",
+           surface->hwnd, surface->channel_fd, wine_dbgstr_longlong(surface->producer_unique_id),
+           surface->ring_generation );
+    return TRUE;
+}
+
+static void foreign_gdi_surface_drain_releases( struct foreign_gdi_surface *surface )
+{
+    hwnd_dmabuf_release_t rel;
+    int ret;
+
+    if (surface->channel_fd < 0) return;
+    while ((ret = hwnd_dmabuf_channel_recv_release( surface->channel_fd, &rel )) == HWND_DMABUF_CHANNEL_OK)
+    {
+        struct foreign_gdi_slot *slot;
+
+        if (rel.producer_unique_id != surface->producer_unique_id) continue;
+        if (rel.ring_generation != surface->ring_generation) continue;
+        if (rel.image_id >= FOREIGN_GDI_RING_SIZE) continue;
+
+        slot = &surface->slots[rel.image_id];
+        if (!slot->release_token || slot->release_token != rel.release_token) continue;
+
+        slot->busy = FALSE;
+        slot->release_token = 0;
+        TRACE( "foreign_gdi hwnd=%p released slot=%u flags=%#x\n",
+               surface->hwnd, rel.image_id, rel.flags );
+    }
+
+    if (ret == HWND_DMABUF_CHANNEL_CLOSED)
+    {
+        surface->lost = TRUE;
+        foreign_gdi_surface_close_channel( surface );
+    }
+}
+
+static struct foreign_gdi_slot *foreign_gdi_surface_get_free_slot( struct foreign_gdi_surface *surface )
+{
+    unsigned int i;
+
+    foreign_gdi_surface_drain_releases( surface );
+    for (i = 0; i < FOREIGN_GDI_RING_SIZE; i++)
+        if (!surface->slots[i].busy)
+            return &surface->slots[i];
+    return NULL;
+}
+
+static void foreign_gdi_slot_add_damage( struct foreign_gdi_slot *slot, const RECT *damage )
+{
+    /* Stable slots may lag behind while the consumer owns them. */
+    if (!slot->initialized) return;
+    if (!slot->has_damage)
+    {
+        slot->damage = *damage;
+        slot->has_damage = TRUE;
+        return;
+    }
+
+    slot->damage.left = min( slot->damage.left, damage->left );
+    slot->damage.top = min( slot->damage.top, damage->top );
+    slot->damage.right = max( slot->damage.right, damage->right );
+    slot->damage.bottom = max( slot->damage.bottom, damage->bottom );
+}
+
+static void foreign_gdi_surface_add_damage( struct foreign_gdi_surface *surface, const RECT *dirty )
+{
+    RECT bounds = {0, 0, surface->width, surface->height}, damage;
+    unsigned int i;
+
+    if (!intersect_rect( &damage, dirty, &bounds )) return;
+    for (i = 0; i < FOREIGN_GDI_RING_SIZE; i++)
+        foreign_gdi_slot_add_damage( &surface->slots[i], &damage );
+}
+
+static void foreign_gdi_copy_frame( struct foreign_gdi_surface *surface, struct foreign_gdi_slot *slot,
+                                    const BITMAPINFO *color_info, const void *color_bits,
+                                    const RECT *damage )
+{
+    int height = abs( color_info->bmiHeader.biHeight );
+    int width = abs( color_info->bmiHeader.biWidth );
+    int src_stride, left, right, top, bottom;
+    const char *src = color_bits;
+    char *dst = slot->bits;
+    int y;
+
+    if (!height || !width) return;
+    src_stride = color_info->bmiHeader.biSizeImage / height;
+    if (src_stride <= 0) return;
+
+    left = max( 0, damage->left );
+    top = max( 0, damage->top );
+    right = min( min( min( surface->width, width ), src_stride / 4 ), damage->right );
+    bottom = min( min( surface->height, height ), damage->bottom );
+    if (left >= right || top >= bottom) return;
+
+    for (y = top; y < bottom; y++)
+        memcpy( dst + y * surface->stride + left * 4,
+                src + y * src_stride + left * 4, (right - left) * 4 );
+}
+
+static UINT64 foreign_gdi_surface_next_release_token( struct foreign_gdi_surface *surface )
+{
+    UINT64 token = ++surface->next_release_token;
+
+    if (!token) token = ++surface->next_release_token;
+    return token;
+}
+
+static void foreign_gdi_fill_dirty_rect( hwnd_dmabuf_frame_desc_t *desc, const RECT *dirty )
+{
+    RECT rect = *dirty;
+
+    rect.left = max( 0, min( rect.left, (LONG)desc->width ) );
+    rect.top = max( 0, min( rect.top, (LONG)desc->height ) );
+    rect.right = max( rect.left, min( rect.right, (LONG)desc->width ) );
+    rect.bottom = max( rect.top, min( rect.bottom, (LONG)desc->height ) );
+
+    desc->dirty_count = 1;
+    desc->dirty_rects[0][0] = min( rect.left, 0xffff );
+    desc->dirty_rects[0][1] = min( rect.top, 0xffff );
+    desc->dirty_rects[0][2] = min( rect.right, 0xffff );
+    desc->dirty_rects[0][3] = min( rect.bottom, 0xffff );
+}
+
+static BOOL foreign_gdi_surface_flush( struct window_surface *window_surface, const RECT *rect, const RECT *dirty,
+                                       const BITMAPINFO *color_info, const void *color_bits, BOOL shape_changed,
+                                       const BITMAPINFO *shape_info, const void *shape_bits )
+{
+    struct foreign_gdi_surface *surface = foreign_gdi_surface_from_window_surface( window_surface );
+    struct foreign_gdi_slot *slot;
+    hwnd_dmabuf_frame_desc_t desc;
+    int ret;
+
+    if (surface->lost) return TRUE;
+    if (!foreign_gdi_surface_ensure_slots( surface )) return FALSE;
+    foreign_gdi_surface_add_damage( surface, dirty );
+    if (!foreign_gdi_surface_ensure_channel( surface )) return TRUE;
+    if (!(slot = foreign_gdi_surface_get_free_slot( surface )))
+    {
+        TRACE( "foreign_gdi hwnd=%p no free shm slot, keeping dirty=%s\n",
+               surface->hwnd, wine_dbgstr_rect(dirty) );
+        return FALSE;
+    }
+
+    if (!slot->initialized)
+    {
+        RECT full = {0, 0, surface->width, surface->height};
+        foreign_gdi_copy_frame( surface, slot, color_info, color_bits, &full );
+    }
+    else if (slot->has_damage)
+    {
+        foreign_gdi_copy_frame( surface, slot, color_info, color_bits, &slot->damage );
+    }
+    slot->initialized = TRUE;
+    slot->has_damage = FALSE;
+
+    memset( &desc, 0, sizeof(desc) );
+    desc.version = HWND_DMABUF_DESC_VERSION_V1;
+    desc.flags = HWND_DMABUF_FLAG_SHM | HWND_DMABUF_FLAG_STABLE_SLOT;
+    desc.width = surface->width;
+    desc.height = surface->height;
+    desc.fourcc = HWND_DMABUF_SHM_FORMAT_XRGB8888;
+    desc.stride = surface->stride;
+    desc.frame_seq = ++surface->frame_seq;
+    desc.ring_generation = surface->ring_generation;
+    desc.image_id = slot->image_id;
+    desc.modifier = HWND_DMABUF_MOD_LINEAR;
+    desc.producer_unique_id = surface->producer_unique_id;
+    desc.release_token = foreign_gdi_surface_next_release_token( surface );
+    desc.alpha_mode = HWND_DMABUF_ALPHA_MODE_IGNORE;
+    desc.plane_count = 1;
+    desc.plane_offsets[0] = 0;
+    desc.plane_strides[0] = surface->stride;
+    foreign_gdi_fill_dirty_rect( &desc, dirty );
+
+    slot->busy = TRUE;
+    slot->release_token = desc.release_token;
+    ret = hwnd_dmabuf_channel_publish( surface->hwnd, surface->channel_fd, &desc, slot->fd );
+    if (ret == HWND_DMABUF_CHANNEL_OK)
+    {
+        TRACE( "foreign_gdi hwnd=%p published shm slot=%u seq=%u size=%ux%u dirty=%s token=%s\n",
+               surface->hwnd, slot->image_id, desc.frame_seq, desc.width, desc.height,
+               wine_dbgstr_rect(dirty), wine_dbgstr_longlong(desc.release_token) );
+        return TRUE;
+    }
+
+    slot->busy = FALSE;
+    slot->release_token = 0;
+    WARN( "foreign_gdi hwnd=%p failed to publish shm slot=%u ret=%d\n",
+          surface->hwnd, slot->image_id, ret );
+    if (ret == HWND_DMABUF_CHANNEL_CLOSED)
+    {
+        surface->lost = TRUE;
+        foreign_gdi_surface_close_channel( surface );
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static void foreign_gdi_surface_set_clip( struct window_surface *surface, const RECT *rects, UINT count )
+{
+}
+
+static void foreign_gdi_surface_destroy( struct window_surface *window_surface )
+{
+    struct foreign_gdi_surface *surface = foreign_gdi_surface_from_window_surface( window_surface );
+    unsigned int i;
+
+    pthread_mutex_lock( &foreign_gdi_lock );
+    if (surface->linked)
+    {
+        list_remove( &surface->entry );
+        surface->linked = FALSE;
+    }
+    pthread_mutex_unlock( &foreign_gdi_lock );
+
+    foreign_gdi_surface_close_channel( surface );
+    for (i = 0; i < FOREIGN_GDI_RING_SIZE; i++)
+        foreign_gdi_slot_destroy( &surface->slots[i] );
+}
+
+static const struct window_surface_funcs foreign_gdi_surface_funcs =
+{
+    foreign_gdi_surface_set_clip,
+    foreign_gdi_surface_flush,
+    foreign_gdi_surface_destroy
+};
+
+static struct foreign_gdi_surface *foreign_gdi_surface_create( HWND hwnd, int width, int height )
+{
+    char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+    BITMAPINFO *info = (BITMAPINFO *)buffer;
+    struct foreign_gdi_surface *surface;
+    struct window_surface *window_surface;
+    RECT rect = {0, 0, width, height};
+    unsigned int i;
+
+    if (width <= 0 || height <= 0) return NULL;
+    if (width > INT_MAX / 4) return NULL;
+    if (height > INT_MAX / (width * 4)) return NULL;
+
+    memset( info, 0, sizeof(*info) );
+    info->bmiHeader.biSize = sizeof(info->bmiHeader);
+    info->bmiHeader.biWidth = width;
+    info->bmiHeader.biHeight = -height;
+    info->bmiHeader.biPlanes = 1;
+    info->bmiHeader.biBitCount = 32;
+    info->bmiHeader.biCompression = BI_RGB;
+    info->bmiHeader.biSizeImage = get_dib_image_size( info );
+
+    if (!(window_surface = window_surface_create( sizeof(*surface), &foreign_gdi_surface_funcs,
+                                                  hwnd, &rect, info, 0 )))
+        return NULL;
+
+    surface = foreign_gdi_surface_from_window_surface( window_surface );
+    surface->hwnd = hwnd;
+    surface->channel_fd = -1;
+    surface->width = width;
+    surface->height = height;
+    surface->stride = width * 4;
+    surface->size = surface->stride * height;
+    surface->ring_generation = 1;
+    for (i = 0; i < FOREIGN_GDI_RING_SIZE; i++)
+        surface->slots[i].fd = -1;
+
+    TRACE( "foreign_gdi hwnd=%p using cpu-shm surface %p size=%dx%d\n",
+           hwnd, surface, width, height );
+    return surface;
+}
+
+static struct window_surface *foreign_gdi_surface_get( HWND hwnd, const RECT *win_rect )
+{
+    struct foreign_gdi_surface *surface, *old = NULL, *created;
+    int width = win_rect->right - win_rect->left;
+    int height = win_rect->bottom - win_rect->top;
+
+    if (width <= 0 || height <= 0) return NULL;
+
+    pthread_mutex_lock( &foreign_gdi_lock );
+    LIST_FOR_EACH_ENTRY( surface, &foreign_gdi_surfaces, struct foreign_gdi_surface, entry )
+    {
+        if (surface->hwnd != hwnd) continue;
+        if (surface->width == width && surface->height == height && !surface->lost)
+        {
+            window_surface_add_ref( &surface->header );
+            pthread_mutex_unlock( &foreign_gdi_lock );
+            return &surface->header;
+        }
+        list_remove( &surface->entry );
+        surface->linked = FALSE;
+        old = surface;
+        break;
+    }
+    pthread_mutex_unlock( &foreign_gdi_lock );
+
+    if (old)
+    {
+        window_surface_lock( &old->header );
+        old->lost = TRUE;
+        foreign_gdi_surface_close_channel( old );
+        window_surface_unlock( &old->header );
+        register_window_surface( &old->header, NULL );
+        window_surface_release( &old->header );
+    }
+
+    if (!(created = foreign_gdi_surface_create( hwnd, width, height ))) return NULL;
+
+    pthread_mutex_lock( &foreign_gdi_lock );
+    LIST_FOR_EACH_ENTRY( surface, &foreign_gdi_surfaces, struct foreign_gdi_surface, entry )
+    {
+        if (surface->hwnd != hwnd) continue;
+        if (surface->width == width && surface->height == height && !surface->lost)
+        {
+            window_surface_add_ref( &surface->header );
+            pthread_mutex_unlock( &foreign_gdi_lock );
+            window_surface_release( &created->header );
+            return &surface->header;
+        }
+    }
+    list_add_tail( &foreign_gdi_surfaces, &created->entry );
+    created->linked = TRUE;
+    window_surface_add_ref( &created->header );
+    pthread_mutex_unlock( &foreign_gdi_lock );
+
+    register_window_surface( NULL, &created->header );
+    return &created->header;
+}
+
+static void foreign_gdi_surface_flush_hwnd( HWND hwnd )
+{
+    struct foreign_gdi_surface *surface;
+    struct window_surface *window_surface = NULL;
+
+    pthread_mutex_lock( &foreign_gdi_lock );
+    LIST_FOR_EACH_ENTRY( surface, &foreign_gdi_surfaces, struct foreign_gdi_surface, entry )
+    {
+        if (surface->hwnd != hwnd) continue;
+        window_surface = &surface->header;
+        window_surface_add_ref( window_surface );
+        break;
+    }
+    pthread_mutex_unlock( &foreign_gdi_lock );
+
+    if (window_surface)
+    {
+        window_surface_flush( window_surface );
+        window_surface_release( window_surface );
+    }
+}
 
 /*******************************************************************
  * Dummy window surface for windows that shouldn't get painted.
@@ -169,6 +693,7 @@ static BOOL scaled_surface_flush( struct window_surface *window_surface, const R
     struct scaled_surface *surface = get_scaled_surface( window_surface );
     RECT src = *dirty, dst;
     HDC hdc_dst, hdc_src;
+    HRGN self_painted;
 
     src.left &= ~7;
     src.top &= ~7;
@@ -194,6 +719,18 @@ static BOOL scaled_surface_flush( struct window_surface *window_surface, const R
     NtGdiDeleteObjectApp( hdc_src );
 
     window_surface_lock( surface->target_surface );
+    self_painted = map_dpi_region( window_surface->self_painted_region, surface->dpi_from, surface->dpi_to );
+    if ((self_painted || surface->target_surface->self_painted_region) &&
+        !NtGdiEqualRgn( self_painted, surface->target_surface->self_painted_region ))
+    {
+        if (surface->target_surface->self_painted_region)
+            NtGdiDeleteObjectApp( surface->target_surface->self_painted_region );
+        surface->target_surface->self_painted_region = self_painted;
+        self_painted = 0;
+        surface->target_surface->bounds = surface->target_surface->rect;
+    }
+    if (self_painted) NtGdiDeleteObjectApp( self_painted );
+    window_surface_add_app_paint_rect( surface->target_surface, &dst );
     add_bounds_rect( &surface->target_surface->bounds, &dst );
     window_surface_unlock( surface->target_surface );
 
@@ -569,6 +1106,10 @@ W32KAPI void window_surface_release( struct window_surface *surface )
     {
         if (surface != &dummy_surface) pthread_mutex_destroy( &surface->mutex );
         if (surface->clip_region) NtGdiDeleteObjectApp( surface->clip_region );
+        if (surface->app_painted_region) NtGdiDeleteObjectApp( surface->app_painted_region );
+        if (surface->gdi_over_producer_region) NtGdiDeleteObjectApp( surface->gdi_over_producer_region );
+        if (surface->gdi_over_paint_region) NtGdiDeleteObjectApp( surface->gdi_over_paint_region );
+        if (surface->self_painted_region) NtGdiDeleteObjectApp( surface->self_painted_region );
         if (surface->color_bitmap) NtGdiDeleteObjectApp( surface->color_bitmap );
         if (surface->shape_bitmap) NtGdiDeleteObjectApp( surface->shape_bitmap );
         surface->funcs->destroy( surface );
@@ -654,10 +1195,162 @@ W32KAPI void window_surface_flush( struct window_surface *surface )
 
         if (surface->funcs->flush( surface, &surface->rect, &dirty, color_info, color_bits,
                                    shape_changed, shape_info, shape_bits ))
+        {
             reset_bounds( &surface->bounds );
+            if (surface->gdi_over_paint_region)
+            {
+                NtGdiDeleteObjectApp( surface->gdi_over_paint_region );
+                surface->gdi_over_paint_region = 0;
+            }
+        }
     }
 
     window_surface_unlock( surface );
+}
+
+W32KAPI void window_surface_add_app_paint_rect( struct window_surface *surface, const RECT *rect )
+{
+    HRGN rect_region, surface_region;
+
+    if (surface == &dummy_surface || IsRectEmpty( rect )) return;
+    if (surface->app_painted_full) return;
+    if (rect->left <= surface->rect.left && rect->top <= surface->rect.top &&
+        rect->right >= surface->rect.right && rect->bottom >= surface->rect.bottom)
+    {
+        if (surface->app_painted_region)
+        {
+            NtGdiDeleteObjectApp( surface->app_painted_region );
+            surface->app_painted_region = 0;
+        }
+        surface->app_painted_full = TRUE;
+        return;
+    }
+    if (!(rect_region = NtGdiCreateRectRgn( rect->left, rect->top, rect->right, rect->bottom ))) return;
+    if (!surface->app_painted_region)
+        surface->app_painted_region = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+    if (surface->app_painted_region)
+    {
+        NtGdiCombineRgn( surface->app_painted_region, surface->app_painted_region, rect_region, RGN_OR );
+        if ((surface_region = NtGdiCreateRectRgn( surface->rect.left, surface->rect.top,
+                                                  surface->rect.right, surface->rect.bottom )))
+        {
+            if (NtGdiEqualRgn( surface->app_painted_region, surface_region ))
+            {
+                NtGdiDeleteObjectApp( surface->app_painted_region );
+                surface->app_painted_region = 0;
+                surface->app_painted_full = TRUE;
+            }
+            NtGdiDeleteObjectApp( surface_region );
+        }
+    }
+    NtGdiDeleteObjectApp( rect_region );
+}
+
+void window_surface_add_self_paint_rect( struct window_surface *surface, const RECT *rect )
+{
+    HRGN region;
+
+    if (IsRectEmpty( rect ) || get_background_erase_depth() || get_copy_bits_depth()) return;
+    if (!(region = NtGdiCreateRectRgn( rect->left, rect->top, rect->right, rect->bottom ))) return;
+    if (!surface->self_painted_region) surface->self_painted_region = region;
+    else
+    {
+        NtGdiCombineRgn( surface->self_painted_region, surface->self_painted_region, region, RGN_OR );
+        NtGdiDeleteObjectApp( region );
+    }
+}
+
+void window_surface_clear_self_paint( struct window_surface *surface )
+{
+    BOOL changed = FALSE;
+
+    window_surface_lock( surface );
+    if (surface->self_painted_region)
+    {
+        NtGdiDeleteObjectApp( surface->self_painted_region );
+        surface->self_painted_region = 0;
+        surface->bounds = surface->rect;
+        changed = TRUE;
+    }
+    window_surface_unlock( surface );
+
+    if (changed) window_surface_flush( surface );
+}
+
+W32KAPI void window_surface_add_gdi_over_paint_rect( struct window_surface *surface, const RECT *rect )
+{
+    HRGN rect_region, clipped_region, producer_region = 0, synthetic_region = 0, combined_region = 0;
+    int type;
+
+    if (IsRectEmpty( rect )) return;
+    if (get_background_erase_depth() || get_copy_bits_depth()) return;
+    if (!(rect_region = NtGdiCreateRectRgn( rect->left, rect->top, rect->right, rect->bottom ))) return;
+    if (!(clipped_region = NtGdiCreateRectRgn( 0, 0, 0, 0 )))
+    {
+        NtGdiDeleteObjectApp( rect_region );
+        return;
+    }
+
+    if (surface->clip_region && !surface->alpha_mask && surface->color_key == CLR_INVALID &&
+        surface->alpha_bits == -1 &&
+        (!surface->shape_region || !NtGdiEqualRgn( surface->clip_region, surface->shape_region )))
+    {
+        HRGN surface_region;
+
+        if ((surface_region = NtGdiCreateRectRgn( surface->rect.left, surface->rect.top,
+                                                  surface->rect.right, surface->rect.bottom )))
+        {
+            int producer_type;
+
+            synthetic_region = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+            if (synthetic_region)
+            {
+                producer_type = NtGdiCombineRgn( synthetic_region, surface_region,
+                                                 surface->clip_region, RGN_DIFF );
+                if (producer_type == ERROR || producer_type == NULLREGION)
+                {
+                    NtGdiDeleteObjectApp( synthetic_region );
+                    synthetic_region = 0;
+                }
+            }
+            NtGdiDeleteObjectApp( surface_region );
+        }
+    }
+
+    if (surface->gdi_over_producer_region && synthetic_region)
+    {
+        combined_region = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+        if (combined_region &&
+            NtGdiCombineRgn( combined_region, surface->gdi_over_producer_region,
+                             synthetic_region, RGN_OR ) != ERROR)
+            producer_region = combined_region;
+        else producer_region = surface->gdi_over_producer_region;
+    }
+    else producer_region = surface->gdi_over_producer_region ? surface->gdi_over_producer_region : synthetic_region;
+
+    if (!producer_region)
+    {
+        if (synthetic_region) NtGdiDeleteObjectApp( synthetic_region );
+        if (combined_region) NtGdiDeleteObjectApp( combined_region );
+        NtGdiDeleteObjectApp( clipped_region );
+        NtGdiDeleteObjectApp( rect_region );
+        return;
+    }
+
+    type = NtGdiCombineRgn( clipped_region, rect_region, producer_region, RGN_AND );
+    if (type != ERROR && type != NULLREGION)
+    {
+        if (!surface->gdi_over_paint_region)
+            surface->gdi_over_paint_region = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+        if (surface->gdi_over_paint_region)
+            NtGdiCombineRgn( surface->gdi_over_paint_region, surface->gdi_over_paint_region,
+                             clipped_region, RGN_OR );
+    }
+
+    if (combined_region) NtGdiDeleteObjectApp( combined_region );
+    if (synthetic_region) NtGdiDeleteObjectApp( synthetic_region );
+    NtGdiDeleteObjectApp( clipped_region );
+    NtGdiDeleteObjectApp( rect_region );
 }
 
 W32KAPI void window_surface_set_layered( struct window_surface *surface, COLORREF color_key, UINT alpha_bits, UINT alpha_mask )
@@ -720,6 +1413,56 @@ W32KAPI void window_surface_set_clip( struct window_surface *surface, HRGN clip_
     }
 
     window_surface_unlock( surface );
+}
+
+W32KAPI void window_surface_set_gdi_over_producer_region( struct window_surface *surface, HRGN region )
+{
+    BOOL changed = FALSE;
+
+    window_surface_lock( surface );
+
+    if (!region && surface->gdi_over_producer_region)
+    {
+        TRACE( "hwnd %p, surface %p %s, clearing GDI-over-producer region\n", surface->hwnd, surface,
+               wine_dbgstr_rect( &surface->rect ) );
+
+        NtGdiDeleteObjectApp( surface->gdi_over_producer_region );
+        surface->gdi_over_producer_region = 0;
+        if (surface->gdi_over_paint_region)
+        {
+            NtGdiDeleteObjectApp( surface->gdi_over_paint_region );
+            surface->gdi_over_paint_region = 0;
+        }
+        surface->bounds = surface->rect;
+        changed = TRUE;
+    }
+    else if (region && !NtGdiEqualRgn( region, surface->gdi_over_producer_region ))
+    {
+        RECT box;
+
+        if (!surface->gdi_over_producer_region)
+            surface->gdi_over_producer_region = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+        NtGdiCombineRgn( surface->gdi_over_producer_region, region, 0, RGN_COPY );
+        if (surface->gdi_over_paint_region)
+        {
+            if (NtGdiCombineRgn( surface->gdi_over_paint_region, surface->gdi_over_paint_region,
+                                 surface->gdi_over_producer_region, RGN_AND ) == NULLREGION)
+            {
+                NtGdiDeleteObjectApp( surface->gdi_over_paint_region );
+                surface->gdi_over_paint_region = 0;
+            }
+        }
+
+        NtGdiGetRgnBox( region, &box );
+        TRACE( "hwnd %p, surface %p %s, setting GDI-over-producer region %s\n", surface->hwnd,
+               surface, wine_dbgstr_rect( &surface->rect ), wine_dbgstr_rect( &box ) );
+        surface->bounds = surface->rect;
+        changed = TRUE;
+    }
+
+    window_surface_unlock( surface );
+
+    if (changed) window_surface_flush( surface );
 }
 
 W32KAPI void window_surface_set_shape( struct window_surface *surface, HRGN shape_region )
@@ -858,6 +1601,7 @@ static void update_visible_region( struct dce *dce )
     UINT raw_dpi;
     DWORD layered_flags;
     WND *win;
+    BOOL foreign = dce->hwnd && !is_current_process_window( dce->hwnd );
 
     /* don't clip siblings if using parent clip region */
     if (flags & DCX_PARENTCLIP) flags &= ~DCX_CLIPSIBLINGS;
@@ -897,8 +1641,9 @@ static void update_visible_region( struct dce *dce )
     if (dce->clip_rgn) NtGdiCombineRgn( vis_rgn, vis_rgn, dce->clip_rgn,
                                         (flags & DCX_INTERSECTRGN) ? RGN_AND : RGN_DIFF );
 
-    /* don't use a surface to paint the client area of OpenGL windows */
-    if (!(paint_flags & SET_WINPOS_PIXEL_FORMAT) || (flags & DCX_WINDOW)
+    /* don't use a parent surface to paint client areas that are clipped out */
+    if (!((paint_flags & (SET_WINPOS_PIXEL_FORMAT | SET_WINPOS_CLIP_CLIENT)) && user_driver->dc_funcs.pPutImage) ||
+        (flags & DCX_WINDOW)
         || (NtUserGetLayeredWindowAttributes( dce->hwnd, NULL, NULL, &layered_flags ) && layered_flags & LWA_COLORKEY)
         || force_present_to_surface( &win_rect ))
     {
@@ -913,14 +1658,39 @@ static void update_visible_region( struct dce *dce )
 
     if (surface)
     {
+        enum surface_gdi_source source = SURFACE_GDI_DEFAULT;
+
+        if (!foreign)
+        {
+            if (dce->hwnd == top_win && !user_driver->dc_funcs.pPutImage &&
+                (paint_flags & (SET_WINPOS_PIXEL_FORMAT | SET_WINPOS_CLIP_CLIENT)))
+                source = SURFACE_GDI_OVER_SELF;
+            else if (dce->hwnd != top_win &&
+                     (get_window_long( dce->hwnd, GWL_EXSTYLE ) & WS_EX_TRANSPARENT) &&
+                     !(paint_flags & (SET_WINPOS_PIXEL_FORMAT | SET_WINPOS_CLIP_CLIENT)))
+                source = SURFACE_GDI_OVER_CHILD;
+        }
+
         user_driver->pGetDC( dce->hdc, dce->hwnd, top_win, &win_rect, &top_rect, flags );
-        set_visible_region( dce->hdc, vis_rgn, &win_rect, &top_rect, surface, 0, 0 );
+        set_visible_region( dce->hdc, vis_rgn, &win_rect, &top_rect, surface, source, 0, 0 );
         window_surface_release( surface );
     }
     else
     {
+        struct window_surface *foreign_surface = NULL;
         RECT window_rect, toplevel_rect;
         UINT dpi;
+
+        if (foreign && (user_driver->pGetForeignGdiSurfaceCaps() & WINE_GDI_FOREIGN_SURFACE_SHM))
+            foreign_surface = foreign_gdi_surface_get( dce->hwnd, &win_rect );
+
+        if (foreign_surface)
+        {
+            user_driver->pGetDC( dce->hdc, dce->hwnd, top_win, &win_rect, &win_rect, flags );
+            set_visible_region( dce->hdc, vis_rgn, &win_rect, &win_rect, foreign_surface, FALSE, 0, 0 );
+            window_surface_release( foreign_surface );
+            return;
+        }
 
         get_win_monitor_dpi( top_win, &raw_dpi );
         dpi = get_dpi_for_window( top_win );
@@ -930,7 +1700,7 @@ static void update_visible_region( struct dce *dce )
         user_driver->pGetDC( dce->hdc, dce->hwnd, top_win, &window_rect, &toplevel_rect, flags );
 
         SetRectEmpty( &top_rect );
-        set_visible_region( dce->hdc, vis_rgn, &win_rect, &top_rect, NULL, dpi, raw_dpi );
+        set_visible_region( dce->hdc, vis_rgn, &win_rect, &top_rect, NULL, FALSE, dpi, raw_dpi );
     }
 }
 
@@ -941,7 +1711,7 @@ static void release_dce( struct dce *dce )
 {
     if (!dce->hwnd) return;  /* already released */
 
-    set_visible_region( dce->hdc, 0, &dummy_surface.rect, &dummy_surface.rect, &dummy_surface, 0, 0 );
+    set_visible_region( dce->hdc, 0, &dummy_surface.rect, &dummy_surface.rect, &dummy_surface, FALSE, 0, 0 );
     user_driver->pReleaseDC( dce->hwnd, dce->hdc );
 
     if (dce->clip_rgn) NtGdiDeleteObjectApp( dce->clip_rgn );
@@ -1458,7 +2228,10 @@ HDC WINAPI NtUserGetDCEx( HWND hwnd, HRGN clip_rgn, DWORD flags )
 INT WINAPI NtUserReleaseDC( HWND hwnd, HDC hdc )
 {
     if (hwnd && !is_current_process_window( hwnd ))
+    {
+        foreign_gdi_surface_flush_hwnd( hwnd );
         user_driver->pProcessEvents( 0 );
+    }
 
     return release_dc( hwnd, hdc, FALSE );
 }
@@ -1687,7 +2460,11 @@ static BOOL send_erase( HWND hwnd, UINT flags, HRGN client_rgn,
                 /* don't erase if the clip box is empty */
                 if (type != NULLREGION)
                 {
+                    UINT erase_depth = get_background_erase_depth();
+
+                    set_background_erase_depth( erase_depth + 1 );
                     need_erase = !send_message_timeout( hwnd, WM_ERASEBKGND, (WPARAM)hdc, 0, SMTO_ABORTIFHUNG, 1000, FALSE );
+                    set_background_erase_depth( erase_depth );
                     if (need_erase && RtlGetLastWin32Error() == ERROR_TIMEOUT) ERR( "timeout.\n" );
                 }
             }
@@ -1715,13 +2492,16 @@ void move_window_bits( HWND hwnd, const struct window_rects *rects, const RECT *
         UINT flags = UPDATE_NOCHILDREN | UPDATE_CLIPCHILDREN;
         HRGN rgn = get_update_region( hwnd, &flags, NULL );
         HDC hdc = NtUserGetDCEx( hwnd, rgn, DCX_CACHE | DCX_WINDOW | DCX_EXCLUDERGN );
+        UINT copy_bits_depth = get_copy_bits_depth();
 
         TRACE( "copying %s -> %s\n", wine_dbgstr_rect( &src ), wine_dbgstr_rect( &dst ));
         OffsetRect( &src, -rects->window.left, -rects->window.top );
         OffsetRect( &dst, -rects->window.left, -rects->window.top );
 
+        set_copy_bits_depth( copy_bits_depth + 1 );
         NtGdiStretchBlt( hdc, dst.left, dst.top, dst.right - dst.left, dst.bottom - dst.top,
                          hdc, src.left, src.top, src.right - src.left, src.bottom - src.top, SRCCOPY, 0 );
+        set_copy_bits_depth( copy_bits_depth );
         NtUserReleaseDC( hwnd, hdc );
     }
 }
@@ -1744,6 +2524,7 @@ void move_window_bits_surface( HWND hwnd, const RECT *window_rect, struct window
 
     RECT dst = valid_rects[0];
     RECT src = valid_rects[1];
+    UINT copy_bits_depth = get_copy_bits_depth();
 
     TRACE( "copying %s -> %s\n", wine_dbgstr_rect( &src ), wine_dbgstr_rect( &dst ));
     OffsetRect( &src, -old_visible_rect->left, -old_visible_rect->top );
@@ -1751,10 +2532,12 @@ void move_window_bits_surface( HWND hwnd, const RECT *window_rect, struct window
 
     window_surface_lock( old_surface );
     bits = window_surface_get_color( old_surface, info );
+    set_copy_bits_depth( copy_bits_depth + 1 );
     NtGdiSetDIBitsToDeviceInternal( hdc, dst.left, dst.top, dst.right - dst.left, dst.bottom - dst.top,
                                     src.left - old_surface->rect.left, old_surface->rect.bottom - src.bottom,
                                     0, old_surface->rect.bottom - old_surface->rect.top,
                                     bits, info, DIB_RGB_COLORS, 0, 0, FALSE, NULL );
+    set_copy_bits_depth( copy_bits_depth );
     window_surface_unlock( old_surface );
     NtUserReleaseDC( hwnd, hdc );
 }
