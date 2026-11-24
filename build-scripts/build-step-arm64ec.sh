@@ -343,6 +343,9 @@ do
       # sent instead of WSAENOTSOCK (error 10038) for those executables only (ours, DroidDeck-Proton 11-11.10;
       # same patch as the DroidDeck 11.0-12.3 / 12.8 layers)
       "common/dlls_ws2_32_socket_c_dirt_telemetry.patch"
+      # winex11: needs_offscreen_rendering at most every WINE_OFFSCREEN_CHECK_MS ms on the Vulkan present path;
+      # unset or 0 = every call (ours, proton-wine ff9db6f6 + bab12909, ported to Wine 10's vulkan_surface_update_offscreen)
+      "common/dlls_winex11_drv_vulkan_c_offscreen_check_cache.patch"
     )
 
     for patch in "${PATCHES[@]}"; do
@@ -399,6 +402,7 @@ do
       "dlls/ntdll/signal_arm64ec.c|unwind made no progress at pc|ARM64EC exception search and unwind stop at a frame that does not move (proton-wine fecf7376)"
       "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (proton-wine a188791d)"
       "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (ours, DroidDeck-Proton 11-11.10)"
+      "dlls/winex11.drv/vulkan.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache on the Vulkan present path (opt-in, WINE_OFFSCREEN_CHECK_MS)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
