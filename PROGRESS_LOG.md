@@ -2,6 +2,18 @@
 
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer only.
 
+## 2026-11-24 00:51 EST — v17 staging build GREEN and staged (`staging/proton_11.14-GE/v17` @ dcd87090, CI-green, NOT device-tested)
+- **First builds:** parent push run 45329982897 (84da4aa9) FAILED on both legs in `dlls/wmvcore/async_reader.c`: GE video 0133 clears `active_start` / `active_duration`, members only GE's 0009 arcania patch adds (not carried). Staging run 45331633505 (ae29c527) cancelled for the same reason.
+- **Fix:** parent `52e0d8cc` reverses 0133 (new commit, no force push); merged into staging as `dcd87090`.
+- **CI:** staging push run **45332733791** (headSha dcd87090 asserted): build (aarch64, 28) success, build (x86_64, 28) success, release skipped (`if: false`). Logs read: arm64ec 72 patches SUCCESS, x86_64 64; every MARKER ok incl. all v17 rows; "All shipped features verified present"; GE game-fixes 15/15; verify-layer PASS on both (GE 11-14 picks: lsass.exe, WINE_DDRAW_MAXGAMETICKS, WINE_CURSOR_SCALE); lsteamclient check OK (arm64ec), absent (x86_64). Skipped steps are the arch-conditional ones only. Only warning: Node 20 deprecation. Parent rerun: push run **45332699209** (headSha 52e0d8cc asserted): aarch64 success, x86_64 success (its apt step sat on a slow mirror for ~30 min; the parent has no Azure pin, that is a v17 item), release skipped; 59 / 58 patches, markers ok, GE 15/15, verify-layer PASS on both, artifacts versionCode 16 (not staged).
+- **Staged (host + device, sha256 equal on both, equal to the CI report):**
+  - `/sdcard/Download/v17-layers/GE-proton-11.0-14-arm64ec-v17-dcd87090.wcp` 119947509 B, sha256 `e4bd863eb1db6d9e6c5459b7544bd4514478f264d9d3c2420086820dd0e91048`, profile Proton 11.0-14-arm64ec versionCode 17
+  - `/sdcard/Download/v17-layers/GE-proton-11.0-14-x86_64-v17-dcd87090.wcp` 66351090 B, sha256 `a1036a5e350c32718ab73544a12119e17c6ffd1ec9afae04b5bcaee2efbd197a`, profile Proton 11.0-14-x86_64 versionCode 17
+  - host copies in /root/src/dl/v17-layers/ (FILES.tsv rows added).
+- **Not done (by design):** no release, no catalog change, no install, no device use.
+- **Finding (not fixed, user decision):** with `WINENTSYNC=1` on userspace ntsync, `get_inproc_alert_fd()` stores the alert *handle* in `alert_fd`, and `pthread_exit_wrapper()` later `close()`s it as a file descriptor: every thread exit closes an unrelated fd of that number (fdsan abort risk on Android). Valve fixed the same pattern for fsync in 707bb01fbfc (CW-Bug-Id #28016). Pre-existing in every layer with our ntsync_userspace.patch.
+- **RESUME:** user morning test of the staged arm64ec wcp (list in /root/src/dl/v17-draft/ge-11-14.md). Release / catalog / fast-forward decisions are the user's.
+
 ## 2026-11-24 — GE-Proton 11.0-14 layer + v17 fix set (`staging/proton_11.14-GE/v17`, built overnight, NOT device-tested)
 - **Why (user, 2026-11-23 ~23:20 EST):** "build proton ge 11-14 and replace 11-9 with it ... putting 11-14 on its own parent branch like the others, no v17 release yet". Build overnight, stage for a morning test. No release, no catalog change, no install.
 - **Base:** GloriousEggroll/proton-ge-custom tag GE-Proton11-14 (commit 777d72b4ae50, released 2026-11-23 05:19 EST) pins ValveSoftware/wine a47c73f52fd7 (2026-11-20), the same commit as GE-Proton11-13; a fast-forward of the 11.9-GE base 981e2f0b9007 by 125 commits.
