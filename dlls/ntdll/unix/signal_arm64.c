@@ -445,11 +445,15 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
         if (is_emulated_code( frame->pc )) flags |= RESTORE_FLAGS_EMULATION;
         else frame->restore_flags &= ~RESTORE_FLAGS_EMULATION;
     }
-    if (flags & CONTEXT_FLOATING_POINT)
+    if (flags & (CONTEXT_FLOATING_POINT | CONTEXT_ARM64_FLOATING_POINT_LOW))
     {
         frame->fpcr = context->Fpcr;
         frame->fpsr = context->Fpsr;
-        memcpy( frame->v, context->V, sizeof(frame->v) );
+        memcpy( frame->v, context->V, 16 * sizeof(frame->v[0]) );
+    }
+    if (flags & (CONTEXT_FLOATING_POINT | CONTEXT_ARM64_FLOATING_POINT_HIGH))
+    {
+        memcpy( &frame->v[16], &context->V[16], 16 * sizeof(frame->v[0]) );
     }
     if (flags & CONTEXT_ARM64_X18)
     {
@@ -493,12 +497,17 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
         context->Cpsr = frame->cpsr;
         context->ContextFlags |= CONTEXT_CONTROL;
     }
-    if (needed_flags & CONTEXT_FLOATING_POINT)
+    if (needed_flags & (CONTEXT_FLOATING_POINT | CONTEXT_ARM64_FLOATING_POINT_LOW))
     {
         context->Fpcr = frame->fpcr;
         context->Fpsr = frame->fpsr;
-        memcpy( context->V, frame->v, sizeof(context->V) );
-        context->ContextFlags |= CONTEXT_FLOATING_POINT;
+        memcpy( context->V, frame->v, 16 * sizeof(context->V[0]) );
+        context->ContextFlags |= CONTEXT_ARM64 | (needed_flags & (CONTEXT_FLOATING_POINT | CONTEXT_ARM64_FLOATING_POINT_LOW));
+    }
+    if (needed_flags & (CONTEXT_FLOATING_POINT | CONTEXT_ARM64_FLOATING_POINT_HIGH))
+    {
+        memcpy( &context->V[16], &frame->v[16], 16 * sizeof(frame->v[0]) );
+        context->ContextFlags |= CONTEXT_ARM64 | (needed_flags & CONTEXT_ARM64_FLOATING_POINT_HIGH);
     }
     if (needed_flags & CONTEXT_ARM64_X18)
     {
@@ -588,7 +597,20 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
         {
             memcpy( &wow_frame->FloatSave, &context->FloatSave, sizeof(context->FloatSave) );
         }
-        /* FIXME: CONTEXT_I386_XSTATE */
+        if (flags & CONTEXT_I386_XSTATE)
+        {
+            CONTEXT_EX *xctx = (CONTEXT_EX *)(context + 1);
+            CONTEXT_EX *wow_xctx = (CONTEXT_EX *)(wow_frame + 1);
+            XSTATE *xs = (XSTATE *)((char *)xctx + xctx->XState.Offset);
+            XSTATE *wow_xs = (XSTATE *)((char *)wow_xctx + wow_xctx->XState.Offset);
+
+            if (xs->Mask & XSTATE_MASK_AVX)
+            {
+                wow_xs->Mask = XSTATE_MASK_AVX;
+                wow_xs->YmmContext = xs->YmmContext;
+            }
+            else wow_xs->Mask = 0;
+        }
         break;
     }
 
@@ -713,7 +735,27 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
             context->Dr6 = wow_frame->Dr6;
             context->Dr7 = wow_frame->Dr7;
         }
-        /* FIXME: CONTEXT_I386_XSTATE */
+        if (needed_flags & CONTEXT_I386_XSTATE)
+        {
+            CONTEXT_EX *xctx = (CONTEXT_EX *)(context + 1);
+            CONTEXT_EX *wow_xctx = (CONTEXT_EX *)(wow_frame + 1);
+            XSTATE *xs = (XSTATE *)((char *)xctx + xctx->XState.Offset);
+            XSTATE *wow_xs = (XSTATE *)((char *)wow_xctx + wow_xctx->XState.Offset);
+
+            if (xctx->XState.Length < sizeof(XSAVE_AREA_HEADER) || xctx->XState.Length > sizeof(XSTATE))
+                return STATUS_INVALID_PARAMETER;
+
+            xs->Mask &= XSTATE_MASK_AVX;
+            xs->CompactionMask = 0;
+            memset( xs->Reserved, 0, sizeof(xs->Reserved) );
+            if (xs->Mask)
+            {
+                if (xctx->XState.Length < sizeof(XSTATE)) return STATUS_BUFFER_OVERFLOW;
+                if (wow_xs->Mask & XSTATE_MASK_AVX) xs->YmmContext = wow_xs->YmmContext;
+                else memset( &xs->YmmContext, 0, sizeof(xs->YmmContext) );
+            }
+            context->ContextFlags |= CONTEXT_I386_XSTATE;
+        }
         set_context_exception_reporting_flags( &context->ContextFlags, CONTEXT_SERVICE_ACTIVE );
         break;
     }
@@ -1617,7 +1659,7 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
     if ((i386_context = get_cpu_area( IMAGE_FILE_MACHINE_I386 )))
     {
         XMM_SAVE_AREA32 *fpu = (XMM_SAVE_AREA32 *)i386_context->ExtendedRegisters;
-        i386_context->ContextFlags = CONTEXT_I386_ALL;
+        i386_context->ContextFlags = CONTEXT_I386_ALL | CONTEXT_I386_XSTATE;
         i386_context->Eax = (ULONG_PTR)entry;
         i386_context->Ebx = (arg == peb ? (ULONG_PTR)wow_peb : (ULONG_PTR)arg);
         i386_context->Esp = get_wow_teb( teb )->Tib.StackBase - 16;
