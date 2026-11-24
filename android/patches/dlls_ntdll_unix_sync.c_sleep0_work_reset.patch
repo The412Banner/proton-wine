@@ -15,9 +15,15 @@ Default work limit 50 us, picked on the Pocket FIT (11.0-2, sleeptest.exe + AIO 
 2558 fps but idle spinners at 54 % CPU, 50 us gives 2455 fps and 11 % (GN default: ~1460 fps, 3 %; off: ~2780, 100 %).
 WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviour; 50000,250,20,500 = 20 us).
 
+On a Pocket FIT Elite AIO DirectDraw runs at ~9800 fps (0.1 ms frames) with less than 50 us of work per
+frame, so it was still capped (50 us: ~4200 fps, GN default 1675). WINE_SLEEP0_THROTTLE_SKIP lists graphics
+APIs whose processes are never throttled (dx7 dx8 dx9 dx10 dx11 dx12 gl vk, or "none"), default dx7. The
+process's API is taken from the graphics DLLs in /proc/self/maps, once, when a thread first reaches the
+throttle (looked up again at most every 5 s while none is listed); one MESSAGE line says what was found.
+
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
-@@ -2581,31 +2581,59 @@
+@@ -2581,31 +2581,179 @@
   *
   * WINE_SLEEP0_THROTTLE=0 disables it, WINE_SLEEP0_THROTTLE=<iters>[,<usec>] sets
   * the threshold and the sleep length.
@@ -31,6 +37,12 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviou
 + * SLEEP0_DEFAULT_BIG_USEC of work, or after two gaps of more than
 + * SLEEP0_DEFAULT_WORK_USEC less than SLEEP0_WORK_PERIOD apart (a frame loop).
 + * WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us>; work_us 0 turns it off.
++ *
++ * WINE_SLEEP0_THROTTLE_SKIP: graphics APIs whose processes are never throttled, a
++ * comma list of dx7 dx8 dx9 dx10 dx11 dx12 gl vk, or "none"; default dx7 (DirectDraw
++ * loops run at thousands of fps with too little work per frame to be told apart from
++ * an idle spinner on fast devices). A process's API is the first in sleep0_apis whose
++ * DLL it has mapped; it is looked up when a thread first reaches the throttle.
   */
  #define SLEEP0_DEFAULT_ITERS 50000  /* > 100 ms of uninterrupted Sleep(0) */
  #define SLEEP0_DEFAULT_USEC  250
@@ -44,6 +56,25 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviou
  static unsigned int sleep0_usec;
 +static ULONGLONG sleep0_work_ns;
 +static ULONGLONG sleep0_big_ns;
++
++static const struct
++{
++    const char *tag, *name, *dll[3];
++} sleep0_apis[] =
++{
++    /* order matters: wrappers load the API below them (d3d8 -> d3d9, d3d10 -> d3d11) */
++    { "dx7",  "DirectX 7",  { "ddraw.dll" } },
++    { "dx8",  "DirectX 8",  { "d3d8.dll" } },
++    { "dx12", "DirectX 12", { "d3d12.dll", "d3d12core.dll" } },
++    { "dx10", "DirectX 10", { "d3d10.dll", "d3d10_1.dll", "d3d10core.dll" } },
++    { "dx11", "DirectX 11", { "d3d11.dll" } },
++    { "dx9",  "DirectX 9",  { "d3d9.dll" } },
++    { "gl",   "OpenGL",     { "opengl32.dll" } },
++    { "vk",   "Vulkan",     { "vulkan-1.dll" } },
++};
++static char sleep0_skip_list[128];
++static int sleep0_skip;               /* this process is never throttled */
++static ULONGLONG sleep0_skip_checked; /* time of the last lookup that found no listed API */
  
  static void sleep0_init(void)
  {
@@ -76,11 +107,106 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviou
 +    sleep0_work_ns = (ULONGLONG)work * 1000;
 +    if (big > 1000000) big = 1000000;
 +    sleep0_big_ns = (ULONGLONG)big * 1000;
++    {
++        const char *skip = getenv( "WINE_SLEEP0_THROTTLE_SKIP" );
++        char *p;
++
++        if (!skip) skip = "dx7";
++        if (!strcmp( skip, "none" )) skip = "";
++        snprintf( sleep0_skip_list, sizeof(sleep0_skip_list), "%s", skip );
++        for (p = sleep0_skip_list; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
++    }
 +    if (env) TRACE( "WINE_SLEEP0_THROTTLE %lu iterations, %lu us, work %lu us, big work %lu us\n", iters, usec, work, big );
++}
++
++static BOOL sleep0_name_eq( const char *a, const char *b )
++{
++    for (; *a && *b; a++, b++)
++    {
++        char ca = (*a >= 'A' && *a <= 'Z') ? *a + 'a' - 'A' : *a;
++        char cb = (*b >= 'A' && *b <= 'Z') ? *b + 'a' - 'A' : *b;
++        if (ca != cb) return FALSE;
++    }
++    return !*a && !*b;
++}
++
++static BOOL sleep0_tag_listed( const char *tag )
++{
++    const char *p = sleep0_skip_list;
++    size_t len = strlen( tag );
++
++    while (*p)
++    {
++        while (*p == ',' || *p == ' ') p++;
++        if (!strncmp( p, tag, len ) && (!p[len] || p[len] == ',' || p[len] == ' ')) return TRUE;
++        while (*p && *p != ',') p++;
++    }
++    return FALSE;
++}
++
++/* index into sleep0_apis of the process's graphics API, from /proc/self/maps; -1 if none */
++static int sleep0_process_api(void)
++{
++    char buf[4096], line[1024], *name;
++    unsigned int found = 0, len = 0, j, k;
++    ssize_t n, i;
++    int fd = open( "/proc/self/maps", O_RDONLY | O_CLOEXEC );
++
++    if (fd == -1) return -1;
++    while ((n = read( fd, buf, sizeof(buf) )) > 0)
++    {
++        for (i = 0; i < n; i++)
++        {
++            if (buf[i] != '\n')
++            {
++                if (len < sizeof(line) - 1) line[len++] = buf[i];
++                continue;
++            }
++            line[len] = 0;
++            len = 0;
++            if (!(name = strrchr( line, '/' ))) continue;
++            for (j = 0; j < ARRAY_SIZE(sleep0_apis); j++)
++                for (k = 0; k < ARRAY_SIZE(sleep0_apis[j].dll) && sleep0_apis[j].dll[k]; k++)
++                    if (sleep0_name_eq( name + 1, sleep0_apis[j].dll[k] )) found |= 1u << j;
++        }
++    }
++    close( fd );
++    for (j = 0; j < ARRAY_SIZE(sleep0_apis); j++) if (found & (1u << j)) return j;
++    return -1;
++}
++
++/* called when a thread reaches the throttle; TRUE if this process is never throttled */
++static BOOL sleep0_skip_api(void)
++{
++    static BOOL reported;
++    ULONGLONG now;
++    int api;
++
++    if (sleep0_skip) return TRUE;
++    if (!sleep0_skip_list[0]) return FALSE;
++    now = monotonic_counter();
++    /* a game may load its graphics DLL after a first spin: look again at most every 5 s */
++    if (sleep0_skip_checked && now - sleep0_skip_checked < 5 * (ULONGLONG)TICKSPERSEC) return FALSE;
++    sleep0_skip_checked = now;
++    api = sleep0_process_api();
++    if (api >= 0 && sleep0_tag_listed( sleep0_apis[api].tag ))
++    {
++        sleep0_skip = 1;
++        MESSAGE( "wine: Sleep(0) throttle off in this process: %s (%s is in WINE_SLEEP0_THROTTLE_SKIP=%s)\n",
++                 sleep0_apis[api].name, sleep0_apis[api].tag, sleep0_skip_list );
++        return TRUE;
++    }
++    if (!reported)
++    {
++        reported = TRUE;
++        MESSAGE( "wine: Sleep(0) throttle on in this process: %s (WINE_SLEEP0_THROTTLE_SKIP=%s)\n",
++                 api >= 0 ? sleep0_apis[api].name : "no graphics API", sleep0_skip_list );
++    }
++    return FALSE;
  }
  
  static inline void sleep0_reset( const LARGE_INTEGER *timeout )
-@@ -2624,6 +2652,19 @@
+@@ -2624,6 +2772,19 @@
      if (!sleep0_iters) return;
  
      now = monotonic_counter();
@@ -100,6 +226,18 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviou
      if (now - thread_data->sleep0_last > SLEEP0_WINDOW) thread_data->sleep0_count = 0;
      thread_data->sleep0_last = now;
  
+@@ -2636,6 +2797,11 @@
+     {
+         static BOOL warned;
+ 
++        if (sleep0_skip_api())
++        {
++            thread_data->sleep0_count = 0;
++            return;
++        }
+         thread_data->sleep0_count++;
+         TRACE( "thread %04x Sleep(0) storm after %u calls, sleeping %u us per call\n",
+                (int)GetCurrentThreadId(), sleep0_iters, sleep0_usec );
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
 @@ -120,6 +120,8 @@
