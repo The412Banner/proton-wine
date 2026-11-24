@@ -404,6 +404,12 @@ do
       # ntdll: userspace ntsync wait-any accepts the same object more than once, as the kernel driver does
       # (OMORI threadpool spin; GameNative #128, Utkarsh Dalal). Applies on top of ntsync_userspace.patch.
       "dlls_ntdll_unix_sync.c_ntsync_wait_any_duplicates.patch"
+      # ntdll: a system call writing into an RWX page the emulator write-protected for self-modifying-code tracking
+      # succeeds, as on Windows, and is reported to the emulator as cross-process memory-write work; that work is
+      # applied inside a syscall callback (GameNative #133, Utkarsh Dalal, with #131; Hogwarts Legacy). arm64ec only.
+      "dlls_ntdll_unix_virtual.c_emulated_code_write.patch"
+      "dlls_ntdll_unix_virtual.c_report_emulated_code_write.patch"
+      "dlls_ntdll_signal_arm64ec.c_cross_process_work_callback.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -532,6 +538,9 @@ do
       "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path (GameNative #119)"
       "server/sock.c|poll_fastpath|would-block receive fast path, server grant (GameNative #119)"
       "dlls/ntdll/unix/sync.c|int distinct_objs[NTSYNC_MAX_WAIT_COUNT];|userspace ntsync wait-any with repeated objects (GameNative #128)"
+      "dlls/ntdll/unix/virtual.c|BOOL virtual_handle_emulated_code_write( void *addr )|system call writes into emulator-protected RWX pages succeed (GameNative #131 via #133)"
+      "dlls/ntdll/unix/virtual.c|static void queue_emulated_code_write( void *addr, SIZE_T size )|system call writes reported to the emulator (GameNative #133)"
+      "dlls/ntdll/signal_arm64ec.c|callback = enter_syscall_callback();|cross-process emulator work applied inside a syscall callback (GameNative #133)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
