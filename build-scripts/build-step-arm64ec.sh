@@ -351,6 +351,10 @@ do
       # sent instead of WSAENOTSOCK (error 10038) for those executables only (from our DroidDeck-Proton
       # 11-12.x layers; same rule as DiRTTelemetryErrorFix by RoccoC, MIT, after Carsten Gottschling)
       "dlls_ws2_32_socket.c_dirt_telemetry.patch"
+      # winex11: needs_offscreen_rendering at most every WINE_OFFSCREEN_CHECK_MS ms on the present path;
+      # unset or 0 = every call (proton-wine ff9db6f6 + bab12909, the file our DroidDeck-Proton 11-11.9+
+      # layers carry; opt-in)
+      "dlls_winex11.drv_init.c_offscreen_check_cache.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -442,6 +446,7 @@ do
       "programs/wineboot/wineboot.c|start_samss_service|wineboot starts SamSs (GE 11-14 ACE)"
       # v17
       "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (v17)"
+      "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in, v17)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
