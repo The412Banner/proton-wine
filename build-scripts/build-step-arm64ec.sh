@@ -346,6 +346,9 @@ do
       # winex11: needs_offscreen_rendering at most every WINE_OFFSCREEN_CHECK_MS ms on the Vulkan present path;
       # unset or 0 = every call (ours, proton-wine ff9db6f6 + bab12909, ported to Wine 10's vulkan_surface_update_offscreen)
       "common/dlls_winex11_drv_vulkan_c_offscreen_check_cache.patch"
+      # winegstreamer: skip the "Proton audio converter with rate fixup" when mediaconv is off, the same as the
+      # video converter, so avdec_wmav2 decodes WMA cutscene audio (proton-wine 8956410a, never shipped before)
+      "common/dlls_winegstreamer_wg_parser_c_audio_converter_skip.patch"
     )
 
     for patch in "${PATCHES[@]}"; do
@@ -403,6 +406,7 @@ do
       "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (proton-wine a188791d)"
       "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (ours, DroidDeck-Proton 11-11.10)"
       "dlls/winex11.drv/vulkan.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache on the Vulkan present path (opt-in, WINE_OFFSCREEN_CHECK_MS)"
+      "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|winegstreamer skips the Proton audio converter when mediaconv is off (FMV WMA audio, proton-wine 8956410a)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
