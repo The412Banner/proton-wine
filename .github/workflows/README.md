@@ -8,6 +8,7 @@ Each layer branch carries exactly one build workflow, named for the layer it bui
 | `proton_10.34-GE` | `build-ge-proton-10.0-34.yml` | GE-Proton 10.0-34 |
 | `proton_11.0` | `build-proton-11.0-1.yml` | Proton 11.0-1 |
 | `proton_11.0-2` | `build-proton-11.0-2.yml` | Proton 11.0-2 (arm64ec + x86_64) |
+| `proton_11.0-3` | `build-proton-11.0-3.yml` | Proton 11.0-3 (arm64ec + x86_64) |
 | `proton_11.3-GE` | `build-ge-proton-11.0-3.yml` | GE-Proton 11.0-3 |
 | `proton_11.5-GE` | `build-ge-proton-11.0-5.yml` | GE-Proton 11.0-5 |
 | `proton_11.6-GE` | `build-ge-proton-11.0-6.yml` | GE-Proton 11.0-6 |

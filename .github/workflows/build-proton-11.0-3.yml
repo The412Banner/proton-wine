@@ -1,14 +1,12 @@
-name: Proton 11.0-2 (bionic layer)
-run-name: "Proton 11.0-2 — ${{ github.ref_name }} (${{ github.event_name }})"
+name: Proton 11.0-3 (bionic layer)
+run-name: "Proton 11.0-3 — ${{ github.ref_name }} (${{ github.event_name }})"
 
 # This file is named per layer on purpose: GitHub labels a run with the workflow name
 # from the DEFAULT branch's copy of the same path, so a shared build-proton.yml made
 # every layer's run read "11.0-1". A distinct path per branch shows the real name.
 on:
   push:
-    branches: [ main, master, proton_11.0, proton_11.0-2, 'staging/proton_11.0-2/**' ]
-  pull_request:
-    branches: [ main, master, proton_11.0 ]
+    branches: [ proton_11.0-3, 'staging/proton_11.0-3/**' ]
   workflow_dispatch:
 
 jobs:
@@ -288,10 +286,10 @@ jobs:
         run: |
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
             ARCH_NAME="x86_64"
-            DESC="Proton 11.0-2 x86_64 (bionic, box64) — stock Valve + fast-yield gate + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 (box64) container. v10: Media Foundation cutscene fixes (WMV/WMA). v11: shared-texture description driver, so DXVK before 3.0 shares D3D9/D3D11 textures again (NGS cutscenes on any DXVK)."
+            DESC="Proton 11.0-3 x86_64 (bionic, box64) — Valve Proton 11.0-3 base (wine 957ac7cfa4f5) + fast-yield gate + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Bannerlator/WinNative/Winlator-bionic; needs a fresh x86_64 (box64) container. v10: Media Foundation cutscene fixes (WMV/WMA). v11: shared-texture description driver, so DXVK before 3.0 shares D3D9/D3D11 textures again (NGS cutscenes on any DXVK)."
           else
             ARCH_NAME="arm64ec"
-            DESC="Proton 11.0-2 ${ARCH_NAME} (bionic) — stock Valve + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Wayland + HDR10 added. v10: Media Foundation cutscene fixes (WMV/WMA). v11: shared-texture description driver, so DXVK before 3.0 shares D3D9/D3D11 textures again (NGS cutscenes on any DXVK)."
+            DESC="Proton 11.0-3 ${ARCH_NAME} (bionic) — Valve Proton 11.0-3 base (wine 957ac7cfa4f5) + fast-yield gate + FEX-unixlib loader + DirectAudio v1.3.2 (opt-in: registry Audio=directaudio; pulse/alsa stay default) + Android fixes (noexec/force_anon SD-card boot, drive-root copy guard, C.UTF-8 locale). Wayland + HDR10 added. v10: Media Foundation cutscene fixes (WMV/WMA). v11: shared-texture description driver, so DXVK before 3.0 shares D3D9/D3D11 textures again (NGS cutscenes on any DXVK)."
           fi
           
           DESC="$DESC v15: GameNative fixes (virtual-desktop mode list, image map pool, high fixed allocations, GetNativeSystemInfo AMD64, crypt32 EKU, Vulkan OPWR off, WGL no_error, emulator cpu-area release, HideWineExports) + WinRT classes registered in both prefix views. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app)."
@@ -304,7 +302,7 @@ jobs:
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
-            "versionName": "11.0-2-${ARCH_NAME}",
+            "versionName": "11.0-3-${ARCH_NAME}",
             "versionCode": 17,
             "description": "${DESC}",
             "files": [],
@@ -320,7 +318,7 @@ jobs:
           cat > $GITHUB_WORKSPACE/profile-wine.json << EOF
           {
             "type": "Wine",
-            "versionName": "11.0-2-${ARCH_NAME}",
+            "versionName": "11.0-3-${ARCH_NAME}",
             "versionCode": 17,
             "description": "${DESC}",
             "files": [],
@@ -355,13 +353,13 @@ jobs:
           # far faster than xz. -T0 = all cores, -19 = high ratio (small download).
           cp $GITHUB_WORKSPACE/prefixPack.txz .
           cp $GITHUB_WORKSPACE/profile.json .
-          tar -I 'zstd -T0 -19' -cf proton-11.0-2-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
-          mv proton-11.0-2-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
+          tar -I 'zstd -T0 -19' -cf proton-11.0-3-$ARCH_NAME.wcp bin lib share prefixPack.txz profile.json
+          mv proton-11.0-3-$ARCH_NAME.wcp $GITHUB_WORKSPACE/
           
           # Create Wine WCP for CMOD & Ludashi - wcp.xz format
           cp $GITHUB_WORKSPACE/profile-wine.json profile.json
-          tar cJf proton-wine-11.0-2-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
-          mv proton-wine-11.0-2-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
+          tar cJf proton-wine-11.0-3-$ARCH_NAME.wcp.xz bin lib share prefixPack.txz profile.json
+          mv proton-wine-11.0-3-$ARCH_NAME.wcp.xz $GITHUB_WORKSPACE/
       
       # The packaged archive must carry exactly what the app's ContentsManager expects.
       - name: Verify wcp archives
@@ -429,7 +427,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: proton-11.0-2-${{ env.ARCH_NAME }}.wcp
+          path: proton-11.0-3-${{ env.ARCH_NAME }}.wcp
           retention-days: 30
       
       # Just the Wayland driver, for replacing it in an installed copy of this same build.
@@ -446,7 +444,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: proton-wine-${{ env.ARCH_NAME }}-sdk${{ matrix.api_level }}
-          path: proton-wine-11.0-2-${{ env.ARCH_NAME }}.wcp.xz
+          path: proton-wine-11.0-3-${{ env.ARCH_NAME }}.wcp.xz
           retention-days: 30
   
   release:
@@ -473,7 +471,7 @@ jobs:
         id: generate_tag
         run: |
           DATE=$(date +%Y%m%d)
-          TAG_NAME="build-p11-${DATE}-sdk28"
+          TAG_NAME="build-p113-${DATE}-sdk28"
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "Generated tag: ${TAG_NAME}"
       
@@ -481,7 +479,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.generate_tag.outputs.tag_name }}
-          name: Proton Wine 11.0-2 (SDK 28, ${{ steps.generate_tag.outputs.tag_name }})
+          name: Proton Wine 11.0-3 (SDK 28, ${{ steps.generate_tag.outputs.tag_name }})
           files: release/*
           draft: false
           prerelease: false
@@ -490,7 +488,7 @@ jobs:
             
             ## Proton Wine Build based on Valve [Wine](https://github.com/ValveSoftware/wine/tree/proton_11.0)
             
-            ### Proton Version: 11.0-2
+            ### Proton Version: 11.0-3
             
             Built from commit: ${{ github.sha }}
             
@@ -500,11 +498,11 @@ jobs:
             
             ### WCP Files
             **Proton Type:**
-            - `proton-11.0-2-x86_64.wcp` - For GameNative
-            - `proton-11.0-2-arm64ec.wcp` - For GameNative
+            - `proton-11.0-3-x86_64.wcp` - For GameNative
+            - `proton-11.0-3-arm64ec.wcp` - For GameNative
             
             **Wine Type:**
-            - `proton-wine-11.0-2-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
-            - `proton-wine-11.0-2-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
+            - `proton-wine-11.0-3-x86_64.wcp.xz` - For Winlator for CMOD & Ludashi
+            - `proton-wine-11.0-3-arm64ec.wcp.xz` - For Winlator for CMOD & Ludashi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
