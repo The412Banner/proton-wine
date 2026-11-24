@@ -368,6 +368,14 @@ do
       # ntdll: userspace ntsync wait-any accepts the same object more than once, like the kernel driver (OMORI
       # spin; #128, Utkarsh Dalal; ported onto our ntsync_userspace.patch, must follow it)
       "dlls_ntdll_unix_sync.c_ntsync_wait_any_duplicates.patch"
+      # ntdll: a system call writing into an RWX page the emulator write-protected for self-modifying-code
+      # tracking succeeds, as on Windows (GameNative #131 + #133, Utkarsh Dalal; Hogwarts Legacy)
+      "dlls_ntdll_unix_virtual_c_emulated_code_write.patch"
+      # ...and is reported to the emulator as cross-process memory-write work; that work is applied inside a
+      # syscall callback so the emulator's own allocations while it invalidates code are not reported back
+      # (GameNative #133, Utkarsh Dalal). arm64ec only.
+      "dlls_ntdll_unix_virtual_c_report_emulated_code_write.patch"
+      "dlls_ntdll_signal_arm64ec_c_cross_process_work_callback.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -464,6 +472,9 @@ do
       "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
       "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path on nonblocking sockets (GameNative #119)"
       "dlls/ntdll/unix/sync.c|first_index[distinct++] = i;|userspace ntsync wait-any with a repeated object (GameNative #128)"
+      "dlls/ntdll/unix/virtual.c|BOOL virtual_handle_emulated_code_write( void *addr )|system call writes into emulator write-protected RWX pages succeed (GameNative #131/#133)"
+      "dlls/ntdll/unix/virtual.c|static void queue_emulated_code_write( void *addr, SIZE_T size )|those writes reported to the emulator (GameNative #133)"
+      "dlls/ntdll/signal_arm64ec.c|callback = enter_syscall_callback();|cross-process emulator work applied inside a syscall callback (GameNative #133)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
