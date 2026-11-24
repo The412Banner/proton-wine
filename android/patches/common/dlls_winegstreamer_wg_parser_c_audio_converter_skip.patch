@@ -1,0 +1,15 @@
+diff --git a/dlls/winegstreamer/wg_parser.c b/dlls/winegstreamer/wg_parser.c
+--- a/dlls/winegstreamer/wg_parser.c
++++ b/dlls/winegstreamer/wg_parser.c
+@@ -586,6 +586,11 @@ static GstAutoplugSelectResult autoplug_select_cb(GstElement *bin, GstPad *pad,
+         GST_INFO("Skipping \"Proton video converter\".");
+         return GST_AUTOPLUG_SELECT_SKIP;
+     }
++    if (!strcmp(name, "Proton audio converter with rate fixup") && !parser->use_mediaconv)
++    {
++        GST_INFO("Skipping \"Proton audio converter\".");
++        return GST_AUTOPLUG_SELECT_SKIP;
++    }
+ 
+     if (!parser->sink_caps && strstr(klass, GST_ELEMENT_FACTORY_KLASS_DEMUXER))
+         parser->sink_caps = g_strdup(gst_structure_get_name(gst_caps_get_structure(caps, 0)));
