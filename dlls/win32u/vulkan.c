@@ -2530,15 +2530,55 @@ static void win32u_vkGetPhysicalDeviceProperties2KHR( VkPhysicalDevice client_ph
     get_physical_device_properties2( physical_device, properties2, physical_device->instance->p_vkGetPhysicalDeviceProperties2KHR );
 }
 
+/* Windows drivers report B8G8R8A8_UNORM first, and some applications such as
+ * RuneScape blindly use the first format. Host drivers order the list
+ * differently between X11 and Wayland, sometimes with an _SRGB format first,
+ * so move B8G8R8A8_UNORM to the front to match Windows. */
+static BOOL is_windows_default_surface_format( const VkSurfaceFormatKHR *format )
+{
+    return format->format == VK_FORMAT_B8G8R8A8_UNORM && format->colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+}
+
+static void sort_surface_formats( VkSurfaceFormatKHR *formats, uint32_t count )
+{
+    VkSurfaceFormatKHR format;
+    uint32_t i;
+
+    for (i = 1; i < count; i++) if (is_windows_default_surface_format( &formats[i] )) break;
+    if (i >= count) return;
+
+    format = formats[i];
+    memmove( formats + 1, formats, i * sizeof(*formats) );
+    formats[0] = format;
+}
+
+static void sort_surface_formats2( VkSurfaceFormat2KHR *formats, uint32_t count )
+{
+    VkSurfaceFormat2KHR format;
+    uint32_t i;
+
+    /* extension structs are filled per entry, keep the host order if any are chained */
+    for (i = 0; i < count; i++) if (formats[i].pNext) return;
+    for (i = 1; i < count; i++) if (is_windows_default_surface_format( &formats[i].surfaceFormat )) break;
+    if (i >= count) return;
+
+    format = formats[i];
+    memmove( formats + 1, formats, i * sizeof(*formats) );
+    formats[0] = format;
+}
+
 static VkResult win32u_vkGetPhysicalDeviceSurfaceFormatsKHR( VkPhysicalDevice client_physical_device, VkSurfaceKHR client_surface,
                                                              uint32_t *format_count, VkSurfaceFormatKHR *formats )
 {
     struct vulkan_physical_device *physical_device = vulkan_physical_device_from_handle( client_physical_device );
     struct surface *surface = surface_from_handle( client_surface );
     struct vulkan_instance *instance = physical_device->instance;
+    VkResult res;
 
-    return instance->p_vkGetPhysicalDeviceSurfaceFormatsKHR( physical_device->host.physical_device,
-                                                                surface->obj.host.surface, format_count, formats );
+    res = instance->p_vkGetPhysicalDeviceSurfaceFormatsKHR( physical_device->host.physical_device,
+                                                            surface->obj.host.surface, format_count, formats );
+    if (res == VK_SUCCESS && formats) sort_surface_formats( formats, *format_count );
+    return res;
 }
 
 static VkResult win32u_vkGetPhysicalDeviceSurfaceFormats2KHR( VkPhysicalDevice client_physical_device, const VkPhysicalDeviceSurfaceInfo2KHR *surface_info,
@@ -2571,8 +2611,10 @@ static VkResult win32u_vkGetPhysicalDeviceSurfaceFormats2KHR( VkPhysicalDevice c
 
     surface_info_host.surface = surface->obj.host.surface;
 
-    return instance->p_vkGetPhysicalDeviceSurfaceFormats2KHR( physical_device->host.physical_device,
-                                                                 &surface_info_host, format_count, formats );
+    res = instance->p_vkGetPhysicalDeviceSurfaceFormats2KHR( physical_device->host.physical_device,
+                                                             &surface_info_host, format_count, formats );
+    if (res == VK_SUCCESS && formats) sort_surface_formats2( formats, *format_count );
+    return res;
 }
 
 static VkBool32 win32u_vkGetPhysicalDeviceWin32PresentationSupportKHR( VkPhysicalDevice client_physical_device, uint32_t queue )
