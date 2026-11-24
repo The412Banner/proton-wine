@@ -345,6 +345,12 @@ do
       "dlls_winex11.drv_opengl.c_no_error.patch"
       # ntdll: release the arm64ec emulator cpu area from its view base (#42, David Luo)
       "dlls_ntdll_unix_virtual.c_emu_stack_release.patch"
+
+      # v17 (2026-11-24)
+      # ws2_32: DiRT 3 / DiRT Showdown keep calling sendto() on their closed telemetry socket; report 0 bytes
+      # sent instead of WSAENOTSOCK (error 10038) for those executables only (from our DroidDeck-Proton
+      # 11-12.x layers; same rule as DiRTTelemetryErrorFix by RoccoC, MIT, after Carsten Gottschling)
+      "dlls_ws2_32_socket.c_dirt_telemetry.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -434,6 +440,8 @@ do
       "dlls/ntdll/heap.c|InterlockedIncrement( &bin->group_freed );|LFH reuses free blocks of partially used groups (GE 11-14, Wine MR 12472)"
       "programs/lsass/main.c|SamSs|lsass.exe SamSs service stub (GE 11-14 ACE)"
       "programs/wineboot/wineboot.c|start_samss_service|wineboot starts SamSs (GE 11-14 ACE)"
+      # v17
+      "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (v17)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
