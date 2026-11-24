@@ -391,7 +391,7 @@ do
       # object index there and every thread exit closed an unrelated fd (Android fdsan double-close aborts).
       # The fsync index is not cached there (Valve 707bb01fbfc, Paul Gofman, in the base). Must follow ntsync_userspace.patch.
       "dlls_ntdll_unix_thread.c_alert_fd_close.patch"
-      # ntdll: the Sleep(0) throttle takes 1000 yields off a run when the thread used > 20 us of its own CPU between two
+      # ntdll: the Sleep(0) throttle starts a new run after > 500 us of own CPU work, or two > 20 us work gaps < 2 ms apart, between
       # yields (frame loops faster than 2 ms per frame were capped: AIO DirectDraw 2785 -> 1460 fps).
       "dlls_ntdll_unix_sync.c_sleep0_work_reset.patch"
     )
@@ -488,7 +488,7 @@ do
       "dlls/winex11.drv/init.c|WINE_OFFSCREEN_CHECK_MS|winex11 offscreen check cache (opt-in, v17)"
       "dlls/winegstreamer/wg_parser.c|Proton audio converter with rate fixup|WMA cutscene audio: Proton audio converter skipped when mediaconv is off (v17)"
       "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
-      "dlls/ntdll/unix/sync.c|sleep0_work_credit|Sleep(0) throttle work credit (frame loops never reach the threshold)"
+      "dlls/ntdll/unix/sync.c|sleep0_work_last|Sleep(0) throttle frame-loop work reset (two work gaps < 2 ms apart)"
       "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path on nonblocking sockets (GameNative #119)"
       "dlls/ntdll/unix/sync.c|first_index[distinct++] = i;|userspace ntsync wait-any with a repeated object (GameNative #128)"
       "dlls/ntdll/unix/virtual.c|BOOL virtual_handle_emulated_code_write( void *addr )|system call writes into emulator write-protected RWX pages succeed (GameNative #131/#133)"

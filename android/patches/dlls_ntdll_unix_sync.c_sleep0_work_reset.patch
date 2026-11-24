@@ -1,4 +1,4 @@
-ntdll: take work off the Sleep(0) throttle run when the thread worked between two yields.
+ntdll: Sleep(0) throttle starts a new run when the thread does frame-loop work between yields.
 
 The GameNative #119 throttle (dlls_ntdll_unix_sync.c_sleep0_yield_throttle.patch) starts a new run only
 after a gap of more than 2 ms or a wait with a non-zero timeout. A loop that yields a few times per frame
@@ -6,48 +6,49 @@ while waiting on another thread and runs faster than 2 ms per frame never starts
 yields every frame gets the 250 us sleep: AIO DirectDraw on the Pocket FIT went from ~2785 to ~1460 fps
 (WINE_SLEEP0_THROTTLE=0: 2775/2789).
 
-When the thread used more than 20 us of its own CPU time (CLOCK_THREAD_CPUTIME_ID) since the previous
-non-switching yield, 1000 yields are taken off its run. A frame loop does that every frame and never
-reaches the threshold; an idle spinner (~1 us per yield) only sees an occasional long gap (interrupts),
-so it is still throttled. Measured on the Pocket FIT: resetting the run to 0 instead let idle spinners
-run at 43-77 % CPU (GN default 2 %). Time spent preempted is not counted.
-WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<credit> (work_us 0 = old behaviour).
+Work = the thread's own CPU time (CLOCK_THREAD_CPUTIME_ID) since the previous non-switching yield. A new run
+also starts after more than 500 us of work, or after two gaps of more than 20 us of work less than 2 ms
+apart (a frame loop). An idle Sleep(0) spinner (~1 us per yield on the Pocket FIT) also gets a 20-100 us gap
+every 10-50 ms (interrupt/scheduler time charged to the thread); measured there, resetting on each such
+gap let idle spinners run at 43-77 % CPU instead of the GN default's 2-4 %, so a single gap is ignored.
+WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us> (work_us 0 = old behaviour).
 
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
-@@ -2581,31 +2581,58 @@
+@@ -2581,31 +2581,59 @@
   *
   * WINE_SLEEP0_THROTTLE=0 disables it, WINE_SLEEP0_THROTTLE=<iters>[,<usec>] sets
   * the threshold and the sleep length.
 + *
-+ * Work credit: a thread that used more than SLEEP0_DEFAULT_WORK_USEC of its own CPU
-+ * time between two yields did real work in between (a frame loop that yields a few
-+ * times per frame while waiting on another thread), so SLEEP0_DEFAULT_WORK_CREDIT
-+ * yields are taken off its run. Without it a loop running faster than SLEEP0_WINDOW
-+ * per frame never starts a new run and every frame gets the sleep (AIO DirectDraw at
-+ * ~2800 fps capped to ~1460). A credit instead of a reset: an idle spinner also sees
-+ * an occasional long gap (interrupts), which must not end its throttling. It is CPU
-+ * time, not wall time, so time spent preempted is not counted as work.
-+ * WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<credit>; work_us 0 turns it off.
++ * Work: the thread's own CPU time (CLOCK_THREAD_CPUTIME_ID) between two yields. A
++ * loop that yields a few times per frame while waiting on another thread and runs
++ * faster than SLEEP0_WINDOW per frame never started a new run, so every frame got
++ * the sleep (AIO DirectDraw at ~2800 fps capped to ~1460). An idle spinner also sees
++ * a gap of 20-100 us every 10-50 ms (interrupt and scheduler time charged to it), so
++ * one such gap must not end its run. A new run starts after more than
++ * SLEEP0_DEFAULT_BIG_USEC of work, or after two gaps of more than
++ * SLEEP0_DEFAULT_WORK_USEC less than SLEEP0_WORK_PERIOD apart (a frame loop).
++ * WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<big_us>; work_us 0 turns it off.
   */
  #define SLEEP0_DEFAULT_ITERS 50000  /* > 100 ms of uninterrupted Sleep(0) */
  #define SLEEP0_DEFAULT_USEC  250
  #define SLEEP0_WINDOW        (2 * TICKSPERSEC / 1000)  /* 2 ms */
 +#define SLEEP0_DEFAULT_WORK_USEC   20
-+#define SLEEP0_DEFAULT_WORK_CREDIT 1000
++#define SLEEP0_DEFAULT_BIG_USEC    500
++#define SLEEP0_WORK_PERIOD         (2 * TICKSPERSEC / 1000)  /* 2 ms */
  
  static pthread_once_t sleep0_once = PTHREAD_ONCE_INIT;
  static unsigned int sleep0_iters;
  static unsigned int sleep0_usec;
 +static ULONGLONG sleep0_work_ns;
-+static unsigned int sleep0_work_credit;
++static ULONGLONG sleep0_big_ns;
  
  static void sleep0_init(void)
  {
      const char *env = getenv( "WINE_SLEEP0_THROTTLE" );
 -    unsigned long iters = SLEEP0_DEFAULT_ITERS, usec = SLEEP0_DEFAULT_USEC;
 +    unsigned long iters = SLEEP0_DEFAULT_ITERS, usec = SLEEP0_DEFAULT_USEC, work = SLEEP0_DEFAULT_WORK_USEC;
-+    unsigned long credit = SLEEP0_DEFAULT_WORK_CREDIT;
++    unsigned long big = SLEEP0_DEFAULT_BIG_USEC;
      char *end;
  
      if (env && *env)
@@ -60,7 +61,7 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<credit> (work_us 0 = old behaviou
 +            if (*end == ',')
 +            {
 +                work = strtoul( end + 1, &end, 10 );
-+                if (*end == ',') credit = strtoul( end + 1, NULL, 10 );
++                if (*end == ',') big = strtoul( end + 1, NULL, 10 );
 +            }
 +        }
      }
@@ -71,23 +72,27 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<credit> (work_us 0 = old behaviou
 -    if (env) TRACE( "WINE_SLEEP0_THROTTLE %lu iterations, %lu us\n", iters, usec );
 +    if (work > 1000000) work = 1000000;
 +    sleep0_work_ns = (ULONGLONG)work * 1000;
-+    if (credit > 0x7fffffff) credit = 0x7fffffff;
-+    sleep0_work_credit = credit;
-+    if (env) TRACE( "WINE_SLEEP0_THROTTLE %lu iterations, %lu us, work credit %lu us %lu\n", iters, usec, work, credit );
++    if (big > 1000000) big = 1000000;
++    sleep0_big_ns = (ULONGLONG)big * 1000;
++    if (env) TRACE( "WINE_SLEEP0_THROTTLE %lu iterations, %lu us, work %lu us, big work %lu us\n", iters, usec, work, big );
  }
  
  static inline void sleep0_reset( const LARGE_INTEGER *timeout )
-@@ -2624,6 +2651,15 @@
+@@ -2624,6 +2652,19 @@
      if (!sleep0_iters) return;
  
      now = monotonic_counter();
 +    if (sleep0_work_ns && !clock_gettime( CLOCK_THREAD_CPUTIME_ID, &ts ))
 +    {
 +        ULONGLONG cpu = (ULONGLONG)ts.tv_sec * 1000000000 + ts.tv_nsec;
++        ULONGLONG work = cpu - thread_data->sleep0_cpu;
 +
-+        if (cpu - thread_data->sleep0_cpu > sleep0_work_ns)
-+            thread_data->sleep0_count = thread_data->sleep0_count > sleep0_work_credit
-+                                        ? thread_data->sleep0_count - sleep0_work_credit : 0;
++        if (work > sleep0_work_ns)
++        {
++            if (work > sleep0_big_ns || now - thread_data->sleep0_work_last < SLEEP0_WORK_PERIOD)
++                thread_data->sleep0_count = 0;
++            thread_data->sleep0_work_last = now;
++        }
 +        thread_data->sleep0_cpu = cpu;
 +    }
      if (now - thread_data->sleep0_last > SLEEP0_WINDOW) thread_data->sleep0_count = 0;
@@ -95,11 +100,12 @@ WINE_SLEEP0_THROTTLE=<iters>,<usec>,<work_us>,<credit> (work_us 0 = old behaviou
  
 --- a/dlls/ntdll/unix/unix_private.h
 +++ b/dlls/ntdll/unix/unix_private.h
-@@ -120,6 +120,7 @@
+@@ -120,6 +120,8 @@
      TEB                      *next_killed;   /* next in the list of killed threads to free */
      unsigned int              sleep0_count;  /* consecutive yields that did not switch */
      ULONGLONG                 sleep0_last;   /* time of the last one, in Win32 ticks */
 +    ULONGLONG                 sleep0_cpu;    /* thread CPU time at the last one, in ns */
++    ULONGLONG                 sleep0_work_last; /* time of the last work gap, in Win32 ticks */
  };
  
  C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) );
