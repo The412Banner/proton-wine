@@ -425,6 +425,7 @@ do
       "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE|Sleep(0) / SwitchToThread storm throttle (GameNative #119)"
       "dlls/ntdll/unix/sync.c|sleep0_work_last|Sleep(0) throttle frame-loop work reset (two work gaps < 2 ms apart)"
       "dlls/ntdll/unix/sync.c|WINE_SLEEP0_THROTTLE_SKIP|Sleep(0) throttle off per graphics API (default DirectX 7)"
+      "dlls/ntdll/unix/virtual.c|sleep0_note_image( nt_name );|image map notes graphics DLLs for the per-API throttle switch"
       "dlls/ntdll/unix/socket.c|WINE_SOCKET_POLL_FASTPATH|would-block receive fast path (GameNative #119)"
       "server/sock.c|poll_fastpath|would-block receive fast path, server grant (GameNative #119)"
       "dlls/ntdll/unix/sync.c|int distinct_objs[NTSYNC_MAX_WAIT_COUNT];|userspace ntsync wait-any with repeated objects (GameNative #128)"
