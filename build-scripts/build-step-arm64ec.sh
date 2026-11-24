@@ -338,6 +338,11 @@ do
       "common/dlls_win32u_sysparams_c_modelist.patch"
       # ntdll: relocate fixed allocations above the host address space limit (#73, Utkarsh Dalal)
       "common/dlls_ntdll_unix_virtual_c_relocate_high_allocs.patch"
+      # v17 (2026-11-23)
+      # ws2_32: DiRT 3 / DiRT Showdown keep calling sendto() on their closed telemetry socket; report 0 bytes
+      # sent instead of WSAENOTSOCK (error 10038) for those executables only (ours, DroidDeck-Proton 11-11.10;
+      # same patch as the DroidDeck 11.0-12.3 / 12.8 layers)
+      "common/dlls_ws2_32_socket_c_dirt_telemetry.patch"
     )
 
     for patch in "${PATCHES[@]}"; do
@@ -393,6 +398,7 @@ do
       "dlls/ntdll/unix/virtual.c|ULONG_PTR limit = max( (ULONG_PTR)address_space_limit, (ULONG_PTR)1 << 47 );|ARM64EC code map covers 47-bit addresses on a 39-bit host (proton-wine d4c9ffa7, Wine 10 port)"
       "dlls/ntdll/signal_arm64ec.c|unwind made no progress at pc|ARM64EC exception search and unwind stop at a frame that does not move (proton-wine fecf7376)"
       "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (proton-wine a188791d)"
+      "dlls/ws2_32/socket.c|ignore_sendto_on_closed_socket|DiRT 3 / DiRT Showdown telemetry sendto on a closed socket (ours, DroidDeck-Proton 11-11.10)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
