@@ -1,0 +1,45 @@
+diff --git a/dlls/winex11.drv/init.c b/dlls/winex11.drv/init.c
+--- a/dlls/winex11.drv/init.c
++++ b/dlls/winex11.drv/init.c
+@@ -320,6 +320,8 @@
+     HDC hdc_src;
+     HDC hdc_dst;
+     BOOL other_process;
++    BOOL offscreen_checked;
++    DWORD offscreen_checked_at;
+ };
+ 
+ static struct x11drv_client_surface *impl_from_client_surface( struct client_surface *client )
+@@ -396,11 +398,31 @@
+     XFlush( gdi_display );
+ }
+ 
++/* ms between needs_offscreen_rendering checks on the present path; each check makes wineserver
++ * round trips, twice per present. Unset or 0 checks on every call; DroidDeck's Performance mode sets 100. */
++static DWORD offscreen_check_interval(void)
++{
++    static int interval = -1;
++    if (interval == -1)
++    {
++        const char *e = getenv( "WINE_OFFSCREEN_CHECK_MS" );
++        interval = e ? atoi( e ) : 0;
++        if (interval < 0) interval = 0;
++    }
++    return interval;
++}
++
+ static void client_surface_update_offscreen( HWND hwnd, struct x11drv_client_surface *surface )
+ {
+-    BOOL offscreen = needs_offscreen_rendering( hwnd );
++    DWORD now = NtGetTickCount(), interval = offscreen_check_interval();
++    BOOL offscreen;
+     struct x11drv_win_data *data;
+ 
++    if (interval && surface->offscreen_checked && now - surface->offscreen_checked_at < interval) return;
++    surface->offscreen_checked = TRUE;
++    surface->offscreen_checked_at = now;
++    offscreen = needs_offscreen_rendering( hwnd );
++
+     if (surface->other_process) offscreen = TRUE;
+ 
+     TRACE( "%s offscreen %u\n", debugstr_client_surface( &surface->client ), offscreen );
