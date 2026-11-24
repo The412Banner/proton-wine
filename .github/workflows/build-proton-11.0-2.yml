@@ -38,6 +38,9 @@ jobs:
       
       - name: Set up build environment
         run: |
+          # Runners pick an apt mirror from /etc/apt/apt-mirrors.txt; the EC2 one (us-east-2) has served
+          # these packages at about 100 kB/s and stalled this step for over an hour, the Azure one at 13 MB/s.
+          [ -f /etc/apt/apt-mirrors.txt ] && echo "http://azure.archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y \
