@@ -46,6 +46,19 @@ static HWND wayland_pointer_get_focused_hwnd(void)
     return hwnd;
 }
 
+/* Desktop mode (banner_desktop_v1): the compositor sends all pointer input to
+ * the desktop surface. Tagged with the desktop window, wineserver takes the
+ * desktop as the window under the cursor (update_desktop_cursor_pos keeps a
+ * visible msg->win), so the cursor stays owned by the desktop process and a
+ * program's SetCursor is never forwarded to it. Without a window, wineserver
+ * hit-tests the point like Windows does; delivery is unchanged. */
+static HWND pointer_input_hwnd(HWND hwnd)
+{
+    /* Desktop window first: cached per thread, and never matches outside desktop mode. */
+    if (hwnd && hwnd == NtUserGetDesktopWindow() && wayland_desktop_mode()) return NULL;
+    return hwnd;
+}
+
 static void pointer_handle_motion_internal(wl_fixed_t sx, wl_fixed_t sy)
 {
     INPUT input = {0};
@@ -89,7 +102,7 @@ static void pointer_handle_motion_internal(wl_fixed_t sx, wl_fixed_t sy)
           hwnd, wl_fixed_to_double(sx), wl_fixed_to_double(sy),
           (int)screen.x, (int)screen.y);
 
-    NtUserSendHardwareInput(hwnd, 0, &input, 0);
+    NtUserSendHardwareInput(pointer_input_hwnd(hwnd), 0, &input, 0);
 }
 
 static void pointer_handle_motion(void *data, struct wl_pointer *wl_pointer,
@@ -188,7 +201,7 @@ static void pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
 
     TRACE("hwnd=%p button=%#x state=%u\n", hwnd, button, state);
 
-    NtUserSendHardwareInput(hwnd, 0, &input, 0);
+    NtUserSendHardwareInput(pointer_input_hwnd(hwnd), 0, &input, 0);
 }
 
 static void pointer_handle_axis(void *data, struct wl_pointer *wl_pointer,
@@ -235,7 +248,7 @@ static void pointer_handle_axis_discrete(void *data, struct wl_pointer *wl_point
 
     TRACE("hwnd=%p axis=%u discrete=%d\n", hwnd, axis, discrete);
 
-    NtUserSendHardwareInput(hwnd, 0, &input, 0);
+    NtUserSendHardwareInput(pointer_input_hwnd(hwnd), 0, &input, 0);
 }
 
 static const struct wl_pointer_listener pointer_listener =
@@ -282,7 +295,7 @@ static void relative_pointer_v1_relative_motion(void *private,
           hwnd, wl_fixed_to_double(dx), wl_fixed_to_double(dy),
           (int)screen.x, (int)screen.y);
 
-    NtUserSendHardwareInput(hwnd, 0, &input, 0);
+    NtUserSendHardwareInput(pointer_input_hwnd(hwnd), 0, &input, 0);
 }
 
 static const struct zwp_relative_pointer_v1_listener relative_pointer_v1_listener =
