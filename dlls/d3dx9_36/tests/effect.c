@@ -9068,17 +9068,14 @@ static void test_effect_set_raw_value(IDirect3DDevice9 *device)
         { "2", 0, 8,
           { .f = { 0.0f, 1.0f } },
           { .f = { 0.0f, 1.0f } },
-          .todo_hr = TRUE
         },
         { "2_2", 0, 16,
           { .f = { 0.0f, 1.0f, 0.0f, 2.0f } },
           { .f = { 0.0f, 1.0f, 0.0f, 0.0f } },
-          .todo_hr = TRUE
         },
         { "2_2", 0, 24,
           { .f = { 0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 0.0f } },
           { .f = { 0.0f, 1.0f, 4.0f, 0.0f } },
-          .todo_hr = TRUE
         },
         { "4", 0, 16,
           { .f = { 1.0f, 2.0f, 0.0f, 3.0f } },

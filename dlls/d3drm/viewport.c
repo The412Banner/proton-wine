@@ -470,18 +470,120 @@ static HRESULT WINAPI d3drm_viewport1_Clear(IDirect3DRMViewport *iface)
     return d3drm_viewport2_Clear(&viewport->IDirect3DRMViewport2_iface, D3DRMCLEAR_ALL);
 }
 
+static HRESULT create_surface_from_image(IDirectDraw *ddraw, D3DRMIMAGE *image, IDirectDrawSurface **out)
+{
+    IDirectDrawSurface *surface;
+    DDSURFACEDESC desc;
+    HRESULT hr;
+    HBITMAP bitmap;
+    HDC hdc, hdcImage;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    desc.dwFlags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT;
+    desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+    desc.dwWidth = image->width;
+    desc.dwHeight = image->height;
+    desc.lPitch = 3;
+
+    desc.ddpfPixelFormat.dwSize = sizeof(desc.ddpfPixelFormat);
+    desc.ddpfPixelFormat.dwFlags = DDPF_RGB;
+
+    desc.ddpfPixelFormat.dwRGBBitCount = 16;
+    desc.ddpfPixelFormat.dwRBitMask = 0x00007c00;
+    desc.ddpfPixelFormat.dwGBitMask = 0x000003e0;
+    desc.ddpfPixelFormat.dwBBitMask = 0x0000001f;
+
+    hr = IDirectDraw_CreateSurface(ddraw, &desc, &surface, NULL);
+    if (FAILED(hr))
+        return hr;
+
+    bitmap = CreateBitmap(image->width, image->height, 1, 1, image->buffer1);
+    if(!bitmap)
+    {
+        ERR("Failed to create Bitmap\n");
+        IDirectDrawSurface_Release(surface);
+        return E_FAIL;
+    }
+
+    hdcImage = CreateCompatibleDC(NULL);
+    SelectObject(hdcImage, bitmap);
+
+    IDirectDrawSurface_GetDC(surface, &hdc);
+    BitBlt(hdc, 0, 0, image->width, image->height, hdcImage, 0, 0, SRCCOPY);
+    IDirectDrawSurface_ReleaseDC(surface, hdc);
+    DeleteDC(hdcImage);
+    DeleteObject(hdcImage);
+
+    *out = surface;
+
+    return hr;
+}
+
+static HRESULT viewport_render(struct d3drm_viewport *viewport, struct d3drm_frame *drmframe)
+{
+    HRESULT hr = S_OK;
+
+    if (drmframe->backgroundimage)
+    {
+        IDirect3DRMTexture *drmtexture;
+
+        hr = IUnknown_QueryInterface(drmframe->backgroundimage, &IID_IDirect3DRMTexture, (void**)&drmtexture);
+        if (hr == S_OK)
+        {
+            struct d3drm_texture *texture = unsafe_impl_from_IDirect3DRMTexture(drmtexture);
+            if (!texture)
+            {
+                FIXME("Unsupported IDirect3DRMTexture interface\n");
+                return D3DRM_OK;
+            }
+
+            if (!texture->surface)
+                hr = create_surface_from_image(viewport->device->ddraw, texture->image, &texture->surface);
+
+            hr = IDirectDrawSurface_Blt(viewport->device->render_target, NULL, texture->surface, NULL, DDBLT_WAIT, NULL);
+
+            IDirect3DRMTexture_Release(drmtexture);
+        }
+    }
+
+    return hr;
+}
+
 static HRESULT WINAPI d3drm_viewport2_Render(IDirect3DRMViewport2 *iface, IDirect3DRMFrame3 *frame)
 {
-    FIXME("iface %p, frame %p stub!\n", iface, frame);
+    struct d3drm_viewport *viewport = impl_from_IDirect3DRMViewport2(iface);
+    struct d3drm_frame *drmframe = unsafe_impl_from_IDirect3DRMFrame3(frame);
+    HRESULT hr;
 
-    return D3DRM_OK;
+    TRACE("iface %p, frame %p\n", iface, frame);
+
+    hr = viewport_render(viewport, drmframe);
+
+    return hr;
 }
 
 static HRESULT WINAPI d3drm_viewport1_Render(IDirect3DRMViewport *iface, IDirect3DRMFrame *frame)
 {
-    FIXME("iface %p, frame %p stub!\n", iface, frame);
+    IDirect3DRMFrame2 *frame2;
+    struct d3drm_viewport *viewport = impl_from_IDirect3DRMViewport(iface);
+    struct d3drm_frame *drmframe;
+    HRESULT hr;
 
-    return D3DRM_OK;
+    TRACE("iface %p, frame %p\n", iface, frame);
+
+    hr = IDirect3DRMFrame_QueryInterface(frame, &IID_IDirect3DRMFrame2, (void**)&frame2);
+    if(hr == S_OK)
+    {
+        drmframe = unsafe_impl_from_IDirect3DRMFrame2(frame2);
+        IDirect3DRMFrame2_Release(frame2);
+    }
+    else
+        drmframe = unsafe_impl_from_IDirect3DRMFrame(frame);
+
+    hr = viewport_render(viewport, drmframe);
+
+    return hr;
 }
 
 static HRESULT WINAPI d3drm_viewport2_SetFront(IDirect3DRMViewport2 *iface, D3DVALUE front)
@@ -822,20 +924,143 @@ static HRESULT WINAPI d3drm_viewport1_GetPlane(IDirect3DRMViewport *iface,
     return d3drm_viewport2_GetPlane(&viewport->IDirect3DRMViewport2_iface, left, right, bottom, top);
 }
 
+struct d3drm_picked_array
+{
+    IDirect3DRMPickedArray IDirect3DRMPickedArray_iface;
+    LONG ref;
+    ULONG size;
+};
+
+static inline struct d3drm_picked_array *impl_from_IDirect3DRMPickedArray(IDirect3DRMPickedArray *iface)
+{
+    return CONTAINING_RECORD(iface, struct d3drm_picked_array, IDirect3DRMPickedArray_iface);
+}
+
+static HRESULT WINAPI d3drm_picked_array_QueryInterface(IDirect3DRMPickedArray *iface, REFIID riid, void **out)
+{
+    TRACE("iface %p, riid %s, out %p.\n", iface, debugstr_guid(riid), out);
+
+    if (IsEqualGUID(riid, &IID_IDirect3DRMPickedArray)
+            || IsEqualGUID(riid, &IID_IUnknown))
+    {
+        IDirect3DRMPickedArray_AddRef(iface);
+        *out = iface;
+        return S_OK;
+    }
+
+    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(riid));
+
+    *out = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI d3drm_picked_array_AddRef(IDirect3DRMPickedArray *iface)
+{
+    struct d3drm_picked_array *array = impl_from_IDirect3DRMPickedArray(iface);
+    ULONG refcount = InterlockedIncrement(&array->ref);
+
+    TRACE("%p increasing refcount to %lu.\n", iface, refcount);
+
+    return refcount;
+}
+
+static ULONG WINAPI d3drm_picked_array_Release(IDirect3DRMPickedArray *iface)
+{
+    struct d3drm_picked_array *array = impl_from_IDirect3DRMPickedArray(iface);
+    ULONG refcount = InterlockedDecrement(&array->ref);
+//    ULONG i;
+
+    TRACE("%p decreasing refcount to %lu.\n", iface, refcount);
+
+    if (!refcount)
+    {
+/*        for (i = 0; i < array->size; ++i)
+        {
+            IDirect3DRMVisual_Release(array->visuals[i]);
+        }*/
+        //free(array->visuals);
+        free(array);
+    }
+
+    return refcount;
+}
+
+static DWORD WINAPI d3drm_picked_array_GetSize(IDirect3DRMPickedArray *iface)
+{
+    struct d3drm_picked_array *array = impl_from_IDirect3DRMPickedArray(iface);
+
+    TRACE("iface %p.\n", iface);
+
+    return array->size;
+}
+
+static HRESULT WINAPI d3drm_picked_array_GetPick(IDirect3DRMPickedArray *iface,
+        DWORD index, IDirect3DRMVisual **visual, IDirect3DRMFrameArray **frame_array,
+        D3DRMPICKDESC *pick_desc)
+{
+    TRACE("iface %p, index %lu, visual %p, frame_array %p, pick_desc %p.\n", iface, index,
+          visual, frame_array, pick_desc);
+
+    //if (!visual)
+        return D3DRMERR_BADVALUE;
+
+    /*if (index >= array->size)
+    {
+        *visual = NULL;
+        return D3DRMERR_BADVALUE;
+    }
+
+    IDirect3DRMVisual_AddRef(array->visuals[index]);
+    *visual = array->visuals[index];
+
+    return D3DRM_OK;*/
+}
+
+static const struct IDirect3DRMPickedArrayVtbl d3drm_picked_array_vtbl =
+{
+    d3drm_picked_array_QueryInterface,
+    d3drm_picked_array_AddRef,
+    d3drm_picked_array_Release,
+    d3drm_picked_array_GetSize,
+    d3drm_picked_array_GetPick,
+};
+
 static HRESULT WINAPI d3drm_viewport2_Pick(IDirect3DRMViewport2 *iface,
         LONG x, LONG y, IDirect3DRMPickedArray **visuals)
 {
+    struct d3drm_picked_array *array;
     FIXME("iface %p, x %ld, y %ld, visuals %p stub!\n", iface, x, y, visuals);
 
-    return E_NOTIMPL;
+    if (!(array = calloc(1, sizeof(*array))))
+        return E_OUTOFMEMORY;
+
+    array->IDirect3DRMPickedArray_iface.lpVtbl = &d3drm_picked_array_vtbl;
+    array->ref = 1;
+    array->size = 0;
+
+    *visuals = &array->IDirect3DRMPickedArray_iface;
+
+    return S_OK;
 }
 
 static HRESULT WINAPI d3drm_viewport1_Pick(IDirect3DRMViewport *iface,
         LONG x, LONG y, IDirect3DRMPickedArray **visuals)
 {
+    struct d3drm_picked_array *array;
+//    unsigned int i;
+
     FIXME("iface %p, x %ld, y %ld, visuals %p stub!\n", iface, x, y, visuals);
 
-    return E_NOTIMPL;
+    if (!(array = calloc(1, sizeof(*array))))
+        return E_OUTOFMEMORY;
+
+    array->IDirect3DRMPickedArray_iface.lpVtbl = &d3drm_picked_array_vtbl;
+    array->ref = 1;
+    array->size = 0;
+
+    *visuals = &array->IDirect3DRMPickedArray_iface;
+
+    return S_OK;
 }
 
 static BOOL WINAPI d3drm_viewport2_GetUniformScaling(IDirect3DRMViewport2 *iface)

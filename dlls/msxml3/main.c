@@ -321,6 +321,7 @@ static void init_char_encoders(void)
         xmlCharEncodingOutputFunc output;
     } encoder[] =
     {
+        { "gb2312",       gbk_to_utf8,       utf8_to_gbk       },
         { "gbk",          gbk_to_utf8,       utf8_to_gbk       },
         { "iso8859-1",    iso8859_1_to_utf8, utf8_to_iso8859_1 },
         { "windows-1250", win1250_to_utf8,   utf8_to_win1250   },

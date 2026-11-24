@@ -783,7 +783,7 @@ static HRESULT WINAPI d3drm_device3_SetBufferCount(IDirect3DRMDevice3 *iface, DW
 {
     FIXME("iface %p, count %lu stub!\n", iface, count);
 
-    return E_NOTIMPL;
+    return S_OK;
 }
 
 static HRESULT WINAPI d3drm_device2_SetBufferCount(IDirect3DRMDevice2 *iface, DWORD count)
@@ -1643,6 +1643,15 @@ static const struct IDirect3DRMWinDeviceVtbl d3drm_device_win_vtbl =
     d3drm_device_win_HandlePaint,
     d3drm_device_win_HandleActivate,
 };
+
+struct d3drm_device *unsafe_impl_from_IDirect3DRMDevice(IDirect3DRMDevice *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3drm_device1_vtbl);
+
+    return impl_from_IDirect3DRMDevice(iface);
+}
 
 struct d3drm_device *unsafe_impl_from_IDirect3DRMDevice3(IDirect3DRMDevice3 *iface)
 {

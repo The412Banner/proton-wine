@@ -247,6 +247,10 @@ static DWORD MCI_MapMsgAtoW(UINT msg, DWORD_PTR dwParam1, DWORD_PTR *dwParam2)
             MCI_ANIM_OPEN_PARMSW *mci_openW;
             DWORD_PTR *ptr;
 
+            if ((dwParam1 & (MCI_OPEN_TYPE|MCI_OPEN_TYPE_ID)) == MCI_OPEN_TYPE &&
+                (GetVersion() & 0x80000000) && IsBadStringPtrA(mci_openA->lpstrDeviceType, -1))
+                return MCIERR_MISSING_COMMAND_STRING;
+
             ptr = malloc(sizeof(DWORD_PTR) + sizeof(*mci_openW));
             if (!ptr) return MCIERR_OUT_OF_MEMORY;
 
@@ -2288,7 +2292,6 @@ DWORD WINAPI mciSendCommandA(MCIDEVICEID wDevID, UINT wMsg, DWORD_PTR dwParam1, 
         return ret;
     }
     ret = mciSendCommandW(wDevID, wMsg, dwParam1, dwParam2);
-
     MCI_UnmapMsgAtoW(wMsg, dwParam1, dwParam2, ret);
     return ret;
 }

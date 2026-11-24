@@ -650,9 +650,17 @@ static void HTTP_ProcessCookies( http_request_t *request )
     int HeaderIndex;
     int numCookies = 0;
     LPHTTPHEADERW setCookieHeader;
+    WCHAR *path, *tmp;
 
     if(request->hdr.dwFlags & INTERNET_FLAG_NO_COOKIES)
         return;
+
+    path = wcsdup(request->path);
+    if (!path)
+        return;
+
+    tmp = wcsrchr(path, '/');
+    if (tmp && tmp[1]) tmp[1] = 0;
 
     EnterCriticalSection( &request->headers_section );
 
@@ -672,10 +680,11 @@ static void HTTP_ProcessCookies( http_request_t *request )
 
         name = substr(setCookieHeader->lpszValue, data - setCookieHeader->lpszValue);
         data++;
-        set_cookie(substrz(request->server->name), substrz(request->path), name, substrz(data), INTERNET_COOKIE_HTTPONLY);
+        set_cookie(substrz(request->server->name), substrz(path), name, substrz(data), INTERNET_COOKIE_HTTPONLY);
     }
 
     LeaveCriticalSection( &request->headers_section );
+    free(path);
 }
 
 static void strip_spaces(LPWSTR start)
@@ -1964,13 +1973,17 @@ static void HTTPREQ_CloseConnection(object_header_t *hdr)
 static DWORD str_to_buffer(const WCHAR *str, void *buffer, DWORD *size, BOOL unicode)
 {
     int len;
+
+    if (!size)
+        return ERROR_INVALID_PARAMETER;
+
     if (unicode)
     {
         WCHAR *buf = buffer;
 
         if (str) len = lstrlenW(str);
         else len = 0;
-        if (*size < (len + 1) * sizeof(WCHAR))
+        if (*size < (len + 1) * sizeof(WCHAR) || !buf)
         {
             *size = (len + 1) * sizeof(WCHAR);
             return ERROR_INSUFFICIENT_BUFFER;
@@ -1987,7 +2000,7 @@ static DWORD str_to_buffer(const WCHAR *str, void *buffer, DWORD *size, BOOL uni
 
         if (str) len = WideCharToMultiByte(CP_ACP, 0, str, -1, NULL, 0, NULL, NULL);
         else len = 1;
-        if (*size < len)
+        if (*size < len || !buf)
         {
             *size = len;
             return ERROR_INSUFFICIENT_BUFFER;

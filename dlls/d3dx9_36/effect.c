@@ -4456,20 +4456,46 @@ static HRESULT WINAPI d3dx_effect_SetRawValue(ID3DXEffect *iface, D3DXHANDLE par
         {
             uint8_t *dst_data;
 
-            if (param->columns != 4)
+            if (param->columns == 4)
             {
-                FIXME("Vec%u parameters are currently unsupported.\n", param->columns);
-                return E_NOTIMPL;
+                if ((byte_offset + bytes) > param->bytes)
+                {
+                    FIXME("Writing adjacent parameters is currently unsupported.\n");
+                    return E_NOTIMPL;
+                }
+
+                dst_data = param_get_data_and_dirtify(effect, param, !byte_offset ? bytes : param->bytes, TRUE);
+                memcpy(dst_data + byte_offset, data, bytes);
+            }
+            else
+            {
+                unsigned int src_elems = (bytes + 0xf) / sizeof(D3DXVECTOR4);
+                unsigned int dst_stride = sizeof(float) * param->columns;
+                unsigned int dst_elems = max(1, param->element_count);
+                const D3DXVECTOR4 *src_data = data;
+                unsigned int i, bytes_left;
+
+                if (byte_offset)
+                {
+                    FIXME("Setting Vec%u parameters with an offset is currently unsupported.\n", param->columns);
+                    return E_NOTIMPL;
+                }
+
+                if (src_elems > dst_elems)
+                {
+                    FIXME("Writing adjacent parameters is currently unsupported.\n");
+                    return E_NOTIMPL;
+                }
+
+                bytes_left = bytes;
+                dst_data = param_get_data_and_dirtify(effect, param, dst_elems * dst_stride, TRUE);
+                for (i = 0; i < src_elems; ++i)
+                {
+                    memcpy(dst_data + (i * dst_stride), &src_data[i], min(bytes_left, dst_stride));
+                    bytes_left -= sizeof(*src_data);
+                }
             }
 
-            if ((byte_offset + bytes) > param->bytes)
-            {
-                FIXME("Writing adjacent parameters is currently unsupported.\n");
-                return E_NOTIMPL;
-            }
-
-            dst_data = param_get_data_and_dirtify(effect, param, !byte_offset ? bytes : param->bytes, TRUE);
-            memcpy(dst_data + byte_offset, data, bytes);
             break;
         }
 
@@ -4501,6 +4527,54 @@ static HRESULT WINAPI d3dx_effect_SetRawValue(ID3DXEffect *iface, D3DXHANDLE par
             dst_elem = (D3DXMATRIX *)(dst_data + byte_offset);
             for (i = 0; i < (bytes / sizeof(D3DXMATRIX)); ++i)
                 D3DXMatrixTranspose(&dst_elem[i], &((const D3DXMATRIX *)data)[i]);
+            break;
+        }
+
+        case D3DXPC_STRUCT:
+        {
+            const uint8_t *cur_param_data = data;
+            UINT bytes_left = bytes;
+            unsigned int i;
+            HRESULT hr;
+
+            if (byte_offset)
+            {
+                FIXME("Setting structure members at an offset is currently unsupported.\n");
+                return E_NOTIMPL;
+            }
+
+            for (i = 0; i < param->member_count; ++i)
+            {
+                UINT member_size = param->members[i].class == D3DXPC_MATRIX_ROWS ? 64 : 16;
+                unsigned int member_elems = max(1, param->members[i].element_count);
+                struct d3dx_parameter *member = &param->members[i];
+
+                if (member->class != D3DXPC_MATRIX_ROWS && member->class != D3DXPC_VECTOR)
+                {
+                    FIXME("Unhandled structure member parameter class %s.\n", debug_d3dxparameter_class(member->class));
+                    return E_NOTIMPL;
+                }
+
+                member_size *= member_elems;
+                hr = iface->lpVtbl->SetRawValue(iface, (D3DXHANDLE)member, (const void *)cur_param_data, 0,
+                        min(member_size, bytes_left));
+                if (FAILED(hr))
+                {
+                    WARN("Failed with hr %#lx.\n", hr);
+                    return hr;
+                }
+
+                if (bytes_left <= member_size)
+                {
+                    bytes_left = 0;
+                    break;
+                }
+                cur_param_data += member_size;
+                bytes_left -= member_size;
+            }
+
+            if (bytes_left)
+                FIXME("%u bytes were leftover, might have attempted to write an adjacent parameter.\n", bytes_left);
             break;
         }
 
