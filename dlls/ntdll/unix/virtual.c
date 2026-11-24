@@ -2285,6 +2285,34 @@ static void *alloc_free_area_in_range( struct alloc_area *area, char *base, char
     return try_map_free_area_range( area, base, end );
 }
 
+#ifdef _WIN64
+/* The NVIDIA driver reserves 4G + 2M at the first free address from 0x200000000 when a
+ * Vulkan device uses the extensions DLSS needs, and device creation fails if 0x200000000
+ * up to its search limit is taken. Bottom-up allocation would fill exactly that range, so
+ * keep it out of the free areas (but unmapped, the driver looks for it in /proc/self/maps). */
+static char * const blocked_area_start = (char *)0x200000000;
+static char * const blocked_area_end   = (char *)0x300200000;
+#else
+static char * const blocked_area_start = NULL;
+static char * const blocked_area_end   = NULL;
+#endif
+
+static void *alloc_unblocked_area_in_range( struct alloc_area *area, char *base, char *end )
+{
+    char *result;
+
+    if (blocked_area_end <= base || blocked_area_start >= end)
+        return alloc_free_area_in_range( area, base, end );
+
+    if (area->top_down)
+    {
+        if ((result = alloc_free_area_in_range( area, max( base, blocked_area_end ), end ))) return result;
+        return alloc_free_area_in_range( area, base, min( end, blocked_area_start ));
+    }
+    if ((result = alloc_free_area_in_range( area, base, min( end, blocked_area_start )))) return result;
+    return alloc_free_area_in_range( area, max( base, blocked_area_end ), end );
+}
+
 static void *alloc_free_area( char *limit_low, char *limit_high, size_t size, BOOL top_down, int unix_prot, UINT_PTR align_mask )
 {
     struct range_entry *range, *ranges_start, *ranges_end;
@@ -2348,14 +2376,14 @@ static void *alloc_free_area( char *limit_low, char *limit_high, size_t size, BO
             else
             {
                 /* range is split in two by the preloader reservation, try first part. */
-                if ((result = alloc_free_area_in_range( &area, base, reserve_start )))
+                if ((result = alloc_unblocked_area_in_range( &area, base, reserve_start )))
                     break;
                 /* then fall through to try second part. */
                 base = reserve_end;
             }
         }
 
-        if ((result = alloc_free_area_in_range( &area, base, end )))
+        if ((result = alloc_unblocked_area_in_range( &area, base, end )))
             break;
     }
 
@@ -2545,7 +2573,7 @@ static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
 
             clear_native_views();
             if (!is_win64) increase_try_map_step = FALSE;
-            ptr = alloc_free_area( (void *)limit_low, (void *)limit_high, size, top_down, unix_prot, align_mask );
+            ptr = alloc_free_area( start, end, host_size, top_down, unix_prot, align_mask );
             if (!is_win64) increase_try_map_step = TRUE;
             if (!ptr) return STATUS_NO_MEMORY;
         }
@@ -3503,11 +3531,11 @@ done:
  */
 static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigned int *sec_flags,
                                       mem_size_t *full_size, HANDLE *shared_file,
-                                      struct pe_image_info **info, UNICODE_STRING *nt_name,
-                                      ANSI_STRING *exp_name )
+                                      struct pe_image_info **info, void **version_res,
+                                      ULONG *version_len, UNICODE_STRING *nt_name, ANSI_STRING *exp_name )
 {
     struct pe_image_info *image_info;
-    SIZE_T namelen, total, size = 1024;
+    SIZE_T namelen, total, size = 2048;
     unsigned int status;
 
     for (;;)
@@ -3523,6 +3551,7 @@ static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigne
             *sec_flags   = reply->flags;
             *full_size   = reply->size;
             namelen      = reply->name_len;
+            *version_len = reply->ver_len;
             total        = reply->total;
             *shared_file = wine_server_ptr_handle( reply->shared_file );
         }
@@ -3538,10 +3567,12 @@ static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigne
     {
         assert( total >= sizeof(*image_info) );
         total -= sizeof(*image_info);
-        nt_name->Buffer = (WCHAR *)(image_info + 1);
+        assert( total >= *version_len + namelen );
+        *version_res = image_info + 1;
+        nt_name->Buffer = (WCHAR *)((char *)(image_info + 1) + *version_len);
         nt_name->Length = nt_name->MaximumLength = namelen;
         exp_name->Buffer = (char *)nt_name->Buffer + namelen;
-        exp_name->Length = exp_name->MaximumLength = total - namelen;
+        exp_name->Length = exp_name->MaximumLength = total - *version_len - namelen;
         *info = image_info;
     }
     else free( image_info );
@@ -3711,6 +3742,8 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
     ACCESS_MASK access;
     SIZE_T size;
     struct pe_image_info *image_info = NULL;
+    void *version_res;
+    ULONG version_len;
     UNICODE_STRING nt_name;
     ANSI_STRING exp_name;
     void *base;
@@ -3744,7 +3777,7 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
     }
 
     res = get_mapping_info( handle, access, &sec_flags, &full_size, &shared_file,
-                            &image_info, &nt_name, &exp_name );
+                            &image_info, &version_res, &version_len, &nt_name, &exp_name );
     if (res) return res;
 
     offset.QuadPart = offset_ptr ? offset_ptr->QuadPart : 0;
@@ -3760,7 +3793,7 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
             NtCurrentTeb64()->Tib.ArbitraryUserPointer = PtrToUlong(NtCurrentTeb()->Tib.ArbitraryUserPointer);
         }
         /* check if we can replace that mapping with the builtin */
-        res = load_builtin( image_info, &nt_name, &exp_name, machine, &info,
+        res = load_builtin( image_info, &nt_name, &exp_name, version_res, version_len, machine, &info,
                             addr_ptr, size_ptr, limit_low, limit_high, offset.QuadPart );
         if (res == STATUS_IMAGE_ALREADY_LOADED)
             res = virtual_map_image( handle, addr_ptr, size_ptr, shared_file, limit_low, limit_high,
@@ -4019,12 +4052,14 @@ NTSTATUS virtual_map_builtin_module( HANDLE mapping, void **module, SIZE_T *size
     unsigned int sec_flags;
     HANDLE shared_file;
     struct pe_image_info *image_info = NULL;
+    void *version_res;
+    ULONG version_len;
     NTSTATUS status;
     UNICODE_STRING nt_name;
     ANSI_STRING exp_name;
 
     if ((status = get_mapping_info( mapping, SECTION_MAP_READ, &sec_flags, &full_size, &shared_file,
-                                    &image_info, &nt_name, &exp_name )))
+                                    &image_info, &version_res, &version_len, &nt_name, &exp_name )))
         return status;
 
     if (!image_info) return STATUS_INVALID_PARAMETER;
@@ -4067,11 +4102,13 @@ NTSTATUS virtual_map_module( HANDLE mapping, void **module, SIZE_T *size, SECTIO
     unsigned int sec_flags;
     HANDLE shared_file;
     struct pe_image_info *image_info = NULL;
+    void *version_res;
+    ULONG version_len;
     UNICODE_STRING nt_name;
     ANSI_STRING exp_name;
 
     if ((status = get_mapping_info( mapping, SECTION_MAP_READ, &sec_flags, &full_size, &shared_file,
-                                    &image_info, &nt_name, &exp_name )))
+                                    &image_info, &version_res, &version_len, &nt_name, &exp_name )))
         return status;
 
     if (!image_info) return STATUS_INVALID_PARAMETER;
@@ -4080,7 +4117,7 @@ NTSTATUS virtual_map_module( HANDLE mapping, void **module, SIZE_T *size, SECTIO
     *size = 0;
 
     /* check if we can replace that mapping with the builtin */
-    status = load_builtin( image_info, &nt_name, &exp_name, machine, info,
+    status = load_builtin( image_info, &nt_name, &exp_name, version_res, version_len, machine, info,
                            module, size, limit_low, limit_high, 0 );
     if (status == STATUS_IMAGE_ALREADY_LOADED)
     {
@@ -5402,7 +5439,13 @@ void virtual_set_large_address_space(void)
                 free_reserved_memory( 0, (char *)0x7ffe0000 );
 #endif
         }
-        else user_space_wow_limit = (is_large_address_aware() ? limit_4g : limit_2g) - 1;
+        else if (is_large_address_aware())
+        {
+            user_space_wow_limit = limit_4g - 1;
+            /* reserve space for top-down allocations; some apps break if the entire high 2G is available */
+            reserve_area( (void *)0xfff00000, (void *)0xffff0000 );
+        }
+        else user_space_wow_limit = limit_2g - 1;
     }
     else
     {

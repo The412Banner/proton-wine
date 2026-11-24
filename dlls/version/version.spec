@@ -1,4 +1,5 @@
 @ stdcall -import GetFileVersionInfoA(str long long ptr)
+@ stdcall -import GetFileVersionInfoByHandle(long long long ptr)
 @ stdcall -import GetFileVersionInfoExA(long str long long ptr)
 @ stdcall -import GetFileVersionInfoExW(long wstr long long ptr)
 @ stdcall -import GetFileVersionInfoSizeA(str ptr)

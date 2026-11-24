@@ -23,11 +23,28 @@
 #include "dshow.h"
 #include "wine/test.h"
 #include "wine/strmbase.h"
+#include <dvdmedia.h>
 
 static BOOL compare_media_types(const AM_MEDIA_TYPE *a, const AM_MEDIA_TYPE *b)
 {
     return !memcmp(a, b, offsetof(AM_MEDIA_TYPE, pbFormat))
             && !memcmp(a->pbFormat, b->pbFormat, a->cbFormat);
+}
+
+static void check_stream_media_type(const AM_MEDIA_TYPE *format)
+{
+    ok(!format->pUnk, "Expected NULL pUnk, got %p.\n", format->pUnk);
+
+    if (IsEqualGUID(&format->formattype, &FORMAT_VideoInfo))
+    {
+        ok(format->cbFormat >= sizeof(VIDEOINFOHEADER), "Got cbFormat %lu.\n", format->cbFormat);
+        ok(!!format->pbFormat, "Expected format block.\n");
+    }
+    else if (IsEqualGUID(&format->formattype, &FORMAT_VideoInfo2))
+    {
+        ok(format->cbFormat == sizeof(VIDEOINFOHEADER2), "Got cbFormat %lu.\n", format->cbFormat);
+        ok(!!format->pbFormat, "Expected format block.\n");
+    }
 }
 
 #define check_interface(a, b, c) check_interface_(__LINE__, a, b, c)
@@ -117,6 +134,7 @@ static void test_stream_config(IPin *pin)
 
     hr = IAMStreamConfig_GetFormat(stream_config, &format);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    check_stream_media_type(format);
     ok(IsEqualGUID(&format->majortype, &MEDIATYPE_Video), "Got wrong majortype: %s.\n",
             debugstr_guid(&format->majortype));
 
@@ -155,6 +173,7 @@ static void test_stream_config(IPin *pin)
 
     hr = IAMStreamConfig_GetFormat(stream_config, &format2);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    check_stream_media_type(format2);
     ok(IsEqualGUID(&format2->majortype, &MEDIATYPE_Video), "Got wrong majortype: %s.\n",
             debugstr_guid(&format2->majortype));
     video_info2 = (VIDEOINFOHEADER *)format2->pbFormat;
@@ -203,6 +222,7 @@ static void test_stream_config(IPin *pin)
     {
         hr = IAMStreamConfig_GetStreamCaps(stream_config, i, &format, (BYTE *)&vscc);
         ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        check_stream_media_type(format);
 
         for (unsigned int j = 0; j < ARRAY_SIZE(formats); ++j)
         {
@@ -217,6 +237,7 @@ static void test_stream_config(IPin *pin)
     {
         hr = IAMStreamConfig_GetStreamCaps(stream_config, i, &format, (BYTE *)&vscc);
         ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        check_stream_media_type(format);
         ok(IsEqualGUID(&format->majortype, &MEDIATYPE_Video), "Got wrong majortype: %s.\n",
                 debugstr_guid(&MEDIATYPE_Video));
         ok(IsEqualGUID(&vscc.guid, &FORMAT_VideoInfo)
@@ -228,6 +249,7 @@ static void test_stream_config(IPin *pin)
 
         hr = IAMStreamConfig_GetFormat(stream_config, &format2);
         ok(hr == S_OK, "Got hr %#lx.\n", hr);
+        check_stream_media_type(format2);
         ok(compare_media_types(format, format2), "Media types didn't match.\n");
         DeleteMediaType(format2);
 

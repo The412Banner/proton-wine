@@ -100,7 +100,28 @@ static WCHAR *get_provider_property( HCRYPTPROV prov, DWORD prop_id, DWORD *len 
     return ret;
 }
 
-static BOOL set_key_prov_info( const void *ctx, HCRYPTPROV prov )
+/* PP_KEYSPEC reports the key specs that a provider supports, which says
+ * nothing about the key pair that this container holds; ask the provider
+ * which user key it can actually hand out instead.
+ */
+static DWORD container_key_spec( HCRYPTPROV prov )
+{
+    HCRYPTKEY key;
+
+    if (CryptGetUserKey( prov, AT_KEYEXCHANGE, &key ))
+    {
+        CryptDestroyKey( key );
+        return AT_KEYEXCHANGE;
+    }
+    if (CryptGetUserKey( prov, AT_SIGNATURE, &key ))
+    {
+        CryptDestroyKey( key );
+        return AT_SIGNATURE;
+    }
+    return 0;
+}
+
+static BOOL set_key_prov_info( const void *ctx, HCRYPTPROV prov, DWORD flags )
 {
     CRYPT_KEY_PROV_INFO *prov_info;
     DWORD size, len_container, len_name;
@@ -131,11 +152,14 @@ static BOOL set_key_prov_info( const void *ctx, HCRYPTPROV prov )
     size = sizeof(prov_info->dwProvType);
     CryptGetProvParam( prov, PP_PROVTYPE, (BYTE *)&prov_info->dwProvType, &size, 0 );
 
-    prov_info->dwFlags     = 0;
+    /* import_key() created the container in the machine key set when the
+     * caller asked for one, and callers such as CryptAcquireContextW() only
+     * look there when CRYPT_KEY_PROV_INFO::dwFlags says so.
+     */
+    prov_info->dwFlags     = flags & CRYPT_MACHINE_KEYSET;
     prov_info->cProvParam  = 0;
     prov_info->rgProvParam = NULL;
-    size = sizeof(prov_info->dwKeySpec);
-    CryptGetProvParam( prov, PP_KEYSPEC, (BYTE *)&prov_info->dwKeySpec, &size, 0 );
+    prov_info->dwKeySpec   = container_key_spec( prov );
 
     ret = CertSetCertificateContextProperty( ctx, CERT_KEY_PROV_INFO_PROP_ID, 0, prov_info );
 
@@ -204,7 +228,7 @@ HCERTSTORE WINAPI PFXImportCertStore( CRYPT_DATA_BLOB *pfx, const WCHAR *passwor
                 goto error;
             }
         }
-        else if (!set_key_prov_info( ctx, prov ))
+        else if (!set_key_prov_info( ctx, prov, flags ))
         {
             WARN( "failed to set provider info property %08lx\n", GetLastError() );
             CertFreeCertificateContext( ctx );

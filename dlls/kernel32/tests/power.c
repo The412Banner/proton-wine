@@ -77,7 +77,52 @@ void test_GetSystemPowerStatus(void)
     }
 }
 
+static DWORD WINAPI power_status_thread(void *arg)
+{
+    SYSTEM_POWER_STATUS ps;
+    unsigned int i;
+    BOOL ret;
+
+    for (i = 0; i < 8; ++i)
+    {
+        memset(&ps, 0x23, sizeof(ps));
+        ret = GetSystemPowerStatus(&ps);
+        ok(ret, "GetSystemPowerStatus failed, error %lu\n", GetLastError());
+        if (!ret) continue;
+
+        ok(ps.ACLineStatus == AC_LINE_OFFLINE || ps.ACLineStatus == AC_LINE_ONLINE ||
+           ps.ACLineStatus == AC_LINE_UNKNOWN, "Unexpected ACLineStatus %u\n", ps.ACLineStatus);
+        ok(ps.BatteryLifePercent <= 100 || ps.BatteryLifePercent == BATTERY_PERCENTAGE_UNKNOWN,
+           "Unexpected BatteryLifePercent %u\n", ps.BatteryLifePercent);
+        ok(ps.BatteryFlag == BATTERY_FLAG_UNKNOWN ||
+           !(ps.BatteryFlag & ~(BATTERY_FLAG_HIGH | BATTERY_FLAG_LOW | BATTERY_FLAG_CRITICAL |
+                               BATTERY_FLAG_CHARGING | BATTERY_FLAG_NO_BATTERY)),
+           "Unexpected BatteryFlag %#x\n", ps.BatteryFlag);
+        ok(ps.SystemStatusFlag <= 1, "Unexpected SystemStatusFlag %u\n", ps.SystemStatusFlag);
+    }
+    return 0;
+}
+
+static void test_concurrent_power_status(void)
+{
+    HANDLE threads[4];
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(threads); ++i)
+    {
+        threads[i] = CreateThread(NULL, 0, power_status_thread, NULL, 0, NULL);
+        ok(!!threads[i], "CreateThread failed, error %lu\n", GetLastError());
+    }
+    for (i = 0; i < ARRAY_SIZE(threads); ++i)
+    {
+        if (!threads[i]) continue;
+        WaitForSingleObject(threads[i], INFINITE);
+        CloseHandle(threads[i]);
+    }
+}
+
 START_TEST(power)
 {
     test_GetSystemPowerStatus();
+    test_concurrent_power_status();
 }
