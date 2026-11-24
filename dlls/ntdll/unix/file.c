@@ -3216,6 +3216,101 @@ static BOOL replace_steam_input_path( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *r
     return TRUE;
 }
 
+/* HACK: PROTON_STREAMLINE_UPGRADE (WINE_UPSCALER_REPLACE contains "streamline").
+ * kernelbase lists upgraded Streamline plugins the game's plugin folder doesn't
+ * ship, such as sl.pcl.dll. When such a missing sl.*.dll is opened from a folder
+ * that holds sl.interposer.dll, open the upgraded copy instead, so the
+ * interposer's checks and the loader see a real file. */
+static BOOL streamline_upgrade_enabled(void)
+{
+    static int enabled = -1;
+    const char *env;
+
+    if (enabled == -1) enabled = (env = getenv( "WINE_UPSCALER_REPLACE" )) && strstr( env, "streamline" );
+    return enabled;
+}
+
+NTSTATUS nt_to_unix_file_name( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name,
+                               char **name_ret, UINT disposition, BOOL open_reparse );
+
+static BOOL nt_path_exists( const WCHAR *path, USHORT len )
+{
+    UNICODE_STRING name = { len, len, (WCHAR *)path }, nt_tmp = { 0 };
+    OBJECT_ATTRIBUTES attr;
+    char *unix_name = NULL;
+    NTSTATUS status;
+
+    InitializeObjectAttributes( &attr, &name, OBJ_CASE_INSENSITIVE, 0, NULL );
+    status = nt_to_unix_file_name( &attr, &nt_tmp, &unix_name, FILE_OPEN, FALSE );
+    free( unix_name );
+    free( nt_tmp.Buffer );
+    return !status;
+}
+
+static BOOL ascii_wcsnicmp( const WCHAR *str, const char *ascii, size_t len )
+{
+    size_t i;
+
+    for (i = 0; i < len; i++)
+    {
+        WCHAR c = str[i] >= 'A' && str[i] <= 'Z' ? str[i] + 'a' - 'A' : str[i];
+        if (c != (unsigned char)ascii[i]) return TRUE;
+    }
+    return FALSE;
+}
+
+static BOOL replace_streamline_path( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *redir )
+{
+    static const char streamline_dir[] = "\\??\\c:\\windows\\system32\\umu\\streamline\\";
+    static const char interposer[] = "sl.interposer.dll";
+    const size_t dir_len = sizeof(streamline_dir) - 1, interposer_len = sizeof(interposer) - 1;
+    UNICODE_STRING *path = attr->ObjectName;
+    const WCHAR *base;
+    size_t len, base_len, prefix_len, i;
+    WCHAR *buffer;
+
+    if (attr->RootDirectory || !path || !path->Buffer || !streamline_upgrade_enabled()) return FALSE;
+    len = path->Length / sizeof(WCHAR);
+    if (len < 4 || ascii_wcsnicmp( path->Buffer, "\\??\\", 4 )) return FALSE;
+
+    for (base = path->Buffer + len; base > path->Buffer && base[-1] != '\\'; base--) ;
+    base_len = path->Buffer + len - base;
+    prefix_len = base - path->Buffer;
+    if (base_len <= 7 || ascii_wcsnicmp( base, "sl.", 3 ) || ascii_wcsnicmp( base + base_len - 4, ".dll", 4 ))
+        return FALSE;
+    if (base_len == interposer_len && !ascii_wcsnicmp( base, interposer, interposer_len )) return FALSE;
+    if (prefix_len == dir_len && !ascii_wcsnicmp( path->Buffer, streamline_dir, dir_len )) return FALSE;
+    if (nt_path_exists( path->Buffer, path->Length )) return FALSE;
+
+    if (!(buffer = malloc( (max( prefix_len + interposer_len, dir_len + base_len ) + 1) * sizeof(WCHAR) )))
+        return FALSE;
+
+    /* only for folders with the game's Streamline */
+    memcpy( buffer, path->Buffer, prefix_len * sizeof(WCHAR) );
+    for (i = 0; i < interposer_len; i++) buffer[prefix_len + i] = interposer[i];
+    if (!nt_path_exists( buffer, (prefix_len + interposer_len) * sizeof(WCHAR) ))
+    {
+        free( buffer );
+        return FALSE;
+    }
+
+    for (i = 0; i < dir_len; i++) buffer[i] = streamline_dir[i];
+    memcpy( buffer + dir_len, base, base_len * sizeof(WCHAR) );
+    buffer[dir_len + base_len] = 0;
+    if (!nt_path_exists( buffer, (dir_len + base_len) * sizeof(WCHAR) ))
+    {
+        free( buffer );
+        return FALSE;
+    }
+
+    redir->Buffer = buffer;
+    redir->Length = (dir_len + base_len) * sizeof(WCHAR);
+    redir->MaximumLength = redir->Length + sizeof(WCHAR);
+    TRACE( "HACK: %s -> %s\n", debugstr_us(attr->ObjectName), debugstr_us(redir) );
+    attr->ObjectName = redir;
+    return TRUE;
+}
+
 #ifndef _WIN64
 
 static const WCHAR catrootW[] = {'s','y','s','t','e','m','3','2','\\','c','a','t','r','o','o','t',0};
@@ -3319,6 +3414,7 @@ static void get_redirect( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *redir )
 
     /* CW-Bug-Id: #23185 Emulate Steam Input native hooks for native SDL */
     if (replace_steam_input_path( attr, redir )) return;
+    if (replace_streamline_path( attr, redir )) return;
 
     if (!attr->RootDirectory)
     {
@@ -4653,7 +4749,8 @@ NTSTATUS get_nt_and_unix_names( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name
         get_redirect( attr, nt_name );
 #else
         /* CW-Bug-Id: #23185 Emulate Steam Input native hooks for native SDL */
-        replace_steam_input_path( attr, nt_name );
+        if (!replace_steam_input_path( attr, nt_name ))
+            replace_streamline_path( attr, nt_name );
 #endif
         status = nt_to_unix_file_name( attr, nt_name, unix_name_ret, disposition, open_reparse );
     }

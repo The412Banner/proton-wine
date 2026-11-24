@@ -350,7 +350,16 @@ static void hidraw_device_read_report(struct unix_device *iface)
 
     int size = read(impl->base.device_fd, report_buffer, sizeof(report_buffer));
     if (size == -1)
-        TRACE("Read failed. Likely an unplugged device %d %s\n", errno, strerror(errno));
+    {
+        int err = errno;
+
+        TRACE("Read failed. Likely an unplugged device %d %s\n", err, strerror(err));
+        if (err == EIO || err == ENODEV || err == ENXIO || err == ESHUTDOWN)
+        {
+            stop_polling_device(iface);
+            bus_event_queue_device_removed(&event_queue, iface);
+        }
+    }
     else if (size == 0)
         TRACE("Failed to read report\n");
     else
@@ -1496,6 +1505,105 @@ static void get_device_subsystem_info(struct udev_device *dev, const char *subsy
     }
 }
 
+static BOOL enable_sony_hidraw_xinput(void)
+{
+    const char *env = getenv("PROTON_SONY_HIDRAW_XINPUT");
+
+    return env && env[0] == '1' && !env[1];
+}
+
+static BOOL spoof_dualsense_as_dualshock4(void)
+{
+    const char *env = getenv("PROTON_SONY_DUALSENSE_AS_DUALSHOCK4");
+
+    return env && env[0] == '1' && !env[1];
+}
+
+static BOOL spoof_dualshock4_v2_as_v1(void)
+{
+    const char *env = getenv("PROTON_SONY_DUALSHOCK4_V2_AS_V1");
+
+    return env && env[0] == '1' && !env[1];
+}
+
+static BOOL sony_steam_input_disabled(void)
+{
+    const char *env;
+    struct udev_enumerate *enumerate;
+    BOOL enabled = FALSE;
+
+    env = getenv("PROTON_EMULATE_STEAMINPUT");
+    if (env && atoi(env)) return FALSE;
+    env = getenv("PROTON_NO_STEAMINPUT");
+    if (env && !strcmp(env, "1")) return TRUE;
+
+    /* Steam can export its integration variables even with per-game input
+     * disabled. Check for an actual virtual controller, independent of the
+     * order in which udev reports physical and virtual devices. */
+    if (!(enumerate = udev_enumerate_new(udev_context))) return FALSE;
+    if (udev_enumerate_add_match_subsystem(enumerate, "input") >= 0 &&
+            udev_enumerate_add_match_sysattr(enumerate, "id/vendor", "28de") >= 0 &&
+            udev_enumerate_add_match_sysattr(enumerate, "id/product", "11ff") >= 0 &&
+            udev_enumerate_scan_devices(enumerate) >= 0)
+        enabled = !udev_enumerate_get_list_entry(enumerate);
+    udev_enumerate_unref(enumerate);
+    return enabled;
+}
+
+static BOOL spoof_dualsense_edge_as_dualsense(void)
+{
+    const char *env = getenv("PROTON_SONY_DUALSENSE_EDGE_AS_DUALSENSE");
+
+    if (!env || strcmp(env, "1")) return FALSE;
+    return sony_steam_input_disabled();
+}
+
+/* Enabled by default when Steam Input is disabled; PROTON_DUALSENSE_BT_AS_USB=0
+ * keeps the Bluetooth report layout. */
+static BOOL spoof_bluetooth_dualsense_as_usb(void)
+{
+    const char *env = getenv("PROTON_DUALSENSE_BT_AS_USB");
+
+    if (env && !strcmp(env, "0")) return FALSE;
+    return sony_steam_input_disabled();
+}
+
+/* Enabled by default when Steam Input is disabled; PROTON_DUALSHOCK4_BT_AS_USB=0
+ * keeps the Bluetooth report layout. */
+static BOOL spoof_bluetooth_dualshock4_as_usb(void)
+{
+    const char *env = getenv("PROTON_DUALSHOCK4_BT_AS_USB");
+
+    if (env && !strcmp(env, "0")) return FALSE;
+    return sony_steam_input_disabled();
+}
+
+/* Bluetooth controllers have no USB topology to derive a container ID from.
+ * Use one based on the controller address instead; winepulse computes the
+ * same value for the synthetic haptics endpoint of the controller. */
+static void set_bluetooth_dualsense_container_id(struct device_desc *desc)
+{
+    unsigned int mac[6];
+    char uniq[64];
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(uniq) - 1 && desc->serialnumber[i]; ++i)
+        uniq[i] = desc->serialnumber[i] < 0x80 ? desc->serialnumber[i] : '?';
+    uniq[i] = 0;
+    if (sscanf(uniq, "%x:%x:%x:%x:%x:%x", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]) != 6)
+    {
+        WARN("could not parse Bluetooth DualSense address %s.\n", debugstr_a(uniq));
+        return;
+    }
+
+    desc->bus_container_id.Data1 = MAKELONG(desc->vid, desc->pid);
+    desc->bus_container_id.Data2 = 0x4254;
+    desc->bus_container_id.Data3 = (mac[0] << 8) | mac[1];
+    for (i = 0; i < 4; ++i) desc->bus_container_id.Data4[i] = mac[i + 2];
+    memset(desc->bus_container_id.Data4 + 4, 0, 4);
+    TRACE("Created Bluetooth DualSense container ID %s.\n", debugstr_guid(&desc->bus_container_id));
+}
+
 static NTSTATUS hidraw_device_create(struct udev_device *dev, int fd, const char *devnode, struct device_desc desc)
 {
 #ifdef HAVE_LINUX_HIDRAW_H
@@ -1505,6 +1613,72 @@ static NTSTATUS hidraw_device_create(struct udev_device *dev, int fd, const char
     char buffer[MAX_PATH];
 
     desc.is_hidraw = TRUE;
+    if (enable_sony_hidraw_xinput() &&
+            (is_dualshock4_gamepad(desc.vid, desc.pid) || is_dualsense_gamepad(desc.vid, desc.pid)))
+    {
+        desc.is_gamepad = TRUE;
+        TRACE("mapping Sony hidraw controller %04x:%04x to XInput.\n", desc.vid, desc.pid);
+    }
+    if (is_vitapad_gamepad(desc.vid, desc.pid))
+    {
+        desc.spoof_dualshock4 = TRUE;
+        desc.spoof_dualshock4_v1 = spoof_dualshock4_v2_as_v1();
+        TRACE("exposing VitaPad %04x:%04x as DualShock 4 %s.\n",
+                desc.vid, desc.pid, desc.spoof_dualshock4_v1 ? "v1" : "v2");
+    }
+    else if (!desc.is_gamepad && spoof_dualsense_as_dualshock4() && is_dualsense_gamepad(desc.vid, desc.pid))
+    {
+        desc.spoof_dualshock4 = TRUE;
+        desc.spoof_dualshock4_v1 = spoof_dualshock4_v2_as_v1();
+        TRACE("exposing DualSense hidraw controller %04x:%04x directly as DualShock 4 %s.\n",
+                desc.vid, desc.pid, desc.spoof_dualshock4_v1 ? "v1" : "v2");
+    }
+    else if (!desc.is_gamepad && spoof_dualshock4_v2_as_v1() &&
+            desc.vid == 0x054c && desc.pid == 0x09cc)
+    {
+        desc.spoof_dualshock4_v1 = TRUE;
+        TRACE("exposing DualShock 4 v2 hidraw controller %04x:%04x directly as DualShock 4 v1.\n",
+                desc.vid, desc.pid);
+    }
+    else if (!desc.is_gamepad && desc.vid == 0x054c && desc.pid == 0x0df2 &&
+            spoof_dualsense_edge_as_dualsense())
+    {
+        /* Keep the physical PID for hotplug identity, audio and haptics. The
+         * Edge uses the same standard input/output reports as DualSense. */
+        desc.spoof_dualsense = TRUE;
+        TRACE("exposing native DualSense Edge %04x:%04x as DualSense 054c:0ce6.\n",
+                desc.vid, desc.pid);
+    }
+
+    if (!desc.is_gamepad && !desc.spoof_dualshock4 && !desc.spoof_dualshock4_v1 &&
+            desc.bus_type == BUS_TYPE_BLUETOOTH && is_dualsense_gamepad(desc.vid, desc.pid) &&
+            spoof_bluetooth_dualsense_as_usb())
+    {
+        /* Present the Bluetooth controller with its USB report layout, the way
+         * games expect a wired DualSense. Interface 3 matches the USB HID
+         * interface in the instance path. */
+        desc.spoof_dualsense_usb = TRUE;
+        desc.input = 3;
+        set_bluetooth_dualsense_container_id(&desc);
+        TRACE("exposing Bluetooth DualSense%s %04x:%04x as a USB DualSense%s.\n",
+                desc.pid == 0x0df2 ? " Edge" : "", desc.vid, desc.pid,
+                desc.pid == 0x0df2 && !desc.spoof_dualsense ? " Edge" : "");
+    }
+
+    if (!desc.is_gamepad && !desc.spoof_dualshock4 && desc.bus_type == BUS_TYPE_BLUETOOTH &&
+            desc.vid == 0x054c && (desc.pid == 0x05c4 || desc.pid == 0x09cc) &&
+            spoof_bluetooth_dualshock4_as_usb())
+    {
+        /* Present the Bluetooth controller with its USB report layout, the way
+         * games expect a wired DualShock 4. Interface 3 matches the USB HID
+         * interface in the instance path. */
+        desc.spoof_dualshock4_usb = TRUE;
+        desc.input = 3;
+        set_bluetooth_dualsense_container_id(&desc);
+        TRACE("exposing Bluetooth DualShock 4 %04x:%04x as a USB DualShock 4%s.\n",
+                desc.vid, desc.pid, desc.spoof_dualshock4_v1 ? " v1" : "");
+    }
+
     if (!desc.product[0] && ioctl(fd, HIDIOCGRAWNAME(sizeof(buffer) - 1), buffer) >= 0)
         ntdll_umbstowcs(buffer, strlen(buffer) + 1, desc.product, ARRAY_SIZE(desc.product));
 
@@ -1739,6 +1913,13 @@ static void udev_add_device(struct udev_device *dev, int fd)
         return;
     }
 
+    if (find_device_from_devnode(devnode))
+    {
+        TRACE("udev %s is already tracked, ignoring duplicate add/change event.\n", debugstr_a(devnode));
+        close(fd);
+        return;
+    }
+
     TRACE("udev %s syspath %s\n", debugstr_a(devnode), udev_device_get_syspath(dev));
 
     get_device_subsystem_info(dev, "hid", NULL, &desc, &bus);
@@ -1943,22 +2124,18 @@ static void maybe_remove_devnode(const char *base, const char *dir)
     else WARN("failed to find device for path %s\n", devnode);
 }
 
-static void process_attrib_change(const char *base, const char *dir, const char *subsystem)
+static void maybe_refresh_devnode(const char *base, const char *dir, const char *subsystem)
 {
     char devnode[MAX_PATH];
-    int fd;
 
     snprintf(devnode, sizeof(devnode), "%s/%s", dir, base);
-    if (!find_device_from_devnode(devnode))
+    if (find_device_from_devnode(devnode))
     {
-        maybe_add_devnode(base, dir, subsystem);
+        TRACE("Ignoring attribute change for existing device %s.\n", debugstr_a(devnode));
         return;
     }
 
-    if ((fd = open(devnode, O_RDWR)) < 0)
-        maybe_remove_devnode(base, dir);
-    else
-        close(fd);
+    maybe_add_devnode(base, dir, subsystem);
 }
 
 static void process_inotify_event(int fd)
@@ -1987,7 +2164,7 @@ static void process_inotify_event(int fd)
                 else if (buf.event.mask & (IN_CREATE | IN_MOVED_TO))
                     maybe_add_devnode(buf.event.name, "/dev", "hidraw");
                 else if (buf.event.mask & IN_ATTRIB)
-                    process_attrib_change(buf.event.name, "/dev", "hidraw");
+                    maybe_refresh_devnode(buf.event.name, "/dev", "hidraw");
             }
 #ifdef HAS_PROPER_INPUT_HEADER
             else if (buf.event.wd == devinput_watch)
@@ -1999,7 +2176,7 @@ static void process_inotify_event(int fd)
                 else if (buf.event.mask & (IN_CREATE | IN_MOVED_TO))
                     maybe_add_devnode(buf.event.name, "/dev/input", "input");
                 else if (buf.event.mask & IN_ATTRIB)
-                    process_attrib_change(buf.event.name, "/dev/input", "input");
+                    maybe_refresh_devnode(buf.event.name, "/dev/input", "input");
             }
 #endif
         }

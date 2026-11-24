@@ -374,6 +374,8 @@ static void ddraw_destroy_swapchain(struct ddraw *ddraw)
 {
     unsigned int i;
 
+    ddraw_gf_close_overlay_window(ddraw);
+
     TRACE("Destroying the swapchain.\n");
 
     wined3d_swapchain_decref(ddraw->wined3d_swapchain);
@@ -1586,6 +1588,15 @@ static HRESULT WINAPI ddraw7_GetCaps(IDirectDraw7 *iface, DDCAPS *DriverCaps, DD
     caps.dwCaps |= DDCAPS_ALIGNSTRIDE;
     caps.dwAlignStrideAlign = DDRAW_STRIDE_ALIGNMENT;
 
+    /* One emulated overlay, drawn over its destination when that is
+     * presented. Some games (e.g. CRI Sofdec movie players) only play their
+     * movies through a YUY2 overlay and check this cap first. */
+    caps.dwCaps |= DDCAPS_OVERLAY | DDCAPS_OVERLAYFOURCC | DDCAPS_OVERLAYSTRETCH;
+    caps.ddsCaps.dwCaps |= DDSCAPS_OVERLAY;
+    caps.dwMaxVisibleOverlays = 1;
+    caps.dwMinOverlayStretch = 1;
+    caps.dwMaxOverlayStretch = 20000;
+
     caps.ddsOldCaps.dwCaps = caps.ddsCaps.dwCaps;
 
     if(DriverCaps)
@@ -2189,6 +2200,112 @@ static HRESULT WINAPI ddraw1_FlipToGDISurface(IDirectDraw *iface)
     return ddraw7_FlipToGDISurface(&ddraw->IDirectDraw7_iface);
 }
 
+static DWORD ddraw_get_vblank_refresh_rate(struct ddraw *ddraw)
+{
+    struct wined3d_display_mode mode;
+    DWORD refresh_rate = 60;
+
+    if (force_refresh_rate)
+        return force_refresh_rate;
+
+    wined3d_mutex_lock();
+    if (SUCCEEDED(wined3d_output_get_display_mode(ddraw->wined3d_output, &mode, NULL)) && mode.refresh_rate)
+        refresh_rate = mode.refresh_rate;
+    wined3d_mutex_unlock();
+
+    return refresh_rate;
+}
+
+static void ddraw_wait_for_vblank_interval(struct ddraw *ddraw)
+{
+    LARGE_INTEGER frequency, now;
+    LONGLONG interval, wait_time;
+    DWORD refresh_rate;
+
+    if (!QueryPerformanceFrequency(&frequency) || !frequency.QuadPart)
+    {
+        Sleep(1);
+        return;
+    }
+
+    refresh_rate = ddraw_get_vblank_refresh_rate(ddraw);
+    interval = frequency.QuadPart / refresh_rate;
+    if (!interval)
+        interval = 1;
+
+    QueryPerformanceCounter(&now);
+    if (!ddraw->next_vblank_time || now.QuadPart - ddraw->next_vblank_time > interval * 4)
+        ddraw->next_vblank_time = now.QuadPart + interval;
+    while (ddraw->next_vblank_time <= now.QuadPart)
+        ddraw->next_vblank_time += interval;
+
+    wait_time = ddraw->next_vblank_time - now.QuadPart;
+    if (wait_time > 0)
+    {
+        DWORD wait_ms = wait_time * 1000 / frequency.QuadPart;
+
+        Sleep(max(1, wait_ms));
+    }
+
+    ddraw->next_vblank_time += interval;
+}
+
+/* Optional game tick limiter, set through WINE_DDRAW_MAXGAMETICKS (1 - 1000 ticks per second).
+ * Old games often tie their speed (and their cursor and scrolling speed) to the 60 Hz
+ * vertical blank of the displays they were written for. Wine's DirectDraw presents at the
+ * real refresh rate, so on a 144 or 240 Hz display such a game runs several times too fast.
+ * This is the equivalent of the "maxgameticks" setting of cnc-ddraw. */
+void ddraw_limit_game_ticks(void)
+{
+    static LONG state; /* 0: not read yet, 1: disabled, 2: enabled */
+    static LONGLONG period, next_tick;
+    LARGE_INTEGER now;
+    LONGLONG next, last;
+    char buffer[16];
+    DWORD len;
+    int rate;
+
+    if (!state)
+    {
+        LARGE_INTEGER frequency;
+
+        len = GetEnvironmentVariableA( "WINE_DDRAW_MAXGAMETICKS", buffer, sizeof(buffer) );
+        rate = 0;
+        if (len && len < sizeof(buffer))
+        {
+            const char *p;
+
+            for (p = buffer; *p >= '0' && *p <= '9' && rate <= 1000; ++p) rate = rate * 10 + *p - '0';
+            if (*p) rate = 0;
+        }
+        if (rate >= 1 && rate <= 1000)
+        {
+            QueryPerformanceFrequency( &frequency );
+            period = frequency.QuadPart / rate;
+            InterlockedExchange( &state, 2 );
+        }
+        else InterlockedExchange( &state, 1 );
+    }
+    if (state != 2) return;
+
+    QueryPerformanceCounter( &now );
+    last = next = InterlockedCompareExchange64( &next_tick, 0, 0 );
+    if (!next || now.QuadPart > next + 2 * period) next = now.QuadPart; /* first tick, or too far behind */
+
+    while (now.QuadPart < next)
+    {
+        LARGE_INTEGER frequency;
+        LONGLONG ms;
+
+        QueryPerformanceFrequency( &frequency );
+        ms = (next - now.QuadPart) * 1000 / frequency.QuadPart;
+        Sleep( ms > 1 ? ms - 1 : 0 );
+        QueryPerformanceCounter( &now );
+    }
+
+    InterlockedCompareExchange64( &next_tick, next + period, last );
+}
+
 /*****************************************************************************
  * IDirectDraw7::WaitForVerticalBlank
  *
@@ -2208,20 +2325,15 @@ static HRESULT WINAPI ddraw1_FlipToGDISurface(IDirectDraw *iface)
  *****************************************************************************/
 static HRESULT WINAPI ddraw7_WaitForVerticalBlank(IDirectDraw7 *iface, DWORD Flags, HANDLE event)
 {
-    static BOOL hide;
+    struct ddraw *ddraw = impl_from_IDirectDraw7(iface);
 
     TRACE("iface %p, flags %#lx, event %p.\n", iface, Flags, event);
-
-    /* This function is called often, so print the fixme only once */
-    if(!hide)
-    {
-        FIXME("iface %p, flags %#lx, event %p stub!\n", iface, Flags, event);
-        hide = TRUE;
-    }
 
     /* MSDN says DDWAITVB_BLOCKBEGINEVENT is not supported */
     if(Flags & DDWAITVB_BLOCKBEGINEVENT)
         return DDERR_UNSUPPORTED; /* unchecked */
+
+    ddraw_wait_for_vblank_interval(ddraw);
 
     return DD_OK;
 }
@@ -5006,8 +5118,10 @@ static void CDECL device_parent_mode_changed(struct wined3d_device_parent *devic
     r = &output_desc.desktop_rect;
     TRACE("Resizing window %p to %s.\n", ddraw->swapchain_window, wine_dbgstr_rect(r));
 
-    if (!SetWindowPos(ddraw->swapchain_window, HWND_TOP, r->left, r->top,
-                      r->right - r->left, r->bottom - r->top, SWP_SHOWWINDOW | SWP_NOACTIVATE))
+    /* The temporary video window is not the fullscreen device window. */
+    if (!ddraw->gf_overlay_window
+            && !SetWindowPos(ddraw->swapchain_window, HWND_TOP, r->left, r->top,
+                    r->right - r->left, r->bottom - r->top, SWP_SHOWWINDOW | SWP_NOACTIVATE))
         ERR("Failed to resize window.\n");
 
     InterlockedCompareExchange(&ddraw->device_state, DDRAW_DEVICE_STATE_NOT_RESTORED, DDRAW_DEVICE_STATE_OK);

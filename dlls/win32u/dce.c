@@ -222,8 +222,9 @@ static BOOL foreign_gdi_surface_ensure_channel( struct foreign_gdi_surface *surf
         return FALSE;
     }
 
-    producer_id = InterlockedIncrement64( &foreign_gdi_next_producer_id );
-    if (!producer_id) producer_id = InterlockedIncrement64( &foreign_gdi_next_producer_id );
+    /* Unique across processes, see managed_swapchain_create(). */
+    producer_id = ((UINT64)GetCurrentProcessId() << 32) |
+                  (UINT32)InterlockedIncrement64( &foreign_gdi_next_producer_id );
     surface->producer_unique_id = producer_id;
     surface->ring_generation++;
     if (!surface->ring_generation) surface->ring_generation++;
@@ -671,6 +672,7 @@ struct scaled_surface
     struct window_surface *target_surface;
     UINT dpi_from;
     UINT dpi_to;
+    RECT contents; /* scaled window contents in the target, empty if it has no border */
 };
 
 static struct scaled_surface *get_scaled_surface( struct window_surface *window_surface )
@@ -678,10 +680,49 @@ static struct scaled_surface *get_scaled_surface( struct window_surface *window_
     return CONTAINING_RECORD( window_surface, struct scaled_surface, header );
 }
 
+static HRGN scaled_surface_map_region( struct scaled_surface *surface, HRGN region )
+{
+    HRGN hrgn = map_dpi_region( region, surface->dpi_from, surface->dpi_to );
+    if (hrgn) NtGdiOffsetRgn( hrgn, surface->contents.left, surface->contents.top );
+    return hrgn;
+}
+
+static RECT scaled_surface_map_rect( struct scaled_surface *surface, RECT rect )
+{
+    rect = map_dpi_rect( rect, surface->dpi_from, surface->dpi_to );
+    OffsetRect( &rect, surface->contents.left, surface->contents.top );
+    return rect;
+}
+
+/* The target area around the scaled contents, e.g. the bars of a fullscreen
+ * window in an emulated display mode with a different aspect ratio. */
+static HRGN scaled_surface_create_border_region( struct scaled_surface *surface )
+{
+    const RECT *contents = &surface->contents;
+    HRGN border, inner;
+
+    if (IsRectEmpty( contents )) return 0;
+    if (!(border = NtGdiCreateRectRgn( 0, 0, surface->target_surface->rect.right,
+                                       surface->target_surface->rect.bottom ))) return 0;
+    if ((inner = NtGdiCreateRectRgn( contents->left, contents->top, contents->right, contents->bottom )))
+    {
+        NtGdiCombineRgn( border, border, inner, RGN_DIFF );
+        NtGdiDeleteObjectApp( inner );
+    }
+    return border;
+}
+
 static void scaled_surface_set_clip( struct window_surface *window_surface, const RECT *rects, UINT count )
 {
     struct scaled_surface *surface = get_scaled_surface( window_surface );
-    HRGN hrgn = map_dpi_region( window_surface->clip_region, surface->dpi_from, surface->dpi_to );
+    HRGN hrgn = scaled_surface_map_region( surface, window_surface->clip_region ), border;
+
+    /* The border isn't covered by anything in the window, keep it visible. */
+    if (hrgn && (border = scaled_surface_create_border_region( surface )))
+    {
+        NtGdiCombineRgn( hrgn, hrgn, border, RGN_OR );
+        NtGdiDeleteObjectApp( border );
+    }
     window_surface_set_clip( surface->target_surface, hrgn );
     if (hrgn) NtGdiDeleteObjectApp( hrgn );
 }
@@ -700,7 +741,7 @@ static BOOL scaled_surface_flush( struct window_surface *window_surface, const R
     src.right = (src.right + 7) & ~7;
     src.bottom = (src.bottom + 7) & ~7;
 
-    dst = map_dpi_rect( src, surface->dpi_from, surface->dpi_to );
+    dst = scaled_surface_map_rect( surface, src );
 
     hdc_dst = NtGdiCreateCompatibleDC( 0 );
     hdc_src = NtGdiCreateCompatibleDC( 0 );
@@ -719,7 +760,7 @@ static BOOL scaled_surface_flush( struct window_surface *window_surface, const R
     NtGdiDeleteObjectApp( hdc_src );
 
     window_surface_lock( surface->target_surface );
-    self_painted = map_dpi_region( window_surface->self_painted_region, surface->dpi_from, surface->dpi_to );
+    self_painted = scaled_surface_map_region( surface, window_surface->self_painted_region );
     if ((self_painted || surface->target_surface->self_painted_region) &&
         !NtGdiEqualRgn( self_painted, surface->target_surface->self_painted_region ))
     {
@@ -736,7 +777,7 @@ static BOOL scaled_surface_flush( struct window_surface *window_surface, const R
 
     if (shape_changed)
     {
-        HRGN hrgn = map_dpi_region( window_surface->shape_region, surface->dpi_from, surface->dpi_to );
+        HRGN hrgn = scaled_surface_map_region( surface, window_surface->shape_region );
         window_surface_set_shape( surface->target_surface, hrgn );
         if (hrgn) NtGdiDeleteObjectApp( hrgn );
 
@@ -761,15 +802,46 @@ static const struct window_surface_funcs scaled_surface_funcs =
     scaled_surface_destroy
 };
 
-static void scaled_surface_set_target( struct scaled_surface *surface, struct window_surface *target, UINT dpi_to )
+static void scaled_surface_set_target( struct scaled_surface *surface, struct window_surface *target, UINT dpi_to,
+                                       const RECT *contents )
 {
+    BOOL changed = surface->target_surface != target || !EqualRect( &surface->contents, contents );
+    RECT border[4];
+    HDC hdc;
+    UINT i;
+
     if (surface->target_surface) window_surface_release( surface->target_surface );
     window_surface_add_ref( (surface->target_surface = target) );
     surface->dpi_to = dpi_to;
+    surface->contents = *contents;
+
+    if (!changed || IsRectEmpty( contents )) return;
+
+    /* Nothing in the window draws the border: paint it black, and mark it
+     * painted so that it is presented rather than left transparent. */
+    contents = &surface->contents;
+    SetRect( &border[0], 0, 0, target->rect.right, contents->top );
+    SetRect( &border[1], 0, contents->bottom, target->rect.right, target->rect.bottom );
+    SetRect( &border[2], 0, contents->top, contents->left, contents->bottom );
+    SetRect( &border[3], contents->right, contents->top, target->rect.right, contents->bottom );
+
+    hdc = NtGdiCreateCompatibleDC( 0 );
+    if (hdc) NtGdiSelectBitmap( hdc, target->color_bitmap );
+    window_surface_lock( target );
+    for (i = 0; i < ARRAY_SIZE(border); i++)
+    {
+        if (IsRectEmpty( &border[i] )) continue;
+        if (hdc) NtGdiPatBlt( hdc, border[i].left, border[i].top, border[i].right - border[i].left,
+                              border[i].bottom - border[i].top, BLACKNESS );
+        window_surface_add_app_paint_rect( target, &border[i] );
+        add_bounds_rect( &target->bounds, &border[i] );
+    }
+    window_surface_unlock( target );
+    if (hdc) NtGdiDeleteObjectApp( hdc );
 }
 
 static struct window_surface *scaled_surface_create( HWND hwnd, const RECT *surface_rect, UINT dpi_from, UINT dpi_to,
-                                                     struct window_surface *target_surface )
+                                                     const RECT *contents, struct window_surface *target_surface )
 {
     char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
     BITMAPINFO *info = (BITMAPINFO *)buffer;
@@ -789,7 +861,7 @@ static struct window_surface *scaled_surface_create( HWND hwnd, const RECT *surf
     {
         surface = get_scaled_surface( window_surface );
         surface->dpi_from = dpi_from;
-        scaled_surface_set_target( surface, target_surface, dpi_to );
+        scaled_surface_set_target( surface, target_surface, dpi_to, contents );
     }
 
     return window_surface;
@@ -807,15 +879,29 @@ static RECT get_surface_rect( RECT rect )
     return rect;
 }
 
+/***********************************************************************
+ *           create_window_surface
+ *
+ * monitor_visible, if set, is the window's raw visible rect, relative to itself,
+ * when it is larger than the scaled visible rect (a fullscreen window in an
+ * emulated display mode with a different aspect ratio), and monitor_contents
+ * the scaled visible rect within it. The driver surface then covers the whole
+ * raw visible rect, with a black border around the scaled contents.
+ */
 void create_window_surface( HWND hwnd, BOOL create_layered, const RECT *surface_rect, UINT monitor_dpi,
+                            const RECT *monitor_visible, const RECT *monitor_contents,
                             struct window_surface **window_surface )
 {
     struct window_surface *previous, *driver_surface;
     UINT dpi = get_dpi_for_window( hwnd );
-    RECT monitor_rect;
+    RECT monitor_rect, contents = {0};
 
-
-    monitor_rect = get_surface_rect( map_dpi_rect( *surface_rect, dpi, monitor_dpi ) );
+    if (monitor_visible)
+    {
+        monitor_rect = get_surface_rect( *monitor_visible );
+        contents = *monitor_contents;
+    }
+    else monitor_rect = get_surface_rect( map_dpi_rect( *surface_rect, dpi, monitor_dpi ) );
     if ((driver_surface = get_driver_window_surface( *window_surface, monitor_dpi )))
     {
         /* reuse the underlying driver surface only if it also matches the target monitor rect */
@@ -834,7 +920,7 @@ void create_window_surface( HWND hwnd, BOOL create_layered, const RECT *surface_
         return;
     }
 
-    if (!driver_surface || dpi == monitor_dpi)
+    if (!driver_surface || (dpi == monitor_dpi && IsRectEmpty( &contents )))
     {
         if (*window_surface) window_surface_release( *window_surface );
         *window_surface = driver_surface;
@@ -845,13 +931,13 @@ void create_window_surface( HWND hwnd, BOOL create_layered, const RECT *surface_
     if ((previous = *window_surface) && previous->funcs == &scaled_surface_funcs)
     {
         struct scaled_surface *surface = get_scaled_surface( previous );
-        scaled_surface_set_target( surface, driver_surface, monitor_dpi );
+        scaled_surface_set_target( surface, driver_surface, monitor_dpi, &contents );
         window_surface_release( driver_surface );
         return;
     }
     if (previous) window_surface_release( previous );
 
-    *window_surface = scaled_surface_create( hwnd, surface_rect, dpi, monitor_dpi, driver_surface );
+    *window_surface = scaled_surface_create( hwnd, surface_rect, dpi, monitor_dpi, &contents, driver_surface );
     window_surface_release( driver_surface );
 }
 
@@ -1277,6 +1363,82 @@ void window_surface_clear_self_paint( struct window_surface *surface )
     if (changed) window_surface_flush( surface );
 }
 
+/* GDI drawn into a child window that has a pixel format is tracked on its
+ * toplevel's surface (child windows have none of their own). The child's
+ * native frame supersedes it, so drop the child's area when it presents. */
+void window_surface_clear_child_self_paint( HWND hwnd )
+{
+    struct window_surface *surface;
+    HRGN vis_rgn = 0, overlap;
+    RECT top_rect;
+    size_t size = 256;
+    NTSTATUS status;
+    BOOL pending, changed = FALSE;
+    HWND top = NtUserGetAncestor( hwnd, GA_ROOT );
+
+    if (!top || top == hwnd || !(surface = window_surface_get( top ))) return;
+
+    window_surface_lock( surface );
+    pending = !!surface->self_painted_region;
+    window_surface_unlock( surface );
+
+    while (pending)
+    {
+        RGNDATA *data = malloc( sizeof(*data) + size - 1 );
+        if (!data) break;
+
+        SERVER_START_REQ( get_visible_region )
+        {
+            req->window = wine_server_user_handle( hwnd );
+            req->flags  = 0;
+            wine_server_set_reply( req, data->Buffer, size );
+            if (!(status = wine_server_call( req )))
+            {
+                size_t reply_size = wine_server_reply_size( reply );
+                data->rdh.dwSize   = sizeof(data->rdh);
+                data->rdh.iType    = RDH_RECTANGLES;
+                data->rdh.nCount   = reply_size / sizeof(RECT);
+                data->rdh.nRgnSize = reply_size;
+                vis_rgn  = NtGdiExtCreateRegion( NULL, data->rdh.dwSize + data->rdh.nRgnSize, data );
+                top_rect = wine_server_get_rect( reply->top_rect );
+            }
+            else size = reply->total_size;
+        }
+        SERVER_END_REQ;
+        free( data );
+        if (status != STATUS_BUFFER_OVERFLOW) break;
+    }
+
+    if (vis_rgn)
+    {
+        /* same coordinates as the self-painted rects: relative to the toplevel's surface rect */
+        NtGdiOffsetRgn( vis_rgn, -top_rect.left, -top_rect.top );
+
+        window_surface_lock( surface );
+        if (surface->self_painted_region && (overlap = NtGdiCreateRectRgn( 0, 0, 0, 0 )))
+        {
+            /* GDI drawn into the toplevel itself or its other children stays */
+            if (NtGdiCombineRgn( overlap, surface->self_painted_region, vis_rgn, RGN_AND ) > NULLREGION)
+            {
+                if (NtGdiCombineRgn( surface->self_painted_region, surface->self_painted_region,
+                                     vis_rgn, RGN_DIFF ) == NULLREGION)
+                {
+                    NtGdiDeleteObjectApp( surface->self_painted_region );
+                    surface->self_painted_region = 0;
+                }
+                surface->bounds = surface->rect;
+                changed = TRUE;
+            }
+            NtGdiDeleteObjectApp( overlap );
+        }
+        window_surface_unlock( surface );
+        NtGdiDeleteObjectApp( vis_rgn );
+    }
+
+    if (changed) window_surface_flush( surface );
+    window_surface_release( surface );
+}
+
 W32KAPI void window_surface_add_gdi_over_paint_rect( struct window_surface *surface, const RECT *rect )
 {
     HRGN rect_region, clipped_region, producer_region = 0, synthetic_region = 0, combined_region = 0;
@@ -1662,7 +1824,12 @@ static void update_visible_region( struct dce *dce )
 
         if (!foreign)
         {
-            if (dce->hwnd == top_win && !user_driver->dc_funcs.pPutImage &&
+            /* GDI drawn into a window that has its own client surface is newer
+             * than that window's native frame, until it presents again. This
+             * includes child windows: DirectDraw's windowed primary (used by
+             * the DirectShow VMR7, as in GTA III's intro videos) gives the
+             * video window a pixel format but copies its frames with GDI. */
+            if (!user_driver->dc_funcs.pPutImage &&
                 (paint_flags & (SET_WINPOS_PIXEL_FORMAT | SET_WINPOS_CLIP_CLIENT)))
                 source = SURFACE_GDI_OVER_SELF;
             else if (dce->hwnd != top_win &&

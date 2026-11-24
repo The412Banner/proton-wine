@@ -95,6 +95,11 @@ static const fluid_gen_info_t fluid_gen_info[] =
     { _GEN(CUSTOM_FILTERQ),         1,     1,       0.0f,    960.0f,       0.0f }
 };
 
+/* Wine's dmsynth sets every generator and default modulator itself, following
+ * DLS. Each module links its own copy of this library, so a module that plays
+ * SF2 presets can ask for the SF2 defaults without affecting dmsynth. */
+int wine_fluid_sf2_mode = 0;
+
 /* fluid_gen_init
  *
  * Set an array of generators to their initial value
@@ -109,11 +114,7 @@ fluid_gen_init(fluid_gen_t *gen, fluid_channel_t *channel)
         gen[i].flags = GEN_UNUSED;
         gen[i].mod = 0.0;
         gen[i].nrpn = (channel == NULL) ? 0.0 : fluid_channel_get_gen(channel, i);
-#if 0 /* unused in Wine */
-        gen[i].val = fluid_gen_info[i].def;
-#else
-        gen[i].val = 0.0;
-#endif
+        gen[i].val = wine_fluid_sf2_mode ? fluid_gen_info[i].def : 0.0;
     }
 }
 

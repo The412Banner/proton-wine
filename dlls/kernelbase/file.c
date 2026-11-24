@@ -58,6 +58,10 @@ typedef struct
     UINT              data_pos;    /* current position in dir data */
     UINT              data_len;    /* length of dir data */
     UINT              data_size;   /* size of data buffer, or 0 when everything has been read */
+    HANDLE            extra_dir;   /* upgraded Streamline directory listed after this one */
+    UNICODE_STRING    extra_mask;  /* search mask for extra_dir */
+    BOOL              extra_first; /* the next extra_dir query is its first */
+    BOOL              in_extra;    /* listing extra_dir */
     BYTE              data[1];     /* directory data */
 } FIND_FIRST_INFO;
 
@@ -1269,6 +1273,87 @@ static WCHAR *fixup_mask( const WCHAR *mask )
 /******************************************************************************
  *	FindFirstFileExW   (kernelbase.@)
  */
+/* HACK: PROTON_STREAMLINE_UPGRADE (WINE_UPSCALER_REPLACE contains "streamline")
+ * redirects the sl.*.dll a game loads to newer copies in umu\streamline. The
+ * Streamline interposer only loads the plugins it finds in the game's plugin
+ * folder, so newer plugins the game doesn't ship (sl.pcl.dll before 2.7, which
+ * the newer sl.dlss_g relies on) would never load. List them after the real
+ * entries of a folder that holds sl.interposer.dll; ntdll resolves them to the
+ * upgraded copies. */
+static const WCHAR streamline_dirW[] = L"\\??\\C:\\windows\\system32\\umu\\streamline";
+
+static BOOL streamline_upgrade_enabled(void)
+{
+    static int enabled = -1;
+    WCHAR envW[64];
+
+    if (enabled == -1)
+        enabled = GetEnvironmentVariableW( L"WINE_UPSCALER_REPLACE", envW, ARRAY_SIZE(envW) ) &&
+                  wcsstr( envW, L"streamline" );
+    return enabled;
+}
+
+static BOOL nt_dir_has_file( const UNICODE_STRING *dir, const WCHAR *file, ULONG file_len )
+{
+    FILE_BASIC_INFORMATION basic;
+    OBJECT_ATTRIBUTES attr;
+    UNICODE_STRING name;
+    NTSTATUS status;
+    ULONG dir_len = dir->Length / sizeof(WCHAR);
+
+    name.Length = (dir_len + 1 + file_len) * sizeof(WCHAR);
+    name.MaximumLength = name.Length + sizeof(WCHAR);
+    if (!(name.Buffer = HeapAlloc( GetProcessHeap(), 0, name.MaximumLength ))) return FALSE;
+    memcpy( name.Buffer, dir->Buffer, dir->Length );
+    if (dir_len && name.Buffer[dir_len - 1] == '\\') name.Length -= sizeof(WCHAR);
+    else name.Buffer[dir_len++] = '\\';
+    memcpy( name.Buffer + dir_len, file, file_len * sizeof(WCHAR) );
+    name.Buffer[name.Length / sizeof(WCHAR)] = 0;
+
+    InitializeObjectAttributes( &attr, &name, OBJ_CASE_INSENSITIVE, 0, NULL );
+    status = NtQueryAttributesFile( &attr, &basic );
+    HeapFree( GetProcessHeap(), 0, name.Buffer );
+    return !status;
+}
+
+static BOOL is_streamline_plugin_name( const WCHAR *name, ULONG len )
+{
+    return len > 7 && !wcsnicmp( name, L"sl.", 3 ) && !wcsnicmp( name + len - 4, L".dll", 4 );
+}
+
+static void init_streamline_extra_dir( FIND_FIRST_INFO *info, const WCHAR *mask )
+{
+    UNICODE_STRING dir;
+    OBJECT_ATTRIBUTES attr;
+    IO_STATUS_BLOCK io;
+    ULONG len = info->path.Length / sizeof(WCHAR);
+
+    if (!streamline_upgrade_enabled()) return;
+    if (!nt_dir_has_file( &info->path, L"sl.interposer.dll", 17 )) return;
+
+    /* not when listing the upgraded copy itself */
+    while (len && info->path.Buffer[len - 1] == '\\') len--;
+    if (len == wcslen( streamline_dirW ) && !wcsnicmp( info->path.Buffer, streamline_dirW, len )) return;
+
+    RtlInitUnicodeString( &dir, streamline_dirW );
+    InitializeObjectAttributes( &attr, &dir, OBJ_CASE_INSENSITIVE, 0, NULL );
+    if (NtOpenFile( &info->extra_dir, FILE_LIST_DIRECTORY | SYNCHRONIZE, &attr, &io,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT ))
+    {
+        info->extra_dir = 0;
+        return;
+    }
+    if (!RtlCreateUnicodeString( &info->extra_mask, mask ))
+    {
+        CloseHandle( info->extra_dir );
+        info->extra_dir = 0;
+        return;
+    }
+    TRACE( "HACK: listing upgraded Streamline plugins after %s\n",
+           debugstr_wn( info->path.Buffer, info->path.Length / sizeof(WCHAR) ));
+}
+
 HANDLE WINAPI DECLSPEC_HOTPATCH FindFirstFileExW( LPCWSTR filename, FINDEX_INFO_LEVELS level,
                                                   LPVOID data, FINDEX_SEARCH_OPS search_op,
                                                   LPVOID filter, DWORD flags )
@@ -1355,6 +1440,9 @@ HANDLE WINAPI DECLSPEC_HOTPATCH FindFirstFileExW( LPCWSTR filename, FINDEX_INFO_
         SetLastError( ERROR_NOT_ENOUGH_MEMORY );
         goto error;
     }
+    info->extra_dir = 0;
+    memset( &info->extra_mask, 0, sizeof(info->extra_mask) );
+    info->extra_first = info->in_extra = FALSE;
 
     /* check if path is the root of the drive, skipping the \??\ prefix */
     info->is_root = FALSE;
@@ -1407,6 +1495,7 @@ HANDLE WINAPI DECLSPEC_HOTPATCH FindFirstFileExW( LPCWSTR filename, FINDEX_INFO_
         else
         {
             RtlInitUnicodeString( &mask_str, fixedup_mask );
+            if (has_wildcard) init_streamline_extra_dir( info, fixedup_mask );
             status = NtQueryDirectoryFile( info->handle, 0, NULL, NULL, &io, info->data, info->data_size,
                                            FileBothDirectoryInformation, FALSE, &mask_str, TRUE );
         }
@@ -1541,11 +1630,29 @@ BOOL WINAPI DECLSPEC_HOTPATCH FindNextFileW( HANDLE handle, WIN32_FIND_DATAW *da
         {
             IO_STATUS_BLOCK io;
 
-            if (info->data_size)
+            if (info->extra_first)
+            {
+                info->extra_first = FALSE;
+                status = NtQueryDirectoryFile( info->handle, 0, NULL, NULL, &io, info->data, info->data_size,
+                                               FileBothDirectoryInformation, FALSE, &info->extra_mask, TRUE );
+                if (status == STATUS_NO_SUCH_FILE) status = STATUS_NO_MORE_FILES;
+            }
+            else if (info->data_size)
                 status = NtQueryDirectoryFile( info->handle, 0, NULL, NULL, &io, info->data, info->data_size,
                                                FileBothDirectoryInformation, FALSE, NULL, FALSE );
             else
                 status = STATUS_NO_MORE_FILES;
+
+            if (status == STATUS_NO_MORE_FILES && info->extra_dir)
+            {
+                /* the real entries are done, continue with the upgraded Streamline plugins */
+                CloseHandle( info->handle );
+                info->handle = info->extra_dir;
+                info->extra_dir = 0;
+                info->in_extra = info->extra_first = TRUE;
+                info->data_pos = info->data_len = 0;
+                continue;
+            }
 
             if (!set_ntstatus( status ))
             {
@@ -1564,6 +1671,13 @@ BOOL WINAPI DECLSPEC_HOTPATCH FindNextFileW( HANDLE handle, WIN32_FIND_DATAW *da
 
         if (dir_info->NextEntryOffset) info->data_pos += dir_info->NextEntryOffset;
         else info->data_pos = info->data_len;
+
+        /* only upgraded plugins the listed folder doesn't have */
+        if (info->in_extra &&
+            (!is_streamline_plugin_name( dir_info->FileName, dir_info->FileNameLength / sizeof(WCHAR) ) ||
+             (dir_info->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+             nt_dir_has_file( &info->path, dir_info->FileName, dir_info->FileNameLength / sizeof(WCHAR) )))
+            continue;
 
         /* don't return '.' and '..' in the root of the drive */
         if (info->is_root)
@@ -1645,6 +1759,9 @@ BOOL WINAPI DECLSPEC_HOTPATCH FindClose( HANDLE handle )
                 info->magic = 0;
                 if (info->handle) CloseHandle( info->handle );
                 info->handle = 0;
+                if (info->extra_dir) CloseHandle( info->extra_dir );
+                info->extra_dir = 0;
+                RtlFreeUnicodeString( &info->extra_mask );
                 RtlFreeUnicodeString( &info->path );
                 info->data_pos = 0;
                 info->data_len = 0;

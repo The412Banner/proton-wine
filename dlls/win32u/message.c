@@ -41,6 +41,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(msg);
 WINE_DECLARE_DEBUG_CHANNEL(key);
 WINE_DECLARE_DEBUG_CHANNEL(relay);
+WINE_DECLARE_DEBUG_CHANNEL(focus);
 
 #define QS_DRIVER       0x80000000
 #define QS_HARDWARE     0x40000000
@@ -2262,7 +2263,12 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
     {
         HWND prev;
 
-        if (!wparam && NtUserGetForegroundWindow() == hwnd) return 0;
+        if (!wparam && NtUserGetForegroundWindow() == hwnd)
+        {
+            TRACE_(focus)( "WM_WINE_SETACTIVEWINDOW deactivation of foreground %p ignored\n", hwnd );
+            return 0;
+        }
+        TRACE_(focus)( "WM_WINE_SETACTIVEWINDOW %p on %p\n", (HWND)wparam, hwnd );
         if (!set_active_window( (HWND)wparam, &prev, FALSE, TRUE, lparam )) return 0;
         return (LRESULT)prev;
     }
@@ -2296,11 +2302,27 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
         if (!user_driver->pGetWindowStateUpdates( hwnd, &state_cmd, &swp_flags, &window_rect, &foreground )) goto unlock;
         window_rect = map_rect_raw_to_virt( window_rect, get_thread_dpi() );
 
-        if (foreground) set_foreground_window( foreground, FALSE, TRUE );
+        if (foreground)
+        {
+            TRACE_(focus)( "host state change on %p sets foreground %p\n", hwnd, foreground );
+            /* The host focus moved to a non-Wine window, but the desktop window
+             * couldn't be made foreground. Still deactivate the window that lost
+             * it, so that the application knows it is in the background. */
+            if (!set_foreground_window( foreground, FALSE, TRUE ) && foreground == get_desktop_window() &&
+                hwnd == NtUserGetForegroundWindow())
+            {
+                TRACE_(focus)( "deactivating %p instead\n", hwnd );
+                NtUserSetActiveWindow( 0 );
+            }
+        }
         switch (LOWORD(state_cmd))
         {
         case SC_RESTORE:
-            if (HIWORD(state_cmd) && !foreground) set_foreground_window( hwnd, FALSE, TRUE );
+            if (HIWORD(state_cmd) && !foreground)
+            {
+                TRACE_(focus)( "host restore of %p sets it foreground\n", hwnd );
+                set_foreground_window( hwnd, FALSE, TRUE );
+            }
 
             /* make the win32 window restore to the current host window config, if present */
             if (!IsRectEmpty( &window_rect )) set_window_normal_placement( hwnd, window_rect );
@@ -2910,6 +2932,7 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
                     /* fall through */
                 case MA_ACTIVATE:
                 case 0:
+                    TRACE_(focus)( "mouse click activates %p\n", hwndTop );
                     if (!set_foreground_window( hwndTop, TRUE, FALSE )) eat_msg = TRUE;
                     break;
                 default:

@@ -1268,10 +1268,16 @@ static void set_initial_wm_hints( Display *display, Window window )
         const char *app_id = getenv("SteamAppId");
         char proton_app_class[128];
 
-        if(app_id && *app_id){
+        /* Launchers outside of Steam (umu) export SteamAppId=0 or "default"
+         * for every game, and games started from a launcher inherit it. Use
+         * the exe name like upstream Wine then, so their windows differ. */
+        if(app_id && *app_id && strcmp(app_id, "0") && strcmp(app_id, "default")){
             snprintf(proton_app_class, sizeof(proton_app_class), "steam_app_%s", app_id);
             class_hints->res_name = proton_app_class;
             class_hints->res_class = proton_app_class;
+        }else if(process_name){
+            class_hints->res_name = process_name;
+            class_hints->res_class = process_name;
         }else{
             class_hints->res_name = steam_proton;
             class_hints->res_class = steam_proton;

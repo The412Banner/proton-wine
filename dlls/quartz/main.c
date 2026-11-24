@@ -95,6 +95,7 @@ static const struct object_creation_info object_creation[] =
     { &CLSID_AviSplitter, avi_splitter_create },
     { &CLSID_CMpegAudioCodec, mpeg_audio_codec_create },
     { &CLSID_CMpegVideoCodec, mpeg_video_codec_create },
+    { &CLSID_Colour, colour_create },
     { &CLSID_DSoundRender, dsound_render_create },
     { &CLSID_FilterGraph, filter_graph_create },
     { &CLSID_FilterGraphNoThread, filter_graph_no_thread_create },
@@ -359,16 +360,19 @@ HRESULT WINAPI DllRegisterServer(void)
         {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG1Video},
         {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG1System},
         {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG1VideoCD},
+        {&MEDIATYPE_Stream, &MEDIASUBTYPE_MPEG2_PROGRAM},
     };
     static const REGPINTYPES mpeg_splitter_audio_outputs[] =
     {
         {&MEDIATYPE_Audio, &MEDIASUBTYPE_MPEG1Packet},
         {&MEDIATYPE_Audio, &MEDIASUBTYPE_MPEG1AudioPayload},
+        {&MEDIATYPE_Audio, &MEDIASUBTYPE_DOLBY_AC3},
     };
     static const REGPINTYPES mpeg_splitter_video_outputs[] =
     {
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Packet},
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Payload},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG2_VIDEO},
     };
     static const REGFILTERPINS2 mpeg_splitter_pins[] =
     {
@@ -393,6 +397,27 @@ HRESULT WINAPI DllRegisterServer(void)
         .dwMerit = MERIT_NORMAL,
         .cPins2 = ARRAY_SIZE(mpeg_splitter_pins),
         .rgPins2 = mpeg_splitter_pins,
+    };
+
+    static const REGPINTYPES colour_types[] =
+    {
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB32},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB24},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB565},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB555},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_RGB8},
+    };
+    static const REGFILTERPINS2 colour_pins[] =
+    {
+        {.nMediaTypes = ARRAY_SIZE(colour_types), .lpMediaType = colour_types},
+        {.dwFlags = REG_PINFLAG_B_OUTPUT, .nMediaTypes = ARRAY_SIZE(colour_types), .lpMediaType = colour_types},
+    };
+    static const REGFILTER2 colour_reg =
+    {
+        .dwVersion = 2,
+        .dwMerit = MERIT_UNLIKELY,
+        .cPins2 = ARRAY_SIZE(colour_pins),
+        .rgPins2 = colour_pins,
     };
 
     static const REGPINTYPES avi_splitter_inputs[] =
@@ -483,10 +508,29 @@ HRESULT WINAPI DllRegisterServer(void)
         .rgPins2 = mpeg_audio_codec_pins,
     };
 
+    static const GUID MEDIASUBTYPE_DIVX = {MAKEFOURCC('D','I','V','X'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_DX50 = {MAKEFOURCC('D','X','5','0'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_FMP4 = {MAKEFOURCC('F','M','P','4'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_M4S2 = {MAKEFOURCC('M','4','S','2'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_MP4S = {MAKEFOURCC('M','P','4','S'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_MP4V = {MAKEFOURCC('M','P','4','V'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_XVID = {MAKEFOURCC('X','V','I','D'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_mp4v = {MAKEFOURCC('m','p','4','v'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static const GUID MEDIASUBTYPE_mpg2 = {MAKEFOURCC('m','p','g','2'),0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
     static const REGPINTYPES mpeg_video_codec_inputs[] =
     {
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Packet},
         {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG1Payload},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MPEG2_VIDEO},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_mpg2},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_DIVX},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_DX50},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_FMP4},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_M4S2},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MP4S},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_MP4V},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_XVID},
+        {&MEDIATYPE_Video, &MEDIASUBTYPE_mp4v},
     };
     static const REGPINTYPES mpeg_video_codec_outputs[] =
     {
@@ -557,6 +601,9 @@ HRESULT WINAPI DllRegisterServer(void)
     if (FAILED(hr = IFilterMapper2_RegisterFilter(mapper, &CLSID_CMpegVideoCodec, L"MPEG Video Decoder", NULL,
             NULL, NULL, &mpeg_video_codec_reg)))
         goto done;
+    if (FAILED(hr = IFilterMapper2_RegisterFilter(mapper, &CLSID_Colour, L"Color Space Converter", NULL,
+            &CLSID_LegacyAmFilterCategory, NULL, &colour_reg)))
+        goto done;
 
 done:
     IFilterMapper2_Release(mapper);
@@ -598,6 +645,8 @@ HRESULT WINAPI DllUnregisterServer(void)
     if (FAILED(hr = IFilterMapper2_UnregisterFilter(mapper, NULL, NULL, &CLSID_CMpegAudioCodec)))
         goto done;
     if (FAILED(hr = IFilterMapper2_UnregisterFilter(mapper, NULL, NULL, &CLSID_CMpegVideoCodec)))
+        goto done;
+    if (FAILED(hr = IFilterMapper2_UnregisterFilter(mapper, &CLSID_LegacyAmFilterCategory, NULL, &CLSID_Colour)))
         goto done;
 
 done:

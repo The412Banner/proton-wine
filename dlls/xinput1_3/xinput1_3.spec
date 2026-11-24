@@ -7,3 +7,6 @@
 7 stdcall XInputGetBatteryInformation(long long ptr)
 8 stdcall XInputGetKeystroke(long long ptr)
 100 stdcall XInputGetStateEx(long ptr)
+@ stdcall -private __wine_XInputGetSonyProductId(long ptr)
+@ stdcall -private __wine_XInputGetDeviceVidPid(long ptr ptr)
+@ stdcall -private __wine_XInputIsSonyFallback(wstr)

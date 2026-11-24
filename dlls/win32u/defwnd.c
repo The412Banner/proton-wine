@@ -29,6 +29,7 @@
 #include "wine/server.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(win);
+WINE_DECLARE_DEBUG_CHANNEL(focus);
 
 #define WINE_MOUSE_HANDLE       ((HANDLE)1)
 #define WINE_KEYBOARD_HANDLE    ((HANDLE)2)
@@ -2249,6 +2250,7 @@ static LRESULT handle_nc_lbutton_down( HWND hwnd, WPARAM wparam, LPARAM lparam )
                 top = parent;
             }
 
+            TRACE_(focus)( "caption click activates %p\n", top );
             if (set_foreground_window( top, TRUE, FALSE ) || (get_active_window() == top))
                 send_message( hwnd, WM_SYSCOMMAND, SC_MOVE + HTCAPTION, lparam );
             break;

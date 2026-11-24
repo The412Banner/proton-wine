@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -74,6 +75,51 @@ struct inproc_sync
 };
 
 static struct list inproc_mutexes = LIST_INIT( inproc_mutexes );
+
+/* Mutexes whose server object was destroyed while a thread still owned them. A client can still hold
+ * a duplicate of the fd (a thread waiting on a handle that has since been closed), and the ntsync
+ * driver abandons a mutex only through NTSYNC_IOC_MUTEX_KILL on that mutex, so the fd is kept until
+ * the owner has released or abandoned it. */
+struct orphan_mutex
+{
+    struct list entry;
+    int         fd;
+};
+
+static struct list orphan_mutexes = LIST_INIT( orphan_mutexes );
+
+static int inproc_mutex_owned( int fd )
+{
+    struct ntsync_mutex_args args = {0};
+    return !ioctl( fd, NTSYNC_IOC_MUTEX_READ, &args ) && args.owner;
+}
+
+static void prune_orphan_mutexes(void)
+{
+    struct orphan_mutex *orphan, *next;
+
+    LIST_FOR_EACH_ENTRY_SAFE( orphan, next, &orphan_mutexes, struct orphan_mutex, entry )
+    {
+        if (inproc_mutex_owned( orphan->fd )) continue;
+        list_remove( &orphan->entry );
+        close( orphan->fd );
+        free( orphan );
+    }
+}
+
+/* Mutexes whose handle a process closed while one of its threads was still using the cached fd (typically a
+ * wait in progress). That thread can still acquire the mutex through the fd, so the server keeps the object,
+ * and with it the mutex's place on inproc_mutexes, until the client reports that the last user is done, or
+ * the process dies. */
+struct kept_sync
+{
+    struct list         entry;
+    struct process     *process;  /* process that closed the handle; the record dies with it */
+    unsigned int        serial;   /* id chosen by the client, unique within the process */
+    struct inproc_sync *sync;     /* the reference this record holds */
+};
+
+static struct list kept_syncs = LIST_INIT( kept_syncs );
 
 static void inproc_sync_dump( struct object *obj, int verbose );
 static int inproc_sync_signal( struct object *obj, unsigned int access, int signal );
@@ -262,12 +308,25 @@ static void inproc_sync_destroy( struct object *obj )
     assert( obj->ops == &inproc_sync_ops );
     list_remove( &sync->entry );
     if (do_fsync()) fsync_free_shm_idx( sync->fd );
-    else            close( sync->fd );
+    else if (sync->type == INPROC_SYNC_MUTEX && inproc_mutex_owned( sync->fd ))
+    {
+        struct orphan_mutex *orphan;
+
+        prune_orphan_mutexes();
+        if ((orphan = malloc( sizeof(*orphan) )))
+        {
+            orphan->fd = sync->fd;
+            list_add_tail( &orphan_mutexes, &orphan->entry );
+        }
+        else close( sync->fd );
+    }
+    else close( sync->fd );
 }
 
 void abandon_inproc_mutexes( thread_id_t tid )
 {
     struct inproc_sync *mutex;
+    struct orphan_mutex *orphan;
 
     if (do_fsync())
     {
@@ -278,6 +337,58 @@ void abandon_inproc_mutexes( thread_id_t tid )
 
     LIST_FOR_EACH_ENTRY( mutex, &inproc_mutexes, struct inproc_sync, entry )
         ioctl( mutex->fd, NTSYNC_IOC_MUTEX_KILL, &tid );
+    LIST_FOR_EACH_ENTRY( orphan, &orphan_mutexes, struct orphan_mutex, entry )
+        ioctl( orphan->fd, NTSYNC_IOC_MUTEX_KILL, &tid );
+    prune_orphan_mutexes();
+}
+
+static void keep_inproc_mutex( struct process *process, struct object *obj, unsigned int serial )
+{
+    struct object *sync;
+    struct kept_sync *kept;
+
+    if (!(sync = get_obj_sync( obj ))) return;
+    if (sync->ops == &inproc_sync_ops && ((struct inproc_sync *)sync)->type == INPROC_SYNC_MUTEX)
+    {
+        if ((kept = mem_alloc( sizeof(*kept) )))
+        {
+            kept->process = process;
+            kept->serial  = serial;
+            kept->sync    = (struct inproc_sync *)sync;  /* keeps the reference from get_obj_sync() */
+            list_add_tail( &kept_syncs, &kept->entry );
+            return;
+        }
+    }
+    else set_error( STATUS_OBJECT_TYPE_MISMATCH );
+    release_object( sync );
+}
+
+static void release_kept_inproc_mutex( struct process *process, unsigned int serial )
+{
+    struct kept_sync *kept;
+
+    LIST_FOR_EACH_ENTRY( kept, &kept_syncs, struct kept_sync, entry )
+    {
+        if (kept->process != process || kept->serial != serial) continue;
+        list_remove( &kept->entry );
+        release_object( kept->sync );
+        free( kept );
+        return;
+    }
+    set_error( STATUS_INVALID_PARAMETER );
+}
+
+void release_kept_inproc_syncs( struct process *process )
+{
+    struct kept_sync *kept, *next;
+
+    LIST_FOR_EACH_ENTRY_SAFE( kept, next, &kept_syncs, struct kept_sync, entry )
+    {
+        if (kept->process != process) continue;
+        list_remove( &kept->entry );
+        release_object( kept->sync );
+        free( kept );
+    }
 }
 
 static int get_obj_inproc_sync( struct object *obj, int *type )
@@ -341,6 +452,20 @@ void abandon_inproc_mutexes( thread_id_t tid )
 {
 }
 
+static void keep_inproc_mutex( struct process *process, struct object *obj, unsigned int serial )
+{
+    set_error( STATUS_NOT_IMPLEMENTED );
+}
+
+static void release_kept_inproc_mutex( struct process *process, unsigned int serial )
+{
+    set_error( STATUS_NOT_IMPLEMENTED );
+}
+
+void release_kept_inproc_syncs( struct process *process )
+{
+}
+
 static int get_obj_inproc_sync( struct object *obj, int *type )
 {
     return -1;
@@ -362,4 +487,18 @@ DECL_HANDLER(get_inproc_sync_fd)
     else send_client_fd( current->process, fd, req->handle );
 
     release_object( obj );
+}
+
+DECL_HANDLER(keep_inproc_sync)
+{
+    struct object *obj;
+
+    if (!(obj = get_handle_obj( current->process, req->handle, 0, NULL ))) return;
+    keep_inproc_mutex( current->process, obj, req->serial );
+    release_object( obj );
+}
+
+DECL_HANDLER(release_kept_inproc_sync)
+{
+    release_kept_inproc_mutex( current->process, req->serial );
 }

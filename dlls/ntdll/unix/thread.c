@@ -85,6 +85,7 @@ WINE_DECLARE_DEBUG_CHANNEL(threadname);
 pthread_key_t teb_key = 0;
 
 static LONG nb_threads = 1;
+static TEB *killed_threads;  /* killed threads whose TEB and stacks are still to be freed */
 
 static inline int get_unix_exit_code( NTSTATUS status )
 {
@@ -1171,6 +1172,57 @@ static void start_thread( TEB *teb )
 
 
 /***********************************************************************
+ *           queue_killed_thread
+ *
+ * Put a TEB on the list of killed threads whose TEB and stacks are still to be freed.
+ */
+static void queue_killed_thread( TEB *teb )
+{
+    struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
+    TEB *next;
+
+    /* once the TEB is on the list, another thread can take it and change next_killed */
+    do
+    {
+        next = killed_threads;
+        thread_data->next_killed = next;
+    } while (InterlockedCompareExchangePointer( (void **)&killed_threads, teb, next ) != next);
+}
+
+
+/***********************************************************************
+ *           free_killed_threads
+ *
+ * Free the TEB and stacks of the threads that abort_thread() queued.
+ */
+static void free_killed_threads(void)
+{
+    TEB *teb = InterlockedExchangePointer( (void **)&killed_threads, NULL );
+
+    while (teb)
+    {
+        struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
+        TEB *next = thread_data->next_killed;
+
+#ifdef __GLIBC__
+        /* A thread killed in a unix call may hold a library lock and not have
+         * finished exiting yet. Don't wait for it: queue it for a later pass. */
+        if (pthread_tryjoin_np( thread_data->pthread_id, NULL ) == EBUSY)
+        {
+            queue_killed_thread( teb );
+            teb = next;
+            continue;
+        }
+#else
+        pthread_join( thread_data->pthread_id, NULL );
+#endif
+        virtual_free_teb( teb );
+        teb = next;
+    }
+}
+
+
+/***********************************************************************
  *           get_machine_context_size
  */
 static SIZE_T get_machine_context_size( USHORT machine )
@@ -1475,6 +1527,8 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
 
     pthread_sigmask( SIG_BLOCK, &server_block_set, &sigset );
 
+    free_killed_threads();
+
     if ((status = virtual_alloc_teb( &teb ))) goto done;
 
     if ((status = init_thread_stack( teb, get_zero_bits_limit( zero_bits ), stack_reserve, stack_commit )))
@@ -1654,8 +1708,14 @@ done:
  */
 void abort_thread( int status )
 {
+    struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
+
     pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
     if (InterlockedDecrement( &nb_threads ) <= 0) abort_process( status );
+
+    /* A killed thread cannot free its own stacks, and it may hold a lock here: leave them
+     * to the next thread that is created or exits. */
+    if (thread_data->pthread_id) queue_killed_thread( NtCurrentTeb() );
     pthread_exit_wrapper( status );
 }
 
@@ -1684,6 +1744,8 @@ static DECLSPEC_NORETURN void exit_thread( int status )
     pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
 
     if (InterlockedDecrement( &nb_threads ) <= 0) exit_process( status );
+
+    free_killed_threads();
 
     if ((teb = InterlockedExchangePointer( &prev_teb, NtCurrentTeb() )))
     {

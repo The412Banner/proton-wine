@@ -24,7 +24,9 @@
 
 #include "config.h"
 
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 
 #include "ntstatus.h"
@@ -35,6 +37,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
 
 char *process_name = NULL;
+char *process_app_id = NULL;
 char *process_activate_token = NULL;
 
 static UINT WAYLAND_GetForeignGdiSurfaceCaps(void)
@@ -104,6 +107,28 @@ static void wayland_init_process_name(void)
     }
 }
 
+static void wayland_init_app_id(void)
+{
+    const char *steam_app_id = getenv("SteamAppId");
+    size_t size;
+
+    /* Match the WM_CLASS winex11 sets, so games are identified the same way
+     * on Wayland and XWayland. SteamAppId=0 or "default" comes from launchers
+     * outside of Steam (umu) and is shared by every game they run. */
+    if (steam_app_id && *steam_app_id && strcmp(steam_app_id, "0") &&
+        strcmp(steam_app_id, "default"))
+    {
+        size = sizeof("steam_app_") + strlen(steam_app_id);
+        if ((process_app_id = malloc(size)))
+        {
+            snprintf(process_app_id, size, "steam_app_%s", steam_app_id);
+            return;
+        }
+    }
+
+    process_app_id = process_name;
+}
+
 static void wayland_init_activation_token(void)
 {
     char *env;
@@ -144,6 +169,7 @@ static NTSTATUS waylanddrv_unix_init(void *arg)
     __wine_set_user_driver(&waylanddrv_funcs, WINE_GDI_DRIVER_VERSION);
 
     wayland_init_process_name();
+    wayland_init_app_id();
     wayland_init_activation_token();
 
     if (!wayland_process_init()) goto err;

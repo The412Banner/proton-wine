@@ -1,0 +1,72 @@
+/*
+ * Intel RSX 3D compatibility classes
+ *
+ * Copyright 2026 Geoffrey McRae
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ */
+
+#pragma makedep register
+
+[
+    threading(both),
+    uuid(e78f7620-96cb-11cf-a00b-444553540000),
+]
+coclass RSX20 {}
+
+[
+    threading(both),
+    uuid(e78f7629-96cb-11cf-a00b-444553540000),
+]
+coclass RSXCachedEmitter {}
+
+[
+    threading(both),
+    uuid(e78f762d-96cb-11cf-a00b-444553540000),
+]
+coclass RSXStreamingEmitter {}
+
+[
+    threading(both),
+    uuid(e78f7630-96cb-11cf-a00b-444553540000),
+]
+coclass RSXDirectListener {}
+
+[
+    threading(both),
+    uuid(e78f7634-96cb-11cf-a00b-444553540000),
+]
+coclass RSXStreamingListener {}
+
+[
+    threading(both),
+    uuid(e78f7638-96cb-11cf-a00b-444553540000),
+]
+coclass RSXCompatibility {}
+
+[
+    threading(both),
+    uuid(4b2ce920-1c45-11d0-985d-00aa003b43af),
+]
+coclass RSXWaveEmitter {}
+
+[
+    threading(both),
+    uuid(4b2ce921-1c45-11d0-985d-00aa003b43af),
+]
+coclass RSXWaveListener {}
+
+[
+    threading(both),
+    uuid(4b2ce922-1c45-11d0-985d-00aa003b43af),
+]
+coclass RSXDirectSound {}
+
+[
+    threading(both),
+    uuid(4b2ce923-1c45-11d0-985d-00aa003b43af),
+]
+coclass RSXWaveStream {}

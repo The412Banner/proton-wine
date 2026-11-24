@@ -1697,7 +1697,79 @@ BOOL WINAPI CryptSIPRemoveSignedDataMsg(SIP_SUBJECTINFO* pSubjectInfo,
 BOOL WINAPI CryptSIPVerifyIndirectData(SIP_SUBJECTINFO* pSubjectInfo,
                                        SIP_INDIRECT_DATA* pIndirectData)
 {
-    FIXME("(%p %p) stub\n", pSubjectInfo, pIndirectData);
- 
-    return FALSE;
+    HCRYPTPROV prov = 0;
+    HCRYPTHASH hash = 0;
+    HANDLE file;
+    BYTE hash_data[64];
+    DWORD hash_size = sizeof(hash_data);
+    ALG_ID alg;
+    DWORD err;
+    BOOL ret = FALSE;
+
+    TRACE("(%p %p)\n", pSubjectInfo, pIndirectData);
+
+    if (!pSubjectInfo || !pIndirectData)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (memcmp(pSubjectInfo->pgSubjectType, &unknown, sizeof(unknown)))
+    {
+        FIXME("unimplemented for subject type %s\n",
+              debugstr_guid(pSubjectInfo->pgSubjectType));
+        SetLastError(TRUST_E_SUBJECT_FORM_UNKNOWN);
+        return FALSE;
+    }
+
+    if (!(alg = CertOIDToAlgId(pIndirectData->DigestAlgorithm.pszObjId)))
+    {
+        WARN("unknown digest algorithm %s\n", debugstr_a(pIndirectData->DigestAlgorithm.pszObjId));
+        SetLastError(NTE_BAD_ALGID);
+        return FALSE;
+    }
+
+    if (pSubjectInfo->hFile && pSubjectInfo->hFile != INVALID_HANDLE_VALUE)
+        file = pSubjectInfo->hFile;
+    else
+    {
+        file = CreateFileW(pSubjectInfo->pwsFileName, GENERIC_READ,
+                           FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+        if (file == INVALID_HANDLE_VALUE)
+            return FALSE;
+    }
+
+    if (pSubjectInfo->hProv)
+        prov = pSubjectInfo->hProv;
+    else if (!CryptAcquireContextW(&prov, NULL, MS_ENH_RSA_AES_PROV_W, PROV_RSA_AES,
+                                   CRYPT_VERIFYCONTEXT))
+    {
+        err = GetLastError();
+        prov = 0;
+        goto done;
+    }
+
+    if (!CryptCreateHash(prov, alg, 0, 0, &hash))
+        err = GetLastError();
+    else if (!pe_image_hash(file, hash))
+        err = TRUST_E_SUBJECT_FORM_UNKNOWN;
+    else if (!CryptGetHashParam(hash, HP_HASHVAL, hash_data, &hash_size, 0))
+        err = GetLastError();
+    else if (hash_size == pIndirectData->Digest.cbData &&
+             !memcmp(hash_data, pIndirectData->Digest.pbData, hash_size))
+        ret = TRUE;
+    else
+        err = TRUST_E_BAD_DIGEST;
+
+done:
+    if (hash)
+        CryptDestroyHash(hash);
+    if (prov && prov != pSubjectInfo->hProv)
+        CryptReleaseContext(prov, 0);
+    if (file != pSubjectInfo->hFile)
+        CloseHandle(file);
+    if (!ret)
+        SetLastError(err);
+    TRACE("returning %d\n", ret);
+    return ret;
 }

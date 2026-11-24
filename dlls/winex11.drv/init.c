@@ -674,10 +674,13 @@ static BOOL update_layered_overlay_shape( struct x11drv_client_surface *surface,
 {
 #ifdef HAVE_LIBXSHAPE
     unsigned int width, height, cols, rows, x, y, count = 0, capacity;
+    unsigned int read_width, read_height;
     BOOL actually_visible = FALSE, borrowed = FALSE, direct;
     XRectangle *rects;
     XImage *image = NULL;
     Window window;
+    Pixmap direct_pixmap = 0;
+    int direct_x = 0, direct_y = 0;
     /* SHAPE mode clips the bounding region (visual); ALPHA mode sets the INPUT region
        (mouse click-through on transparent areas) while the ARGB visual handles the
        transparency. Input-shape changes don't repaint, so this adds click-through
@@ -721,9 +724,49 @@ static BOOL update_layered_overlay_shape( struct x11drv_client_surface *surface,
     }
     if (!surface->shape_age) return TRUE;
 
+    read_width = width;
+    read_height = height;
+#ifdef SONAME_LIBXCOMPOSITE
+    /* Presenting directly: read the toplevel's pixmap (Xwayland redirects toplevels) instead
+       of the on-screen window, which X refuses to read once it reaches past the screen, as a
+       borderless window at (-4,-4) does. The window manager may also give the X window
+       another size than the Win32 rect, so clamp the read to the pixmap: reading past its
+       edge fails with BadMatch, and nothing outside it is shown anyway. */
+    if (usexcomposite && alpha_mode && layered_overlay_direct_enabled() && !surface->client.offscreen)
+    {
+        unsigned int pixmap_width = 0, pixmap_height = 0, border, depth;
+        Window root;
+        int px, py;
+        BOOL failed;
+
+        /* XGetGeometry waits for its reply, so an error from naming the pixmap has been
+           delivered by the time it returns; no separate XSync is needed. */
+        X11DRV_expect_error( gdi_display, overlay_getimage_error, NULL );
+        direct_pixmap = pXCompositeNameWindowPixmap( gdi_display, window );
+        if (direct_pixmap && !XGetGeometry( gdi_display, direct_pixmap, &root, &px, &py,
+                                            &pixmap_width, &pixmap_height, &border, &depth ))
+            pixmap_width = pixmap_height = 0;
+        failed = X11DRV_check_error();
+
+        direct_x = surface->changes.x;
+        direct_y = surface->changes.y;
+        if (failed || direct_x < 0 || direct_y < 0 ||
+            (unsigned int)direct_x >= pixmap_width || (unsigned int)direct_y >= pixmap_height)
+        {
+            if (direct_pixmap) XFreePixmap( gdi_display, direct_pixmap );
+            return TRUE;  /* skip this sample */
+        }
+        read_width = min( width, pixmap_width - direct_x );
+        read_height = min( height, pixmap_height - direct_y );
+    }
+#endif
+
     /* MIT-SHM avoids copying the whole image over the X socket */
 #ifdef HAVE_LIBXXSHM
-    if (!surface->shm_broken && ensure_shm_image( surface, width, height ))
+    /* XShmGetImage reads as much as the image holds, so size it to the part that can be
+       read. Falling back to XGetImage here copies the whole window over the X socket on
+       the present path, which made frame times spike. */
+    if (!surface->shm_broken && ensure_shm_image( surface, read_width, read_height ))
     {
         Drawable drawable = surface->window;
         Pixmap pixmap = 0;
@@ -737,12 +780,12 @@ static BOOL update_layered_overlay_shape( struct x11drv_client_surface *surface,
            redirected pixmap holds the same pixels and has no on-screen check, so read that. */
         if (usexcomposite && surface->client.offscreen)
             drawable = pixmap = pXCompositeNameWindowPixmap( gdi_display, surface->window );
-        /* presenting directly: read the toplevel's pixmap (Xwayland redirects toplevels) */
-        else if (usexcomposite && alpha_mode && layered_overlay_direct_enabled())
+        /* presenting directly: the toplevel's pixmap, named above */
+        else if (direct_pixmap)
         {
-            drawable = pixmap = pXCompositeNameWindowPixmap( gdi_display, window );
-            src_x = surface->changes.x;
-            src_y = surface->changes.y;
+            drawable = direct_pixmap;
+            src_x = direct_x;
+            src_y = direct_y;
         }
 #endif
         got = XShmGetImage( gdi_display, drawable, surface->shm_image, src_x, src_y, AllPlanes );
@@ -765,14 +808,19 @@ static BOOL update_layered_overlay_shape( struct x11drv_client_surface *surface,
         /* The window can't always be read (not viewable, or reaching past the screen), and an
            unhandled BadMatch here would kill the process. Skip this sample instead. */
         X11DRV_expect_error( gdi_display, overlay_getimage_error, NULL );
-        image = XGetImage( gdi_display, surface->window, 0, 0, width, height, AllPlanes, ZPixmap );
+        if (direct_pixmap)
+            image = XGetImage( gdi_display, direct_pixmap, direct_x, direct_y, read_width, read_height,
+                               AllPlanes, ZPixmap );
+        else
+            image = XGetImage( gdi_display, surface->window, 0, 0, width, height, AllPlanes, ZPixmap );
         if (X11DRV_check_error() && image)
         {
             XDestroyImage( image );
             image = NULL;
         }
-        if (!image) return TRUE;
     }
+    if (direct_pixmap) XFreePixmap( gdi_display, direct_pixmap );
+    if (!image) return TRUE;
 
     direct = image_is_native_32bpp( image );
 
@@ -793,21 +841,22 @@ static BOOL update_layered_overlay_shape( struct x11drv_client_surface *surface,
             unsigned int xx, yy;
             BOOL visible = FALSE;
 
-            for (yy = y; yy < min( y + 4, height ) && !visible; yy++)
+            /* blocks past the part that could be read count as transparent */
+            for (yy = y; yy < min( y + 4, read_height ) && !visible; yy++)
             {
                 if (direct)
                 {
                     const unsigned int *row = (const unsigned int *)(image->data +
                                                                      (size_t)yy * image->bytes_per_line);
 
-                    for (xx = x; xx < min( x + 4, width ); xx++)
+                    for (xx = x; xx < min( x + 4, read_width ); xx++)
                         if (row[xx] & visible_mask)
                         {
                             visible = TRUE;
                             break;
                         }
                 }
-                else for (xx = x; xx < min( x + 4, width ); xx++)
+                else for (xx = x; xx < min( x + 4, read_width ); xx++)
                     if (XGetPixel( image, xx, yy ) & visible_mask)
                     {
                         visible = TRUE;

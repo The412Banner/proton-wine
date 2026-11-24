@@ -259,9 +259,9 @@ static HRESULT WINAPI dinput7_RunControlPanel( IDirectInput7W *iface, HWND owner
 
 static HRESULT WINAPI dinput7_FindDevice( IDirectInput7W *iface, const GUID *guid, const WCHAR *name, GUID *instance_guid )
 {
-    FIXME( "iface %p, guid %s, name %s, instance_guid %s stub!\n", iface, debugstr_guid( guid ),
-           debugstr_w(name), debugstr_guid( instance_guid ) );
-    return DI_OK;
+    struct dinput *impl = impl_from_IDirectInput7W( iface );
+
+    return hid_joystick_find_device( impl, guid, name, &instance_guid );
 }
 
 static HRESULT WINAPI dinput7_CreateDeviceEx( IDirectInput7W *iface, const GUID *guid,

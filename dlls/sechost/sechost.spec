@@ -117,6 +117,7 @@
 @ stub I_ScSendTSMessage
 @ stdcall I_ScUnregisterDeviceNotification(ptr)
 @ stub I_ScValidatePnPService
+@ stdcall __wine_sechost_signal_sony_audio_endpoint_ready(ptr)
 @ stub LocalGetConditionForString
 @ stub LocalGetReferencedTokenTypesForCondition
 @ stub LocalGetStringForCondition

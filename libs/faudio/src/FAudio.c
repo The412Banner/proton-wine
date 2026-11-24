@@ -130,6 +130,8 @@ uint32_t FAudioCOMConstructWithCustomAllocatorEXT(
 #ifndef FAUDIO_DISABLE_DEBUGCONFIGURATION
 	FAudio_SetDebugConfiguration(*ppFAudio, &debugInit, NULL);
 #endif /* FAUDIO_DISABLE_DEBUGCONFIGURATION */
+	(*ppFAudio)->platformLock = FAudio_PlatformCreateMutex();
+	LOG_MUTEX_CREATE((*ppFAudio), (*ppFAudio)->platformLock)
 	(*ppFAudio)->sourceLock = FAudio_PlatformCreateMutex();
 	LOG_MUTEX_CREATE((*ppFAudio), (*ppFAudio)->sourceLock)
 	(*ppFAudio)->submixLock = FAudio_PlatformCreateMutex();
@@ -182,6 +184,8 @@ uint32_t FAudio_Release(FAudio *audio)
 		audio->pFree(audio->decodeCache);
 		audio->pFree(audio->resampleCache);
 		audio->pFree(audio->effectChainCache);
+		LOG_MUTEX_DESTROY(audio, audio->platformLock)
+		FAudio_PlatformDestroyMutex(audio->platformLock);
 		LOG_MUTEX_DESTROY(audio, audio->sourceLock)
 		FAudio_PlatformDestroyMutex(audio->sourceLock);
 		LOG_MUTEX_DESTROY(audio, audio->submixLock)
@@ -208,16 +212,25 @@ uint32_t FAudio_GetDeviceCount(FAudio *audio, uint32_t *pCount)
 	return 0;
 }
 
+static uint32_t GetDeviceDetailsImpl(
+	FAudio *audio,
+	uint32_t Index,
+	const uint16_t *DeviceId,
+	FAudioDeviceDetails *pDeviceDetails
+) {
+	uint32_t result;
+	LOG_API_ENTER(audio)
+	result = FAudio_PlatformGetDeviceDetails(Index, DeviceId, pDeviceDetails);
+	LOG_API_EXIT(audio)
+	return result;
+}
+
 uint32_t FAudio_GetDeviceDetails(
 	FAudio *audio,
 	uint32_t Index,
 	FAudioDeviceDetails *pDeviceDetails
 ) {
-	uint32_t result;
-	LOG_API_ENTER(audio)
-	result = FAudio_PlatformGetDeviceDetails(Index, pDeviceDetails);
-	LOG_API_EXIT(audio)
-	return result;
+	return GetDeviceDetailsImpl(audio, Index, NULL, pDeviceDetails);
 }
 
 uint32_t FAudio_Initialize(
@@ -690,17 +703,16 @@ uint32_t FAudio_CreateSubmixVoice(
 	return 0;
 }
 
-uint32_t FAudio_CreateMasteringVoice(
+static uint32_t CreateMasteringVoiceImpl(
 	FAudio *audio,
 	FAudioMasteringVoice **ppMasteringVoice,
 	uint32_t InputChannels,
 	uint32_t InputSampleRate,
 	uint32_t Flags,
 	uint32_t DeviceIndex,
+	const uint16_t *DeviceId,
 	const FAudioEffectChain *pEffectChain
 ) {
-	LOG_API_ENTER(audio)
-
 	/* For now we only support one allocated master voice at a time */
 	FAudio_assert(audio->master == NULL);
 
@@ -708,7 +720,7 @@ uint32_t FAudio_CreateMasteringVoice(
 		InputSampleRate == FAUDIO_DEFAULT_SAMPLERATE	)
 	{
 		FAudioDeviceDetails details;
-		if (FAudio_GetDeviceDetails(audio, DeviceIndex, &details) != 0)
+		if (GetDeviceDetailsImpl(audio, DeviceIndex, DeviceId, &details) != 0)
 		{
 			return FAUDIO_E_INVALID_CALL;
 		}
@@ -760,11 +772,15 @@ uint32_t FAudio_CreateMasteringVoice(
 		&DATAFORMAT_SUBTYPE_IEEE_FLOAT
 	);
 
+	FAudio_PlatformLockMutex(audio->platformLock);
+	LOG_MUTEX_LOCK(audio, audio->platformLock)
+
 	/* Platform Device */
 	FAudio_PlatformInit(
 		audio,
 		audio->initFlags,
 		DeviceIndex,
+		DeviceId,
 		&audio->mixFormat,
 		&audio->updateSize,
 		&audio->platform
@@ -773,6 +789,9 @@ uint32_t FAudio_CreateMasteringVoice(
 	{
 		FAudioVoice_DestroyVoice(*ppMasteringVoice);
 		*ppMasteringVoice = NULL;
+
+		FAudio_PlatformUnlockMutex(audio->platformLock);
+		LOG_MUTEX_UNLOCK(audio, audio->platformLock)
 
 		/* Not the best code, but it's probably true? */
 		return FAUDIO_E_DEVICE_INVALIDATED;
@@ -790,8 +809,40 @@ uint32_t FAudio_CreateMasteringVoice(
 		);
 	}
 
-	LOG_API_EXIT(audio)
+	FAudio_PlatformAudioThread(audio->platform);
+
+	FAudio_PlatformUnlockMutex(audio->platformLock);
+	LOG_MUTEX_UNLOCK(audio, audio->platformLock)
+
 	return 0;
+}
+
+uint32_t FAudio_CreateMasteringVoice(
+	FAudio *audio,
+	FAudioMasteringVoice **ppMasteringVoice,
+	uint32_t InputChannels,
+	uint32_t InputSampleRate,
+	uint32_t Flags,
+	uint32_t DeviceIndex,
+	const FAudioEffectChain *pEffectChain
+) {
+	uint32_t retval;
+
+	LOG_API_ENTER(audio)
+
+	retval = CreateMasteringVoiceImpl(
+		audio,
+		ppMasteringVoice,
+		InputChannels,
+		InputSampleRate,
+		Flags,
+		DeviceIndex,
+		NULL,
+		pEffectChain
+	);
+
+	LOG_API_EXIT(audio)
+	return retval;
 }
 
 uint32_t FAudio_CreateMasteringVoice8(
@@ -804,36 +855,19 @@ uint32_t FAudio_CreateMasteringVoice8(
 	const FAudioEffectChain *pEffectChain,
 	FAudioStreamCategory StreamCategory
 ) {
-	uint32_t DeviceIndex, retval;
+	uint32_t retval;
 
 	LOG_API_ENTER(audio)
 
-	/* Eventually, we'll want the old CreateMastering to call the new one.
-	 * That will depend on us being able to use DeviceID though.
-	 * For now, use our little ID hack to turn szDeviceId into DeviceIndex.
-	 * -flibit
-	 */
-	if (szDeviceId == NULL || szDeviceId[0] == 0)
-	{
-		DeviceIndex = 0;
-	}
-	else
-	{
-		DeviceIndex = szDeviceId[0] - L'0';
-		if (DeviceIndex > FAudio_PlatformGetDeviceCount())
-		{
-			DeviceIndex = 0;
-		}
-	}
-
 	/* Note that StreamCategory is ignored! */
-	retval = FAudio_CreateMasteringVoice(
+	retval = CreateMasteringVoiceImpl(
 		audio,
 		ppMasteringVoice,
 		InputChannels,
 		InputSampleRate,
 		Flags,
-		DeviceIndex,
+		0,
+		szDeviceId,
 		pEffectChain
 	);
 
@@ -2412,11 +2446,15 @@ static void destroy_voice(FAudioVoice *voice)
 	}
 	else if (voice->type == FAUDIO_VOICE_MASTER)
 	{
+		FAudio_PlatformLockMutex(voice->audio->platformLock);
+		LOG_MUTEX_LOCK(voice->audio, voice->audio->platformLock)
 		if (voice->audio->platform != NULL)
 		{
 			FAudio_PlatformQuit(voice->audio->platform);
 			voice->audio->platform = NULL;
 		}
+		FAudio_PlatformUnlockMutex(voice->audio->platformLock);
+		LOG_MUTEX_UNLOCK(voice->audio, voice->audio->platformLock)
 		if (voice->master.effectCache != NULL)
 		{
 			voice->audio->pFree(voice->master.effectCache);
@@ -2563,11 +2601,11 @@ uint32_t FAudioSourceVoice_Start(
 		return 0;
 	}
 
-
 	FAudio_assert(voice->type == FAUDIO_VOICE_SOURCE);
 
 	FAudio_assert(Flags == 0);
 	voice->src.active = 1;
+
 	LOG_API_EXIT(voice->audio)
 	return 0;
 }
@@ -2612,6 +2650,7 @@ uint32_t FAudioSourceVoice_SubmitSourceBuffer(
 	uint32_t adpcmMask, *adpcmByteCount;
 	uint32_t playBegin, playLength, loopBegin, loopLength, bufferLength;
 	FAudioBufferEntry *entry, *list;
+	uint32_t status = 0;
 
 	LOG_API_ENTER(voice->audio)
 	LOG_INFO(
@@ -2635,6 +2674,17 @@ uint32_t FAudioSourceVoice_SubmitSourceBuffer(
 					 voice->src.format->wFormatTag == FAUDIO_FORMAT_EXTENSIBLE))) ||
 			(voice->src.wmadec == NULL && (pBufferWMA == NULL && voice->src.format->wFormatTag != FAUDIO_FORMAT_XMAUDIO2))	);
 #endif /* HAVE_WMADEC */
+
+	FAudio_PlatformLockMutex(voice->audio->platformLock);
+	LOG_MUTEX_LOCK(voice->audio, voice->audio->platformLock)
+	if (voice->audio->platform)
+		status = FAudio_PlatformStatus(voice->audio->platform);
+	FAudio_PlatformUnlockMutex(voice->audio->platformLock);
+	LOG_MUTEX_UNLOCK(voice->audio, voice->audio->platformLock)
+	if (status) {
+		LOG_API_EXIT(voice->audio)
+		return status;
+	}
 
 	/* Start off with whatever they just sent us... */
 	playBegin = pBuffer->PlayBegin;

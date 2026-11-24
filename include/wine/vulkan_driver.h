@@ -232,6 +232,10 @@ struct vulkan_device
     uint64_t queue_count;
     struct vulkan_queue *queues;
     VkQueueFamilyProperties *queue_props;
+    BOOL low_latency_enabled;
+    BOOL release_swapchain_images; /* swapchainMaintenance1 enabled for presents to hidden windows */
+    /* VK_LAYER_GE_hdr_colorspace: colorspace the driver gets for the next swapchain created on this thread */
+    void (VKAPI_PTR *p_vkSetNextSwapchainHostColorSpaceGE)( VkDevice device, VkColorSpaceKHR color_space );
 
     pthread_t signaller_thread;
     pthread_mutex_t signaller_mutex;
@@ -382,6 +386,7 @@ struct vulkan_funcs
     PFN_vkReleaseSwapchainImagesKHR p_vkReleaseSwapchainImagesKHR;
     PFN_vkSetHdrMetadataEXT p_vkSetHdrMetadataEXT;
     PFN_vkSetLatencyMarkerNV p_vkSetLatencyMarkerNV;
+    PFN_vkSetLatencySleepModeNV p_vkSetLatencySleepModeNV;
     PFN_vkSetSwapchainPresentTimingQueueSizeEXT p_vkSetSwapchainPresentTimingQueueSizeEXT;
     PFN_vkQueueSubmit p_vkQueueSubmit;
     PFN_vkQueueSubmit2 p_vkQueueSubmit2;

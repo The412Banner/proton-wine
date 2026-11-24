@@ -158,6 +158,8 @@ static void wayland_map_device_extensions(struct vulkan_device_extensions *exten
     if (extensions->has_VK_KHR_external_semaphore_fd) extensions->has_VK_KHR_external_semaphore_win32 = 1;
     if (extensions->has_VK_KHR_external_fence_win32) extensions->has_VK_KHR_external_fence_fd = 1;
     if (extensions->has_VK_KHR_external_fence_fd) extensions->has_VK_KHR_external_fence_win32 = 1;
+    extensions->has_VK_WINE_openvr_device_extensions = 1;
+    extensions->has_VK_WINE_openxr_device_extensions = 1;
 }
 
 static VkColorSpaceKHR wayland_vulkan_map_colorspace(VkColorSpaceKHR colorspace, struct client_surface *client)

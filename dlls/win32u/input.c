@@ -40,6 +40,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(win);
 WINE_DECLARE_DEBUG_CHANNEL(keyboard);
+WINE_DECLARE_DEBUG_CHANNEL(focus);
 
 static const WCHAR keyboard_layouts_keyW[] =
 {
@@ -1420,7 +1421,8 @@ HKL WINAPI NtUserActivateKeyboardLayout( HKL layout, UINT flags )
     if (!user_driver->pActivateKeyboardLayout( layout, flags ))
         return 0;
 
-    old_layout = info->kbd_layout;
+    /* compare with the effective layout, kbd_layout is NULL until the first change */
+    old_layout = NtUserGetKeyboardLayout( 0 );
     if (old_layout != layout)
     {
         HWND ime_hwnd = get_default_ime_window( 0 );
@@ -2148,6 +2150,8 @@ BOOL set_active_window( HWND hwnd, HWND *prev, BOOL mouse, BOOL focus, DWORD new
             previous = wine_server_ptr_handle( reply->previous );
     }
     SERVER_END_REQ;
+    if (!ret || previous != hwnd)
+        TRACE_(focus)( "active %p -> %p, mouse %u, ret %u\n", previous, hwnd, mouse, ret );
     if (!ret) return FALSE;
     if (prev) *prev = previous;
     if (previous == hwnd) goto done;
@@ -2237,6 +2241,7 @@ HWND WINAPI NtUserSetActiveWindow( HWND hwnd )
     HWND prev;
 
     TRACE( "%p\n", hwnd );
+    TRACE_(focus)( "SetActiveWindow %p, active %p\n", hwnd, get_active_window() );
 
     if (hwnd)
     {
@@ -2298,9 +2303,14 @@ HWND WINAPI NtUserSetFocus( HWND hwnd )
         if (call_hooks( WH_CBT, HCBT_SETFOCUS, (WPARAM)hwnd, (LPARAM)previous, 0 )) return 0;
 
         /* activate hwndTop if needed. */
-        if (!(active = get_active_window()) && !set_foreground_window( hwndTop, FALSE, FALSE )) return 0;
+        if (!(active = get_active_window()))
+        {
+            TRACE_(focus)( "SetFocus %p with no active window, setting foreground %p\n", hwnd, hwndTop );
+            if (!set_foreground_window( hwndTop, FALSE, FALSE )) return 0;
+        }
         if (hwndTop != active)
         {
+            TRACE_(focus)( "SetFocus %p activates %p, active %p\n", hwnd, hwndTop, active );
             if (!set_active_window( hwndTop, NULL, FALSE, FALSE, 0 )) return 0;
             if (!is_window( hwnd )) return 0;  /* Abort if window destroyed */
 
@@ -2323,6 +2333,7 @@ HWND WINAPI NtUserSetFocus( HWND hwnd )
  */
 BOOL WINAPI NtUserSetForegroundWindow( HWND hwnd )
 {
+    TRACE_(focus)( "SetForegroundWindow %p, foreground %p\n", hwnd, NtUserGetForegroundWindow() );
     return set_foreground_window( hwnd, FALSE, FALSE );
 }
 
@@ -2352,6 +2363,9 @@ BOOL set_foreground_window( HWND hwnd, BOOL mouse, BOOL internal )
     SERVER_END_REQ;
 
     TRACE( "hwnd %p, mouse %u, internal %u -> ret %u, previous %p\n", hwnd, mouse, internal, ret, previous );
+    if (!ret || previous != hwnd)
+        TRACE_(focus)( "foreground %p -> %p (thread %04x), mouse %u, internal %u, ret %u, error %u\n", previous, hwnd,
+                       (int)new_thread_id, mouse, internal, ret, ret ? 0 : (int)RtlGetLastWin32Error() );
 
     if (ret && previous != hwnd)
     {

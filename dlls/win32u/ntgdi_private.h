@@ -236,6 +236,7 @@ extern UINT set_dib_dc_color_table( HDC hdc, UINT startpos, UINT entries,
 extern void dibdrv_set_window_surface( DC *dc, struct window_surface *surface, enum surface_gdi_source source );
 extern void window_surface_add_self_paint_rect( struct window_surface *surface, const RECT *rect );
 extern void window_surface_clear_self_paint( struct window_surface *surface );
+extern void window_surface_clear_child_self_paint( HWND hwnd );
 
 /* driver.c */
 extern const struct gdi_dc_funcs null_driver;

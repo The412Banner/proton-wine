@@ -38,6 +38,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(keyboard);
 WINE_DECLARE_DEBUG_CHANNEL(key);
+WINE_DECLARE_DEBUG_CHANNEL(focus);
 
 struct layout
 {
@@ -985,6 +986,8 @@ static void keyboard_handle_enter(void *private, struct wl_keyboard *wl_keyboard
     keyboard->focused_hwnd = hwnd;
     pthread_mutex_unlock(&keyboard->mutex);
 
+    TRACE_(focus)("host keyboard enter %p, foreground %p\n", hwnd, NtUserGetForegroundWindow());
+
     NtUserPostMessage(hwnd, WM_INPUTLANGCHANGEREQUEST, 0 /*FIXME*/, (LPARAM)keyboard_hkl);
     NtUserPostMessage(hwnd, WM_WINE_WINDOW_STATE_CHANGED, 0, 0);
 
@@ -1046,15 +1049,22 @@ static void keyboard_handle_leave(void *private, struct wl_keyboard *wl_keyboard
         wayland_cancel_layer_menu(hwnd);
     else if (hwnd == foreground || wayland_is_menu_popup(hwnd))
     {
+        /* Post, don't send: this runs on the event dispatcher thread, and the
+         * window's thread may be waiting for Wayland events itself, e.g. while
+         * tearing down its swapchain in WM_DESTROY. */
         if (!(NtUserGetWindowLongW(hwnd, GWL_STYLE) & WS_MINIMIZE))
-            send_message(hwnd, WM_CANCELMODE, 0, 0);
+            NtUserPostMessage(hwnd, WM_CANCELMODE, 0, 0);
     }
 
     if (hwnd == foreground)
     {
+        TRACE_(focus)("host keyboard leave %p, foreground %p: %s\n", hwnd, foreground,
+                      wayland_disable_focus_loss() ? "focus loss disabled" : "posting focus loss");
         if (!wayland_disable_focus_loss())
             NtUserPostMessage(hwnd, WM_WINE_WINDOW_STATE_CHANGED, 0, 0);
     }
+    else
+        TRACE_(focus)("host keyboard leave %p, foreground %p: not foreground, ignored\n", hwnd, foreground);
 }
 
 static inline void update_keystate(uint32_t key, uint32_t state)

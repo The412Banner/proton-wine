@@ -29,6 +29,7 @@
 #include "winioctl.h"
 #include "ddk/wdm.h"
 #include "ifdef.h"
+#define __WINE_INIT_NPI_MODULEID
 #include "netiodef.h"
 #include "ipexport.h"
 #include "wine/nsi.h"
@@ -49,6 +50,8 @@ DECLARE_CRITICAL_SECTION( nsiproxy_cs );
 
 #define LIST_ENTRY_INIT( list )  { .Flink = &(list), .Blink = &(list) }
 static LIST_ENTRY notification_queue = LIST_ENTRY_INIT( notification_queue );
+static NTSTATUS notification_status = STATUS_NOT_SUPPORTED;
+static UINT notification_support;
 
 struct notification_data
 {
@@ -70,6 +73,8 @@ enum unix_calls
     nsi_get_all_parameters_ex,
     nsi_get_parameter_ex,
     nsi_get_notification,
+    nsi_init_notifications,
+    nsi_close_notifications,
 };
 
 static NTSTATUS nsiproxy_enumerate_all( IRP *irp )
@@ -374,6 +379,7 @@ static void WINAPI change_notification_cancel( DEVICE_OBJECT *device, IRP *irp )
     EnterCriticalSection( &nsiproxy_cs );
     RemoveEntryList( &irp->Tail.Overlay.ListEntry );
     free( irp->Tail.Overlay.DriverContext[0] );
+    irp->Tail.Overlay.DriverContext[0] = NULL;
     LeaveCriticalSection( &nsiproxy_cs );
 
     irp->IoStatus.Status = STATUS_CANCELLED;
@@ -386,28 +392,58 @@ static NTSTATUS nsiproxy_change_notification( IRP *irp )
     struct nsiproxy_request_notification *in = (struct nsiproxy_request_notification *)irp->AssociatedIrp.SystemBuffer;
     DWORD in_len = irpsp->Parameters.DeviceIoControl.InputBufferLength;
     struct notification_data *data;
+    UINT support;
+    NTSTATUS status;
 
     TRACE( "irp %p.\n", irp );
 
     if (in_len < sizeof(*in)) return STATUS_INVALID_PARAMETER;
+    if (NmrIsEqualNpiModuleId( &in->module, &NPI_MS_NDIS_MODULEID ))
+    {
+        if (in->table != NSI_NDIS_IFINFO_TABLE) return STATUS_INVALID_PARAMETER;
+        support = NSI_NOTIFICATION_INTERFACE;
+    }
+    else if (NmrIsEqualNpiModuleId( &in->module, &NPI_MS_IPV4_MODULEID ) ||
+             NmrIsEqualNpiModuleId( &in->module, &NPI_MS_IPV6_MODULEID ))
+    {
+        switch (in->table)
+        {
+        case NSI_IP_UNICAST_TABLE: support = NSI_NOTIFICATION_ADDRESS; break;
+        case NSI_IP_FORWARD_TABLE: support = NSI_NOTIFICATION_ROUTE; break;
+        case NSI_IP_INTERFACE_TABLE: support = NSI_NOTIFICATION_INTERFACE; break;
+        default: return STATUS_INVALID_PARAMETER;
+        }
+    }
+    else return STATUS_INVALID_PARAMETER;
+
     if (!(data = calloc( 1, sizeof(*data) ))) return STATUS_NO_MEMORY;
-    /* FIXME: validate module and table. */
+    data->module = in->module;
+    data->table = in->table;
 
     EnterCriticalSection( &nsiproxy_cs );
+    status = notification_status;
+    if (!status && !(notification_support & support)) status = STATUS_NOT_SUPPORTED;
+    if (status)
+    {
+        LeaveCriticalSection( &nsiproxy_cs );
+        free( data );
+        return status;
+    }
+
+    /* Publish the queue entry before cancellation can take ownership. */
+    irp->Tail.Overlay.DriverContext[0] = data;
+    InsertTailList( &notification_queue, &irp->Tail.Overlay.ListEntry );
     IoSetCancelRoutine( irp, change_notification_cancel );
     if (irp->Cancel && IoSetCancelRoutine( irp, NULL ))
     {
         /* IRP was canceled before we set cancel routine */
-        InitializeListHead( &irp->Tail.Overlay.ListEntry );
+        RemoveEntryList( &irp->Tail.Overlay.ListEntry );
+        irp->Tail.Overlay.DriverContext[0] = NULL;
         LeaveCriticalSection( &nsiproxy_cs );
         free( data );
         return STATUS_CANCELLED;
     }
-    InsertTailList( &notification_queue, &irp->Tail.Overlay.ListEntry );
     IoMarkIrpPending( irp );
-    data->module = in->module;
-    data->table = in->table;
-    irp->Tail.Overlay.DriverContext[0] = data;
     LeaveCriticalSection( &nsiproxy_cs );
 
     return STATUS_PENDING;
@@ -467,7 +503,10 @@ static int add_device( DRIVER_OBJECT *driver )
     NTSTATUS status;
 
     if (!(status = IoCreateDevice( driver, 0, &name, FILE_DEVICE_NETWORK, FILE_DEVICE_SECURE_OPEN, FALSE, &device )))
+    {
         status = IoCreateSymbolicLink( &link, &name );
+        if (status) IoDeleteDevice( device );
+    }
     if (status)
     {
         FIXME( "failed to create device error %lx\n", status );
@@ -477,48 +516,57 @@ static int add_device( DRIVER_OBJECT *driver )
     return 1;
 }
 
+static void complete_notifications( const struct nsi_get_notification_params *params, NTSTATUS status )
+{
+    LIST_ENTRY complete = LIST_ENTRY_INIT( complete );
+    LIST_ENTRY *entry, *next;
+
+    EnterCriticalSection( &nsiproxy_cs );
+    if (status) notification_status = status;
+    for (entry = notification_queue.Flink; entry != &notification_queue; entry = next)
+    {
+        IRP *irp = CONTAINING_RECORD( entry, IRP, Tail.Overlay.ListEntry );
+        struct notification_data *data = irp->Tail.Overlay.DriverContext[0];
+
+        next = entry->Flink;
+        if (params && (!NmrIsEqualNpiModuleId( &data->module, &params->module ) || data->table != params->table))
+            continue;
+        /* A NULL return means the cancel routine already owns this IRP. */
+        if (!IoSetCancelRoutine( irp, NULL )) continue;
+
+        RemoveEntryList( entry );
+        InsertTailList( &complete, entry );
+        irp->Tail.Overlay.DriverContext[0] = NULL;
+        free( data );
+        irp->IoStatus.Status = status;
+    }
+    LeaveCriticalSection( &nsiproxy_cs );
+
+    /* Completion takes a lock which the cancellation dispatcher also holds. */
+    while (!IsListEmpty( &complete ))
+    {
+        IRP *irp = CONTAINING_RECORD( RemoveHeadList( &complete ), IRP, Tail.Overlay.ListEntry );
+        IoCompleteRequest( irp, IO_NO_INCREMENT );
+    }
+}
+
 static DWORD WINAPI notification_thread_proc( void *arg )
 {
     struct nsi_get_notification_params params;
-    LIST_ENTRY *entry, *next;
     NTSTATUS status;
 
     SetThreadDescription( GetCurrentThread(), L"wine_nsi_notification" );
-
     while (!(status = nsiproxy_call( nsi_get_notification, &params )))
-    {
-        EnterCriticalSection( &nsiproxy_cs );
-        for (entry = notification_queue.Flink; entry != &notification_queue; entry = next)
-        {
-            IRP *irp = CONTAINING_RECORD( entry, IRP, Tail.Overlay.ListEntry );
-            struct notification_data *data = irp->Tail.Overlay.DriverContext[0];
+        complete_notifications( &params, STATUS_SUCCESS );
 
-            next = entry->Flink;
-            if(irp->Cancel)
-            {
-                /* Cancel routine should care of freeing data and completing IRP. */
-                TRACE( "irp %p canceled.\n", irp );
-                continue;
-            }
-            if (!NmrIsEqualNpiModuleId( &data->module, &params.module ) || data->table != params.table)
-                continue;
-
-            irp->IoStatus.Status = 0;
-            RemoveEntryList( entry );
-            irp->Tail.Overlay.DriverContext[0] = NULL;
-            free( data );
-            TRACE("completing irp %p.\n", irp);
-            IoCompleteRequest( irp, IO_NO_INCREMENT );
-        }
-        LeaveCriticalSection( &nsiproxy_cs );
-    }
-
+    complete_notifications( NULL, status );
     WARN( "nsi_get_notification failed, status %#lx.\n", status );
     return 0;
 }
 
 NTSTATUS WINAPI DriverEntry( DRIVER_OBJECT *driver, UNICODE_STRING *path )
 {
+    struct nsi_init_notifications_params params = {0};
     NTSTATUS status;
     HANDLE thread;
 
@@ -529,10 +577,29 @@ NTSTATUS WINAPI DriverEntry( DRIVER_OBJECT *driver, UNICODE_STRING *path )
 
     driver->MajorFunction[IRP_MJ_DEVICE_CONTROL] = nsi_ioctl;
 
-    add_device( driver );
-
-    thread = CreateThread( NULL, 0, notification_thread_proc, NULL, 0, NULL );
-    CloseHandle( thread );
+    /* Bind before publishing the device. Gate subscriptions until the reader
+     * has been created and its startup status is known. */
+    status = nsiproxy_call( nsi_init_notifications, &params );
+    EnterCriticalSection( &nsiproxy_cs );
+    if (!add_device( driver ))
+    {
+        LeaveCriticalSection( &nsiproxy_cs );
+        if (!status) nsiproxy_call( nsi_close_notifications, NULL );
+        return STATUS_UNSUCCESSFUL;
+    }
+    notification_status = status;
+    notification_support = params.supported;
+    if (!notification_status)
+    {
+        thread = CreateThread( NULL, 0, notification_thread_proc, NULL, 0, NULL );
+        if (thread) CloseHandle( thread );
+        else
+        {
+            nsiproxy_call( nsi_close_notifications, NULL );
+            notification_status = STATUS_NO_MEMORY;
+        }
+    }
+    LeaveCriticalSection( &nsiproxy_cs );
     thread = CreateThread( NULL, 0, icmp_listen_thread_proc, NULL, 0, NULL );
     CloseHandle( thread );
 

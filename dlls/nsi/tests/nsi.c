@@ -1117,10 +1117,29 @@ void test_change_notifications(void)
 
     memset( &ovr, 0, sizeof(ovr) );
     ovr.hEvent = CreateEventW( NULL, FALSE, FALSE, NULL );
+    ok( ovr.hEvent != NULL, "Failed to create event, error %lu.\n", GetLastError() );
+    if (!ovr.hEvent) return;
+
+    ret = NsiCancelChangeNotification( NULL );
+    ok( ret == ERROR_NOT_FOUND, "got %lu.\n", ret );
+
+    ret = NsiRequestChangeNotification( 0, &NPI_MS_NDIS_MODULEID, NSI_NDIS_INDEX_LUID_TABLE, &ovr, &handle );
+    ok( ret == ERROR_INVALID_PARAMETER, "got %lu.\n", ret );
+    if (ret == ERROR_IO_PENDING)
+    {
+        NsiCancelChangeNotification( &ovr );
+        GetOverlappedResult( handle, &ovr, &bytes, TRUE );
+    }
 
     handle = (HANDLE)0xdeadbeef;
     ret = NsiRequestChangeNotification( 0, &NPI_MS_NDIS_MODULEID, NSI_NDIS_IFINFO_TABLE, &ovr, &handle );
+    if (ret == ERROR_NOT_SUPPORTED || ret == ERROR_CALL_NOT_IMPLEMENTED)
+    {
+        win_skip( "Interface change notifications are not supported.\n" );
+        goto route;
+    }
     ok( ret == ERROR_IO_PENDING, "got %lu.\n", ret );
+    if (ret != ERROR_IO_PENDING) goto route;
 
     memset( &params, 0, sizeof(params) );
     handle2 = (HANDLE)0xdeadbeef;
@@ -1130,14 +1149,20 @@ void test_change_notifications(void)
     params.ovr = &ovr2;
     params.handle = &handle2;
     ret = NsiRequestChangeNotificationEx( &params );
-    ok( ret == ERROR_IO_PENDING, "got %lu.\n", ret );
+    if (ret == ERROR_NOT_SUPPORTED || ret == ERROR_CALL_NOT_IMPLEMENTED)
+        win_skip( "Interface change notifications are not supported.\n" );
+    else
+        ok( ret == ERROR_IO_PENDING, "got %lu.\n", ret );
+    if (ret != ERROR_IO_PENDING)
+    {
+        NsiCancelChangeNotification( &ovr );
+        GetOverlappedResult( handle, &ovr, &bytes, TRUE );
+        goto route;
+    }
 
     ok( handle2 == handle, "got %p, %p.\n", handle, handle2 );
     bret = GetOverlappedResult( handle, &ovr, &bytes, FALSE );
     ok( !bret && GetLastError() == ERROR_IO_INCOMPLETE, "got bret %d, err %lu.\n", bret, GetLastError() );
-
-    ret = NsiCancelChangeNotification( NULL );
-    ok( ret == ERROR_NOT_FOUND, "got %lu.\n", ret );
 
     ret = NsiCancelChangeNotification( &ovr );
     ok( !ret, "got %lu.\n", ret );
@@ -1156,20 +1181,98 @@ void test_change_notifications(void)
     bret = GetOverlappedResult( handle, &ovr2, &bytes, TRUE );
     ok( !bret && GetLastError() == ERROR_OPERATION_ABORTED, "got bret %d, err %lu.\n", bret, GetLastError() );
 
-    ret = NsiRequestChangeNotification( 0, &NPI_MS_NDIS_MODULEID, NSI_NDIS_INDEX_LUID_TABLE, &ovr, &handle );
-    todo_wine ok( ret == ERROR_INVALID_PARAMETER, "got %lu.\n", ret );
-    if (ret == ERROR_IO_PENDING)
-    {
-        NsiCancelChangeNotification( &ovr );
-        GetOverlappedResult( handle, &ovr, &bytes, TRUE );
-    }
-
+route:
     ret = NsiRequestChangeNotification( 0, &NPI_MS_IPV4_MODULEID, NSI_IP_FORWARD_TABLE, &ovr, &handle );
+    if (ret == ERROR_NOT_SUPPORTED || ret == ERROR_CALL_NOT_IMPLEMENTED)
+    {
+        win_skip( "Route change notifications are not supported.\n" );
+        goto done;
+    }
     ok( ret == ERROR_IO_PENDING, "got %lu.\n", ret );
+    if (ret != ERROR_IO_PENDING) goto done;
     ret = NsiCancelChangeNotification( &ovr );
     ok( !ret, "got %lu.\n", ret );
     bret = GetOverlappedResult( handle, &ovr, &bytes, TRUE );
     ok( !bret && GetLastError() == ERROR_OPERATION_ABORTED, "got bret %d, err %lu.\n", bret, GetLastError() );
+done:
+    CloseHandle( ovr.hEvent );
+}
+
+static void test_ip_change_notifications(void)
+{
+    static const struct
+    {
+        const NPI_MODULEID *module;
+        DWORD table;
+        const char *name;
+    } cases[] =
+    {
+        { &NPI_MS_IPV4_MODULEID, NSI_IP_INTERFACE_TABLE, "IPv4 interface" },
+        { &NPI_MS_IPV6_MODULEID, NSI_IP_INTERFACE_TABLE, "IPv6 interface" },
+        { &NPI_MS_IPV4_MODULEID, NSI_IP_UNICAST_TABLE, "IPv4 address" },
+        { &NPI_MS_IPV6_MODULEID, NSI_IP_UNICAST_TABLE, "IPv6 address" },
+        { &NPI_MS_IPV4_MODULEID, NSI_IP_FORWARD_TABLE, "IPv4 route" },
+        { &NPI_MS_IPV6_MODULEID, NSI_IP_FORWARD_TABLE, "IPv6 route" },
+    };
+    DWORD bytes, ret, err, registration[2];
+    HANDLE handles[2];
+    OVERLAPPED ovr[2];
+    unsigned int i, j;
+    BOOL bret;
+
+    for (i = 0; i < ARRAY_SIZE(cases); ++i)
+    {
+        winetest_push_context( "%s", cases[i].name );
+        memset( ovr, 0, sizeof(ovr) );
+        memset( handles, 0, sizeof(handles) );
+        registration[0] = registration[1] = ERROR_INVALID_PARAMETER;
+        for (j = 0; j < ARRAY_SIZE(ovr); ++j)
+            ovr[j].hEvent = CreateEventW( NULL, FALSE, FALSE, NULL );
+
+        for (j = 0; j < ARRAY_SIZE(ovr); ++j)
+        {
+            registration[j] = NsiRequestChangeNotification( 0, cases[i].module, cases[i].table,
+                                                           ovr + j, handles + j );
+            if (registration[j] == ERROR_NOT_SUPPORTED || registration[j] == ERROR_CALL_NOT_IMPLEMENTED)
+            {
+                win_skip( "Change notifications are not supported.\n" );
+                break;
+            }
+            ok( registration[j] == ERROR_IO_PENDING || !registration[j],
+                "registration %u returned %lu.\n", j, registration[j] );
+            if (registration[j] != ERROR_IO_PENDING && registration[j]) break;
+            ok( handles[j] && handles[j] != INVALID_HANDLE_VALUE, "registration %u has no handle.\n", j );
+        }
+
+        if (j == ARRAY_SIZE(ovr))
+        {
+            ok( handles[0] == handles[1], "Different device handles %p, %p.\n", handles[0], handles[1] );
+            ret = NsiCancelChangeNotification( ovr );
+            ok( !ret || ret == ERROR_NOT_FOUND, "First cancellation returned %lu.\n", ret );
+            bret = GetOverlappedResult( handles[0], ovr, &bytes, TRUE );
+            err = GetLastError();
+            /* A concurrent host change may have completed the request before cancellation. */
+            ok( bret || err == ERROR_OPERATION_ABORTED, "First result %d, error %lu.\n", bret, err );
+
+            bret = GetOverlappedResult( handles[1], ovr + 1, &bytes, FALSE );
+            err = GetLastError();
+            ok( bret || err == ERROR_IO_INCOMPLETE, "First cancellation affected second request: %d, %lu.\n", bret, err );
+        }
+
+        for (j = 0; j < ARRAY_SIZE(ovr); ++j)
+        {
+            if (registration[j] == ERROR_IO_PENDING)
+            {
+                ret = NsiCancelChangeNotification( ovr + j );
+                ok( !ret || ret == ERROR_NOT_FOUND, "Cleanup cancellation %u returned %lu.\n", j, ret );
+                bret = GetOverlappedResult( handles[j], ovr + j, &bytes, TRUE );
+                err = GetLastError();
+                ok( bret || err == ERROR_OPERATION_ABORTED, "Cleanup result %u: %d, %lu.\n", j, bret, err );
+            }
+            CloseHandle( ovr[j].hEvent );
+        }
+        winetest_pop_context();
+    }
 }
 
 START_TEST( nsi )
@@ -1209,4 +1312,5 @@ START_TEST( nsi )
     test_udp_tables( AF_INET6 );
 
     test_change_notifications();
+    test_ip_change_notifications();
 }

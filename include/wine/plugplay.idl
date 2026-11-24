@@ -28,6 +28,7 @@ cpp_quote("#include \"dbt.h\"")
 cpp_quote("#endif")
 
 typedef DWORD (__stdcall *device_notify_callback)(HANDLE handle, DWORD flags, DEV_BROADCAST_HDR *header);
+void __stdcall __wine_sechost_signal_sony_audio_endpoint_ready(const GUID *container_id);
 HDEVNOTIFY __stdcall I_ScRegisterDeviceNotification(HANDLE handle, DEV_BROADCAST_HDR *filter, device_notify_callback callback);
 BOOL __stdcall I_ScUnregisterDeviceNotification(HDEVNOTIFY handle);
 

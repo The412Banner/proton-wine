@@ -25,6 +25,7 @@
 #include <stdarg.h>
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <limits.h>
@@ -187,96 +188,184 @@ static NTSTATUS add_notification( const NPI_MODULEID *module, UINT32 table )
 }
 
 #if defined(HAVE_LINUX_RTNETLINK_H)
-static NTSTATUS poll_events(void)
+static int netlink_fd = -1;
+
+static NTSTATUS init_events(void)
 {
-    static int netlink_fd = -1;
-    char buffer[PIPE_BUF];
-    struct nlmsghdr *nlh;
-    NTSTATUS status;
-    int len;
+    struct sockaddr_nl addr;
 
-    if (netlink_fd == -1)
+    if (netlink_fd != -1) return STATUS_SUCCESS;
+    if ((netlink_fd = socket( PF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE )) == -1)
     {
-        struct sockaddr_nl addr;
-
-        if ((netlink_fd = socket( PF_NETLINK, SOCK_RAW, NETLINK_ROUTE )) == -1)
-        {
-            ERR( "netlink socket creation failed, errno %d.\n", errno );
-            return STATUS_NOT_IMPLEMENTED;
-        }
-
-        memset( &addr, 0, sizeof(addr) );
-        addr.nl_family = AF_NETLINK;
-        addr.nl_groups = RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
-        if (bind( netlink_fd, (struct sockaddr *)&addr, sizeof(addr) ) == -1)
-        {
-            close( netlink_fd );
-            netlink_fd = -1;
-            ERR( "bind failed, errno %d.\n", errno );
-            return STATUS_NOT_IMPLEMENTED;
-        }
+        ERR( "netlink socket creation failed, errno %d.\n", errno );
+        return STATUS_UNSUCCESSFUL;
     }
 
-    while (1)
+    memset( &addr, 0, sizeof(addr) );
+    addr.nl_family = AF_NETLINK;
+    addr.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR |
+                     RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE;
+    if (bind( netlink_fd, (struct sockaddr *)&addr, sizeof(addr) ) == -1)
     {
-        len = recv( netlink_fd, buffer, sizeof(buffer), 0 );
-        if (len <= 0)
-        {
-            if (errno == EINTR) continue;
-            ERR( "error receivng, len %d, errno %d.\n", len, errno );
-            return STATUS_UNSUCCESSFUL;
-        }
-        for (nlh = (struct nlmsghdr *)buffer; NLMSG_OK(nlh, len); nlh = NLMSG_NEXT(nlh, len))
-        {
-            if (nlh->nlmsg_type == NLMSG_DONE) break;
-            if (nlh->nlmsg_type == RTM_NEWADDR || nlh->nlmsg_type == RTM_DELADDR)
-            {
-                struct ifaddrmsg *addrmsg = (struct ifaddrmsg *)(nlh + 1);
-                const NPI_MODULEID *module;
-
-                if (addrmsg->ifa_family == AF_INET)       module = &NPI_MS_IPV4_MODULEID;
-                else if (addrmsg->ifa_family == AF_INET6) module = &NPI_MS_IPV6_MODULEID;
-                else
-                {
-                    WARN( "Unknown addrmsg->ifa_family %d.\n", addrmsg->ifa_family );
-                    continue;
-                }
-                if ((status = add_notification( module, NSI_IP_UNICAST_TABLE))) return status;
-            }
-        }
-        if (queued_notification_count) break;
+        ERR( "bind failed, errno %d.\n", errno );
+        close( netlink_fd );
+        netlink_fd = -1;
+        return STATUS_UNSUCCESSFUL;
     }
     return STATUS_SUCCESS;
 }
-#elif defined(__APPLE__)
+
+static NTSTATUS invalidate_notifications(void)
+{
+    static const UINT tables[] = { NSI_IP_UNICAST_TABLE, NSI_IP_FORWARD_TABLE, NSI_IP_INTERFACE_TABLE };
+    NTSTATUS status;
+    unsigned int i;
+
+    /* Lost events can affect any table, including ones absent from this datagram. */
+    if ((status = add_notification( &NPI_MS_NDIS_MODULEID, NSI_NDIS_IFINFO_TABLE ))) return status;
+    for (i = 0; i < ARRAY_SIZE(tables); ++i)
+    {
+        if ((status = add_notification( &NPI_MS_IPV4_MODULEID, tables[i] ))) return status;
+        if ((status = add_notification( &NPI_MS_IPV6_MODULEID, tables[i] ))) return status;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS process_netlink_events( const void *buffer, size_t len )
+{
+    const struct nlmsghdr *nlh = buffer;
+    const NPI_MODULEID *module;
+    NTSTATUS status;
+    unsigned int family, table;
+    size_t step;
+
+    while (len)
+    {
+        if (len < sizeof(*nlh) || nlh->nlmsg_len < sizeof(*nlh) || nlh->nlmsg_len > len)
+            return invalidate_notifications();
+
+        switch (nlh->nlmsg_type)
+        {
+        case NLMSG_OVERRUN:
+            return invalidate_notifications();
+        case NLMSG_ERROR:
+            if (nlh->nlmsg_len < NLMSG_LENGTH(sizeof(struct nlmsgerr)) ||
+                ((const struct nlmsgerr *)NLMSG_DATA(nlh))->error)
+                return invalidate_notifications();
+            break;
+        case RTM_NEWLINK:
+        case RTM_DELLINK:
+            if (nlh->nlmsg_len < NLMSG_LENGTH(sizeof(struct ifinfomsg)))
+                return invalidate_notifications();
+            if ((status = add_notification( &NPI_MS_NDIS_MODULEID, NSI_NDIS_IFINFO_TABLE ))) return status;
+            if ((status = add_notification( &NPI_MS_IPV4_MODULEID, NSI_IP_INTERFACE_TABLE ))) return status;
+            if ((status = add_notification( &NPI_MS_IPV6_MODULEID, NSI_IP_INTERFACE_TABLE ))) return status;
+            /* IPv4 route flushes on link down do not emit RTM_DELROUTE. */
+            if ((status = add_notification( &NPI_MS_IPV4_MODULEID, NSI_IP_FORWARD_TABLE ))) return status;
+            if ((status = add_notification( &NPI_MS_IPV6_MODULEID, NSI_IP_FORWARD_TABLE ))) return status;
+            break;
+        case RTM_NEWADDR:
+        case RTM_DELADDR:
+            if (nlh->nlmsg_len < NLMSG_LENGTH(sizeof(struct ifaddrmsg)))
+                return invalidate_notifications();
+            family = ((const struct ifaddrmsg *)NLMSG_DATA(nlh))->ifa_family;
+            table = NSI_IP_UNICAST_TABLE;
+            goto family_notification;
+        case RTM_NEWROUTE:
+        case RTM_DELROUTE:
+            if (nlh->nlmsg_len < NLMSG_LENGTH(sizeof(struct rtmsg)))
+                return invalidate_notifications();
+            family = ((const struct rtmsg *)NLMSG_DATA(nlh))->rtm_family;
+            table = NSI_IP_FORWARD_TABLE;
+        family_notification:
+            if (family == AF_INET) module = &NPI_MS_IPV4_MODULEID;
+            else if (family == AF_INET6) module = &NPI_MS_IPV6_MODULEID;
+            else break;
+            if ((status = add_notification( module, table ))) return status;
+            /* IP interface enumeration also depends on the assigned addresses. */
+            if (table == NSI_IP_UNICAST_TABLE &&
+                (status = add_notification( module, NSI_IP_INTERFACE_TABLE ))) return status;
+            if (nlh->nlmsg_type == RTM_DELADDR &&
+                (status = add_notification( module, NSI_IP_FORWARD_TABLE ))) return status;
+            break;
+        }
+
+        if (nlh->nlmsg_len == len) break;
+        step = NLMSG_ALIGN(nlh->nlmsg_len);
+        if (step > len) return invalidate_notifications();
+        len -= step;
+        nlh = (const struct nlmsghdr *)((const char *)nlh + step);
+    }
+    return STATUS_SUCCESS;
+}
+
 static NTSTATUS poll_events(void)
 {
-    static int sock = -1;
-
-    if (sock == -1)
+    union
     {
-        static const struct kev_request req =
-        {
-            .vendor_code = KEV_VENDOR_APPLE,
-            .kev_class = KEV_NETWORK_CLASS,
-            .kev_subclass = KEV_ANY_SUBCLASS,
-        };
+        struct nlmsghdr align;
+        char data[32768];
+    } buffer;
+    NTSTATUS status;
 
-        if ((sock = socket( PF_SYSTEM, SOCK_RAW, SYSPROTO_EVENT )) == -1)
-        {
-            ERR( "PF_SYSTEM socket creation failed, errno %d.\n", errno );
-            return STATUS_NOT_IMPLEMENTED;
-        }
+    while (1)
+    {
+        struct sockaddr_nl addr;
+        struct iovec iov = { buffer.data, sizeof(buffer.data) };
+        struct msghdr msg = {0};
+        ssize_t len;
 
-        if (ioctl( sock, SIOCSKEVFILT, &req ) == -1)
+        msg.msg_name = &addr;
+        msg.msg_namelen = sizeof(addr);
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        len = recvmsg( netlink_fd, &msg, 0 );
+        if (len < 0)
         {
-            close( sock );
-            sock = -1;
-            ERR( "SIOCSKEVFILT failed, errno %d.\n", errno );
-            return STATUS_NOT_IMPLEMENTED;
+            if (errno == EINTR) continue;
+            if (errno == ENOBUFS) return invalidate_notifications();
+            ERR( "error receiving netlink events, errno %d.\n", errno );
+            close( netlink_fd );
+            netlink_fd = -1;
+            return STATUS_UNSUCCESSFUL;
         }
+        if (msg.msg_namelen != sizeof(addr) || addr.nl_family != AF_NETLINK || addr.nl_pid) continue;
+        if (!len || (msg.msg_flags & MSG_TRUNC)) return invalidate_notifications();
+        if ((status = process_netlink_events( buffer.data, len ))) return status;
+        if (queued_notification_count) return STATUS_SUCCESS;
+    }
+}
+#elif defined(__APPLE__)
+static int sock = -1;
+
+static NTSTATUS init_events(void)
+{
+    static const struct kev_request req =
+    {
+        .vendor_code = KEV_VENDOR_APPLE,
+        .kev_class = KEV_NETWORK_CLASS,
+        .kev_subclass = KEV_ANY_SUBCLASS,
+    };
+
+    if (sock != -1) return STATUS_SUCCESS;
+    if ((sock = socket( PF_SYSTEM, SOCK_RAW, SYSPROTO_EVENT )) == -1)
+    {
+        ERR( "PF_SYSTEM socket creation failed, errno %d.\n", errno );
+        return STATUS_UNSUCCESSFUL;
     }
 
+    if (fcntl( sock, F_SETFD, FD_CLOEXEC ) == -1 || ioctl( sock, SIOCSKEVFILT, &req ) == -1)
+    {
+        ERR( "kernel event socket setup failed, errno %d.\n", errno );
+        close( sock );
+        sock = -1;
+        return STATUS_UNSUCCESSFUL;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS poll_events(void)
+{
     while (1)
     {
         struct kern_event_msg msg;
@@ -286,8 +375,10 @@ static NTSTATUS poll_events(void)
         len = recv( sock, &msg, sizeof(msg), 0 );
         if (len < sizeof(msg))
         {
-            if (errno == EINTR) continue;
+            if (len < 0 && errno == EINTR) continue;
             ERR( "error receiving, len %d, errno %d.\n", len, errno );
+            close( sock );
+            sock = -1;
             return STATUS_UNSUCCESSFUL;
         }
 
@@ -335,10 +426,50 @@ static NTSTATUS unix_nsi_get_notification( void *args )
     memmove( queued_notifications, queued_notifications + 1, sizeof(*queued_notifications) * queued_notification_count );
     return STATUS_SUCCESS;
 }
+
+static NTSTATUS unix_nsi_init_notifications( void *args )
+{
+    struct nsi_init_notifications_params *params = args;
+    NTSTATUS status;
+
+    params->supported = 0;
+    if ((status = init_events())) return status;
+    params->supported = NSI_NOTIFICATION_ADDRESS;
+#ifdef HAVE_LINUX_RTNETLINK_H
+    params->supported |= NSI_NOTIFICATION_ROUTE | NSI_NOTIFICATION_INTERFACE;
+#endif
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_nsi_close_notifications( void *args )
+{
+#ifdef HAVE_LINUX_RTNETLINK_H
+    if (netlink_fd != -1) close( netlink_fd );
+    netlink_fd = -1;
+#else
+    if (sock != -1) close( sock );
+    sock = -1;
+#endif
+    queued_notification_count = 0;
+    return STATUS_SUCCESS;
+}
 #else
 static NTSTATUS unix_nsi_get_notification( void *args )
 {
     return STATUS_NOT_IMPLEMENTED;
+}
+
+static NTSTATUS unix_nsi_init_notifications( void *args )
+{
+    struct nsi_init_notifications_params *params = args;
+
+    params->supported = 0;
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+static NTSTATUS unix_nsi_close_notifications( void *args )
+{
+    return STATUS_SUCCESS;
 }
 #endif
 
@@ -351,4 +482,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_nsi_get_all_parameters_ex,
     unix_nsi_get_parameter_ex,
     unix_nsi_get_notification,
+    unix_nsi_init_notifications,
+    unix_nsi_close_notifications,
 };

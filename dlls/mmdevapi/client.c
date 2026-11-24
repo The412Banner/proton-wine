@@ -50,6 +50,18 @@ extern HRESULT get_audio_session(const GUID *sessionguid, IMMDevice *device, UIN
                                  struct audio_session **out);
 extern struct audio_session_wrapper *session_wrapper_create(struct audio_client *client);
 
+static BOOL device_fake_exclusive(void)
+{
+    WCHAR str[10];
+    DWORD ret = GetEnvironmentVariableW(L"PROTON_MMDEV_FAKE_EXCLUSIVE", str, ARRAY_SIZE(str));
+
+    if (ret)
+        return !(ret == 1 && str[0] == L'0');
+
+    ret = GetEnvironmentVariableW(L"PROTON_DEATH_STRANDING_CONTROLLER_EFFECTS", str, ARRAY_SIZE(str));
+    return ret == 1 && str[0] == L'1';
+}
+
 static HANDLE main_loop_thread;
 
 void main_loop_stop(void)
@@ -128,7 +140,7 @@ static HRESULT get_periods(struct audio_client *client,
 static HRESULT adjust_timing(struct audio_client *client, const BOOLEAN force_def_period,
                              REFERENCE_TIME *duration, REFERENCE_TIME *period,
                              const AUDCLNT_SHAREMODE mode, const DWORD flags,
-                             const WAVEFORMATEX *fmt)
+                             const WAVEFORMATEX *fmt, const BOOL fake_exclusive)
 {
     REFERENCE_TIME def_period, min_period;
     HRESULT hr;
@@ -149,7 +161,7 @@ static HRESULT adjust_timing(struct audio_client *client, const BOOLEAN force_de
             *duration = 3 * *period;
     } else {
         const WAVEFORMATEXTENSIBLE *fmtex = (WAVEFORMATEXTENSIBLE *)fmt;
-        if (fmtex->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+        if (!fake_exclusive && fmtex->Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
            (fmtex->dwChannelMask == 0 || fmtex->dwChannelMask & SPEAKER_RESERVED))
             return AUDCLNT_E_UNSUPPORTED_FORMAT;
         else {
@@ -163,9 +175,10 @@ static HRESULT adjust_timing(struct audio_client *client, const BOOLEAN force_de
                 if (*duration != *period)
                     return AUDCLNT_E_BUFDURATION_PERIOD_NOT_EQUAL;
 
-                FIXME("EXCLUSIVE mode with EVENTCALLBACK\n");
-
-                return AUDCLNT_E_DEVICE_IN_USE;
+                if (!fake_exclusive) {
+                    FIXME("EXCLUSIVE mode with EVENTCALLBACK\n");
+                    return AUDCLNT_E_DEVICE_IN_USE;
+                }
             } else if (*duration < 8 * *period)
                 *duration = 8 * *period; /* May grow above 2s. */
         }
@@ -489,6 +502,7 @@ static HRESULT stream_init(struct audio_client *client, const BOOLEAN force_def_
                            const WAVEFORMATEX *fmt, const GUID *sessionguid)
 {
     struct create_stream_params params;
+    BOOL fake_exclusive, sony_windows_audio_mode;
     UINT32 i, channel_count;
     stream_handle stream;
     WCHAR *name;
@@ -501,6 +515,8 @@ static HRESULT stream_init(struct audio_client *client, const BOOLEAN force_def_
 
     if (mode != AUDCLNT_SHAREMODE_SHARED && mode != AUDCLNT_SHAREMODE_EXCLUSIVE)
         return E_INVALIDARG;
+
+    fake_exclusive = mode == AUDCLNT_SHAREMODE_EXCLUSIVE && device_fake_exclusive();
 
     if (flags & ~(AUDCLNT_STREAMFLAGS_CROSSPROCESS |
                   AUDCLNT_STREAMFLAGS_LOOPBACK |
@@ -518,12 +534,16 @@ static HRESULT stream_init(struct audio_client *client, const BOOLEAN force_def_
     if (flags & AUDCLNT_STREAMFLAGS_CROSSPROCESS)
         FIXME("Cross-process sessions not supported\n");
 
-    hr = validate_wfx(fmt, mode);
+    hr = validate_wfx(fmt, fake_exclusive ? AUDCLNT_SHAREMODE_SHARED : mode);
 
     if (hr == S_FALSE)
         hr = AUDCLNT_E_UNSUPPORTED_FORMAT;
     if (hr != S_OK)
         return hr;
+
+    sony_windows_audio_mode = !(flags & AUDCLNT_STREAMFLAGS_LOOPBACK) &&
+            select_sony_audio_mode_for_stream(client->parent,
+            fake_exclusive ? AUDCLNT_SHAREMODE_SHARED : mode, fmt);
 
     sessions_lock();
 
@@ -569,7 +589,8 @@ static HRESULT stream_init(struct audio_client *client, const BOOLEAN force_def_
         client->dataflow = eCapture;
     }
 
-    if (FAILED(params.result = adjust_timing(client, force_def_period, &duration, &period, mode, flags, fmt))) {
+    if (FAILED(params.result = adjust_timing(client, force_def_period, &duration, &period,
+            mode, flags, fmt, fake_exclusive))) {
         sessions_unlock();
         return params.result;
     }
@@ -577,13 +598,14 @@ static HRESULT stream_init(struct audio_client *client, const BOOLEAN force_def_
     params.name = name   = get_application_name();
     params.device        = client->device_name;
     params.flow          = client->dataflow;
-    params.share         = mode;
+    params.share         = fake_exclusive ? AUDCLNT_SHAREMODE_SHARED : mode;
     params.flags         = flags;
     params.duration      = duration;
     params.period        = period;
     params.fmt           = fmt;
     params.channel_count = &channel_count;
     params.stream        = &stream;
+    params.sony_windows_audio_mode = sony_windows_audio_mode;
 
     wine_unix_call(create_stream, &params);
 
@@ -884,6 +906,8 @@ static HRESULT WINAPI client_IsFormatSupported(IAudioClient3 *iface, AUDCLNT_SHA
 {
     struct audio_client *This = impl_from_IAudioClient3(iface);
     struct is_format_supported_params params;
+    BOOL fake_exclusive = FALSE;
+    BOOL sony_windows_audio_mode;
     HRESULT hr;
 
     TRACE("(%p)->(%x, %p, %p)\n", This, mode, fmt, out);
@@ -896,6 +920,14 @@ static HRESULT WINAPI client_IsFormatSupported(IAudioClient3 *iface, AUDCLNT_SHA
 
     dump_fmt(fmt);
 
+    sony_windows_audio_mode = auto_select_sony_audio_mode(This->parent, mode, fmt,
+            &This->sony_format_probe_count);
+
+    if (mode == AUDCLNT_SHAREMODE_EXCLUSIVE && device_fake_exclusive()) {
+        mode = AUDCLNT_SHAREMODE_SHARED;
+        fake_exclusive = TRUE;
+    }
+
     hr = validate_wfx(fmt, mode);
 
     if (FAILED(hr))
@@ -906,6 +938,7 @@ static HRESULT WINAPI client_IsFormatSupported(IAudioClient3 *iface, AUDCLNT_SHA
         params.flow    = This->dataflow;
         params.share   = mode;
         params.fmt_in  = fmt;
+        params.sony_windows_audio_mode = sony_windows_audio_mode;
 
         wine_unix_call(is_format_supported, &params);
 
@@ -913,7 +946,7 @@ static HRESULT WINAPI client_IsFormatSupported(IAudioClient3 *iface, AUDCLNT_SHA
     }
 
     if (hr == S_FALSE) {
-        if (mode == AUDCLNT_SHAREMODE_EXCLUSIVE) {
+        if (mode == AUDCLNT_SHAREMODE_EXCLUSIVE || fake_exclusive) {
             return AUDCLNT_E_UNSUPPORTED_FORMAT;
         } else {
             if (FAILED(hr = IAudioClient3_GetMixFormat(iface, out)))
@@ -944,6 +977,7 @@ static HRESULT WINAPI client_GetMixFormat(IAudioClient3 *iface, WAVEFORMATEX **p
     params.device = This->device_name;
     params.flow   = This->dataflow;
     params.fmt    = CoTaskMemAlloc(sizeof(WAVEFORMATEXTENSIBLE));
+    params.sony_windows_audio_mode = sony_windows_audio_mode_selected();
     if (!params.fmt)
         return E_OUTOFMEMORY;
 

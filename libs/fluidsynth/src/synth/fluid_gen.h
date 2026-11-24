@@ -61,6 +61,7 @@ enum fluid_gen_flags
 fluid_real_t fluid_gen_scale(int gen, float value);
 fluid_real_t fluid_gen_scale_nrpn(int gen, int nrpn);
 void fluid_gen_init(fluid_gen_t *gen, fluid_channel_t *channel);
+extern int wine_fluid_sf2_mode;
 const char *fluid_gen_name(int gen);
 
 

@@ -297,6 +297,7 @@ struct strmbase_renderer_ops
     void (*renderer_init_stream)(struct strmbase_renderer *iface);
     void (*renderer_start_stream)(struct strmbase_renderer *iface);
     void (*renderer_stop_stream)(struct strmbase_renderer *iface);
+    void (*renderer_cleanup_stream)(struct strmbase_renderer *iface);
     HRESULT (*renderer_connect)(struct strmbase_renderer *iface, const AM_MEDIA_TYPE *mt);
     void (*renderer_disconnect)(struct strmbase_renderer *iface);
     void (*renderer_destroy)(struct strmbase_renderer *iface);

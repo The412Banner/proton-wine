@@ -159,9 +159,7 @@ static void test_profile_string(void)
 
     /* works only in unicode, ansi crashes */
     ret=GetPrivateProfileStringW(emptyW, keyW, emptyW, bufW, ARRAY_SIZE(bufW), TESTFILE2W);
-    todo_wine
     ok(ret == 13, "expected 13, got %u\n", ret);
-    todo_wine
     ok(!lstrcmpW(valsectionW,bufW), "expected %s, got %s\n",
         wine_dbgstr_w(valsectionW), wine_dbgstr_w(bufW) );
 
@@ -924,7 +922,9 @@ static void test_WritePrivateProfileString(void)
     LPCSTR data;
     CHAR path[MAX_PATH];
     CHAR temp[MAX_PATH];
+    CHAR *long_value, *long_buf;
     HANDLE file;
+    DWORD len;
 
     GetTempPathA(MAX_PATH, temp);
     GetTempFileNameA(temp, "wine", 0, path);
@@ -1112,6 +1112,21 @@ static void test_WritePrivateProfileString(void)
     todo_wine
     ok( check_binary_file_data(path, data, 59), "File doesn't match\n");
     DeleteFileA(path);
+
+    /* value longer than a UNICODE_STRING can hold */
+    long_value = HeapAlloc(GetProcessHeap(), 0, 65001);
+    long_buf = HeapAlloc(GetProcessHeap(), 0, 65002);
+    memset(long_value, 'a', 65000);
+    long_value[65000] = 0;
+    GetTempFileNameA(temp, "wine", 0, path);
+    ret = WritePrivateProfileStringA("App", "key", long_value, path);
+    ok(ret == TRUE, "Expected TRUE, got %d, le=%lu\n", ret, GetLastError());
+    len = GetPrivateProfileStringA("App", "key", "", long_buf, 65002, path);
+    ok(len == 65000, "Expected 65000, got %lu\n", len);
+    ok(!strcmp(long_buf, long_value), "Value doesn't match\n");
+    DeleteFileA(path);
+    HeapFree(GetProcessHeap(), 0, long_buf);
+    HeapFree(GetProcessHeap(), 0, long_value);
 }
 
 static void test_profile_struct(void)

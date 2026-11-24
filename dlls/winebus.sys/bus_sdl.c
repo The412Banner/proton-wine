@@ -62,6 +62,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(hid);
 
 static pthread_mutex_t sdl_cs = PTHREAD_MUTEX_INITIALIZER;
 static const struct bus_options *options;
+static BOOL steam_input_enabled;
 
 static void *sdl_handle = NULL;
 static UINT quit_event = -1;
@@ -151,6 +152,7 @@ struct sdl_device
     int effect_state[256];
     LONG effect_flags;
     int axis_offset;
+    int sony_button_count; /* non-zero for the native Sony layout */
 };
 
 static inline struct sdl_device *impl_from_unix_device(struct unix_device *iface)
@@ -403,6 +405,69 @@ static NTSTATUS build_joystick_report_descriptor(struct unix_device *iface, cons
     return STATUS_SUCCESS;
 }
 
+/* winexinput and games read Sony pads with the native DualShock 4 / DualSense
+ * layout: X / Y left stick, Z / Rz right stick, Rx / Ry triggers, 0 to 255 with
+ * Y pointing down, buttons in Sony order with L2 / R2 as buttons 7 / 8. */
+static BOOL use_sony_layout(WORD vid, WORD pid)
+{
+    if (vid != 0x054c) return FALSE;
+    return pid == 0x05c4 || pid == 0x09cc || pid == 0x0ce6 || pid == 0x0df2;
+}
+
+static BOOL add_sony_gamepad(struct unix_device *iface, USAGE button_count)
+{
+    static const USAGE_AND_PAGE device_usage = {.UsagePage = HID_USAGE_PAGE_GENERIC, .Usage = HID_USAGE_GENERIC_GAMEPAD};
+    static const USAGE sticks[] = {HID_USAGE_GENERIC_X, HID_USAGE_GENERIC_Y, HID_USAGE_GENERIC_Z, HID_USAGE_GENERIC_RZ};
+    static const USAGE triggers[] = {HID_USAGE_GENERIC_RX, HID_USAGE_GENERIC_RY};
+
+    if (!hid_device_begin_input_report(iface, &device_usage)) return FALSE;
+    if (!hid_device_add_axes(iface, 4, HID_USAGE_PAGE_GENERIC, sticks, FALSE, 0, 255)) return FALSE;
+    if (!hid_device_add_axes(iface, 2, HID_USAGE_PAGE_GENERIC, triggers, FALSE, 0, 255)) return FALSE;
+    if (!hid_device_add_hatswitch(iface, 1)) return FALSE;
+    if (!hid_device_add_buttons(iface, HID_USAGE_PAGE_BUTTON, 1, button_count)) return FALSE;
+    if (!hid_device_end_input_report(iface)) return FALSE;
+
+    return TRUE;
+}
+
+/* SDL axis order matches the report: left stick, right stick, triggers. */
+static void sony_set_axis(struct unix_device *iface, int axis, int value)
+{
+    LONG v;
+
+    if (axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)
+        v = (value < 0 ? 0 : value) * 255 / 32767;
+    else
+        v = (value + 32768) >> 8;
+
+    hid_device_set_abs_axis(iface, axis, v);
+    if (axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT) hid_device_set_button(iface, 6, v >= 16);
+    if (axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) hid_device_set_button(iface, 7, v >= 16);
+}
+
+static int sony_button_index(int button)
+{
+    switch (button)
+    {
+    case SDL_CONTROLLER_BUTTON_X: return 0; /* square */
+    case SDL_CONTROLLER_BUTTON_A: return 1; /* cross */
+    case SDL_CONTROLLER_BUTTON_B: return 2; /* circle */
+    case SDL_CONTROLLER_BUTTON_Y: return 3; /* triangle */
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return 4;
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return 5;
+    case SDL_CONTROLLER_BUTTON_BACK: return 8; /* share / create */
+    case SDL_CONTROLLER_BUTTON_START: return 9; /* options */
+    case SDL_CONTROLLER_BUTTON_LEFTSTICK: return 10;
+    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return 11;
+    case SDL_CONTROLLER_BUTTON_GUIDE: return 12; /* PS */
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+    case SDL_CONTROLLER_BUTTON_TOUCHPAD: return 13;
+    case SDL_CONTROLLER_BUTTON_MISC1: return 14; /* DualSense mute */
+#endif
+    default: return -1;
+    }
+}
+
 static NTSTATUS build_controller_report_descriptor(struct unix_device *iface)
 {
     const USAGE_AND_PAGE device_usage = {.UsagePage = HID_USAGE_PAGE_GENERIC, .Usage = HID_USAGE_GENERIC_GAMEPAD};
@@ -412,13 +477,22 @@ static NTSTATUS build_controller_report_descriptor(struct unix_device *iface)
     C_ASSERT(SDL_CONTROLLER_AXIS_MAX == 6);
 
     if (!hid_device_begin_report_descriptor(iface, &device_usage)) return STATUS_NO_MEMORY;
-    if (!hid_device_add_gamepad(iface)) return STATUS_NO_MEMORY;
+    if (impl->sony_button_count)
+    {
+        if (!add_sony_gamepad(iface, impl->sony_button_count)) return STATUS_NO_MEMORY;
+    }
+    else if (!hid_device_add_gamepad(iface)) return STATUS_NO_MEMORY;
     if (!descriptor_add_haptic(impl, FALSE)) return STATUS_NO_MEMORY;
     if (!hid_device_end_report_descriptor(iface)) return STATUS_NO_MEMORY;
 
     for (int i = SDL_CONTROLLER_AXIS_LEFTX; i < SDL_CONTROLLER_AXIS_MAX; i++)
     {
         int value = pSDL_GameControllerGetAxis(impl->sdl_controller, i);
+        if (impl->sony_button_count)
+        {
+            sony_set_axis(iface, i, value);
+            continue;
+        }
         if (i == SDL_CONTROLLER_AXIS_LEFTY || i == SDL_CONTROLLER_AXIS_RIGHTY)
             value = -value - 1; /* match XUSB / GIP protocol */
         hid_device_set_abs_axis(iface, i, value);
@@ -880,6 +954,22 @@ static BOOL set_report_from_controller_event(struct sdl_device *impl, SDL_Event 
             SDL_ControllerButtonEvent *ie = &event->cbutton;
             int button;
 
+            if (impl->sony_button_count)
+            {
+                switch (ie->button)
+                {
+                case SDL_CONTROLLER_BUTTON_DPAD_UP: hid_device_move_hatswitch(iface, 0, 0, ie->state ? -1 : +1); break;
+                case SDL_CONTROLLER_BUTTON_DPAD_DOWN: hid_device_move_hatswitch(iface, 0, 0, ie->state ? +1 : -1); break;
+                case SDL_CONTROLLER_BUTTON_DPAD_LEFT: hid_device_move_hatswitch(iface, 0, ie->state ? -1 : +1, 0); break;
+                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: hid_device_move_hatswitch(iface, 0, ie->state ? +1 : -1, 0); break;
+                default:
+                    if ((button = sony_button_index(ie->button)) != -1) hid_device_set_button(iface, button, ie->state);
+                    break;
+                }
+                bus_event_queue_input_report(&event_queue, iface, state->report_buf, state->report_len);
+                break;
+            }
+
             switch (ie->button)
             {
             case SDL_CONTROLLER_BUTTON_A: button = 0; break;
@@ -913,6 +1003,13 @@ static BOOL set_report_from_controller_event(struct sdl_device *impl, SDL_Event 
         {
             SDL_ControllerAxisEvent *ie = &event->caxis;
 
+            if (impl->sony_button_count)
+            {
+                sony_set_axis(iface, ie->axis, ie->value);
+                bus_event_queue_input_report(&event_queue, iface, state->report_buf, state->report_len);
+                break;
+            }
+
             if (ie->axis == SDL_CONTROLLER_AXIS_LEFTY || ie->axis == SDL_CONTROLLER_AXIS_RIGHTY)
                 ie->value = -ie->value - 1; /* match XUSB / GIP protocol */
 
@@ -944,10 +1041,43 @@ BOOL is_sdl_ignored_device(WORD vid, WORD pid)
     return FALSE;
 }
 
+/* Sony pads are left to hidraw, unless hidraw won't take them. */
+static BOOL is_sony_hidraw_disabled(WORD vid, WORD pid)
+{
+    const char *env = getenv("PROTON_DISABLE_HIDRAW");
+    char needle[16];
+
+    if (options->disable_hidraw) return TRUE;
+    if (!env) return FALSE;
+    if (!strcmp(env, "1")) return TRUE;
+    sprintf(needle, "0x%04x/0x%04x", vid, pid);
+    return strcasestr(env, needle) != NULL;
+}
+
 static BOOL is_emulating_steaminput(void)
 {
     const char *env = getenv("PROTON_EMULATE_STEAMINPUT");
     return env && atoi(env);
+}
+
+static BOOL is_steam_input_enabled(void)
+{
+    static const char * const names[] =
+    {
+        "SteamVirtualGamepadInfo",
+        "SteamVirtualGamepadInfo_Proton",
+        "SDL_GAMECONTROLLER_ALLOW_STEAM_VIRTUAL_GAMEPAD",
+    };
+    const char *env = getenv("PROTON_NO_STEAMINPUT");
+    unsigned int i;
+
+    if (env && atoi(env)) return FALSE;
+    for (i = 0; i < ARRAY_SIZE(names); ++i)
+    {
+        env = getenv(names[i]);
+        if (env && *env && strcmp(env, "0")) return TRUE;
+    }
+    return FALSE;
 }
 
 static void fixup_steaminput_vidpid( struct device_desc *desc )
@@ -1021,6 +1151,16 @@ static void sdl_add_device(unsigned int index)
         pSDL_JoystickClose(joystick);
         return;
     }
+    if ((is_dualsense_gamepad(desc.vid, desc.pid) ||
+            is_dualshock4_gamepad(desc.vid, desc.pid)) &&
+            !is_sony_hidraw_disabled(desc.vid, desc.pid))
+    {
+        TRACE("ignoring SDL Sony controller %s; hidraw handles native reports.\n",
+                debugstr_device_desc(&desc));
+        if (controller) pSDL_GameControllerClose(controller);
+        pSDL_JoystickClose(joystick);
+        return;
+    }
 
     if (is_emulating_steaminput())
     {
@@ -1038,6 +1178,11 @@ static void sdl_add_device(unsigned int index)
     if (controller)
     {
         desc.is_gamepad = TRUE;
+        /* These are translated reports, not the Nintendo HID protocol. Keep the
+         * physical IDs for backend selection, but advertise an XInput identity. */
+        desc.use_xbox_identity = !steam_input_enabled && desc.vid == 0x057e && desc.pid == 0x2009;
+        if (desc.use_xbox_identity)
+            TRACE("exposing mapped Switch Pro controller %04x:%04x as Xbox 360.\n", desc.vid, desc.pid);
         axis_count = 6;
     }
     else
@@ -1064,6 +1209,11 @@ static void sdl_add_device(unsigned int index)
         impl->sdl_controller = controller;
         impl->id = id;
         impl->axis_offset = axis_offset;
+        if (controller && use_sony_layout(desc.vid, desc.pid))
+        {
+            impl->sony_button_count = is_dualsense_gamepad(desc.vid, desc.pid) ? 15 : 14;
+            TRACE("using the native Sony report layout for %04x:%04x.\n", desc.vid, desc.pid);
+        }
 
         if (impl->sdl_controller) status = build_controller_report_descriptor(&impl->unix_device);
         else status = build_joystick_report_descriptor(&impl->unix_device, &desc);
@@ -1210,6 +1360,7 @@ NTSTATUS sdl_bus_init(void *args)
 
     /* CW-Bug-Id: #23185: Disable SDL 2.30 new behavior, we need the steam virtual
      * controller name to figure which slot number it represents. */
+    steam_input_enabled = is_steam_input_enabled();
     pSDL_SetHintWithPriority("SteamVirtualGamepadInfo", "", SDL_HINT_OVERRIDE);
     unsetenv("SteamVirtualGamepadInfo");
 

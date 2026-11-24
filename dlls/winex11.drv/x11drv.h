@@ -412,6 +412,7 @@ struct x11drv_thread_data
     XIM      xim;                  /* input method */
     HWND     last_xic_hwnd;        /* last xic window */
     XFontSet font_set;             /* international text drawing font set */
+    KeySym   dead_key;             /* dead key waiting for the next key, with windows_dead_keys */
     Window   selection_wnd;        /* window used for selection interactions */
     unsigned long warp_serial;     /* serial number of last pointer warp request */
     Window   clip_window;          /* window used for cursor clipping */
@@ -481,6 +482,7 @@ extern BOOL use_system_cursors;
 extern BOOL grab_fullscreen;
 extern int keyboard_layout;
 extern BOOL keyboard_scancode_detect;
+extern BOOL windows_dead_keys;
 extern BOOL usexcomposite;
 extern BOOL use_xfixes;
 extern BOOL managed_mode;

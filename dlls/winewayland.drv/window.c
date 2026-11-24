@@ -37,6 +37,7 @@
 #include "wine/hwnd_dmabuf.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(waylanddrv);
+WINE_DECLARE_DEBUG_CHANNEL(focus);
 
 
 static int wayland_win_data_cmp_rb(const void *key,
@@ -1739,6 +1740,9 @@ BOOL WAYLAND_GetWindowStateUpdates(HWND hwnd, UINT *state_cmd, UINT *swp_flags,
     else if (focused_hwnd != hwnd) focused_hwnd = NULL;
 
     if (!*foreground && old_foreground != focused_hwnd) *foreground = focused_hwnd;
+
+    TRACE_(focus)("state update %p: foreground %p, host keyboard focus %p -> new foreground %p\n",
+                  hwnd, old_foreground, focused_hwnd, *foreground);
 
     /* we can't track if the host window is minimized or unminimized, but
      * if we have keyboard focus on this window we can treat it as restored.

@@ -34,6 +34,7 @@
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(win);
+WINE_DECLARE_DEBUG_CHANNEL(focus);
 
 #define USER_HANDLE_TO_INDEX(hwnd) ((LOWORD(hwnd) - FIRST_USER_HANDLE) >> 1)
 #define USER_HANDLE_FROM_INDEX(index, generation) UlongToHandle( (index << 1) + FIRST_USER_HANDLE + (generation << 16) )
@@ -372,7 +373,7 @@ void client_surface_present( struct client_surface *surface )
 {
     struct window_surface *window_surface = NULL;
     HDC hdc = 0;
-    HWND hwnd;
+    HWND hwnd, child = 0;
 
     pthread_mutex_lock( &surfaces_lock );
     if ((hwnd = surface->hwnd))
@@ -381,8 +382,9 @@ void client_surface_present( struct client_surface *surface )
         surface->funcs->present( surface, hdc );
         if (hdc) NtUserReleaseDC( hwnd, hdc );
         if (!surface->offscreen && ReadAcquire( &surface->presentation_owner ) &&
-            !user_driver->dc_funcs.pPutImage)
-            window_surface = window_surface_get( hwnd );
+            !user_driver->dc_funcs.pPutImage &&
+            !(window_surface = window_surface_get( hwnd )))
+            child = hwnd;
     }
     pthread_mutex_unlock( &surfaces_lock );
 
@@ -393,6 +395,7 @@ void client_surface_present( struct client_surface *surface )
         window_surface_clear_self_paint( window_surface );
         window_surface_release( window_surface );
     }
+    else if (child) window_surface_clear_child_self_paint( child );
 }
 
 void client_surface_update( struct client_surface *surface )
@@ -2306,6 +2309,27 @@ static BOOL window_clip_client_surfaces( HWND hwnd )
     return ret;
 }
 
+/* A fullscreen visible rect covers the whole raw monitor, while the window
+ * contents keep their aspect ratio (see map_window_rects_virt_to_raw). Get the
+ * raw visible rect and where the scaled contents are in it, if they differ. */
+static BOOL get_window_surface_border( HWND hwnd, const RECT *visible, UINT raw_dpi,
+                                       RECT *monitor_visible, RECT *monitor_contents )
+{
+    struct window_rects raw = { *visible, *visible, *visible };
+    RECT scaled = map_dpi_rect( *visible, get_dpi_for_window( hwnd ), raw_dpi );
+
+    raw = map_window_rects_virt_to_raw( raw, get_thread_dpi() );
+    if (EqualRect( &raw.window, &raw.visible )) return FALSE;
+
+    *monitor_visible = raw.visible;
+    OffsetRect( monitor_visible, -raw.visible.left, -raw.visible.top );
+    SetRect( monitor_contents, raw.window.left - raw.visible.left, raw.window.top - raw.visible.top,
+             raw.window.left - raw.visible.left + scaled.right - scaled.left,
+             raw.window.top - raw.visible.top + scaled.bottom - scaled.top );
+    if (!intersect_rect( monitor_contents, monitor_contents, monitor_visible )) return FALSE;
+    return !EqualRect( monitor_contents, monitor_visible );
+}
+
 static struct window_surface *get_window_surface( HWND hwnd, UINT swp_flags, BOOL create_layered,
                                                   struct window_rects *rects, RECT *surface_rect )
 {
@@ -2315,7 +2339,8 @@ static struct window_surface *get_window_surface( HWND hwnd, UINT swp_flags, BOO
     struct window_rects monitor_rects;
     UINT raw_dpi, style, ex_style;
     DWORD layered_flags;
-    RECT dummy;
+    RECT dummy, monitor_visible, monitor_contents;
+    BOOL bordered;
     HRGN shape;
 
     style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
@@ -2363,7 +2388,13 @@ static struct window_surface *get_window_surface( HWND hwnd, UINT swp_flags, BOO
         new_surface = NULL;
     }
     else if (needs_surface)
-        create_window_surface( hwnd, create_layered, surface_rect, raw_dpi, &new_surface );
+    {
+        bordered = !is_child && get_window_surface_border( hwnd, &rects->visible, raw_dpi,
+                                                           &monitor_visible, &monitor_contents );
+        create_window_surface( hwnd, create_layered, surface_rect, raw_dpi,
+                               bordered ? &monitor_visible : NULL, bordered ? &monitor_contents : NULL,
+                               &new_surface );
+    }
     else if (new_surface && new_surface != &dummy_surface)
     {
         window_surface_release( new_surface );
@@ -4374,7 +4405,10 @@ BOOL set_window_pos( WINDOWPOS *winpos, int parent_x, int parent_y )
         if ((style & (WS_CHILD | WS_POPUP)) == WS_CHILD)
             send_message( winpos->hwnd, WM_CHILDACTIVATE, 0, 0 );
         else if (!(style & WS_MINIMIZE))
+        {
+            TRACE_(focus)( "SetWindowPos %p flags %#x activates it\n", winpos->hwnd, winpos->flags );
             set_foreground_window( winpos->hwnd, FALSE, FALSE );
+        }
     }
 
     if(!(orig_flags & SWP_DEFERERASE))
@@ -4718,6 +4752,7 @@ static void activate_other_window( HWND hwnd )
  done:
     fg = NtUserGetForegroundWindow();
     TRACE( "win = %p fg = %p\n", hwnd_to, fg );
+    TRACE_(focus)( "activating other window %p instead of %p, foreground %p\n", hwnd_to, hwnd, fg );
     if (!fg || hwnd == fg)
     {
         if (set_foreground_window( hwnd_to, FALSE, FALSE )) return;
@@ -6596,6 +6631,7 @@ ULONG_PTR WINAPI NtUserCallHwnd( HWND hwnd, DWORD code )
         return 0;
 
     case NtUserCallHwnd_SetForegroundWindowInternal:
+        TRACE_(focus)( "internal SetForegroundWindow %p, foreground %p\n", hwnd, NtUserGetForegroundWindow() );
         return set_foreground_window( hwnd, FALSE, TRUE );
 
     case NtUserCallHwnd_GetDpiForWindow:

@@ -953,9 +953,10 @@ static BOOL wined3d_gl_hwnd_dmabuf_ensure_channel(struct wined3d_swapchain_gl *s
         return FALSE;
     }
 
-    producer_id = InterlockedIncrement64(&wined3d_gl_hwnd_dmabuf_next_producer_id);
-    if (!producer_id)
-        producer_id = InterlockedIncrement64(&wined3d_gl_hwnd_dmabuf_next_producer_id);
+    /* Unique across processes: the consumer keeps a dead producer's slots
+     * cached under its id, and a replacement process must not reuse it. */
+    producer_id = ((UINT64)GetCurrentProcessId() << 32)
+            | (UINT32)InterlockedIncrement64(&wined3d_gl_hwnd_dmabuf_next_producer_id);
 
     ring->channel_fd = channel_fd;
     ring->channel_hwnd = hwnd;

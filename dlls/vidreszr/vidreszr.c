@@ -43,11 +43,53 @@ DEFINE_GUID(DMOVideoFormat_RGB565,D3DFMT_R5G6B5,0x524f,0x11ce,0x9f,0x53,0x00,0x2
 DEFINE_GUID(DMOVideoFormat_RGB555,D3DFMT_X1R5G5B5,0x524f,0x11ce,0x9f,0x53,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 DEFINE_GUID(DMOVideoFormat_RGB8,D3DFMT_P8,0x524f,0x11ce,0x9f,0x53,0x00,0x20,0xaf,0x0b,0xa7,0x70);
 
+static HRESULT WINAPI resizer_factory_CreateInstance(IClassFactory *iface, IUnknown *outer,
+        REFIID riid, void **out)
+{
+    static const GUID CLSID_winedmo_video_processor = {0xd527607f,0x89cb,0x4e94,{0x95,0x71,0xbc,0xfe,0x62,0x17,0x56,0x13}};
+    return CoCreateInstance(&CLSID_winedmo_video_processor, outer, CLSCTX_INPROC_SERVER, riid, out);
+}
+
+static HRESULT WINAPI class_factory_QueryInterface(IClassFactory *iface, REFIID riid, void **out)
+{
+    *out = IsEqualGUID(riid, &IID_IClassFactory) || IsEqualGUID(riid, &IID_IUnknown) ? iface : NULL;
+    return *out ? S_OK : E_NOINTERFACE;
+}
+
+static ULONG WINAPI class_factory_AddRef(IClassFactory *iface)
+{
+    return 2;
+}
+
+static ULONG WINAPI class_factory_Release(IClassFactory *iface)
+{
+    return 1;
+}
+
+static HRESULT WINAPI class_factory_LockServer(IClassFactory *iface, BOOL dolock)
+{
+    return S_OK;
+}
+
+static const IClassFactoryVtbl resizer_factory_vtbl =
+{
+    class_factory_QueryInterface,
+    class_factory_AddRef,
+    class_factory_Release,
+    resizer_factory_CreateInstance,
+    class_factory_LockServer,
+};
+
+static IClassFactory resizer_factory = {&resizer_factory_vtbl};
+
 /***********************************************************************
  *              DllGetClassObject (msvproc.@)
  */
 HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID riid, void **out)
 {
+    if (IsEqualGUID(clsid, &CLSID_CResizerDMO))
+        return IClassFactory_QueryInterface(&resizer_factory, riid, out);
+
     *out = NULL;
     FIXME("Unknown clsid %s.\n", debugstr_guid(clsid));
     return CLASS_E_CLASSNOTAVAILABLE;
@@ -65,6 +107,7 @@ HRESULT WINAPI DllRegisterServer(void)
         {MFMediaType_Video, MFVideoFormat_UYVY},
         {MFMediaType_Video, MFVideoFormat_AYUV},
         {MFMediaType_Video, MFVideoFormat_NV12},
+        {MFMediaType_Video, MFVideoFormat_ARGB32},
         {MFMediaType_Video, DMOVideoFormat_RGB32},
         {MFMediaType_Video, DMOVideoFormat_RGB565},
         {MFMediaType_Video, MFVideoFormat_I420},
@@ -88,6 +131,7 @@ HRESULT WINAPI DllRegisterServer(void)
         {MFMediaType_Video, MFVideoFormat_UYVY},
         {MFMediaType_Video, MFVideoFormat_AYUV},
         {MFMediaType_Video, MFVideoFormat_NV12},
+        {MFMediaType_Video, MFVideoFormat_ARGB32},
         {MFMediaType_Video, DMOVideoFormat_RGB32},
         {MFMediaType_Video, DMOVideoFormat_RGB565},
         {MFMediaType_Video, MFVideoFormat_I420},

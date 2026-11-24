@@ -24,10 +24,18 @@
 #define FACILITY_NS                                                   0xD
 
 /* Severity codes */
+#ifndef STATUS_SEVERITY_WARNING
 #define STATUS_SEVERITY_WARNING                                       0x2
+#endif
+#ifndef STATUS_SEVERITY_SUCCESS
 #define STATUS_SEVERITY_SUCCESS                                       0x0
+#endif
+#ifndef STATUS_SEVERITY_INFORMATIONAL
 #define STATUS_SEVERITY_INFORMATIONAL                                 0x1
+#endif
+#ifndef STATUS_SEVERITY_ERROR
 #define STATUS_SEVERITY_ERROR                                         0x3
+#endif
 
 /* Success events */
 #define NS_S_CALLPENDING                                              _HRESULT_TYPEDEF_(0x000d0000)

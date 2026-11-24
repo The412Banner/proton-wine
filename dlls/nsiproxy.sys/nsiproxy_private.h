@@ -83,3 +83,12 @@ struct nsi_get_notification_params
     NPI_MODULEID module;
     UINT32 table;
 };
+
+#define NSI_NOTIFICATION_ADDRESS   0x1
+#define NSI_NOTIFICATION_ROUTE     0x2
+#define NSI_NOTIFICATION_INTERFACE 0x4
+
+struct nsi_init_notifications_params
+{
+    UINT supported;
+};

@@ -429,6 +429,8 @@ static inline req_file_t *req_file_addref(req_file_t *req_file)
 BOOL init_urlcache(void);
 void free_urlcache(void);
 void free_cookie(void);
+DWORD get_connected_state(DWORD *status);
+void free_connected_state(void);
 void free_authorization_cache(void);
 
 void init_winsock(void);

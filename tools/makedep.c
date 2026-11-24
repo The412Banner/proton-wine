@@ -3975,6 +3975,8 @@ static void output_subdirs( struct makefile *make )
         strarray_addall_path( &all_targets, submakes[i]->obj_dir, submakes[i]->font_files );
         if (!strcmp( submakes[i]->obj_dir, "tools" ) || !strncmp( submakes[i]->obj_dir, "tools/", 6 ))
             strarray_add( &tooldeps_deps, obj_dir_path( submakes[i], "all" ));
+        if (!strcmp( submakes[i]->obj_dir, "nls" ) || !strncmp( submakes[i]->obj_dir, "nls/", 4 ))
+            strarray_add( &tooldeps_deps, obj_dir_path( submakes[i], "all" ));
         if (submakes[i]->testdll)
             strarray_add( &buildtest_deps, obj_dir_path( submakes[i], "all" ));
     }

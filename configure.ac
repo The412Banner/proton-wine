@@ -41,7 +41,6 @@ AC_ARG_WITH(gettextpo, AS_HELP_STRING([--with-gettextpo],[use the GetTextPO libr
 AC_ARG_WITH(gphoto,    AS_HELP_STRING([--without-gphoto],[do not use gphoto (Digital Camera support)]))
 AC_ARG_WITH(gnutls,    AS_HELP_STRING([--without-gnutls],[do not use GnuTLS (schannel support)]))
 AC_ARG_WITH(gssapi,    AS_HELP_STRING([--without-gssapi],[do not use GSSAPI (Kerberos SSP support)]))
-AC_ARG_WITH(gstreamer, AS_HELP_STRING([--without-gstreamer],[do not use GStreamer (codecs support)]))
 AC_ARG_WITH(hwloc,     AS_HELP_STRING([--without-hwloc],[do not use hwloc (CPU/cache topology detection on FreeBSD)]))
 AC_ARG_WITH(inotify,   AS_HELP_STRING([--without-inotify],[do not use inotify (filesystem change notifications)]))
 AC_ARG_WITH(krb5,      AS_HELP_STRING([--without-krb5],[do not use krb5 (Kerberos)]))
@@ -56,6 +55,7 @@ AC_ARG_WITH(pcap,      AS_HELP_STRING([--without-pcap],[do not use the Packet Ca
 AC_ARG_WITH(pcsclite,  AS_HELP_STRING([--without-pcsclite],[do not use PCSC lite]))
 AC_ARG_WITH(piper,     AS_HELP_STRING([--without-piper],[do not use the Piper TTS library]))
 AC_ARG_WITH(pthread,   AS_HELP_STRING([--without-pthread],[do not use the pthread library]))
+AC_ARG_WITH(pipewire,  AS_HELP_STRING([--without-pipewire],[do not use PipeWire sound support]))
 AC_ARG_WITH(pulse,     AS_HELP_STRING([--without-pulse],[do not use PulseAudio sound support]))
 AC_ARG_WITH(sane,      AS_HELP_STRING([--without-sane],[do not use SANE (scanner support)]))
 AC_ARG_WITH(sdl,       AS_HELP_STRING([--without-sdl],[do not use SDL]))
@@ -1704,6 +1704,22 @@ WINE_NOTICE_WITH(pulse, [test -z "$PULSE_LIBS"],
         [libpulse ${notice_platform}development files not found or too old, Pulse won't be supported.],
         [enable_winepulse_drv])
 
+dnl **** Check for PipeWire ****
+if test "x$with_pipewire" != "xno";
+then
+    WINE_PACKAGE_FLAGS(PIPEWIRE,[libpipewire-0.3],,,,
+        [AC_CHECK_HEADERS([pipewire/pipewire.h],,[PIPEWIRE_LIBS=""])
+         AS_IF([test -n "$PIPEWIRE_LIBS"],
+            [AC_CHECK_DECL([pw_stream_get_data_loop],,[PIPEWIRE_LIBS=""],
+                [[#include <pipewire/pipewire.h>]])])
+         AS_IF([test -n "$PIPEWIRE_LIBS"],
+            [AC_CHECK_MEMBER([struct pw_loop.name],,[PIPEWIRE_LIBS=""],
+                [[#include <pipewire/pipewire.h>]])])])
+fi
+WINE_NOTICE_WITH(pipewire, [test -z "$PIPEWIRE_LIBS"],
+        [libpipewire-0.3 ${notice_platform}development files not found or too old, PipeWire won't be supported.],
+        [enable_winepipewire_drv])
+
 dnl **** Check for FFmpeg ****
 if test "x$with_ffmpeg" != "xno";
 then
@@ -1725,24 +1741,6 @@ fi
 WINE_NOTICE_WITH(ffmpeg,[test "x$FFMPEG_LIBS" = x],
         [FFmpeg ${notice_platform}development files not found.])
 
-dnl **** Check for gstreamer ****
-if test "x$with_gstreamer" != "xno"
-then
-    WINE_PACKAGE_FLAGS(GSTREAMER,[gstreamer-1.0 gstreamer-video-1.0 gstreamer-audio-1.0 gstreamer-tag-1.0 gstreamer-gl-1.0],,,,
-        [AC_CHECK_HEADER([gst/gst.h],
-            [AC_MSG_CHECKING([whether gint64 defined by gst/gst.h is indeed 64-bit])
-              AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <gst/gst.h>]],
-                                                 [[static int a[sizeof(gint64) > 4 ? 1 : -1]; if (a[0]) return 0;]])],
-                [AC_MSG_RESULT([yes])
-                 AC_CHECK_LIB(gstreamer-1.0,gst_pad_new,[:],,[$GSTREAMER_LIBS])],
-                [AC_MSG_RESULT([no])
-                 ac_glib2_broken=yes
-                 enable_winegstreamer=${enable_winegstreamer:-no}
-                 WINE_NOTICE([glib-2.0 pkgconfig configuration is for the wrong architecture, winegstreamer won't be built.])])])])
-fi
-WINE_NOTICE_WITH(gstreamer,[test "x$ac_glib2_broken" != xyes -a "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" != xyes],
-                 [gstreamer-1.0 base plugins ${notice_platform}development files not found, GStreamer won't be supported.],
-                 [enable_winegstreamer])
 
 dnl **** Check for ALSA 1.x ****
 AC_SUBST(ALSA_LIBS,"")
@@ -1940,8 +1938,8 @@ WINE_NOTICE_WITH(netapi,[test "x$ac_cv_lib_soname_netapi" = "x"],
 
 
 dnl **** Check for any sound system ****
-if test "x$enable_winealsa_drv$enable_winecoreaudio_drv$enable_winepulse_drv$enable_wineoss_drv$enable_wineandroid_drv" = xnonononono -a \
-        "x$with_alsa$with_coreaudio$with_oss$with_pulse" != xnononono
+if test "x$enable_winealsa_drv$enable_winecoreaudio_drv$enable_winepulse_drv$enable_wineoss_drv$enable_wineandroid_drv$enable_winepipewire_drv" = xnononononono -a \
+        "x$with_alsa$with_coreaudio$with_oss$with_pulse$with_pipewire" != xnonononono
 then
     WINE_WARNING([No sound system was found. Windows applications will be silent.])
 fi
@@ -3213,6 +3211,7 @@ WINE_CONFIG_MAKEFILE(dlls/rsabase)
 WINE_CONFIG_MAKEFILE(dlls/rsaenh)
 WINE_CONFIG_MAKEFILE(dlls/rsaenh/tests)
 WINE_CONFIG_MAKEFILE(dlls/rstrtmgr)
+WINE_CONFIG_MAKEFILE(dlls/rsx)
 WINE_CONFIG_MAKEFILE(dlls/rtutils)
 WINE_CONFIG_MAKEFILE(dlls/rtworkq)
 WINE_CONFIG_MAKEFILE(dlls/rtworkq/tests)
@@ -3391,6 +3390,8 @@ WINE_CONFIG_MAKEFILE(dlls/windows.devices.bluetooth)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.bluetooth/tests)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.enumeration)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.enumeration/tests)
+WINE_CONFIG_MAKEFILE(dlls/windows.devices.radios)
+WINE_CONFIG_MAKEFILE(dlls/windows.devices.radios/tests)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.usb)
 WINE_CONFIG_MAKEFILE(dlls/windows.devices.usb/tests)
 WINE_CONFIG_MAKEFILE(dlls/windows.gaming.input)
@@ -3450,12 +3451,13 @@ WINE_CONFIG_MAKEFILE(dlls/winecoreaudio.drv)
 WINE_CONFIG_MAKEFILE(dlls/winecrt0)
 WINE_CONFIG_MAKEFILE(dlls/wined3d)
 WINE_CONFIG_MAKEFILE(dlls/winedmo)
-WINE_CONFIG_MAKEFILE(dlls/winegstreamer)
 WINE_CONFIG_MAKEFILE(dlls/winehid.sys)
 WINE_CONFIG_MAKEFILE(dlls/winemac.drv)
 WINE_CONFIG_MAKEFILE(dlls/winemapi)
+WINE_CONFIG_MAKEFILE(dlls/winemidisynth)
 WINE_CONFIG_MAKEFILE(dlls/wineopenxr)
 WINE_CONFIG_MAKEFILE(dlls/wineoss.drv)
+WINE_CONFIG_MAKEFILE(dlls/winepipewire.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps16.drv16)
 WINE_CONFIG_MAKEFILE(dlls/winepulse.drv)

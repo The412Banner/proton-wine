@@ -36,6 +36,7 @@
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(xaudio2);
+WINE_DECLARE_DEBUG_CHANNEL(ds5audio);
 
 #if XAUDIO2_VER != 0 && defined(__i386__)
 /* EVE Online uses an OnVoiceProcessingPassStart callback which corrupts %esi;
@@ -74,6 +75,91 @@ __ASM_GLOBAL_FUNC( call_on_voice_processing_pass_start,
 #endif
 
 static XA2VoiceImpl *impl_from_IXAudio2Voice(IXAudio2Voice *iface);
+
+static void trace_ds5audio_format(const char *kind, const void *engine, const void *voice,
+        const WAVEFORMATEX *format)
+{
+    DWORD channel_mask = 0;
+
+    if (!TRACE_ON(ds5audio)) return;
+
+    if (!format)
+    {
+        TRACE_(ds5audio)("%s engine %p voice %p has no source format\n", kind, engine, voice);
+        return;
+    }
+
+    if (format->wFormatTag == WAVE_FORMAT_EXTENSIBLE
+            && format->cbSize >= sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX))
+        channel_mask = ((const WAVEFORMATEXTENSIBLE *)format)->dwChannelMask;
+
+    TRACE_(ds5audio)("%s engine %p voice %p format tag %#x channels %u rate %lu "
+            "average bytes %lu block align %u bits %u extra %u channel mask %#lx\n",
+            kind, engine, voice, format->wFormatTag, format->nChannels,
+            (unsigned long)format->nSamplesPerSec, (unsigned long)format->nAvgBytesPerSec,
+            format->nBlockAlign, format->wBitsPerSample, format->cbSize,
+            (unsigned long)channel_mask);
+}
+
+static void trace_ds5audio_sends(const char *kind, const void *voice,
+        const XAUDIO2_VOICE_SENDS *sends)
+{
+    UINT32 i;
+
+    if (!TRACE_ON(ds5audio)) return;
+
+    if (!sends)
+    {
+        TRACE_(ds5audio)("%s voice %p uses the default mastering voice\n", kind, voice);
+        return;
+    }
+
+#if XAUDIO2_VER <= 3
+    TRACE_(ds5audio)("%s voice %p has %u output voices\n", kind, voice, sends->OutputCount);
+    for (i = 0; i < sends->OutputCount; ++i)
+        TRACE_(ds5audio)("%s voice %p output %u destination %p\n",
+                kind, voice, i, sends->pOutputVoices[i]);
+#else
+    TRACE_(ds5audio)("%s voice %p has %u sends\n", kind, voice, sends->SendCount);
+    for (i = 0; i < sends->SendCount; ++i)
+        TRACE_(ds5audio)("%s voice %p send %u flags %#x destination %p\n",
+                kind, voice, i, sends->pSends[i].Flags, sends->pSends[i].pOutputVoice);
+#endif
+}
+
+static void trace_ds5audio_channel_volumes(const char *kind, const void *voice,
+        UINT32 channels, const float *volumes)
+{
+    UINT32 i;
+
+    if (!TRACE_ON(ds5audio) || !volumes) return;
+
+    for (i = 0; i < channels && i < 64; ++i)
+        TRACE_(ds5audio)("%s voice %p channel volume %u = %.9g\n",
+                kind, voice, i, volumes[i]);
+}
+
+static void trace_ds5audio_output_matrix(const char *kind, const void *voice,
+        const void *destination, UINT32 source_channels, UINT32 destination_channels,
+        const float *matrix)
+{
+    UINT32 source, destination_channel;
+
+    if (!TRACE_ON(ds5audio) || !matrix) return;
+
+    for (source = 0; source < source_channels && source < 64; ++source)
+    {
+        for (destination_channel = 0; destination_channel < destination_channels
+                && destination_channel < 64; ++destination_channel)
+        {
+            UINT32 index = source * destination_channels + destination_channel;
+
+            TRACE_(ds5audio)("%s voice %p destination %p matrix[%u] source %u "
+                    "destination channel %u = %.9g\n", kind, voice, destination, index,
+                    source, destination_channel, matrix[index]);
+        }
+    }
+}
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD reason, void *pReserved)
 {
@@ -539,6 +625,43 @@ static void get_voice_details(XA2VoiceImpl *voice, XAUDIO2_VOICE_DETAILS *detail
     details->InputSampleRate = faudio_details.InputSampleRate;
 }
 
+static void trace_ds5audio_float4_buffer_peaks(XA2VoiceImpl *voice,
+        const XAUDIO2_BUFFER *buffer)
+{
+    static LONG report_counter;
+    XAUDIO2_VOICE_DETAILS details;
+    const float *samples;
+    float peaks[4] = {0};
+    UINT32 sample_count, i;
+    LONG report;
+
+    if (!TRACE_ON(ds5audio) || !buffer || !buffer->pAudioData
+            || buffer->AudioBytes < 4 * sizeof(float)
+            || buffer->AudioBytes % (4 * sizeof(float)))
+        return;
+
+    get_voice_details(voice, &details);
+    if (details.InputChannels != 4 || details.InputSampleRate != 48000) return;
+
+    samples = (const float *)buffer->pAudioData;
+    sample_count = buffer->AudioBytes / sizeof(*samples);
+    for (i = 0; i < sample_count; ++i)
+    {
+        UINT32 channel = i % ARRAY_SIZE(peaks);
+        float sample = samples[i];
+
+        if (sample < 0.0f) sample = -sample;
+        if (sample > peaks[channel]) peaks[channel] = sample;
+    }
+
+    report = InterlockedIncrement(&report_counter);
+    if (peaks[0] <= 0.000001f && peaks[1] <= 0.000001f && report % 50)
+        return;
+
+    TRACE_(ds5audio)("source voice %p float4 input peaks %.9g, %.9g, %.9g, %.9g\n",
+            voice, peaks[0], peaks[1], peaks[2], peaks[3]);
+}
+
 /* Source Voices */
 
 static inline XA2VoiceImpl *impl_from_IXAudio2SourceVoice(IXAudio2SourceVoice *iface)
@@ -561,6 +684,7 @@ static HRESULT WINAPI XA2SRC_SetOutputVoices(IXAudio2SourceVoice *iface,
     HRESULT hr;
 
     TRACE("%p, %p\n", This, pSendList);
+    trace_ds5audio_sends("source set-output-voices", This, pSendList);
 
     faudio_sends = wrap_voice_sends(pSendList);
 
@@ -688,6 +812,8 @@ static HRESULT WINAPI XA2SRC_SetVolume(IXAudio2SourceVoice *iface, float Volume,
 {
     XA2VoiceImpl *This = impl_from_IXAudio2SourceVoice(iface);
     TRACE("%p, %f, 0x%x\n", This, Volume, OperationSet);
+    TRACE_(ds5audio)("source voice %p set volume %.9g operation %#x\n",
+            This, Volume, OperationSet);
     return FAudioVoice_SetVolume(This->faudio_voice, Volume, OperationSet);
 }
 
@@ -703,6 +829,7 @@ static HRESULT WINAPI XA2SRC_SetChannelVolumes(IXAudio2SourceVoice *iface, UINT3
 {
     XA2VoiceImpl *This = impl_from_IXAudio2SourceVoice(iface);
     TRACE("%p, %u, %p, 0x%x\n", This, Channels, pVolumes, OperationSet);
+    trace_ds5audio_channel_volumes("source", This, Channels, pVolumes);
     return FAudioVoice_SetChannelVolumes(This->faudio_voice, Channels,
             pVolumes, OperationSet);
 }
@@ -726,6 +853,8 @@ static HRESULT WINAPI XA2SRC_SetOutputMatrix(IXAudio2SourceVoice *iface,
 
     TRACE("%p, %p, %u, %u, %p, 0x%x\n", This, pDestinationVoice,
             SourceChannels, DestinationChannels, pLevelMatrix, OperationSet);
+    trace_ds5audio_output_matrix("source", This, pDestinationVoice, SourceChannels,
+            DestinationChannels, pLevelMatrix);
 
     return FAudioVoice_SetOutputMatrix(This->faudio_voice, dst ? dst->faudio_voice : NULL,
             SourceChannels, DestinationChannels, pLevelMatrix, OperationSet);
@@ -758,6 +887,7 @@ static void WINAPI XA2SRC_DestroyVoice(IXAudio2SourceVoice *iface)
     XA2VoiceImpl *This = impl_from_IXAudio2SourceVoice(iface);
 
     TRACE("%p\n", This);
+    TRACE_(ds5audio)("source voice %p destroyed\n", This);
 
     EnterCriticalSection(&This->lock);
 
@@ -772,6 +902,8 @@ static HRESULT WINAPI XA2SRC_Start(IXAudio2SourceVoice *iface, UINT32 Flags,
     XA2VoiceImpl *This = impl_from_IXAudio2SourceVoice(iface);
 
     TRACE("%p, 0x%x, 0x%x\n", This, Flags, OperationSet);
+    TRACE_(ds5audio)("source voice %p start flags %#x operation %#x\n",
+            This, Flags, OperationSet);
 
     return FAudioSourceVoice_Start(This->faudio_voice, Flags, OperationSet);
 }
@@ -782,6 +914,8 @@ static HRESULT WINAPI XA2SRC_Stop(IXAudio2SourceVoice *iface, UINT32 Flags,
     XA2VoiceImpl *This = impl_from_IXAudio2SourceVoice(iface);
 
     TRACE("%p, 0x%x, 0x%x\n", This, Flags, OperationSet);
+    TRACE_(ds5audio)("source voice %p stop flags %#x operation %#x\n",
+            This, Flags, OperationSet);
 
     return FAudioSourceVoice_Stop(This->faudio_voice, Flags, OperationSet);
 }
@@ -793,6 +927,16 @@ static HRESULT WINAPI XA2SRC_SubmitSourceBuffer(IXAudio2SourceVoice *iface,
 
     TRACE("%p, %p, %p\n", This, pBuffer, pBufferWMA);
 
+    if (pBuffer)
+        TRACE_(ds5audio)("source voice %p submit bytes %u flags %#x play %u+%u "
+                "loop %u+%u count %u context %p\n", This, pBuffer->AudioBytes,
+                pBuffer->Flags, pBuffer->PlayBegin, pBuffer->PlayLength,
+                pBuffer->LoopBegin, pBuffer->LoopLength, pBuffer->LoopCount,
+                pBuffer->pContext);
+    else
+        TRACE_(ds5audio)("source voice %p submit null buffer\n", This);
+
+    trace_ds5audio_float4_buffer_peaks(This, pBuffer);
     return FAudioSourceVoice_SubmitSourceBuffer(This->faudio_voice, (FAudioBuffer*)pBuffer, (FAudioBufferWMA*)pBufferWMA);
 }
 
@@ -929,6 +1073,7 @@ static HRESULT WINAPI XA2SUB_SetOutputVoices(IXAudio2SubmixVoice *iface,
     HRESULT hr;
 
     TRACE("%p, %p\n", This, pSendList);
+    trace_ds5audio_sends("submix set-output-voices", This, pSendList);
 
     faudio_sends = wrap_voice_sends(pSendList);
 
@@ -1056,6 +1201,8 @@ static HRESULT WINAPI XA2SUB_SetVolume(IXAudio2SubmixVoice *iface, float Volume,
 {
     XA2VoiceImpl *This = impl_from_IXAudio2SubmixVoice(iface);
     TRACE("%p, %f, 0x%x\n", This, Volume, OperationSet);
+    TRACE_(ds5audio)("submix voice %p set volume %.9g operation %#x\n",
+            This, Volume, OperationSet);
     return FAudioVoice_SetVolume(This->faudio_voice, Volume, OperationSet);
 }
 
@@ -1071,6 +1218,7 @@ static HRESULT WINAPI XA2SUB_SetChannelVolumes(IXAudio2SubmixVoice *iface, UINT3
 {
     XA2VoiceImpl *This = impl_from_IXAudio2SubmixVoice(iface);
     TRACE("%p, %u, %p, 0x%x\n", This, Channels, pVolumes, OperationSet);
+    trace_ds5audio_channel_volumes("submix", This, Channels, pVolumes);
     return FAudioVoice_SetChannelVolumes(This->faudio_voice, Channels,
             pVolumes, OperationSet);
 }
@@ -1094,6 +1242,8 @@ static HRESULT WINAPI XA2SUB_SetOutputMatrix(IXAudio2SubmixVoice *iface,
 
     TRACE("%p, %p, %u, %u, %p, 0x%x\n", This, pDestinationVoice,
             SourceChannels, DestinationChannels, pLevelMatrix, OperationSet);
+    trace_ds5audio_output_matrix("submix", This, pDestinationVoice, SourceChannels,
+            DestinationChannels, pLevelMatrix);
 
     return FAudioVoice_SetOutputMatrix(This->faudio_voice, dst ? dst->faudio_voice : NULL,
             SourceChannels, DestinationChannels, pLevelMatrix, OperationSet);
@@ -1307,6 +1457,8 @@ static HRESULT WINAPI XA2M_SetVolume(IXAudio2MasteringVoice *iface, float Volume
 {
     XA2VoiceImpl *This = impl_from_IXAudio2MasteringVoice(iface);
     TRACE("%p, %f, 0x%x\n", This, Volume, OperationSet);
+    TRACE_(ds5audio)("mastering voice %p set volume %.9g operation %#x\n",
+            This, Volume, OperationSet);
     return FAudioVoice_SetVolume(This->faudio_voice, Volume, OperationSet);
 }
 
@@ -1322,6 +1474,7 @@ static HRESULT WINAPI XA2M_SetChannelVolumes(IXAudio2MasteringVoice *iface, UINT
 {
     XA2VoiceImpl *This = impl_from_IXAudio2MasteringVoice(iface);
     TRACE("%p, %u, %p, 0x%x\n", This, Channels, pVolumes, OperationSet);
+    trace_ds5audio_channel_volumes("mastering", This, Channels, pVolumes);
     return FAudioVoice_SetChannelVolumes(This->faudio_voice, Channels,
             pVolumes, OperationSet);
 }
@@ -1345,6 +1498,8 @@ static HRESULT WINAPI XA2M_SetOutputMatrix(IXAudio2MasteringVoice *iface,
 
     TRACE("%p, %p, %u, %u, %p, 0x%x\n", This, pDestinationVoice,
             SourceChannels, DestinationChannels, pLevelMatrix, OperationSet);
+    trace_ds5audio_output_matrix("mastering", This, pDestinationVoice, SourceChannels,
+            DestinationChannels, pLevelMatrix);
 
     return FAudioVoice_SetOutputMatrix(This->faudio_voice, dst ? dst->faudio_voice : NULL,
             SourceChannels, DestinationChannels, pLevelMatrix, OperationSet);
@@ -1624,6 +1779,8 @@ static HRESULT WINAPI IXAudio2Impl_CreateSourceVoice(IXAudio2 *iface,
     TRACE("(%p)->(%p, %p, 0x%x, %f, %p, %p, %p)\n", This, ppSourceVoice,
             pSourceFormat, flags, maxFrequencyRatio, pCallback, pSendList,
             pEffectChain);
+    trace_ds5audio_format("source-create", This, NULL, pSourceFormat);
+    trace_ds5audio_sends("source-create", NULL, pSendList);
 
     chain = wrap_effect_chain(pEffectChain);
 #if XAUDIO2_VER >= 8
@@ -1654,6 +1811,8 @@ static HRESULT WINAPI IXAudio2Impl_CreateSourceVoice(IXAudio2 *iface,
             &src->FAudioVoiceCallback_vtbl, faudio_sends,
             src->effect_chain);
     free_voice_sends(faudio_sends);
+    TRACE_(ds5audio)("engine %p source voice %p FAudio voice %p create result %#lx\n",
+            This, src, src->faudio_voice, (unsigned long)hr);
     if(FAILED(hr)){
         LeaveCriticalSection(&src->lock);
         free_effect_chain(src->effect_chain);
@@ -1686,6 +1845,9 @@ static HRESULT WINAPI IXAudio2Impl_CreateSubmixVoice(IXAudio2 *iface,
     TRACE("(%p)->(%p, %u, %u, 0x%x, %u, %p, %p)\n", This, ppSubmixVoice,
             inputChannels, inputSampleRate, flags, processingStage, pSendList,
             pEffectChain);
+    TRACE_(ds5audio)("engine %p create submix channels %u rate %u flags %#x "
+            "stage %u\n", This, inputChannels, inputSampleRate, flags, processingStage);
+    trace_ds5audio_sends("submix-create", NULL, pSendList);
 
     chain = wrap_effect_chain(pEffectChain);
 #if XAUDIO2_VER >= 8
@@ -1716,6 +1878,8 @@ static HRESULT WINAPI IXAudio2Impl_CreateSubmixVoice(IXAudio2 *iface,
             inputSampleRate, flags, processingStage, faudio_sends,
             sub->effect_chain);
     free_voice_sends(faudio_sends);
+    TRACE_(ds5audio)("engine %p submix voice %p FAudio voice %p create result %#lx\n",
+            This, sub, sub->faudio_voice, (unsigned long)hr);
     if(FAILED(hr)){
         LeaveCriticalSection(&sub->lock);
         free_effect_chain(sub->effect_chain);
@@ -1748,6 +1912,7 @@ static HRESULT WINAPI IXAudio2Impl_CreateMasteringVoice(IXAudio2 *iface,
 {
     IXAudio2Impl *This = impl_from_IXAudio2(iface);
     FAudioEffectChain *chain;
+    HRESULT hr;
 
     TRACE("(%p)->(%p, %u, %u, 0x%x, %p)\n", This,
             ppMasteringVoice, inputChannels, inputSampleRate, flags, pEffectChain);
@@ -1776,22 +1941,35 @@ static HRESULT WINAPI IXAudio2Impl_CreateMasteringVoice(IXAudio2 *iface,
 
 #if XAUDIO2_VER >= 8
     TRACE("device id %s, category %#x\n", debugstr_w(deviceId), streamCategory);
+    TRACE_(ds5audio)("engine %p create mastering voice channels %u rate %u flags %#x "
+            "device %s category %#x\n", This, inputChannels, inputSampleRate, flags,
+            debugstr_w(deviceId), streamCategory);
 
-    FAudio_CreateMasteringVoice8(This->faudio, &This->mst.faudio_voice, inputChannels,
-            inputSampleRate, flags, NULL /* TODO: (uint16_t*)deviceId */,
+    hr = FAudio_CreateMasteringVoice8(This->faudio, &This->mst.faudio_voice, inputChannels,
+            inputSampleRate, flags, (uint16_t*)deviceId,
             This->mst.effect_chain, (FAudioStreamCategory)streamCategory);
 #else
     TRACE("device index %u\n", index);
+    TRACE_(ds5audio)("engine %p create mastering voice channels %u rate %u flags %#x "
+            "device index %u\n", This, inputChannels, inputSampleRate, flags, index);
 
-    FAudio_CreateMasteringVoice(This->faudio, &This->mst.faudio_voice, inputChannels,
+    hr = FAudio_CreateMasteringVoice(This->faudio, &This->mst.faudio_voice, inputChannels,
             inputSampleRate, flags, index, This->mst.effect_chain);
 #endif
 
-    This->mst.in_use = TRUE;
+    TRACE_(ds5audio)("engine %p mastering voice %p FAudio voice %p create result %#lx\n",
+            This, &This->mst, This->mst.faudio_voice, (unsigned long)hr);
+
+    if (SUCCEEDED(hr))
+        This->mst.in_use = TRUE;
+    else {
+        free_effect_chain(This->mst.effect_chain);
+        *ppMasteringVoice = NULL;
+    }
 
     LeaveCriticalSection(&This->mst.lock);
 
-    return S_OK;
+    return hr;
 }
 
 static HRESULT WINAPI IXAudio2Impl_StartEngine(IXAudio2 *iface)

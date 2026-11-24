@@ -59,6 +59,7 @@ struct performance
     BOOL fAutoDownload;
     char cMasterGrooveLevel;
     float fMasterTempo;
+    double current_tempo;
     long lMasterVolume;
     /* performance channels */
     struct wine_rb_tree channel_blocks;
@@ -1158,12 +1159,15 @@ static void set_port_volume(IDirectMusicPort *port, LONG volume)
     IKsControl_Release(control);
 }
 
-static HRESULT perf_dmport_create(struct performance *perf, DMUS_PORTPARAMS *params)
+static HRESULT perf_dmport_create(struct performance *perf, DMUS_PORTPARAMS *params, IDirectMusicPort **ret_port)
 {
     IDirectMusicPort *port;
     GUID guid;
     unsigned int i;
     HRESULT hr;
+
+    if (ret_port)
+        *ret_port = NULL;
 
     if (FAILED(hr = IDirectMusic8_GetDefaultPort(perf->dmusic, &guid)))
         return hr;
@@ -1188,6 +1192,11 @@ static HRESULT perf_dmport_create(struct performance *perf, DMUS_PORTPARAMS *par
 
     performance_update_latency_time(perf, port, NULL);
     set_port_volume(port, perf->lMasterVolume);
+    if (ret_port)
+    {
+        *ret_port = port;
+        IDirectMusicPort_AddRef(*ret_port);
+    }
     IDirectMusicPort_Release(port);
     return S_OK;
 }
@@ -1208,7 +1217,7 @@ static HRESULT WINAPI performance_AddPort(IDirectMusicPerformance8 *iface, IDire
             .dwChannelGroups = 1
         };
 
-        return perf_dmport_create(This, &params);
+        return perf_dmport_create(This, &params, NULL);
     }
 
     IDirectMusicPort_AddRef(port);
@@ -1344,6 +1353,19 @@ static HRESULT WINAPI performance_GetParam(IDirectMusicPerformance8 *iface, REFG
         else hr = IDirectMusicSegment_GetParam(This->primary_segment, type, group, index, music_time, next_time, param);
     }
 
+    if (FAILED(hr) && IsEqualGUID(type, &GUID_TempoParam))
+    {
+        DMUS_TEMPO_PARAM *tempo = param;
+
+        if (tempo)
+        {
+            tempo->mtTime = 0;
+            tempo->dblTempo = This->current_tempo;
+        }
+        if (next_time) *next_time = 0;
+        hr = S_OK;
+    }
+
     return hr;
 }
 
@@ -1352,7 +1374,15 @@ static HRESULT WINAPI performance_SetParam(IDirectMusicPerformance8 *iface, REFG
 {
         struct performance *This = impl_from_IDirectMusicPerformance8(iface);
 
-	FIXME("(%p, %s, %ld, %ld, %ld, %p): stub\n", This, debugstr_dmguid(rguidType), dwGroupBits, dwIndex, mtTime, pParam);
+	TRACE("(%p, %s, %ld, %ld, %ld, %p)\n", This, debugstr_dmguid(rguidType), dwGroupBits, dwIndex, mtTime, pParam);
+
+	if (IsEqualGUID(rguidType, &GUID_TempoParam) && pParam)
+	{
+	    DMUS_TEMPO_PARAM *tempo = pParam;
+
+	    if (tempo->dblTempo >= DMUS_TEMPO_MIN && tempo->dblTempo <= DMUS_TEMPO_MAX)
+	        This->current_tempo = tempo->dblTempo;
+	}
 	return S_OK;
 }
 
@@ -1689,6 +1719,7 @@ static HRESULT WINAPI performance_CreateAudioPath(IDirectMusicPerformance8 *ifac
 {
     struct performance *This = impl_from_IDirectMusicPerformance8(iface);
     IDirectMusicAudioPath *pPath;
+    IDirectMusicPort *port;
     IDirectMusicObject *dmo;
     IDirectSoundBuffer *buffer, *primary_buffer;
     DMUS_OBJECTDESC objDesc;
@@ -1721,13 +1752,16 @@ static HRESULT WINAPI performance_CreateAudioPath(IDirectMusicPerformance8 *ifac
     if (FAILED(hr))
         return hr;
 
-    hr = perf_dmport_create(This, &port_params);
+    hr = perf_dmport_create(This, &port_params, &port);
     if (FAILED(hr))
         return hr;
 
     hr = IDirectSound_CreateSoundBuffer(This->dsound, &desc, &buffer, NULL);
     if (FAILED(hr))
+    {
+        IDirectMusicPort_Release(port);
         return DSERR_BUFFERLOST;
+    }
 
     /* Update description for creating primary buffer */
     desc.dwFlags |= DSBCAPS_PRIMARYBUFFER;
@@ -1738,14 +1772,17 @@ static HRESULT WINAPI performance_CreateAudioPath(IDirectMusicPerformance8 *ifac
     hr = IDirectSound_CreateSoundBuffer(This->dsound, &desc, &primary_buffer, NULL);
     if (FAILED(hr))
     {
+        IDirectMusicPort_Release(port);
         IDirectSoundBuffer_Release(buffer);
         return DSERR_BUFFERLOST;
     }
 
     create_dmaudiopath(&IID_IDirectMusicAudioPath, (void **)&pPath);
     set_audiopath_perf_pointer(pPath, iface);
+    set_audiopath_port(pPath, port);
     set_audiopath_dsound_buffer(pPath, buffer);
     set_audiopath_primary_dsound_buffer(pPath, primary_buffer);
+    IDirectMusicPort_Release(port);
     TRACE(" returning IDirectMusicAudioPath interface at %p.\n", *ret_iface);
 
     *ret_iface = pPath;
@@ -1757,6 +1794,7 @@ static HRESULT WINAPI performance_CreateStandardAudioPath(IDirectMusicPerformanc
 {
     struct performance *This = impl_from_IDirectMusicPerformance8(iface);
     IDirectMusicAudioPath *pPath;
+    IDirectMusicPort *port;
     DSBUFFERDESC desc;
     WAVEFORMATEX format;
     DMUS_PORTPARAMS params = {0};
@@ -1808,18 +1846,20 @@ static HRESULT WINAPI performance_CreateStandardAudioPath(IDirectMusicPerformanc
 	default:
 	        return E_INVALIDARG;
 	}
-
         /* Create a port */
         params.dwSize = sizeof(params);
         params.dwValidParams = DMUS_PORTPARAMS_CHANNELGROUPS | DMUS_PORTPARAMS_AUDIOCHANNELS;
         params.dwChannelGroups = (pchannel_count + 15) / 16;
         params.dwAudioChannels = format.nChannels;
-        if (FAILED(hr = perf_dmport_create(This, &params)))
+        if (FAILED(hr = perf_dmport_create(This, &params, &port)))
                 return hr;
 
         hr = IDirectSound_CreateSoundBuffer(This->dsound, &desc, &buffer, NULL);
 	if (FAILED(hr))
+        {
+                IDirectMusicPort_Release(port);
 	        return DSERR_BUFFERLOST;
+        }
 
 	/* Update description for creating primary buffer */
 	desc.dwFlags |= DSBCAPS_PRIMARYBUFFER;
@@ -1829,14 +1869,17 @@ static HRESULT WINAPI performance_CreateStandardAudioPath(IDirectMusicPerformanc
 
         hr = IDirectSound_CreateSoundBuffer(This->dsound, &desc, &primary_buffer, NULL);
 	if (FAILED(hr)) {
+                IDirectMusicPort_Release(port);
                 IDirectSoundBuffer_Release(buffer);
 	        return DSERR_BUFFERLOST;
 	}
 
 	create_dmaudiopath(&IID_IDirectMusicAudioPath, (void**)&pPath);
 	set_audiopath_perf_pointer(pPath, iface);
+	set_audiopath_port(pPath, port);
 	set_audiopath_dsound_buffer(pPath, buffer);
 	set_audiopath_primary_dsound_buffer(pPath, primary_buffer);
+        IDirectMusicPort_Release(port);
 
     *ret_iface = pPath;
     TRACE(" returning IDirectMusicAudioPath interface at %p.\n", *ret_iface);
@@ -1981,7 +2024,7 @@ static HRESULT WINAPI performance_graph_StampPMsg(IDirectMusicGraph *iface, DMUS
 
     if (msg->pGraph)
     {
-        IDirectMusicTool_Release(msg->pGraph);
+        IDirectMusicGraph_Release(msg->pGraph);
         msg->pGraph = NULL;
     }
 
@@ -2000,7 +2043,7 @@ static HRESULT WINAPI performance_graph_StampPMsg(IDirectMusicGraph *iface, DMUS
     if (SUCCEEDED(hr))
     {
         msg->pGraph = &This->IDirectMusicGraph_iface;
-        IDirectMusicTool_AddRef(msg->pGraph);
+        IDirectMusicGraph_AddRef(msg->pGraph);
     }
 
     return hr;
@@ -2127,9 +2170,19 @@ static HRESULT WINAPI performance_tool_ProcessPMsg(IDirectMusicTool *iface,
         value |= (UINT)midi->bByte1 << 8;
         value |= (UINT)midi->bByte2 << 16;
 
+        if (msg->rtTime < latency_time)
+        {
+            TRACE("clamping stale MIDI rt %s to latency time %s\n",
+                    wine_dbgstr_longlong(msg->rtTime), wine_dbgstr_longlong(latency_time));
+            msg->rtTime = latency_time;
+        }
+
+        TRACE("MIDI pchannel %lu group %lu channel %lu status %#x data %#x %#x flags %#lx rt %s mt %ld\n",
+                msg->dwPChannel, group, channel, midi->bStatus, midi->bByte1, midi->bByte2,
+                msg->dwFlags, wine_dbgstr_longlong(msg->rtTime), msg->mtTime);
+
         if (SUCCEEDED(hr = IDirectMusic_CreateMusicBuffer(This->dmusic, &desc, &buffer, NULL)))
         {
-            if (msg->rtTime == -1) msg->rtTime = latency_time;
             hr = IDirectMusicBuffer_PackStructured(buffer, msg->rtTime, group, value);
             if (SUCCEEDED(hr)) hr = IDirectMusicPort_PlayBuffer(port, buffer);
             IDirectMusicBuffer_Release(buffer);
@@ -2144,6 +2197,9 @@ static HRESULT WINAPI performance_tool_ProcessPMsg(IDirectMusicTool *iface,
         DMUS_NOTE_PMSG *note = (DMUS_NOTE_PMSG *)msg;
 
         msg->mtTime += note->nOffset;
+        TRACE("NOTE pchannel %lu midi %#x velocity %#x flags %#x duration %ld offset %d mt %ld\n",
+                msg->dwPChannel, note->bMidiValue, note->bVelocity, note->bFlags,
+                note->mtDuration, note->nOffset, msg->mtTime);
 
         if (note->bFlags & DMUS_NOTEF_NOTEON)
         {
@@ -2151,15 +2207,15 @@ static HRESULT WINAPI performance_tool_ProcessPMsg(IDirectMusicTool *iface,
                     MIDI_NOTE_ON, note->bMidiValue, note->bVelocity)))
                 WARN("Failed to translate message to MIDI, hr %#lx\n", hr);
 
-            if (note->mtDuration)
-            {
-                msg->mtTime -= note->nOffset;
-                msg->mtTime += max(1, note->mtDuration - 1);
-                if (FAILED(hr = IDirectMusicPerformance8_MusicToReferenceTime(performance, msg->mtTime, &msg->rtTime)))
-                    return hr;
-                note->bFlags &= ~DMUS_NOTEF_NOTEON;
-                return DMUS_S_REQUEUE;
-            }
+            if (!note->mtDuration)
+                break;
+
+            msg->mtTime -= note->nOffset;
+            msg->mtTime += max(1, note->mtDuration - 1);
+            if (FAILED(hr = IDirectMusicPerformance8_MusicToReferenceTime(performance, msg->mtTime, &msg->rtTime)))
+                return hr;
+            note->bFlags &= ~DMUS_NOTEF_NOTEON;
+            return DMUS_S_REQUEUE;
         }
 
         if (FAILED(hr = performance_send_midi_pmsg(This, msg, DMUS_PMSGF_MUSICTIME | DMUS_PMSGF_TOOL_IMMEDIATE,
@@ -2263,6 +2319,15 @@ static HRESULT WINAPI performance_tool_ProcessPMsg(IDirectMusicTool *iface,
             WARN("Failed to play wave buffer, hr %#lx\n", hr);
         break;
 
+    case DMUS_PMSGT_TEMPO:
+    {
+        DMUS_TEMPO_PMSG *tempo = (DMUS_TEMPO_PMSG *)msg;
+
+        if (tempo->dblTempo >= DMUS_TEMPO_MIN && tempo->dblTempo <= DMUS_TEMPO_MAX)
+            This->current_tempo = tempo->dblTempo;
+        break;
+    }
+
     case DMUS_PMSGT_INTERNAL_SEGMENT_TICK:
         msg->rtTime += 10000000;
         msg->dwFlags &= ~DMUS_PMSGF_MUSICTIME;
@@ -2339,6 +2404,7 @@ HRESULT create_dmperformance(REFIID iid, void **ret_iface)
     obj->latency_offset = 50;
     obj->dwBumperLength =   50; /* 50 ms default */
     obj->dwPrepareTime  = 1000; /* 1000 ms default */
+    obj->current_tempo = 120.0;
 
     hr = IDirectMusicPerformance8_QueryInterface(&obj->IDirectMusicPerformance8_iface, iid, ret_iface);
     IDirectMusicPerformance_Release(&obj->IDirectMusicPerformance8_iface);

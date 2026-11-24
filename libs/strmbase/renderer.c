@@ -238,7 +238,7 @@ static HRESULT renderer_init_stream(struct strmbase_filter *iface)
     if (filter->ops->renderer_init_stream)
         filter->ops->renderer_init_stream(filter);
 
-    return filter->sink.pin.peer ? S_FALSE : S_OK;
+    return S_OK;
 }
 
 static HRESULT renderer_start_stream(struct strmbase_filter *iface, REFERENCE_TIME start)
@@ -285,6 +285,8 @@ static HRESULT renderer_cleanup_stream(struct strmbase_filter *iface)
     strmbase_passthrough_invalidate_time(&filter->passthrough);
     SetEvent(filter->state_event);
     SetEvent(filter->flush_event);
+    if (filter->ops->renderer_cleanup_stream)
+        filter->ops->renderer_cleanup_stream(filter);
 
     return S_OK;
 }

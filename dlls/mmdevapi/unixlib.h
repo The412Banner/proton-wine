@@ -49,6 +49,15 @@ struct get_endpoint_ids_params
     HRESULT result;
     unsigned int num;
     unsigned int default_idx;
+
+    /* delta update support. */
+    /* should be set to FALSE on initial calls, */
+    /* then check return value for driver support. */
+    BOOL delta;
+    unsigned int num_removed;
+    /* will return TRUE for endpoints of the other flow
+       in addition to the one specified. */
+    BOOL more_data;
 };
 
 struct create_stream_params
@@ -64,6 +73,7 @@ struct create_stream_params
     HRESULT result;
     UINT32 *channel_count;
     stream_handle *stream;
+    BOOL sony_windows_audio_mode;
 };
 
 struct release_stream_params
@@ -137,6 +147,7 @@ struct is_format_supported_params
     AUDCLNT_SHAREMODE share;
     const WAVEFORMATEX *fmt_in;
     HRESULT result;
+    BOOL sony_windows_audio_mode;
 };
 
 struct get_loopback_capture_device_params
@@ -154,6 +165,7 @@ struct get_mix_format_params
     EDataFlow flow;
     WAVEFORMATEXTENSIBLE *fmt;
     HRESULT result;
+    BOOL sony_windows_audio_mode;
 };
 
 struct get_device_period_params

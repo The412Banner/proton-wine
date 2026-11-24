@@ -342,7 +342,7 @@ DWORD WINAPI NsiRequestChangeNotification( DWORD unk, const NPI_MODULEID *module
 {
     struct nsi_request_change_notification_ex params;
 
-    TRACE( "%lu %p %lu %p %p stub.\n", unk, module, table, ovr, handle );
+    TRACE( "%lu %p %lu %p %p.\n", unk, module, table, ovr, handle );
 
     params.unk = unk;
     params.module = module;
@@ -356,8 +356,8 @@ DWORD WINAPI NsiRequestChangeNotificationEx( struct nsi_request_change_notificat
 {
     HANDLE device = get_nsi_device( TRUE );
     struct nsiproxy_request_notification *in;
-    ULONG in_size = sizeof(struct nsiproxy_get_parameter), received;
-    OVERLAPPED overlapped, *ovr;
+    ULONG in_size = sizeof(*in), received;
+    OVERLAPPED overlapped = {0}, *ovr;
     DWORD err = ERROR_SUCCESS;
     DWORD len;
 
@@ -375,6 +375,12 @@ DWORD WINAPI NsiRequestChangeNotificationEx( struct nsi_request_change_notificat
     if (!(ovr = params->ovr))
     {
         overlapped.hEvent = CreateEventW( NULL, FALSE, FALSE, NULL );
+        if (!overlapped.hEvent)
+        {
+            err = GetLastError();
+            free( in );
+            return err;
+        }
         ovr = &overlapped;
     }
     if (!DeviceIoControl( device, IOCTL_NSIPROXY_WINE_CHANGE_NOTIFICATION, in, in_size, NULL, 0, &received, ovr ))
@@ -385,7 +391,7 @@ DWORD WINAPI NsiRequestChangeNotificationEx( struct nsi_request_change_notificat
             err = GetOverlappedResult( device, ovr, &len, TRUE ) ? 0 : GetLastError();
         CloseHandle( overlapped.hEvent );
     }
-    else if (params->handle && ovr && err == ERROR_IO_PENDING)
+    else if (params->handle && (!err || err == ERROR_IO_PENDING))
         *params->handle = device;
 
     free( in );

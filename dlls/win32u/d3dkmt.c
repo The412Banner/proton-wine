@@ -31,6 +31,7 @@
 #include "win32u_private.h"
 #include "ntuser_private.h"
 #include "d3dkmdt.h"
+#include "winternl.h"
 
 #include <d3d9types.h>
 #include <dxgi.h>
@@ -211,6 +212,19 @@ static NTSTATUS init_handle_table(void)
     objects_end = objects + 1024;
     objects_next = objects;
     return STATUS_SUCCESS;
+}
+
+static void utf8_to_wchar_truncated( const char *src, WCHAR *dest, size_t dest_len )
+{
+    ULONG written = 0;
+    NTSTATUS status;
+
+    if (!dest_len) return;
+    dest[0] = 0; /* defined result even if the call below fails outright */
+
+    status = RtlUTF8ToUnicodeN( dest, (ULONG)(dest_len * sizeof(WCHAR)), &written,
+                                 src, (ULONG)(strlen( src ) + 1) );
+    if (status == STATUS_BUFFER_TOO_SMALL) dest[dest_len - 1] = 0; /* force-terminate on truncation */
 }
 
 static struct d3dkmt_object **grow_handle_table(void)
@@ -905,6 +919,98 @@ NTSTATUS WINAPI NtGdiDdDDIQueryAdapterInfo( D3DKMT_QUERYADAPTERINFO *desc )
         FIXME("KMTQAITYPE_UMDRIVERNAME\n");
 
         return STATUS_NOT_IMPLEMENTED;
+    }
+    case KMTQAITYPE_ADAPTERTYPE:
+    {
+        struct vulkan_physical_device *physical_device;
+        VkPhysicalDeviceProperties2KHR properties2;
+        VkQueueFamilyProperties queue_families[32];
+        uint32_t queue_family_count = ARRAY_SIZE(queue_families);
+        struct vulkan_instance *instance;
+        D3DKMT_ADAPTERTYPE *value;
+        BOOL has_graphics_queue = FALSE;
+        unsigned int i;
+
+        if (!(adapter = get_d3dkmt_object( desc->hAdapter, D3DKMT_ADAPTER ))) return STATUS_INVALID_PARAMETER;
+        if (!(physical_device = adapter->physical_device)) return STATUS_INVALID_PARAMETER;
+        instance = physical_device->instance;
+
+        value = desc->pPrivateDriverData;
+
+        memset( &properties2, 0, sizeof(properties2) );
+        properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR;
+        instance->p_vkGetPhysicalDeviceProperties2KHR( physical_device->host.physical_device, &properties2 );
+
+        instance->p_vkGetPhysicalDeviceQueueFamilyProperties( physical_device->host.physical_device, &queue_family_count, queue_families );
+        if (queue_family_count > ARRAY_SIZE(queue_families)) queue_family_count = ARRAY_SIZE(queue_families);
+        for (i = 0; i < queue_family_count; i++)
+        {
+            if (queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                has_graphics_queue = TRUE;
+                break;
+            }
+        }
+
+        memset( value, 0, sizeof(*value) );
+
+        value->RenderSupported = 1;
+        value->DisplaySupported = 0;
+        value->SoftwareDevice = (properties2.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU);
+        value->HybridIntegrated = (properties2.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU);
+        value->ComputeOnly = !has_graphics_queue;
+
+        return STATUS_SUCCESS;
+    }
+    case KMTQAITYPE_ADAPTERREGISTRYINFO:
+    {
+        VkPhysicalDeviceDriverPropertiesKHR driverProperties;
+        struct vulkan_physical_device *physical_device;
+        VkPhysicalDeviceProperties2KHR properties2;
+        struct vulkan_instance *instance;
+        D3DKMT_ADAPTERREGISTRYINFO *reg;
+
+        if (!(adapter = get_d3dkmt_object( desc->hAdapter, D3DKMT_ADAPTER ))) return STATUS_INVALID_PARAMETER;
+        if (!(physical_device = adapter->physical_device)) return STATUS_INVALID_PARAMETER;
+        instance = physical_device->instance;
+
+        reg = desc->pPrivateDriverData;
+
+        memset( &driverProperties, 0, sizeof(driverProperties) );
+        memset( &properties2, 0, sizeof(properties2) );
+        driverProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR;
+        properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR;
+        properties2.pNext = &driverProperties;
+        instance->p_vkGetPhysicalDeviceProperties2KHR( physical_device->host.physical_device, &properties2 );
+
+        utf8_to_wchar_truncated( properties2.properties.deviceName,
+                                  reg->AdapterString, ARRAY_SIZE(reg->AdapterString) );
+        lstrcpyW( reg->ChipType, reg->AdapterString );
+
+        if (driverProperties.driverInfo[0])
+            utf8_to_wchar_truncated( driverProperties.driverInfo,
+                                      reg->BiosString, ARRAY_SIZE(reg->BiosString) );
+        else
+            lstrcpyW( reg->BiosString, reg->AdapterString );
+        reg->DacType[0] = 0;
+
+        return STATUS_SUCCESS;
+    }
+    case KMTQAITYPE_UMOPENGLINFO:
+    {
+        static const WCHAR opengl_dll[] = {'o','p','e','n','g','l','3','2','.','d','l','l',0};
+        struct vulkan_physical_device *physical_device;
+        D3DKMT_OPENGLINFO *gl_info;
+
+        if (!(adapter = get_d3dkmt_object( desc->hAdapter, D3DKMT_ADAPTER ))) return STATUS_INVALID_PARAMETER;
+        if (!(physical_device = adapter->physical_device)) return STATUS_INVALID_PARAMETER;
+
+        gl_info = desc->pPrivateDriverData;
+
+        lstrcpyW( gl_info->UMOpenglICDFileName, opengl_dll );
+        gl_info->Version = 5;
+
+        return STATUS_SUCCESS;
     }
     default:
     {

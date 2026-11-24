@@ -241,8 +241,10 @@ static BOOL wayland_gdi_overlay_ensure_channel(HWND hwnd, struct wayland_gdi_ove
         return FALSE;
     }
 
-    producer_id = InterlockedIncrement64(&gdi_overlay_next_producer_id);
-    if (!producer_id) producer_id = InterlockedIncrement64(&gdi_overlay_next_producer_id);
+    /* Unique across processes: the consumer keeps a dead producer's slots
+     * cached under its id, and a replacement process must not reuse it. */
+    producer_id = ((UINT64)GetCurrentProcessId() << 32) |
+                  (UINT32)InterlockedIncrement64(&gdi_overlay_next_producer_id);
     producer->producer_unique_id = producer_id;
     producer->channel_fd = fd;
     TRACE("gdi_overlay hwnd=%p opened producer channel fd=%d producer=%s\n",

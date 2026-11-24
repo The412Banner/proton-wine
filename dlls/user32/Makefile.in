@@ -3,7 +3,7 @@ MODULE    = user32.dll
 IMPORTLIB = user32
 IMPORTS   = $(PNG_PE_LIBS) gdi32 sechost advapi32 kernelbase win32u uuid
 EXTRAINCL = $(PNG_PE_CFLAGS)
-DELAYIMPORTS = imm32 combase
+DELAYIMPORTS = imm32 combase setupapi
 
 SOURCES = \
 	button.c \

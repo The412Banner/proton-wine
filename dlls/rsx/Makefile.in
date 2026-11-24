@@ -1,0 +1,6 @@
+MODULE    = rsx.dll
+IMPORTS   = advapi32 ole32 uuid winmm
+
+SOURCES = \
+	rsx.c \
+	rsx_classes.idl

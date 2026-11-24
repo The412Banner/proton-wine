@@ -175,7 +175,10 @@ static void video_renderer_init_stream(struct strmbase_renderer *iface)
 {
     struct video_renderer *filter = impl_from_strmbase_renderer(iface);
 
-    VideoRenderer_AutoShowWindow(filter);
+    /* An unconnected renderer left in the graph (an application rendering through a
+     * sample grabber instead) shows no window. */
+    if (filter->renderer.sink.pin.peer)
+        VideoRenderer_AutoShowWindow(filter);
 }
 
 static HRESULT video_renderer_connect(struct strmbase_renderer *iface, const AM_MEDIA_TYPE *mt)

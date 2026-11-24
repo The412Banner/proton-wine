@@ -574,16 +574,17 @@ static HRESULT WINMM_EnumDevices(WINMM_MMDevice **devices,
     }
 
     if(*devcount > 0){
-        UINT n, count = 1;
+        UINT n, count = 0, default_index = ~0u;
+        UINT capacity = *devcount;
         IMMDevice *def_dev = NULL;
 
-        *devices = calloc(*devcount, sizeof(WINMM_MMDevice));
+        *devices = calloc(capacity, sizeof(WINMM_MMDevice));
         if(!*devices){
             IMMDeviceCollection_Release(devcoll);
             return E_OUTOFMEMORY;
         }
 
-        *map = calloc(*devcount, sizeof(WINMM_MMDevice *));
+        *map = calloc(capacity, sizeof(WINMM_MMDevice *));
         if(!*map){
             IMMDeviceCollection_Release(devcoll);
             free(*devices);
@@ -594,25 +595,40 @@ static HRESULT WINMM_EnumDevices(WINMM_MMDevice **devices,
         IMMDeviceEnumerator_GetDefaultAudioEndpoint(devenum,
                 flow, eConsole, &def_dev);
 
-        for(n = 0; n < *devcount; ++n){
+        for(n = 0; n < capacity; ++n){
             IMMDevice *device;
+            WINMM_MMDevice *mmdevice;
 
             hr = IMMDeviceCollection_Item(devcoll, n, &device);
-            if(SUCCEEDED(hr)){
-                WINMM_InitMMDevice(flow, device, &(*devices)[n], n);
-
-                if(device == def_dev)
-                    (*map)[0] = &(*devices)[n];
-                else{
-                    (*map)[count] = &(*devices)[n];
-                    ++count;
-                }
-
-                IMMDevice_Release(device);
+            if(FAILED(hr)){
+                WARN("Failed to get endpoint %u: %08lx\n", n, hr);
+                continue;
             }
+
+            mmdevice = &(*devices)[count];
+            hr = WINMM_InitMMDevice(flow, device, mmdevice, count);
+            if(FAILED(hr)){
+                WARN("Failed to initialize endpoint %u: %08lx\n", n, hr);
+                IMMDevice_Release(device);
+                continue;
+            }
+
+            (*map)[count] = mmdevice;
+            if(device == def_dev)
+                default_index = count;
+            ++count;
+
+            IMMDevice_Release(device);
         }
 
-        IMMDevice_Release(def_dev);
+        if(def_dev)
+            IMMDevice_Release(def_dev);
+
+        if(default_index != ~0u && default_index != 0){
+            WINMM_MMDevice *tmp = (*map)[0];
+            (*map)[0] = (*map)[default_index];
+            (*map)[default_index] = tmp;
+        }
 
         *devcount = count;
     }
@@ -2620,6 +2636,7 @@ UINT WINAPI waveOutGetDevCapsA(UINT_PTR uDeviceID, LPWAVEOUTCAPSA lpCaps,
 UINT WINAPI waveOutGetDevCapsW(UINT_PTR uDeviceID, LPWAVEOUTCAPSW lpCaps,
 			       UINT uSize)
 {
+    WINMM_MMDevice *mmdevice;
     WAVEOUTCAPSW mapper_caps, *caps;
     HRESULT hr;
 
@@ -2654,7 +2671,9 @@ UINT WINAPI waveOutGetDevCapsW(UINT_PTR uDeviceID, LPWAVEOUTCAPSW lpCaps,
 
             LeaveCriticalSection(&device->lock);
         }else{
-            caps = &read_map(g_out_map, uDeviceID)->out_caps;
+            if(!(mmdevice = read_map(g_out_map, uDeviceID)))
+                return MMSYSERR_BADDEVICEID;
+            caps = &mmdevice->out_caps;
         }
     }
 
@@ -2830,6 +2849,39 @@ UINT WINAPI waveOutUnprepareHeader(HWAVEOUT hWaveOut,
 /**************************************************************************
  * 				waveOutWrite		[WINMM.@]
  */
+static void WINMM_DumpWaveOutBuffer(const WAVEHDR *header)
+{
+    static LONG dump_index;
+    char enabled[8], path[MAX_PATH], filename[MAX_PATH + 64];
+    DWORD len, written;
+    HANDLE file;
+
+    if (!header->lpData || !header->dwBufferLength)
+        return;
+    if (!GetEnvironmentVariableA("WINE_DUMP_WAVEOUT", enabled, sizeof(enabled))
+            || strcmp(enabled, "1"))
+        return;
+
+    len = GetEnvironmentVariableA("WINE_DUMP_WAVEOUT_DIR", path, sizeof(path));
+    if (!len || len >= sizeof(path))
+    {
+        len = GetTempPathA(sizeof(path), path);
+        if (!len || len >= sizeof(path))
+            return;
+    }
+
+    snprintf(filename, sizeof(filename), "%s\\wine-waveout-%04ld-%08lx.raw",
+            path, InterlockedIncrement(&dump_index), header->dwBufferLength);
+    file = CreateFileA(filename, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+        return;
+
+    WriteFile(file, header->lpData, header->dwBufferLength, &written, NULL);
+    CloseHandle(file);
+    TRACE("Dumped waveOutWrite buffer to %s.\n", debugstr_a(filename));
+}
+
 UINT WINAPI waveOutWrite(HWAVEOUT hWaveOut, WAVEHDR *header, UINT uSize)
 {
     WINMM_Device *device;
@@ -2853,6 +2905,7 @@ UINT WINAPI waveOutWrite(HWAVEOUT hWaveOut, WAVEHDR *header, UINT uSize)
     }
 
     TRACE("dwBufferLength: %lu\n", header->dwBufferLength);
+    WINMM_DumpWaveOutBuffer(header);
 
     if(device->acm_handle){
         ACMSTREAMHEADER *ash = (ACMSTREAMHEADER*)header->reserved;
@@ -3305,6 +3358,7 @@ UINT WINAPI waveInGetNumDevs(void)
  */
 UINT WINAPI waveInGetDevCapsW(UINT_PTR uDeviceID, LPWAVEINCAPSW lpCaps, UINT uSize)
 {
+    WINMM_MMDevice *mmdevice;
     WAVEINCAPSW mapper_caps, *caps;
     HRESULT hr;
 
@@ -3338,7 +3392,9 @@ UINT WINAPI waveInGetDevCapsW(UINT_PTR uDeviceID, LPWAVEINCAPSW lpCaps, UINT uSi
 
             LeaveCriticalSection(&device->lock);
         }else{
-            caps = &read_map(g_in_map, uDeviceID)->in_caps;
+            if(!(mmdevice = read_map(g_in_map, uDeviceID)))
+                return MMSYSERR_BADDEVICEID;
+            caps = &mmdevice->in_caps;
         }
     }
 

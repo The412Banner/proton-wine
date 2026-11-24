@@ -77,6 +77,7 @@ BOOL use_system_cursors = TRUE;
 BOOL grab_fullscreen = FALSE;
 int keyboard_layout = -1;
 BOOL keyboard_scancode_detect = FALSE;
+BOOL windows_dead_keys = FALSE;
 BOOL managed_mode = TRUE;
 BOOL private_color_map = FALSE;
 int primary_monitor = 0;
@@ -529,6 +530,7 @@ static void setup_options(void)
     static const WCHAR x11driverW[] = {'\\','X','1','1',' ','D','r','i','v','e','r',0};
     WCHAR buffer[MAX_PATH+16], *p, *appname;
     HKEY hkey, appkey = 0;
+    const char *env;
     DWORD len;
 
     /* @@ Wine registry key: HKCU\Software\Wine\X11 Driver */
@@ -624,6 +626,15 @@ static void setup_options(void)
 
     NtClose( appkey );
     NtClose( hkey );
+
+    /* Set by PROTON_NO_XIM=1. Without the X input method every key press reaches
+     * the application, dead keys included, and ToUnicodeEx combines dead keys the
+     * way Windows does. */
+    if ((env = getenv( "WINE_NO_XIM" )) && atoi( env ))
+    {
+        use_xim = FALSE;
+        windows_dead_keys = TRUE;
+    }
 }
 
 #ifdef SONAME_LIBXCOMPOSITE

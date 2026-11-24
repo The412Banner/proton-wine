@@ -737,8 +737,8 @@ static HRESULT WINAPI sample_grabber_stream_timer_callback_GetParameters(IMFAsyn
 static HRESULT WINAPI sample_grabber_stream_timer_callback_Invoke(IMFAsyncCallback *iface, IMFAsyncResult *result)
 {
     struct sample_grabber *grabber = impl_from_IMFAsyncCallback(iface);
-    BOOL sample_reported = FALSE, sample_delivered = FALSE;
-    struct scheduled_item *item, *item2;
+    BOOL sample_delivered = FALSE;
+    struct scheduled_item *item, *item2, *sample_item = NULL;
     HRESULT hr;
 
     EnterCriticalSection(&grabber->cs);
@@ -752,16 +752,44 @@ static HRESULT WINAPI sample_grabber_stream_timer_callback_Invoke(IMFAsyncCallba
         }
         else if (item->type == ITEM_TYPE_SAMPLE)
         {
-            if (!sample_reported)
+            /* Keep this sample counted while the client callback runs so that
+             * ProcessSample() cannot schedule another timer concurrently. */
+            list_remove(&item->entry);
+            sample_item = item;
+            break;
+        }
+    }
+
+    LeaveCriticalSection(&grabber->cs);
+
+    if (!sample_item)
+        return S_OK;
+
+    /* Client callbacks may synchronously wait for the application thread, which
+     * can itself be waiting for the media session to submit Pause(). Holding the
+     * sink lock here would also block the session worker in ProcessSample(). */
+    if (FAILED(hr = sample_grabber_report_sample(grabber, sample_item->u.sample, &sample_delivered)))
+        WARN("Failed to report a sample, hr %#lx.\n", hr);
+
+    EnterCriticalSection(&grabber->cs);
+
+    IMFSample_Release(sample_item->u.sample);
+    grabber->samples_queued--;
+    free(sample_item);
+
+    if (!grabber->is_shut_down && grabber->state != SINK_STATE_STOPPED)
+    {
+        if (sample_delivered)
+            sample_grabber_stream_request_sample(grabber);
+
+        LIST_FOR_EACH_ENTRY_SAFE(item, item2, &grabber->items, struct scheduled_item, entry)
+        {
+            if (item->type == ITEM_TYPE_MARKER)
             {
-                if (FAILED(hr = sample_grabber_report_sample(grabber, item->u.sample, &sample_delivered)))
-                    WARN("Failed to report a sample, hr %#lx.\n", hr);
+                sample_grabber_stream_report_marker(grabber, &item->u.marker.context, S_OK);
                 stream_release_pending_item(grabber, item);
-                sample_reported = TRUE;
-                if (sample_delivered)
-                    sample_grabber_stream_request_sample(grabber);
             }
-            else
+            else if (item->type == ITEM_TYPE_SAMPLE)
             {
                 if (FAILED(hr = stream_schedule_sample(grabber, item)))
                     WARN("Failed to schedule a sample, hr %#lx.\n", hr);

@@ -329,6 +329,7 @@ BOOL WINAPI DllMain (HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
             NETCON_unload();
             free_urlcache();
             free_cookie();
+            free_connected_state();
 
             if (g_dwTlsErrIndex != TLS_OUT_OF_INDEXES)
             {
@@ -1564,9 +1565,7 @@ BOOL WINAPI InternetGetConnectedState(LPDWORD lpdwStatus, DWORD dwReserved)
 BOOL WINAPI InternetGetConnectedStateExW(LPDWORD lpdwStatus, LPWSTR lpszConnectionName,
                                          DWORD dwNameLen, DWORD dwReserved)
 {
-    IP_ADAPTER_ADDRESSES *buf = NULL, *aa;
-    ULONG size = 0;
-    DWORD status;
+    DWORD status, err;
 
     TRACE("(%p, %p, %ld, 0x%08lx)\n", lpdwStatus, lpszConnectionName, dwNameLen, dwReserved);
 
@@ -1577,46 +1576,11 @@ BOOL WINAPI InternetGetConnectedStateExW(LPDWORD lpdwStatus, LPWSTR lpszConnecti
         return FALSE;
     }
 
-    for (;;)
+    if ((err = get_connected_state(&status)))
     {
-        ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER |
-                      GAA_FLAG_SKIP_FRIENDLY_NAME | GAA_FLAG_INCLUDE_GATEWAYS;
-        ULONG errcode = GetAdaptersAddresses(AF_UNSPEC, flags, NULL, buf, &size);
-
-        if (errcode == ERROR_SUCCESS)
-            break;
-        free(buf);
-        if (errcode == ERROR_BUFFER_OVERFLOW && !(buf = malloc(size)))
-            errcode = ERROR_NOT_ENOUGH_MEMORY;
-        if (errcode != ERROR_BUFFER_OVERFLOW)
-        {
-            if (errcode != ERROR_NO_DATA)
-            {
-                SetLastError(errcode);
-                return FALSE;
-            }
-            buf = NULL;
-            break;
-        }
+        SetLastError(err);
+        return FALSE;
     }
-
-    status = INTERNET_RAS_INSTALLED;
-    for (aa = buf; aa; aa = aa->Next)
-    {
-        /* Connected, but not necessarily to internet */
-        if (aa->FirstUnicastAddress)
-            status |= INTERNET_CONNECTION_OFFLINE;
-
-        /* Connected to internet */
-        if (aa->FirstGatewayAddress)
-        {
-            WARN("always returning LAN connection.\n");
-            status &= ~INTERNET_CONNECTION_OFFLINE;
-            status |= INTERNET_CONNECTION_LAN;
-            break;
-        }
-    }
-    free(buf);
 
     if (lpdwStatus) *lpdwStatus = status;
 

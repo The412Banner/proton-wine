@@ -74,6 +74,7 @@ struct xkb_compose_table;
 
 extern char *process_activate_token;
 extern char *process_name;
+extern char *process_app_id;
 extern struct wayland process_wayland;
 
 /**********************************************************************
@@ -136,12 +137,23 @@ struct wayland_keyboard
     unsigned char keystate[0x300];
 };
 
+struct wayland_cursor_frame
+{
+    struct wayland_shm_buffer *shm_buffer;
+    int hotspot_x, hotspot_y;
+    UINT delay_ms;
+};
+
 struct wayland_cursor
 {
     struct wayland_shm_buffer *shm_buffer;
     struct wl_surface *wl_surface;
     struct wp_viewport *wp_viewport;
     int hotspot_x, hotspot_y;
+    double scale;
+    /* Frames of an animated cursor, NULL for a static one. */
+    struct wayland_cursor_frame *frames;
+    UINT num_frames, current_frame;
 };
 
 enum wayland_pointer_frame_flags
@@ -456,6 +468,9 @@ struct wayland_client_surface
     /* if true then the client surface has an alpha channel controlling transparency */
     BOOL has_alpha;
     BOOL has_presented;
+    /* tick count of the last frame presented as presentation owner, or of
+     * when the surface became the owner */
+    LONG last_present_time;
     struct wayland_visual_constraint visual_constraint;
 };
 

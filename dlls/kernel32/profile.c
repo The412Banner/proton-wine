@@ -582,6 +582,17 @@ static PROFILEKEY *PROFILE_Find( PROFILESECTION **section, LPCWSTR section_name,
         keylen = p - key_name + 1;
     }
 
+    /* The first section holds the keys found before any section header.
+     * Like Windows, look an empty section name up in an explicit "[]"
+     * section when the file has one. */
+    if (!seclen && *section && !(*section)->name[0])
+    {
+        PROFILESECTION **next = &(*section)->next;
+
+        while (*next && (*next)->name[0]) next = &(*next)->next;
+        if (*next) section = next;
+    }
+
     while (*section)
     {
         if (!wcsnicmp((*section)->name, section_name, seclen) &&
@@ -1709,23 +1720,29 @@ BOOL WINAPI WritePrivateProfileStringW( LPCWSTR section, LPCWSTR entry,
 BOOL WINAPI DECLSPEC_HOTPATCH WritePrivateProfileStringA( LPCSTR section, LPCSTR entry,
                                                           LPCSTR string, LPCSTR filename )
 {
-    UNICODE_STRING sectionW, entryW, stringW, filenameW;
-    BOOL ret;
+    UNICODE_STRING sectionW, entryW, filenameW;
+    WCHAR *stringW = NULL;
+    BOOL ret = FALSE;
 
     if (section) RtlCreateUnicodeStringFromAsciiz(&sectionW, section);
     else sectionW.Buffer = NULL;
     if (entry) RtlCreateUnicodeStringFromAsciiz(&entryW, entry);
     else entryW.Buffer = NULL;
-    if (string) RtlCreateUnicodeStringFromAsciiz(&stringW, string);
-    else stringW.Buffer = NULL;
+    if (string)
+    {
+        int len = MultiByteToWideChar( CP_ACP, 0, string, -1, NULL, 0 );
+        if ((stringW = HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) )))
+            MultiByteToWideChar( CP_ACP, 0, string, -1, stringW, len );
+    }
     if (filename) RtlCreateUnicodeStringFromAsciiz(&filenameW, filename);
     else filenameW.Buffer = NULL;
 
-    ret = WritePrivateProfileStringW(sectionW.Buffer, entryW.Buffer,
-                                     stringW.Buffer, filenameW.Buffer);
+    if (!string || stringW)
+        ret = WritePrivateProfileStringW(sectionW.Buffer, entryW.Buffer,
+                                         stringW, filenameW.Buffer);
     RtlFreeUnicodeString(&sectionW);
     RtlFreeUnicodeString(&entryW);
-    RtlFreeUnicodeString(&stringW);
+    HeapFree( GetProcessHeap(), 0, stringW );
     RtlFreeUnicodeString(&filenameW);
     return ret;
 }

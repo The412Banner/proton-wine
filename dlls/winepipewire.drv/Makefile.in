@@ -1,0 +1,9 @@
+MODULE    = winepipewire.drv
+UNIXLIB   = winepipewire.so
+IMPORTS   = dxguid uuid winmm user32 advapi32 ole32
+UNIX_LIBS    = $(PIPEWIRE_LIBS) $(PTHREAD_LIBS) $(UDEV_LIBS)
+UNIX_CFLAGS  = $(PIPEWIRE_CFLAGS) $(UDEV_CFLAGS)
+
+SOURCES = \
+	bluetooth.c \
+	pipewire.c
