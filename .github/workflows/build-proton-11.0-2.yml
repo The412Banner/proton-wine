@@ -296,16 +296,16 @@ jobs:
           
           DESC="$DESC v15: GameNative fixes (virtual-desktop mode list, image map pool, high fixed allocations, GetNativeSystemInfo AMD64, crypt32 EKU, Vulkan OPWR off, WGL no_error, emulator cpu-area release, HideWineExports) + WinRT classes registered in both prefix views. v16: service-manager crash fix (sechost/advapi32 import rpcrt4 directly; GOG Galaxy games, EA app)."
           if [ "${{ matrix.arch }}" == "x86_64" ]; then
-            DESC="$DESC v17: WMA cutscene audio with mediaconv off, DiRT 3 / DiRT Showdown telemetry fix (error 10038), winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS, Sleep(0)/SwitchToThread storm throttle (WINE_SLEEP0_THROTTLE=0 off) + would-block UDP receives without a server round trip (WINE_SOCKET_POLL_FASTPATH=0 off) (GameNative #119), userspace ntsync wait-any with repeated objects (GameNative #128)."
+            DESC="$DESC v17: WMA cutscene audio with mediaconv off, DiRT 3 / DiRT Showdown telemetry fix (error 10038), winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS, Sleep(0)/SwitchToThread storm throttle (WINE_SLEEP0_THROTTLE=0 off) + would-block UDP receives without a server round trip (WINE_SOCKET_POLL_FASTPATH=0 off) (GameNative #119), userspace ntsync wait-any with repeated objects (GameNative #128). v18: Wayland desktop mode cursor: the program under the pointer sets the cursor (its own shapes, hidden cursor, resize arrows) and a window being dragged or sized keeps it."
           else
-            DESC="$DESC v17: ARM64EC exception fixes: code map covers 47-bit addresses on 39-bit Android kernels + unwind stops at a frame that does not move or an invalid stack pointer (stack overflow at game exit / in JIT code, e.g. Brawlhalla), WMA cutscene audio with mediaconv off, DiRT 3 / DiRT Showdown telemetry fix (error 10038), winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS, Sleep(0)/SwitchToThread storm throttle (WINE_SLEEP0_THROTTLE=0 off) + would-block UDP receives without a server round trip (WINE_SOCKET_POLL_FASTPATH=0 off) (GameNative #119), userspace ntsync wait-any with repeated objects (GameNative #128), system call writes into FEX-protected code pages (GameNative #133/#131, Hogwarts Legacy), Battle.net protected-launcher emulator notifications for GameNative FEX gn-7/gn-8 (GameNative #67, ntdll part), Black Ops III ARM64EC start-up crash (DroidDeck-Proton #34)."
+            DESC="$DESC v17: ARM64EC exception fixes: code map covers 47-bit addresses on 39-bit Android kernels + unwind stops at a frame that does not move or an invalid stack pointer (stack overflow at game exit / in JIT code, e.g. Brawlhalla), WMA cutscene audio with mediaconv off, DiRT 3 / DiRT Showdown telemetry fix (error 10038), winex11 offscreen check cache opt-in WINE_OFFSCREEN_CHECK_MS, Sleep(0)/SwitchToThread storm throttle (WINE_SLEEP0_THROTTLE=0 off) + would-block UDP receives without a server round trip (WINE_SOCKET_POLL_FASTPATH=0 off) (GameNative #119), userspace ntsync wait-any with repeated objects (GameNative #128), system call writes into FEX-protected code pages (GameNative #133/#131, Hogwarts Legacy), Battle.net protected-launcher emulator notifications for GameNative FEX gn-7/gn-8 (GameNative #67, ntdll part), Black Ops III ARM64EC start-up crash (DroidDeck-Proton #34). v18: Wayland desktop mode cursor: the program under the pointer sets the cursor (its own shapes, hidden cursor, resize arrows) and a window being dragged or sized keeps it."
           fi
           # Generate Proton profile.json
           cat > $GITHUB_WORKSPACE/profile.json << EOF
           {
             "type": "Proton",
             "versionName": "11.0-2-${ARCH_NAME}",
-            "versionCode": 17,
+            "versionCode": 18,
             "description": "${DESC}",
             "files": [],
             "wine": {
@@ -321,7 +321,7 @@ jobs:
           {
             "type": "Wine",
             "versionName": "11.0-2-${ARCH_NAME}",
-            "versionCode": 17,
+            "versionCode": 18,
             "description": "${DESC}",
             "files": [],
             "wine": {
