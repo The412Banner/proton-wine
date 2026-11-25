@@ -2,6 +2,23 @@
 
 Newest entry at the top.
 
+## 2026-11-24 — v18 RELEASED: build-bionic-layers-20261124-v18 (Latest; tag -> 67dae100)
+- Why: user 22:5x EST "release wine v18 as latest". v18 = v17 + the two Wayland desktop cursor fixes, on all 6 lines:
+  "winewayland: In desktop mode, send desktop-window pointer input without a window." + "server: Keep the cursor with
+  the window holding the mouse capture." (device-proven in DD 12.8 arm64ec on the Pocket FIT with Bannerlator main).
+- Release-cut commits (versionCode 17 -> 18, "v18:" description line; backups refs/backup/20261124/<b>-before-v18) on the
+  parents: proton_10.0 b02d4c2d (CI 45544298106), proton_10.34-GE faa4cb08 (45544305445), proton_11.0-2 67dae100
+  (45544312955), proton_11.0-3 aa7201a3 (45544323334), proton_11.12.8-DroidDeck 99e804e7 (45544331683), proton_11.14-GE
+  d7d46378 (45544340003); all GREEN, logs show versionCode=18 for every leg.
+- Release id 457639462 (draft -> published Latest 23:4x EST), 10 assets attached server-side by tmp/release-v18 run
+  45547880740; attach-job sha256 == asset digests (all 10). DD 12.8 arm64ec wcp contains the device-tested binaries
+  (wineserver e7bea2eb, winewayland c3b19f80) and versionCode 18. Notes /root/src/dl/v18-release/notes-v18.md.
+- winlator-contents: delivery copy bionic-layers-20261124-v18 (id 457640000, non-prerelease, not Latest; tmp/mirror-v18 run
+  45548171080; digests == proton-wine) + catalog main 5a77857d -> 49819252 (backup main-before-bionic-v18): 218 rows,
+  10 v18 rows, 0 v17 rows, all URLs HTTP 200, raw.githubusercontent serves them.
+- Temp branches tmp/release-v18 (proton-wine) + tmp/mirror-v18 (winlator-contents) kept until the user says delete.
+- Not tested: the other five layers and every x86_64 file on a device; Bannerlator 3.2.1 or older with v18.
+
 ## 2026-11-24 — v17 RELEASED — six layers (`build-bionic-layers-20261124-v17`, Latest + catalog)
 - Why: user 11-24 ~13:00 EST: "include 11.0-3, replace 11-9, release as latest".
 - Layers (CI run, built commit): Proton 10.0-4 arm64ec (45330300133, 66e4bbe0), GE-Proton 10.0-34 arm64ec (45330405700, b80955db),
