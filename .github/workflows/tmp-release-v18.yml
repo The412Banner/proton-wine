@@ -1,0 +1,40 @@
+name: tmp v18 release assets
+on:
+  push:
+    branches: [ 'tmp/release-v18' ]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RELEASE_ID: '457639462'
+    steps:
+      - name: Pull the CI artifacts, rename, upload to the draft release
+        run: |
+          set -euo pipefail
+          mkdir out
+          dl() { # dl <run> <artifact> <asset name>
+            d=$(mktemp -d)
+            for t in 1 2 3; do gh run download "$1" -R "$REPO" -n "$2" -D "$d" && break; sleep 10; done
+            n=$(find "$d" -name '*.wcp' | wc -l); [ "$n" = 1 ] || { echo "::error::$1/$2 has $n wcp files"; find "$d"; exit 1; }
+            cp "$(find "$d" -name '*.wcp')" "out/$3"
+          }
+          dl 45544298106 proton-arm64ec-sdk28 proton-10.0-4-arm64ec.wcp
+          dl 45544305445 proton-arm64ec-sdk28 GE-proton-10.0-34-arm64ec.wcp
+          dl 45544312955 proton-arm64ec-sdk28 proton-11.0-2-arm64ec.wcp
+          dl 45544312955 proton-x86_64-sdk28  proton-11.0-2-x86_64.wcp
+          dl 45544323334 proton-arm64ec-sdk28 proton-11.0-3-arm64ec.wcp
+          dl 45544323334 proton-x86_64-sdk28  proton-11.0-3-x86_64.wcp
+          dl 45544331683 proton-arm64ec-sdk28 DroidDeck-proton-11.0-12.8-arm64ec.wcp
+          dl 45544331683 proton-x86_64-sdk28  DroidDeck-proton-11.0-12.8-x86_64.wcp
+          dl 45544340003 proton-arm64ec-sdk28 GE-proton-11.0-14-arm64ec.wcp
+          dl 45544340003 proton-x86_64-sdk28  GE-proton-11.0-14-x86_64.wcp
+          cd out; ls -l; sha256sum *.wcp
+          for f in *.wcp; do
+            gh api --method POST -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$f" --input "$f" -q '.name + " " + (.size|tostring)'
+          done
