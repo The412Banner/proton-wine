@@ -573,7 +573,15 @@ static int update_desktop_cursor_pos( struct desktop *desktop, user_handle_t win
     SHARED_WRITE_END;
 
     if (!win || !is_window_visible( win ) || is_window_transparent( win ))
-        win = shallow_window_from_point( desktop, x, y );
+    {
+        /* a window holding the capture keeps the cursor, as on Windows, where WM_SETCURSOR
+         * is not sent to other windows during a capture */
+        struct thread_input *input = desktop->foreground_input;
+        user_handle_t capture = input ? input->shared->capture : 0;
+
+        if (capture && is_window_visible( capture )) win = capture;
+        else win = shallow_window_from_point( desktop, x, y );
+    }
     if (update_desktop_cursor_window( desktop, win )) updated = 1;
 
     return updated;
