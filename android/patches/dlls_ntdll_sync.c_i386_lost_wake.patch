@@ -19,14 +19,15 @@ idle client CPU is the same.
 
 SRW/condition variable stress with three JIT writer threads, 90 s:
 before, all 8 workers stuck within seconds; after, 0 stuck, ~1M ops/s.
----
- dlls/ntdll/sync.c | 49 +++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 49 insertions(+)
 
-diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
+Rebased for DroidDeck-Proton 11-12 onto GE-Proton11-12's newer stale-alert
+fix (GE 960acd0a): the i386 build takes the alert of a wake that raced a
+timeout with the same bounded wait, inside GE's !queued && STATUS_TIMEOUT
+check, and reports the wake.
+---
 --- a/dlls/ntdll/sync.c
 +++ b/dlls/ntdll/sync.c
-@@ -875,6 +875,45 @@
+@@ -872,6 +872,45 @@
      return FALSE;
  }
  
@@ -72,7 +73,7 @@ diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
  /***********************************************************************
   *           RtlWaitOnAddress   (NTDLL.@)
   */
-@@ -910,7 +949,11 @@
+@@ -907,7 +946,11 @@
  
      spin_unlock( &queue->lock );
  
@@ -84,19 +85,22 @@ diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
  
      /* We may have already been removed by a call to RtlWakeAddressSingle() or RtlWakeAddressAll(). */
      if (ReadPointerAcquire( (void * volatile *)&entry.addr ))
-@@ -926,7 +969,13 @@
-         /* A waker removed us as the wait timed out: we have been woken, and the waker alerts us right after
-          * releasing the queue lock. Take that alert, as Windows does, or it would end this thread's next wait
-          * early, whatever it waits for. */
+@@ -920,7 +963,17 @@
+ 
+     /* A waker took us off the queue and alerts us after releasing the lock. If our wait timed out first, take
+      * that alert, or it would end this thread's next wait early. */
+-    if (!queued && ret == STATUS_TIMEOUT) ret = NtWaitForAlertByThreadId( NULL, NULL );
++    if (!queued && ret == STATUS_TIMEOUT)
++    {
 +#ifdef __i386__
 +        LARGE_INTEGER wait;
 +        wait.QuadPart = -1000000;
 +        NtWaitForAlertByThreadId( NULL, &wait );
++        ret = STATUS_SUCCESS;
 +#else
-         NtWaitForAlertByThreadId( NULL, NULL );
++        ret = NtWaitForAlertByThreadId( NULL, NULL );
 +#endif
-         ret = STATUS_SUCCESS;
-     }
++    }
  
--- 
-2.43.0
+     TRACE("returning %#lx\n", ret);
+ 

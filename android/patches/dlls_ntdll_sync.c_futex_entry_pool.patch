@@ -27,15 +27,13 @@ readable; the wake removes it and alerts a thread id that no longer
 exists, which is harmless. Its slot is lost for the process lifetime,
 and if all 4096 slots are taken the wait falls back to the stack
 entry as before.
-
-DroidDeck-Proton main d03ba52e226 (#30, after 11-12.8). Ported: this tree tests
-`entry.addr != NULL` where upstream has `!!entry.addr`; the change is otherwise the same.
 ---
-diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
-index 5109a89..8aa14d4 100644
+ dlls/ntdll/sync.c | 45 +++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 37 insertions(+), 8 deletions(-)
+
 --- a/dlls/ntdll/sync.c
 +++ b/dlls/ntdll/sync.c
-@@ -837,6 +837,32 @@ struct futex_queue
+@@ -837,6 +837,32 @@
  
  static struct futex_queue futex_queues[256];
  
@@ -68,7 +66,7 @@ index 5109a89..8aa14d4 100644
  static struct futex_queue *get_futex_queue( const void *addr )
  {
      ULONG_PTR val = (ULONG_PTR)addr;
-@@ -918,7 +944,7 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
+@@ -918,7 +944,7 @@
                                    const LARGE_INTEGER *timeout )
  {
      struct futex_queue *queue = get_futex_queue( addr );
@@ -77,7 +75,7 @@ index 5109a89..8aa14d4 100644
      BOOL queued = FALSE;
      NTSTATUS ret;
  
-@@ -927,8 +953,8 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
+@@ -927,8 +953,8 @@
      if (size != 1 && size != 2 && size != 4 && size != 8)
          return STATUS_INVALID_PARAMETER;
  
@@ -88,7 +86,7 @@ index 5109a89..8aa14d4 100644
  
      spin_lock( &queue->lock );
  
-@@ -937,27 +963,28 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
+@@ -937,27 +963,28 @@
      if (!compare_addr( addr, cmp, size ))
      {
          spin_unlock( &queue->lock );
@@ -115,15 +113,15 @@ index 5109a89..8aa14d4 100644
 +    if (ReadPointerAcquire( (void * volatile *)&entry->addr ))
      {
          spin_lock( &queue->lock );
--        if ((queued = entry.addr != NULL))
+-        if ((queued = !!entry.addr))
 -            list_remove( &entry.entry );
-+        if ((queued = entry->addr != NULL))
++        if ((queued = !!entry->addr))
 +            list_remove( &entry->entry );
          spin_unlock( &queue->lock );
      }
  
-@@ -976,6 +1003,8 @@ NTSTATUS WINAPI RtlWaitOnAddress( const void *addr, const void *cmp, SIZE_T size
-         ret = STATUS_SUCCESS;
+@@ -975,6 +1002,8 @@
+ #endif
      }
  
 +    put_futex_entry( entry );
