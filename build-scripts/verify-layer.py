@@ -261,10 +261,24 @@ def main():
         report(os.path.isfile(os.path.join(pe, "lsass.exe")), "lsass.exe present (ACE SamSs service stub)")
         report(b"WINE_DDRAW_MAXGAMETICKS" in read(os.path.join(pe, "ddraw.dll")), "ddraw.dll: WINE_DDRAW_MAXGAMETICKS (GE 11-14)")
         report(b"WINE_CURSOR_SCALE" in read(os.path.join(unix, "winex11.so")), "winex11.so: WINE_CURSOR_SCALE (GE 11-14)")
+        # DroidDeck-Proton 11-14.1 tier 3: CachyOS game fixes not in GE (cherry-picked on proton_11.14.1-DroidDeck)
+        print("-- DroidDeck-Proton CachyOS tier")
+        report(b"WINE_DISABLE_SFN" in ntdll_so and b"Yakuza5.exe" in ntdll_so, "ntdll.so: WINE_DISABLE_SFN short-name switch (Yakuza 5 cutscenes)")
+        report(u16("CefBrowserWindow") in w32so and b"3513350" in w32so, "win32u.so: Wuthering Waves opaque webviews")
+        report(b"462780" in read(os.path.join(pe, "xaudio2_7.dll")), "xaudio2_7.dll: Darksiders Warmastered buffer-copy hack")
+        report(b"RtlAreLongPathsEnabled" in read(os.path.join(pe, "ntdll.dll")), "ntdll.dll: RtlAreLongPathsEnabled export")
+        report(b"PowerReadACValueIndex" in read(os.path.join(pe, "powrprof.dll")), "powrprof.dll: PowerReadACValueIndex stub export")
         if not arm64ec:
             # compiled only for x86_64 PE ntdll (#if __x86_64__ && !__arm64ec__); inert on arm64ec
             report(u16("AI-LIMIT.exe") in read(os.path.join(pe, "ntdll.dll")),
                    "ntdll.dll: AI LIMIT DX12 compute-shader fallback (GE 11-7, x86_64 only)")
+
+    # DroidDeck-Proton fixes carried from the 11.0-12.8 layer that leave a string in the binaries. The
+    # ntdll/server ones have no string of their own; the build-step MARKERS check them in the source.
+    print("-- DroidDeck-Proton fixes")
+    report(b"WINE_OFFSCREEN_CHECK_MS" in read(os.path.join(unix, "winex11.so")), "winex11.so: offscreen check cache (WINE_OFFSCREEN_CHECK_MS, opt-in)")
+    report(os.path.isfile(os.path.join(pe, "mfwmaaec.dll")), "mfwmaaec.dll present (Valve Voice Capture DSP)")
+    report(u16("showdown_avx.exe") in read(os.path.join(pe, "ws2_32.dll")), "ws2_32.dll: DiRT 3 / DiRT Showdown telemetry sendto fix")
 
     print("== verify-layer: %s" % ("PASS" if fails == 0 else "%d FATAL check(s)" % fails))
     return 0 if fails == 0 else 1
