@@ -394,6 +394,45 @@ do
       # ntdll: the Sleep(0) throttle starts a new run after > 500 us of own CPU work, or two > 50 us work gaps < 2 ms apart, between
       # yields (frame loops faster than 2 ms per frame were capped: AIO DirectDraw 2785 -> 1460 fps).
       "dlls_ntdll_unix_sync.c_sleep0_work_reset.patch"
+
+      # DroidDeck-Proton fixes carried by the 11.0-12.8 layer (DroidDeck-Proton 11-11.x .. 11-12.8 and main)
+      # 11-11.9 (2026-10-30): DroidDeck-Proton 11-11.3..11-11.9 Wine fixes (Droid-Deck/DroidDeck-Proton
+      # f7d00335 patches/wine-hotfixes/pending, unchanged) + the proton-wine banner-proton/11.11 winex11 commit.
+      # server: give the user ownership of files on Android shared storage (FUSE/sdcardfs owner is the
+      # media provider; Blizzard Agent error 2123) (DroidDeck-Proton #4, maxjivi05)
+      "server_file.c_android_shared_storage_owner.patch"
+      # ntdll: recover a lost wake in the i386 RtlWaitOnAddress() under FEX (Battle.net UI freeze) (#5, maxjivi05)
+      "dlls_ntdll_sync.c_i386_lost_wake.patch"
+      # ntdll: don't report Wine's own installed files as read-only (MapleStory) (#6, maxjivi05)
+      "dlls_ntdll_unix_file.c_wine_files_not_readonly.patch"
+      # ntdll: treat Android's case-folding shared storage as case-insensitive (no per-lookup directory scan) (#7, maxjivi05)
+      "dlls_ntdll_unix_file.c_android_case_insensitive.patch"
+      # ntdll: World of Warcraft Forever ARM64EC syscall dispatch, NLS and map-time fixes (DroidDeck-Proton #3,
+      # arusiasotto). arm64ec only: its start_thread hunk calls an __aarch64__-only function.
+      "dlls_ntdll_wow_forever_arm64ec.patch"
+      # winebuild, ntdll: ARM64X import thunks get the x86_64 hotpatch prologue, so x86-64 hooks on system DLL
+      # exports land and ARM64EC callers still skip the emulator (11-12.2, maxjivi05). arm64ec only.
+      "dlls_ntdll_signal_arm64ec.c_arm64x_import_thunk_hotpatch.patch"
+      # 11-12.8 (2026-11-16): DroidDeck-Proton 11-12.4..11-12.8 Wine fixes plus one from its main after 11-12.8
+      # (Droid-Deck/DroidDeck-Proton 9956783f + d03ba52e patches).
+      # server: directories grant Users read access, as on Windows; Steam's DRM helper looks for it
+      # (11-12.4, xXJSONDeruloXx)
+      "server_file.c_directory_users_ace.patch"
+      # ntdll: no extended attribute queries on a filesystem that reported ENOTSUP once (11-12.6, maxjivi05;
+      # context rebased)
+      "dlls_ntdll_unix_file.c_xattr_less_filesystems.patch"
+      # ntdll: no directory listing for a missing file on a case-folding volume unless the name can be a hashed
+      # short name (11-12.7, maxjivi05)
+      "dlls_ntdll_unix_file.c_case_folding_missing_file.patch"
+      # ntdll: RtlWaitOnAddress() queue entries from a static pool, so a thread killed in a wait leaves no
+      # dangling stack entry (Forza Horizon 6 loading stall; main d03ba52e, l4nr3; one line ported)
+      "dlls_ntdll_sync.c_futex_entry_pool.patch"
+      # ntdll: the ARM64EC process breakpoint handler steps over the brk at Rip, not at the ARM64 Pc offset
+      # (MGS V Ground Zeroes splash loop; 11-12.4, xXJSONDeruloXx). arm64ec only.
+      "dlls_ntdll_signal_arm64ec.c_process_breakpoint_rip.patch"
+      # ntdll: NtGetContextThread on a NULL context returns STATUS_ACCESS_VIOLATION on ARM64EC (Crash Bandicoot
+      # N. Sane Trilogy; main 92b57e73, 66sam). arm64ec only.
+      "dlls_ntdll_signal_arm64ec.c_get_context_null.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -505,6 +544,23 @@ do
       "dlls/ntdll/signal_arm64ec.c|if (!is_valid_arm64ec_frame( new_context.Sp ))|ARM64EC unwind checks the stack pointer before each step (v17, a188791d)"
       "dlls/ntdll/unix/thread.c|if (inproc_alert_fd_is_fd()) close( ntdll_get_thread_data()->alert_fd );|thread exit closes alert_fd only when it is an fd (userspace ntsync index, fdsan double-close)"
       "dlls/ntdll/unix/sync.c|if (do_fsync()) fd = reply->sync_shm_idx;|fsync alert index not cached in alert_fd (Valve 707bb01fbfc, in the base)"
+
+      "server/file.c|security_unix_uid_to_sid( file_sd_owner( unix_fd, &st ) )|Android shared storage files owned by the user (DroidDeck-Proton #4)"
+      "dlls/ntdll/sync.c|static NTSTATUS wait_for_wake( struct futex_entry *entry, const LARGE_INTEGER *timeout )|i386 RtlWaitOnAddress lost-wake recovery (DroidDeck-Proton #5)"
+      "dlls/ntdll/unix/file.c|is_wine_install_fd( fd )|Wine's own files not read-only (DroidDeck-Proton #6)"
+      "dlls/ntdll/unix/file.c|else if (dir_folds_case( root_fd, dir, fd ))|Android shared storage case-insensitive (DroidDeck-Proton #7)"
+      "include/wine/asm.h|ldr x16, [x18, #0x370]|WoW Forever ARM64EC syscall stubs read the TEB syscall table (DroidDeck-Proton #3)"
+      "dlls/ntdll/unix/syscall.c|ntdll_arm64ec_sync_syscall_dispatch|WoW Forever ARM64EC KSDT dispatcher sync (DroidDeck-Proton #3)"
+      "dlls/ntdll/unix/env.c|map_nls_file_as_view|WoW Forever NLS section fallback (DroidDeck-Proton #3)"
+      "dlls/ntdll/unix/virtual.c|map_image_init_ntdll_dispatchers|WoW Forever mapped-ntdll dispatcher init (DroidDeck-Proton #3)"
+      "dlls/ntdll/signal_arm64ec.c|.Lhotpatch_seq|ARM64X import thunks with the x86_64 hotpatch prologue (DroidDeck-Proton 11-12.2, maxjivi05)"
+      "server/file.c|Windows grants Users read access to system directories|directories grant Users read access (DroidDeck-Proton 11-12.4, xXJSONDeruloXx)"
+      "dlls/ntdll/unix/file.c|if (xattr_less( st )) return ret;|no xattr queries on filesystems without them (DroidDeck-Proton 11-12.6, maxjivi05)"
+      "dlls/ntdll/unix/file.c|static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )|no directory listing for a missing file on case-folding volumes (DroidDeck-Proton 11-12.7, maxjivi05)"
+      "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
+      "dlls/ntdll/signal_arm64ec.c|ldr x4, [x2, #0xf8]|ARM64EC process breakpoint stepped at Rip (DroidDeck-Proton 11-12.4, xXJSONDeruloXx)"
+      "dlls/ntdll/signal_arm64ec.c|arm_ctx = (ARM64_NT_CONTEXT){ .ContextFlags = ctx_flags_x64_to_arm( context->ContextFlags ) };|ARM64EC NtGetContextThread NULL context (DroidDeck-Proton main 92b57e73, 66sam)"
+      "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second mappings of a loaded DLL (DroidDeck-Proton #34, Black Ops III)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"

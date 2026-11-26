@@ -1,0 +1,54 @@
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Sat, 24 Oct 2026 23:10:00 -0400
+Subject: [PATCH] server: Give the user ownership of files on Android shared storage.
+
+Android's shared storage is a FUSE mount (sdcardfs before Android 11)
+whose files belong to the media provider's uid while the daemon grants
+the app full access. Wine built their security descriptors with the
+anonymous logon SID as owner and no ACE for the user, so AccessCheck
+denied write access to folders the user can write. Blizzard's Agent
+checks this before installing and fails with error 2123.
+
+Map a foreign owner on these file systems to the current user.
+---
+diff --git a/server/file.c b/server/file.c
+--- a/server/file.c
++++ b/server/file.c
+@@ -37,6 +37,9 @@
+ #include <utime.h>
+ #endif
+ #include <poll.h>
++#ifdef __linux__
++#include <sys/vfs.h>
++#endif
+ #ifdef HAVE_ATTR_XATTR_H
+ #undef XATTR_ADDITIONAL_OPTIONS
+ #include <attr/xattr.h>
+@@ -530,6 +533,18 @@
+     return sd;
+ }
+ 
++static uid_t file_sd_owner( int unix_fd, const struct stat *st )
++{
++#ifdef __linux__
++    struct statfs fs;
++
++    if (st->st_uid != getuid() && !fstatfs( unix_fd, &fs ) &&
++        (fs.f_type == 0x65735546 || fs.f_type == 0x5dca2df5))
++        return getuid();
++#endif
++    return st->st_uid;
++}
++
+ struct security_descriptor *get_file_sd( struct object *obj, struct fd *fd, mode_t *mode,
+                                          uid_t *uid )
+ {
+@@ -547,7 +562,7 @@
+ 
+     sd = get_xattr_sd( unix_fd );
+     if (!sd) sd = mode_to_sd( st.st_mode,
+-                              security_unix_uid_to_sid( st.st_uid ),
++                              security_unix_uid_to_sid( file_sd_owner( unix_fd, &st ) ),
+                               token_get_primary_group( current->process->token ));
+     if (!sd) return obj->sd;
+ 

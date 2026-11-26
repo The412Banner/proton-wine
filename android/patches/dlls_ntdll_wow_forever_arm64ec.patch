@@ -1,0 +1,460 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: arusiasotto <4206983+arusiasotto@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 00:00:00 +0000
+Subject: [PATCH] ntdll: WoW Forever ARM64EC syscall dispatch, NLS, and map-time fixes.
+
+World of Warcraft Forever (WowB-ARM64.exe) is ARM64EC. Wine's PE syscall stubs and
+KeServiceDescriptorTable wiring must match deck-verified TEB/KSDT dispatch; manually
+mapped ntdll views need dispatcher init and NLS section fallback when maps fail.
+---
+diff --git a/dlls/ntdll/unix/env.c b/dlls/ntdll/unix/env.c
+index 104b1eb90f8..75b91fb3b28 100644
+--- a/dlls/ntdll/unix/env.c
++++ b/dlls/ntdll/unix/env.c
+@@ -2227,6 +2227,97 @@ void *create_startup_info( const UNICODE_STRING *nt_image, ULONG process_flags,
+ }
+ 
+ 
++static NTSTATUS map_nls_file_as_view( const char *name, void **ptr, SIZE_T *size )
++{
++    const char *dir = build_dir ? build_dir : data_dir;
++    char *path;
++    struct stat st;
++    void *base = NULL, *file_data;
++    SIZE_T region_size;
++    ULONG old_protect;
++    NTSTATUS status;
++    int fd;
++
++    *ptr = NULL;
++    if (size) *size = 0;
++
++    if (asprintf( &path, "%s/nls/%s", dir, name ) == -1) return STATUS_NO_MEMORY;
++
++    if ((fd = open( path, O_RDONLY )) == -1)
++    {
++        free( path );
++        return STATUS_OBJECT_NAME_NOT_FOUND;
++    }
++    if (fstat( fd, &st ) == -1 || st.st_size <= 0x1000)
++    {
++        close( fd );
++        free( path );
++        return STATUS_OBJECT_NAME_NOT_FOUND;
++    }
++    close( fd );
++
++    region_size = (st.st_size + page_size - 1) & ~(page_size - 1);
++    status = NtAllocateVirtualMemory( GetCurrentProcess(), &base, 0, &region_size,
++                                      MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE );
++    if (status)
++    {
++        free( path );
++        return status;
++    }
++
++    if (!(file_data = read_nls_file( name )))
++    {
++        NtFreeVirtualMemory( GetCurrentProcess(), &base, &region_size, MEM_RELEASE );
++        free( path );
++        return STATUS_OBJECT_NAME_NOT_FOUND;
++    }
++    memcpy( base, file_data, st.st_size );
++    free( file_data );
++    free( path );
++
++    {
++        PVOID protect_base = base;
++        SIZE_T protect_size = region_size;
++
++        status = NtProtectVirtualMemory( GetCurrentProcess(), &protect_base, &protect_size,
++                                         PAGE_READONLY, &old_protect );
++    }
++    if (status)
++    {
++        NtFreeVirtualMemory( GetCurrentProcess(), &base, &region_size, MEM_RELEASE );
++        return status;
++    }
++
++    *ptr = base;
++    if (size) *size = st.st_size;
++    return STATUS_SUCCESS;
++}
++
++static NTSTATUS arm64ec_nls_section_fallback( UINT type, UINT id, void **ptr, SIZE_T *size )
++{
++    static const char * const default_chain[] = { "l_intl.nls", "c_1252.nls", "c_437.nls", NULL };
++    char *path, *basename;
++    unsigned int i;
++    NTSTATUS status;
++
++    if ((path = get_nls_file_path( type, id )))
++    {
++        basename = strrchr( path, '/' );
++        basename = basename ? basename + 1 : path;
++        status = map_nls_file_as_view( basename, ptr, size );
++        free( path );
++        if (!status) return STATUS_SUCCESS;
++    }
++
++    for (i = 0; default_chain[i]; i++)
++    {
++        status = map_nls_file_as_view( default_chain[i], ptr, size );
++        if (!status) return STATUS_SUCCESS;
++    }
++    return STATUS_UNSUCCESSFUL;
++}
++
++
+ /**************************************************************************
+  *      NtGetNlsSectionPtr  (NTDLL.@)
+  */
+@@ -2263,6 +2354,8 @@ NTSTATUS WINAPI NtGetNlsSectionPtr( ULONG type, ULONG id, void *unknown, void **
+         status = map_section( handle, ptr, size, PAGE_READONLY );
+         NtClose( handle );
+     }
++    if (status)
++        status = arm64ec_nls_section_fallback( type, id, ptr, size );
+     return status;
+ }
+ 
+@@ -2278,6 +2371,7 @@ NTSTATUS WINAPI NtInitializeNlsFiles( void **ptr, LCID *lcid, LARGE_INTEGER *siz
+     SIZE_T mapsize;
+     NTSTATUS status;
+ 
++    *lcid = system_lcid;
+     if (asprintf( &path, "%s/nls/locale.nls", dir ) == -1) return STATUS_NO_MEMORY;
+     status = open_nls_data_file( path, system_dir, &file );
+     free( path );
+@@ -2291,7 +2385,16 @@ NTSTATUS WINAPI NtInitializeNlsFiles( void **ptr, LCID *lcid, LARGE_INTEGER *siz
+         status = map_section( handle, ptr, &mapsize, PAGE_READONLY );
+         NtClose( handle );
+     }
+-    *lcid = system_lcid;
++    if (status)
++    {
++        status = map_nls_file_as_view( "locale.nls", ptr, &mapsize );
++        if (!status) *lcid = 0x0409;
++    }
++    if (!status)
++    {
++        if (size) size->QuadPart = mapsize;
++        if (*lcid != 0x0409) *lcid = system_lcid;
++    }
+     return status;
+ }
+ 
+diff --git a/dlls/ntdll/unix/signal_arm64.c b/dlls/ntdll/unix/signal_arm64.c
+index c8ebcae44d5..54ff62d70e8 100644
+--- a/dlls/ntdll/unix/signal_arm64.c
++++ b/dlls/ntdll/unix/signal_arm64.c
+@@ -806,6 +806,7 @@ static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
+ {
+     CONTEXT context;
+ 
++    memset( &context, 0, sizeof(context) );
+     rec->ExceptionAddress = (void *)PC_sig(sigcontext);
+     save_context( &context, sigcontext );
+     setup_raise_exception( sigcontext, rec, &context );
+@@ -1209,6 +1210,7 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+     CONTEXT ctx;
+ 
+     rec.ExceptionAddress = (void *)PC_sig(context);
++    memset( &ctx, 0, sizeof(ctx) );
+     save_context( &ctx, sigcontext );
+ 
+     switch (siginfo->si_code)
+diff --git a/dlls/ntdll/unix/syscall.c b/dlls/ntdll/unix/syscall.c
+index a7ca90ab06f..8388a43f4e1 100644
+--- a/dlls/ntdll/unix/syscall.c
++++ b/dlls/ntdll/unix/syscall.c
+@@ -244,9 +244,25 @@ static BYTE syscall_args[ARRAY_SIZE(syscalls)] =
+ #undef SYSCALL_ENTRY
+ };
+ 
++#ifdef __aarch64__
++extern void __wine_syscall_dispatcher(void);
++
++void ntdll_arm64ec_sync_syscall_dispatch( TEB *teb )
++{
++    struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
++
++    KeServiceDescriptorTable[0].CounterTable = (ULONG_PTR *)__wine_syscall_dispatcher;
++    thread_data->syscall_table = KeServiceDescriptorTable;
++}
++#endif
++
+ SYSTEM_SERVICE_TABLE KeServiceDescriptorTable[4] =
+ {
++#ifdef __aarch64__
++    { (ULONG_PTR *)syscalls, (ULONG_PTR *)__wine_syscall_dispatcher, ARRAY_SIZE(syscalls), syscall_args }
++#else
+     { (ULONG_PTR *)syscalls, NULL, ARRAY_SIZE(syscalls), syscall_args }
++#endif
+ };
+ 
+ static const char *ntsyscall_names[] =
+diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
+index 8e5070998de..42d62642396 100644
+--- a/dlls/ntdll/unix/thread.c
++++ b/dlls/ntdll/unix/thread.c
+@@ -1137,7 +1137,8 @@ static void start_thread( TEB *teb )
+     struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)&teb->GdiTebBatch;
+     BOOL suspend;
+ 
+-    thread_data->syscall_table = KeServiceDescriptorTable;
++    if (is_arm64ec()) ntdll_arm64ec_sync_syscall_dispatch( teb );
++    else thread_data->syscall_table = KeServiceDescriptorTable;
+     thread_data->syscall_trace = TRACE_ON(syscall);
+     thread_data->pthread_id = pthread_self();
+     pthread_setspecific( teb_key, teb );
+@@ -1271,6 +1272,7 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
+         cpu_area->EmulatorStackBase  = (ULONG_PTR)stack.StackBase;
+         cpu_area->EmulatorStackLimit = (ULONG_PTR)stack.StackLimit + page_size;
+         teb->ChpeV2CpuAreaInfo = cpu_area;
++        ntdll_arm64ec_sync_syscall_dispatch( teb );
+     }
+ #endif
+ 
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index 9d2c5f464f7..9b87fe9ee55 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -358,6 +358,9 @@ extern void signal_init_process(void);
+ extern void DECLSPEC_NORETURN signal_start_thread( PRTL_THREAD_START_ROUTINE entry, void *arg,
+                                                    BOOL suspend, TEB *teb );
+ extern SYSTEM_SERVICE_TABLE KeServiceDescriptorTable[4];
++#ifdef __aarch64__
++void ntdll_arm64ec_sync_syscall_dispatch( TEB *teb );
++#endif
+ extern void __wine_syscall_dispatcher(void);
+ extern void __wine_syscall_dispatcher_return(void);
+ extern void __wine_unix_call_dispatcher(void);
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index 4b0530e2f3b..db9c7855e04 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -3272,6 +3272,180 @@ static IMAGE_BASE_RELOCATION *process_relocation_block( char *page, IMAGE_BASE_R
+     return (IMAGE_BASE_RELOCATION *)reloc;  /* return address of next block */
+ }
+ 
++#ifdef __aarch64__
++
++static BOOL is_ntdll_image_name( const UNICODE_STRING *name )
++{
++    static const WCHAR ntdllW[] = {'n','t','d','l','l','.','d','l','l'};
++    const WCHAR *p = name->Buffer;
++    unsigned int len = name->Length / sizeof(WCHAR);
++    unsigned int i;
++
++    if (len < ARRAY_SIZE( ntdllW )) return FALSE;
++    p += len - ARRAY_SIZE( ntdllW );
++    for (i = 0; i < ARRAY_SIZE( ntdllW ); i++)
++        if (RtlUpcaseUnicodeChar( p[i] ) != ntdllW[i]) return FALSE;
++    return TRUE;
++}
++
++static ULONG_PTR map_image_find_ordinal_export( char *module, const IMAGE_EXPORT_DIRECTORY *exports,
++                                                DWORD ordinal )
++{
++    const DWORD *functions = (const DWORD *)((BYTE *)module + exports->AddressOfFunctions);
++
++    if (ordinal >= exports->NumberOfFunctions) return 0;
++    if (!functions[ordinal]) return 0;
++    return (ULONG_PTR)module + functions[ordinal];
++}
++
++static ULONG_PTR map_image_find_named_export( char *module, const IMAGE_EXPORT_DIRECTORY *exports,
++                                              const char *name )
++{
++    const WORD *ordinals = (const WORD *)((BYTE *)module + exports->AddressOfNameOrdinals);
++    const DWORD *names = (const DWORD *)((BYTE *)module + exports->AddressOfNames);
++    int min = 0, max = exports->NumberOfNames - 1;
++
++    while (min <= max)
++    {
++        int res, pos = (min + max) / 2;
++        char *ename = (char *)module + names[pos];
++        if (!(res = strcmp( ename, name ))) return map_image_find_ordinal_export( module, exports, ordinals[pos] );
++        if (res > 0) max = pos - 1;
++        else min = pos + 1;
++    }
++    return 0;
++}
++
++static INT64 map_image_ldr_literal_offset( UINT32 insn )
++{
++    INT64 imm19 = (insn >> 5) & 0x7ffff;
++
++    if (imm19 & 0x40000) imm19 |= ~0x7ffffLL;
++    return imm19 << 2;
++}
++
++static void map_image_pwrite_qword( struct file_view *view, void *addr, ULONG_PTR value )
++{
++    BYTE *page = ROUND_ADDR( (BYTE *)addr, page_mask );
++    BYTE vprot = get_page_vprot( page );
++    BOOL readonly = !(vprot & VPROT_WRITE);
++
++    if (readonly)
++    {
++        BYTE write_vprot = (vprot & ~(VPROT_WRITECOPY | VPROT_WRITEWATCH)) | VPROT_WRITE | VPROT_COMMITTED;
++        set_page_vprot( page, host_page_size, write_vprot );
++        mprotect_range( page, host_page_size, 0, 0 );
++    }
++
++    *(ULONG_PTR *)addr = value;
++
++    if (readonly)
++    {
++        set_page_vprot( page, host_page_size, vprot );
++        mprotect_range( page, host_page_size, 0, 0 );
++    }
++}
++
++static void map_image_patch_wine_syscall_stub_slots( struct file_view *view, char *base,
++                                                     IMAGE_NT_HEADERS *nt, SIZE_T total_size,
++                                                     ULONG_PTR dispatcher )
++{
++    static const UINT32 mov_x9_x30 = 0xaa1e03e9;
++    IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION( nt );
++    unsigned int i, j;
++
++    for (i = 0; i < nt->FileHeader.NumberOfSections; i++)
++    {
++        SIZE_T sec_size;
++        UINT32 *code, *end;
++
++        if (!(sec[i].Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
++        if (!sec[i].Misc.VirtualSize) continue;
++        if (sec[i].VirtualAddress >= total_size) continue;
++
++        sec_size = sec[i].Misc.VirtualSize;
++        if (sec[i].VirtualAddress + sec_size > total_size)
++            sec_size = total_size - sec[i].VirtualAddress;
++
++        code = (UINT32 *)(base + sec[i].VirtualAddress);
++        end = (UINT32 *)((char *)code + sec_size);
++
++        for (j = 0; code + j + 4 < end; j++)
++        {
++            UINT32 *insn = code + j;
++            ULONG_PTR literal, cell;
++
++            if (insn[1] != mov_x9_x30) continue;
++            if ((insn[0] & 0xff000000) != 0xd2000000) continue;
++            if ((insn[2] & 0xff000000) != 0x58000000) continue;
++            if (insn[3] != 0xf9400210) continue;
++
++            literal = (ULONG_PTR)(insn + 2) + map_image_ldr_literal_offset( insn[2] );
++            if (literal + sizeof(ULONG_PTR) > (ULONG_PTR)base + total_size) continue;
++
++            cell = *(ULONG_PTR *)literal;
++            if (!cell) continue;
++            if (*(ULONG_PTR *)cell == dispatcher) continue;
++
++            map_image_pwrite_qword( view, (void *)cell, dispatcher );
++            TRACE_(module)( "patched ntdll dispatcher cell %p in mapped view %p\n", (void *)cell, base );
++        }
++    }
++}
++
++static void map_image_init_ntdll_dispatchers( struct file_view *view, const UNICODE_STRING *nt_name,
++                                               char *base, IMAGE_NT_HEADERS *nt, SIZE_T total_size )
++{
++    const IMAGE_EXPORT_DIRECTORY *exports;
++    IMAGE_DATA_DIRECTORY *dir;
++    void **slot;
++    ULONG_PTR export_addr, dispatcher = (ULONG_PTR)__wine_syscall_dispatcher;
++
++    if (!is_ntdll_image_name( nt_name )) return;
++    if (!dispatcher) return;
++
++    dir = get_data_dir( nt, total_size, IMAGE_DIRECTORY_ENTRY_EXPORT );
++    if (!dir) return;
++    exports = (const IMAGE_EXPORT_DIRECTORY *)(base + dir->VirtualAddress);
++
++    export_addr = map_image_find_named_export( base, exports, "__wine_syscall_dispatcher" );
++    if (!export_addr) return;
++
++    slot = (void **)export_addr;
++    if ((ULONG_PTR)*slot != dispatcher)
++    {
++        map_image_pwrite_qword( view, slot, dispatcher );
++        TRACE_(module)( "initialized %s __wine_syscall_dispatcher at %p -> %p\n",
++                        debugstr_us(nt_name), slot, (void *)dispatcher );
++    }
++
++    export_addr = map_image_find_named_export( base, exports, "__wine_unix_call_dispatcher" );
++    if (export_addr)
++    {
++        slot = (void **)export_addr;
++        if (is_arm64ec())
++        {
++            ULONG_PTR ec = map_image_find_named_export( base, exports, "__wine_unix_call_dispatcher_arm64ec" );
++            void **pec = ec ? (void **)ec : NULL;
++
++            if (pec && (ULONG_PTR)*pec != (ULONG_PTR)__wine_unix_call_dispatcher)
++            {
++                ULONG_PTR ec_thunk = (ULONG_PTR)*pec;
++
++                map_image_pwrite_qword( view, slot, ec_thunk );
++                map_image_pwrite_qword( view, pec, (ULONG_PTR)__wine_unix_call_dispatcher );
++            }
++            else if ((ULONG_PTR)*slot != (ULONG_PTR)__wine_unix_call_dispatcher)
++                map_image_pwrite_qword( view, slot, (ULONG_PTR)__wine_unix_call_dispatcher );
++        }
++        else if ((ULONG_PTR)*slot != (ULONG_PTR)__wine_unix_call_dispatcher)
++            map_image_pwrite_qword( view, slot, (ULONG_PTR)__wine_unix_call_dispatcher );
++    }
++
++    map_image_patch_wine_syscall_stub_slots( view, base, nt, total_size, dispatcher );
++}
++
++#endif
+ 
+ /***********************************************************************
+  *           map_image_into_view
+@@ -3511,6 +3685,10 @@ static NTSTATUS map_image_into_view( struct file_view *view, const UNICODE_STRIN
+                  sec[i].Characteristics, debugstr_us(nt_name), sec[i].Name );
+     }
+ 
++#ifdef __aarch64__
++    map_image_init_ntdll_dispatchers( view, nt_name, ptr, nt, total_size );
++#endif
++
+ #ifdef VALGRIND_LOAD_PDB_DEBUGINFO
+     VALGRIND_LOAD_PDB_DEBUGINFO(fd, ptr, total_size, ptr - (char *)wine_server_get_ptr( image_info->base ));
+ #endif
+diff --git a/include/wine/asm.h b/include/wine/asm.h
+index 172d7c8aa6e..5f0bf64be0e 100644
+--- a/include/wine/asm.h
++++ b/include/wine/asm.h
+@@ -249,8 +249,8 @@
+                        ".seh_endprologue\n\t" \
+                        "mov x8, #(" #id ")\n\t" \
+                        "mov x9, x30\n\t" \
+-                       "ldr x16, 1f\n\t" \
+-                       "ldr x16, [x16]\n\t" \
++                       "ldr x16, [x18, #0x370]\n\t" \
++                       "ldr x16, [x16, #8]\n\t" \
+                        "blr x16\n\t" \
+                        "ret\n" \
+                        "1:\t.quad " __ASM_NAME("__wine_syscall_dispatcher") )
+@@ -260,9 +260,13 @@
+          ".seh_endprologue\n\t" \
+          "mov x8, #%0\n\t" \
+          "mov x9, x30\n\t" \
+-         "adrp x16, __wine_syscall_dispatcher\n\t" \
++         "ldr x16, [x18, #0x370]\n\t" \
++         "cbz x16, 1f\n\t" \
++         "ldr x16, [x16, #8]\n\t" \
++         "cbnz x16, 2f\n\t" \
++         "1:\tadrp x16, __wine_syscall_dispatcher\n\t" \
+          "ldr x16, [x16, :lo12:__wine_syscall_dispatcher]\n\t" \
+-         "blr x16\n\t" \
++         "2:\tblr x16\n\t" \
+          "ret\n\t" \
+          ".seh_endproc" :: "i" (id) )
+ #elif defined __arm64ec_x64__
+--

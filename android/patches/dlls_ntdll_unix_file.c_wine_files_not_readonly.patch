@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Sun, 25 Oct 2026 22:23:25 -0400
+Subject: [PATCH] ntdll: Don't report Wine's own installed files as read-only.
+
+Proton ships its builtin modules read-only (the dist step runs chmod a-w
+on lib/wine), and the prefix's system32 and syswow64 entries are
+symlinks to them, so GetFileAttributesW() and GetFileInformationByHandle()
+report FILE_ATTRIBUTE_READONLY for every system DLL. On Windows the
+system DLLs are not read-only.
+
+Copying one of them carries the attribute over: CopyFileW() creates the
+copy read-only, and opening the copy for writing then fails with
+STATUS_ACCESS_DENIED. MapleStory (Steam app 216150) copies ws2_32.dll
+into %TEMP% and opens the copy read/write while it starts; on ARM64
+Proton it then uses the invalid handle and dies with an access violation
+in its protector before any window shows up.
+
+Regular files whose real path is inside Wine's installation (the same
+lib/wine, lib64/wine and share/wine rule is_wine_file() uses) are now
+reported without FILE_ATTRIBUTE_READONLY. Their unix permissions still
+refuse writes, so the installation stays protected; only copies come out
+writable, as they would on Windows.
+---
+ dlls/ntdll/unix/file.c | 29 +++++++++++++++++++++++++++++
+ 1 file changed, 29 insertions(+)
+
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index cb318149ed..5b4d6c8113 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -1675,6 +1675,31 @@ static BOOL fd_is_mount_point( int fd, const struct stat *st )
+ static unsigned int server_get_unix_name( HANDLE handle, char **unix_name );
+ 
+ 
++static BOOL is_wine_unix_name( const char *name )
++{
++    return strstr( name, "/lib/wine/" ) || strstr( name, "/lib64/wine/" ) || strstr( name, "/share/wine/" );
++}
++
++static BOOL is_wine_install_path( const char *path )
++{
++    char *real = realpath( path, NULL );
++    BOOL ret = real && is_wine_unix_name( real );
++
++    free( real );
++    return ret;
++}
++
++static BOOL is_wine_install_fd( int fd )
++{
++    char link[32], target[PATH_MAX];
++    ssize_t len;
++
++    snprintf( link, sizeof(link), "/proc/self/fd/%d", fd );
++    if ((len = readlink( link, target, sizeof(target) - 1 )) <= 0) return FALSE;
++    target[len] = 0;
++    return is_wine_unix_name( target );
++}
++
+ /* get the stat info and file attributes for a file (by file descriptor) */
+ static int fd_get_file_info( HANDLE handle, int fd, unsigned int options,
+                              struct stat *st, ULONG *attr, ULONG *reparse_tag )
+@@ -1687,6 +1712,8 @@ static int fd_get_file_info( HANDLE handle, int fd, unsigned int options,
+     ret = fstat( fd, st );
+     if (ret == -1) return ret;
+     *attr |= get_file_attributes( st );
++    if ((*attr & FILE_ATTRIBUTE_READONLY) && S_ISREG( st->st_mode ) && is_wine_install_fd( fd ))
++        *attr &= ~FILE_ATTRIBUTE_READONLY;
+     if (reparse_tag) *reparse_tag = 0;
+     /* consider mount points to be reparse points (IO_REPARSE_TAG_MOUNT_POINT) */
+     if (options & FILE_OPEN_REPARSE_POINT)
+@@ -1837,6 +1864,8 @@ static int get_file_info( const char *path, struct stat *st, ULONG *attr, ULONG
+         free( parent_path );
+     }
+     *attr |= get_file_attributes( st );
++    if ((*attr & FILE_ATTRIBUTE_READONLY) && S_ISREG( st->st_mode ) && is_wine_install_path( path ))
++        *attr &= ~FILE_ATTRIBUTE_READONLY;
+ 
+     attr_len = xattr_get( path, XATTR_REPARSE, buffer, sizeof(buffer) );
+     if (attr_len >= 0 && attr_len >= sizeof(ULONG))

@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: maxjivi05 <maxjividen@gmail.com>
+Date: Fri, 13 Nov 2026 12:16:42 -0500
+Subject: [PATCH] ntdll: Don't list a case-folding directory to look for a
+ missing file.
+
+When a name isn't found by stat, the directory is listed to look for
+it under another case or as the hashed short name of a longer file. A
+directory that folds case has already answered the first question, and
+a hashed short name always carries a tilde as its fifth character, so
+for any other name the listing can't find anything.
+
+Two lookups still listed the directory on such volumes. Opening a file
+whose name fits 8.3 skipped the case check, because the name might be
+a short name, and a directory query for one exact name always fell
+back to the listing when stat missed. A program that probes a folder
+on a slow case-folding FUSE volume for optional files paid a full
+listing for each one: 54 ms a miss against 0.4 ms for a hit in a
+folder of 106 files on an SD card behind Android's storage daemon.
+
+Skip the listing in both when the directory folds case and the name
+can't be a hashed short name. Case-sensitive directories and names
+shaped like a hashed short name are listed as before.
+---
+ dlls/ntdll/unix/file.c | 24 +++++++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index b9bd131..c9d1071 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -1492,6 +1492,12 @@ static ULONG hash_short_file_name( const WCHAR *name, int length, LPWSTR buffer
+ }
+ 
+ 
++static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )
++{
++    return length >= 8 && name[4] == '~';
++}
++
++
+ /***********************************************************************
+  *           match_filename_part
+  *
+@@ -2727,13 +2733,22 @@ static NTSTATUS read_directory_data_getattrlist( struct dir_data *data, const ch
+  * Read a single file from a directory by determining whether the file
+  * identified by mask exists using stat.
+  */
+-static NTSTATUS read_directory_data_stat( struct dir_data *data, const char *unix_name )
++static NTSTATUS read_directory_data_stat( struct dir_data *data, const char *unix_name,
++                                          const UNICODE_STRING *mask )
+ {
++    char cwd[PATH_MAX];
+     struct stat st;
+ 
++    if (stat( unix_name, &st ) == -1)
++    {
++        if (errno != ENOENT || is_hashed_short_name( mask->Buffer, mask->Length / sizeof(WCHAR) ))
++            return STATUS_NO_SUCH_FILE;
++        if (!getcwd( cwd, sizeof(cwd) ) || get_dir_case_sensitivity( AT_FDCWD, cwd ))
++            return STATUS_NO_SUCH_FILE;
++        return STATUS_OBJECT_NAME_NOT_FOUND;
++    }
+     /* if the file system is not case sensitive we can't find the actual name through stat() */
+     if (!get_dir_case_sensitivity( AT_FDCWD, "." )) return STATUS_NO_SUCH_FILE;
+-    if (stat( unix_name, &st ) == -1) return STATUS_NO_SUCH_FILE;
+ 
+     TRACE( "found %s\n", debugstr_a(unix_name) );
+ 
+@@ -2796,7 +2811,8 @@ static NTSTATUS read_directory_data( struct dir_data *data, int fd, const UNICOD
+ #ifdef HAVE_GETATTRLIST
+             if (!(status = read_directory_data_getattrlist( data, unix_name ))) return status;
+ #endif
+-            if (!(status = read_directory_data_stat( data, unix_name ))) return status;
++            if (!(status = read_directory_data_stat( data, unix_name, mask ))) return status;
++            if (status == STATUS_OBJECT_NAME_NOT_FOUND) return STATUS_SUCCESS;
+         }
+     }
+ 
+@@ -3192,6 +3208,8 @@ static NTSTATUS find_file_in_dir( int root_fd, char *unix_name, int pos, const W
+             close( fd );
+         }
+         /* fall through to normal handling */
++        if (!is_hashed_short_name( name, length ) && !get_dir_case_sensitivity( root_fd, unix_name ))
++            goto not_found;
+     }
+ #endif /* VFAT_IOCTL_READDIR_BOTH */
+ 
