@@ -1,0 +1,55 @@
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+index 9257d6e3b4c..0b436900c6c 100644
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -4879,6 +4879,42 @@ static void release_address_space(void)
+ #endif
+ }
+ 
++/* GOG Galaxy (GalaxyClient.exe) hands each web page from its QtWebEngine device to its D3D11 window
++ * device as a texture shared by NT handle. DXVK cannot open those handles on Android ("Failed to open
++ * shared NT handle"), so the window stayed white. Software compositing in QtWebEngine needs no shared
++ * textures. Set it inside the process: Galaxy is relaunched by its service with a fresh environment
++ * (/deelevated), so a variable set outside never reaches it. A value already set is left alone. */
++static void apply_app_environment_hacks(void)
++{
++    static const struct { const WCHAR *app, *name, *value; } hacks[] =
++    {
++        { L"galaxyclient.exe", L"QTWEBENGINE_CHROMIUM_FLAGS", L"--disable-gpu" },
++    };
++    const RTL_USER_PROCESS_PARAMETERS *params = NtCurrentTeb()->Peb->ProcessParameters;
++    const WCHAR *path, *base;
++    unsigned int i, len;
++    UNICODE_STRING name, value;
++    WCHAR buf[2];
++
++    if (!params || !params->ImagePathName.Buffer) return;
++    path = params->ImagePathName.Buffer;
++    len = params->ImagePathName.Length / sizeof(WCHAR);
++    for (base = path + len; base > path && base[-1] != '\\' && base[-1] != '/'; base--) ;
++    len -= base - path;
++    for (i = 0; i < ARRAY_SIZE(hacks); i++)
++    {
++        if (len != wcslen( hacks[i].app ) || wcsnicmp( base, hacks[i].app, len )) continue;
++        RtlInitUnicodeString( &name, hacks[i].name );
++        value.Buffer = buf;
++        value.Length = 0;
++        value.MaximumLength = sizeof(buf);
++        if (RtlQueryEnvironmentVariable_U( NULL, &name, &value ) != STATUS_VARIABLE_NOT_FOUND) continue;
++        RtlInitUnicodeString( &value, hacks[i].value );
++        RtlSetEnvironmentVariable( NULL, &name, &value );
++        FIXME( "HACK: %s: set %s=%s.\n", debugstr_w(hacks[i].app), debugstr_w(hacks[i].name), debugstr_w(hacks[i].value) );
++    }
++}
++
+ /******************************************************************
+  *		loader_init
+  *
+@@ -4948,6 +4984,7 @@ void loader_init( CONTEXT *context, void **entry )
+             InitializeListHead( &hash_table[i] );
+ 
+         init_user_process_params();
++        apply_app_environment_hacks();
+         load_global_options();
+         version_init();
+         open_known_dll_ntdir();

@@ -486,6 +486,9 @@ do
       # upstream Wine 08464dbe9b8 (11.1): OpenGL windows paint their client area through a surface when the
       # driver has no PutImage (Wayland) - GDI drawing into a GL window was lost (GOG Galaxy all white)
       "dlls_win32u_dce_c_client_surface_no_putimage.patch"
+      # GOG Galaxy: QtWebEngine software compositing, set inside GalaxyClient.exe (its service relaunch drops
+      # outside env); its D3D11 texture sharing by NT handle fails under DXVK on Android -> all-white window
+      "dlls_ntdll_loader_c_app_environment_hacks.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -641,6 +644,7 @@ do
       "dlls/nsiproxy.sys/ndis.c|static void stabilize_phys_addr( const char *name, IF_PHYSICAL_ADDRESS *phys_addr )|nsiproxy fixed MAC for Android random-MAC interfaces (EA OOA licence)"
       "dlls/win32u/winstation.c|if (desktop && !wcsicmp( desktop, defaultW ) && (!winstation|explicit WinSta0 Default desktop follows the configured desktop (GOG Galaxy)"
       "dlls/win32u/dce.c|SET_WINPOS_PIXEL_FORMAT && user_driver->dc_funcs.pPutImage|GL window client area through a surface without PutImage (upstream 08464dbe9b8)"
+      "dlls/ntdll/loader.c|static void apply_app_environment_hacks(void)|per-app environment hacks (GOG Galaxy QtWebEngine software compositing)"
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
       "dlls/ntdll/unix/virtual.c|static BOOL is_writable_image_section( const struct file_view *view, const char *page )|system call writes into emulator-protected writable image sections (NFS Heat)"
