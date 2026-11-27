@@ -3,6 +3,27 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — NEXT RELEASE: credits for the launcher fixes (user order, 18:5x EST)
+- Why: the user asked that the next release that ships the 11-27 launcher work (EA app, Ubisoft Connect, Epic, GOG
+  Galaxy, Vortex) credits the code it builds on. Not released yet; this is the list to copy into those notes (and into
+  DroidDeck-Proton / DroidDeck / Bannerlator notes if they announce these fixes).
+- Release-note lines, ready to paste:
+  - **GameNative fixes these build on** ([GameNative/proton-wine](https://github.com/GameNative/proton-wine),
+    LGPL-2.1, credit in each patch):
+    - #122 GPU drawing for launchers that draw from a second process, now **on by default**; our Wayland change shows
+      those frames in the window (EA app, Steam client) — Dmage22
+    - #133 system call writes into emulator-protected code, extended to writable sections of the game's own exe
+      (Need for Speed Heat) — Utkarsh Dalal
+    - #107 icu checks its backends, completed for icuuc/icuin so .NET 9 falls back to NLS (Vortex) — butilly
+      (GameNative AI help)
+  - **Upstream Wine**: ncrypt ECDSA keys, refcounted providers, import/encrypt fixes — Hans Leidekker, Piotr Caban;
+    persisted keys for the Epic Online Services sign-in key added by The412Banner
+  - Own work (The412Banner): V8 sandbox address-space report (CEF/Electron), Wayland other-process frames, GOG Galaxy
+    desktop + QtWebEngine software path, Electron main-process report (Vortex), wine_get_* hidden from EA's
+    Steam/Epic launchers, fixed MAC for Android random MACs.
+- Not used (no credit owed, do not list as sources): GameNative #32 (RDR2 Social Club V8, open), #141 (Ubisoft
+  adapter MAC, open).
+
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ncrypt-ecdsa MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - Why: the Epic Games Launcher's account linking (Ubisoft) failed with "Invalid Client / 400 Bad Request". Its EOS SDK
   opens or creates the ECDSA_P256 key "Epic/EpicGamesLauncher/EOS/Auth" in the software key storage provider for DPoP;
