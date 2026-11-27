@@ -1,0 +1,68 @@
+Subject: ntdll: Let system calls write into emulator-protected pages of writable image sections.
+
+GameNative #133 makes a system call that writes into an RWX page the ARM64EC emulator write-protected
+(after translating code from it) succeed and tells the emulator, as on Windows, but only for
+VirtualAlloc memory. Need for Speed Heat (Denuvo) has its code in the exe's own RWX ".sbss" section
+(characteristics 0xe0000020) and patches it through a system call writing 4 bytes 8 bytes before the
+next instruction; the write faulted (handle_syscall_fault WRITE at exe+0x120100bf), the patch never
+landed and the game crashed at exe+0x120100c7 right after EA's launch (Pocket FIT, SteamLite + EA app).
+
+Also accept image pages whose section the image declares writable (IMAGE_SCN_MEM_WRITE, read from
+the mapped headers). Read-only sections still fail as on Windows; erased headers keep the old
+behaviour. arm64ec only (where #133 lives).
+
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index e68fc407ac3..1ee7af05da8 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -5372,6 +5372,40 @@ static void queue_emulated_code_write( void *addr, SIZE_T size )
+  * STATUS_ACCESS_VIOLATION. Make the page writable again so the call completes, and
+  * report the write so the emulator drops its translations of the page.
+  */
++/* The page lies in a section the image itself declares writable (IMAGE_SCN_MEM_WRITE): on
++ * Windows a system call may write there, e.g. Denuvo's RWX ".sbss" in Need for Speed Heat,
++ * whose code an emulator write-protects once it has translated it. Read-only sections still
++ * fail as on Windows. The headers are read from the mapped image; a program that erased
++ * them gets the old behaviour. Called with virtual_mutex held. */
++static BOOL is_writable_image_section( const struct file_view *view, const char *page )
++{
++    const IMAGE_DOS_HEADER *dos = view->base;
++    const IMAGE_NT_HEADERS *nt;
++    const IMAGE_SECTION_HEADER *sec;
++    SIZE_T rva = page - (const char *)view->base;
++    BYTE hdr_vprot;
++    UINT i, count;
++
++    if (!(view->protect & SEC_IMAGE) || view->size < host_page_size) return FALSE;
++    hdr_vprot = get_host_page_vprot( view->base );
++    if (!(hdr_vprot & VPROT_COMMITTED) || !(hdr_vprot & VPROT_READ)) return FALSE;
++    if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 ||
++        dos->e_lfanew > host_page_size - sizeof(IMAGE_NT_HEADERS))
++        return FALSE;
++    nt = (const IMAGE_NT_HEADERS *)((const char *)dos + dos->e_lfanew);
++    if (nt->Signature != IMAGE_NT_SIGNATURE) return FALSE;
++    sec = IMAGE_FIRST_SECTION( nt );
++    count = nt->FileHeader.NumberOfSections;
++    if ((const char *)(sec + count) > (const char *)dos + host_page_size) return FALSE;
++    for (i = 0; i < count; i++, sec++)
++    {
++        SIZE_T size = max( sec->Misc.VirtualSize, sec->SizeOfRawData );
++        if (rva >= sec->VirtualAddress && rva < sec->VirtualAddress + size)
++            return !!(sec->Characteristics & IMAGE_SCN_MEM_WRITE);
++    }
++    return FALSE;
++}
++
+ BOOL virtual_handle_emulated_code_write( void *addr )
+ {
+     char *page = ROUND_ADDR( addr, host_page_mask );
+@@ -5382,7 +5416,8 @@ BOOL virtual_handle_emulated_code_write( void *addr )
+     if (!is_arm64ec()) return FALSE;
+ 
+     mutex_lock( &virtual_mutex );  /* no need for signal masking inside signal handler */
+-    if ((view = find_view( page, host_page_size )) && is_view_valloc( view ))
++    if ((view = find_view( page, host_page_size )) &&
++        (is_view_valloc( view ) || is_writable_image_section( view, page )))
+     {
+         vprot = get_host_page_vprot( page );
+         if ((vprot & VPROT_COMMITTED) && (vprot & VPROT_EXEC) && (vprot & VPROT_READ) &&

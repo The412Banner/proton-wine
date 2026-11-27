@@ -472,6 +472,8 @@ do
       # Wayland: frames a process draws into another process's window (Chromium/CEF GPU process ->
       # browser window: EA app, Windows Steam) are read back and shown by the window's owner
       "dlls_winewayland_drv_other_process_frames.patch"
+      # GameNative #133 extended to writable image sections (Denuvo code in an RWX exe section, NFS Heat)
+      "dlls_ntdll_unix_virtual_c_emulated_code_write_image.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -625,6 +627,7 @@ do
       "dlls/winewayland.drv/wayland_surface.c|BOOL wayland_xproc_send(HWND hwnd, HDC hdc)|Wayland: other process frames sent to the window owner"
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
+      "dlls/ntdll/unix/virtual.c|static BOOL is_writable_image_section( const struct file_view *view, const char *page )|system call writes into emulator-protected writable image sections (NFS Heat)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
