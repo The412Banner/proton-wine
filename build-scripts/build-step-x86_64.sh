@@ -529,7 +529,7 @@ do
       "dlls/icu/main.c|BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )|icu backend check (GameNative #107)"
       "dlls/wintypes/main.c|Graphics capture border control is not implemented|IsBorderRequired absent (GameNative #100)"
       "dlls/ntdll/loader.c|if (NtReadFile( file, 0, NULL, NULL, &io, signature, sizeof(signature), &offset, NULL )) return FALSE;|stale x64 builtin drivers (GameNative #72)"
-      "dlls/opengl32/unix_wgl.c|USE_GL_FUNC(glBindFragDataLocation)|gamma pass on GLSL 1.40 (GameNative #88)"
+      "dlls/win32u/opengl.c|USE_GL_FUNC(glBindFragDataLocation)|gamma pass on GLSL 1.40 (GameNative #88)"
       "dlls/ntdll/unix/sync.c|static NTSTATUS reuse_parked_semaphore( HANDLE *handle, ACCESS_MASK access, LONG initial, LONG max )|semaphore recycle (GameNative #142)"
       "server/process.c|if (dup_needs_source_process( parent, info->data->console )) info->data->console = 0;|semaphore recycle server side (GameNative #142)"
       "dlls/ntdll/unix/system.c|if (cached_power && cached_cpus == out_cpus && now - cached_time < 500)|power info cache (GameNative #86)"
