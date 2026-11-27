@@ -1,0 +1,53 @@
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+index 8fc1c3eac03..4edc866bb26 100644
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -2470,6 +2470,39 @@ static BOOL is_hidden_export( void *proc )
+                                  proc == &wine_get_host_version);
+ }
+ 
++/* EA's Steam and Epic launchers (EA app 13.836) cut every launch environment value longer than
++ * 1024 characters when GetProcAddress( ntdll, "wine_get_version" ) succeeds. That breaks the
++ * ~4 KB EA access token handed to Origin-era games in EALaunchUserAuthToken (OOA activation fails
++ * with AUTHENTICATION_FAILED). Hide the wine_get_* exports from those launchers only, by name,
++ * which also works for x64 callers in ARM64EC processes. */
++static BOOL hide_wine_exports_from_app(void)
++{
++    static const WCHAR *apps[] = { L"easteamlauncher.exe", L"eaegslauncher.exe" };
++    static int hide = -1;
++    const RTL_USER_PROCESS_PARAMETERS *params = NtCurrentTeb()->Peb->ProcessParameters;
++    const WCHAR *path, *base;
++    unsigned int i, len;
++
++    if (hide != -1) return hide;
++    if (!params || !params->ImagePathName.Buffer) return FALSE;
++    path = params->ImagePathName.Buffer;
++    len = params->ImagePathName.Length / sizeof(WCHAR);
++    for (base = path + len; base > path && base[-1] != '\\' && base[-1] != '/'; base--) ;
++    len -= base - path;
++    hide = 0;
++    for (i = 0; i < ARRAY_SIZE(apps); i++)
++        if (len == wcslen( apps[i] ) && !wcsnicmp( base, apps[i], len )) hide = 1;
++    if (hide) FIXME( "HACK: hiding wine_get_* exports from %s.\n", debugstr_wn( base, len ) );
++    return hide;
++}
++
++static BOOL is_hidden_export_name( WINE_MODREF *wm, const ANSI_STRING *name )
++{
++    if (!name || !name->Buffer || strncmp( name->Buffer, "wine_get_", 9 )) return FALSE;
++    if (wcsicmp( wm->ldr.BaseDllName.Buffer, L"ntdll.dll" )) return FALSE;
++    return hide_wine_exports_from_app();
++}
++
+ 
+ /******************************************************************
+  *		LdrGetProcedureAddress  (NTDLL.@)
+@@ -2491,7 +2524,7 @@ NTSTATUS WINAPI LdrGetProcedureAddress(HMODULE module, const ANSI_STRING *name,
+     {
+         void *proc = name ? find_named_export( module, exports, exp_size, name->Buffer, -1, NULL, wm, TRUE )
+                           : find_ordinal_export( module, exports, exp_size, ord - exports->Base, NULL, wm, TRUE );
+-        if (proc && !is_hidden_export( proc ))
++        if (proc && !is_hidden_export( proc ) && !is_hidden_export_name( wm, name ))
+         {
+             *address = proc;
+             ret = STATUS_SUCCESS;

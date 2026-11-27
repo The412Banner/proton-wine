@@ -419,6 +419,9 @@ do
       # Wayland: frames a process draws into another process's window (Chromium/CEF GPU process ->
       # browser window: EA app, Windows Steam) are read back and shown by the window's owner
       "dlls_winewayland_drv_other_process_frames.patch"
+      # EA app 13.836 Steam/Epic launchers cut launch env values to 1024 chars under Wine (EA token
+      # for Origin-era games, NFS Most Wanted OOA activation): hide wine_get_* from those launchers
+      "dlls_ntdll_loader_c_hide_wine_exports_ea_launchers.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -544,6 +547,7 @@ do
       "dlls/ntdll/unix/virtual.c|static BOOL android_large_address_report(void)|V8 sandbox address space report for Chromium children (EA app 13.836)"
       "dlls/ntdll/unix/system.c|virtual_get_reported_system_info( &sbi, FALSE );|reported system info used for SystemBasicInformation"
       "dlls/winewayland.drv/wayland_surface.c|BOOL wayland_xproc_send(HWND hwnd, HDC hdc)|Wayland: other process frames sent to the window owner"
+      "dlls/ntdll/loader.c|static BOOL hide_wine_exports_from_app(void)|ntdll hides wine_get_* from EA Steam/Epic launchers (EA token cut to 1024)"
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
     )
