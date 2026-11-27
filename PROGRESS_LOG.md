@@ -3,7 +3,7 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
-## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select: desktop icons selected by a click (branch, CI pending)
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select: desktop icon selection + selection box (branch, CI green, device test in progress)
 - Why: user 15:2x EST: a click on a desktop icon (XP desktop) gives no highlight like Windows. User picked the basic
   version + right-click selects; LATER (user wish): a click-and-drag selection box shown until the button is released.
 - Built bec8724f patch programs_explorer_desktop.c_icon_selection.patch (after programs_explorer_desktop.c.patch in
@@ -23,6 +23,17 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
   rootsh 'sh /sdcard/Download/.tmp-x/desk-undo.sh' (Wine stopped). Device test: pending (user opens container 1).
 - Plan: CI -> swap only explorer.exe into the FIT 14.1 layer + container prefix (backups) -> test click/empty/right
   click/double click on X11 + Wayland -> then the other 5 parents; release = user word.
+- 16:01 EST USER TEST of 681cc0ce (FIT, Wayland, container 1): clicked GOG GALAXY -> blue title box, white text,
+  dotted focus outline = DEVICE-PROVEN; icon tint not confirmed from the screenshot; logcat 15:57-16:02 0 FATAL/crash.
+- User: "can't tap and hold, then drag with a second finger to select multiple" -> selection box built in acb21caa
+  (same patch file): press on an empty spot + move past SM_CXDRAG = XP band (COLOR_HIGHLIGHT, GdiAlphaBlend 0x50 fill +
+  FrameRect), selects launchers whose icon/title rect it touches, Ctrl inverts; Ctrl+click toggles; click on one of
+  several selected = selects it alone at button up; double-click on empty = press (tap then drag); capture released on
+  WM_CAPTURECHANGED. BL main 4e42eda9f TouchpadView: Box Select (Cursor to Touch) and the two-finger wide hold both send
+  LMB down/move/up, so no BL change. Markers: mouse_down + update_band.
+- CI 46068123426 (acb21caa) GREEN both legs 16:15 EST (patch applied, 2 markers ok, verify-layer PASS). explorer.exe md5
+  bddc40b2, staged /sdcard/Download/.tmp-x/explorer-desk-acb21caa.exe (sha256 2da4a6a2 host == device). Swap waits for
+  the container to close (wineserver running).
 
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ncrypt-ecdsa MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - Why: the Epic Games Launcher's account linking (Ubisoft) failed with "Invalid Client / 400 Bad Request". Its EOS SDK
