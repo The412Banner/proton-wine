@@ -471,6 +471,10 @@ do
       "dlls_user32_clipboard_c.patch"
       "dlls_winex11_drv_mouse_c_clip_regrab.patch"
       "dlls_winex11_drv_mouse_c_clip_grab_foreground.patch"
+      # GameNative #122 Battle.net-style launcher GPU drawing (other process Vulkan readback), OFF by default:
+      # WINE_DISABLE_VULKAN_OPWR=0 turns it on (user decision 2026-11-26). Both adapted.
+      "dlls_win32u_vulkan_c_other_process_readback.patch"
+      "dlls_winex11.drv_init.c_opwr_readback.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -611,6 +615,10 @@ do
       "dlls/winex11.drv/mouse.c|if (data->clipping_cursor && clipping_cursor && EqualRect( clip, &clip_rect )) return TRUE;|X11 clip re-grab skip (GameNative #82)"
       "dlls/winex11.drv/mouse.c|if (fg_data->whole_window && fg_data->display == data->display) grab_window = fg_data->whole_window;|X11 grab on foreground window (GameNative #82)"
       "configure.ac|enable_wmic=|wmic built for ARM64EC (GameNative #139)"
+      "dlls/win32u/vulkan.c|static BOOL readback_wanted( struct surface *surface )|other process Vulkan readback (GameNative #122, opt-in)"
+      "dlls/win32u/vulkan.c|enabled = e && !atoi( e );|readback off unless WINE_DISABLE_VULKAN_OPWR=0"
+      "dlls/winex11.drv/init.c|static void android_opwr_position( HWND hwnd, UINT dpi, int *x, int *y )|other process surfaces kept behind their window (GameNative #122)"
+      "dlls/winex11.drv/init.c|disable = !e || atoi( e );|other process rendering off by default on Android"
       "dlls/ntdll/signal_arm64ec.c|Lffwd_imp|arm64x_check_call follows -import fast-forward thunks (GameNative #85)"
       "dlls/ntdll/signal_arm64ec.c|if (!alertable && can_continue_in_emulator( context, (ULONG_PTR)__builtin_frame_address(0) ))|fast NtContinue in the emulator (GameNative #86)"
       "dlls/ntdll/signal_arm64.c|no unwind progress at pc|native ARM64 unwind progress guard (GameNative #122)"
