@@ -1,0 +1,153 @@
+Subject: icuuc, icuin: refuse to load when icu.dll is unusable
+Completes the GameNative #107 check (dlls_icu_main.c_gn107_backend_check.patch) for the two
+forwarder DLLs. .NET 5+ on Windows loads icu.dll, else icuuc.dll + icuin.dll; with no ICU
+backend icu.dll fails (GN #107) but the data-only forwarders loaded, and .NET aborted with
+"Cannot get symbol u_charsToUChars from libicuuc / Error: 127" (Vortex dotnetprobe, .NET 9.0.23)
+instead of using NLS. LGPL-2.1.
+
+diff --git a/dlls/icuin/Makefile.in b/dlls/icuin/Makefile.in
+index 452e833..e72f849 100644
+--- a/dlls/icuin/Makefile.in
++++ b/dlls/icuin/Makefile.in
+@@ -1,6 +1,7 @@
+ MODULE = icuin.dll
+ 
+-EXTRADLLFLAGS = -Wb,--data-only -Wb,--prefer-native
++EXTRADLLFLAGS = -Wb,--prefer-native
+ 
+ SOURCES = \
+-	icuin.spec
++	icuin.spec \
++	main.c
+diff --git a/dlls/icuin/main.c b/dlls/icuin/main.c
+new file mode 100644
+index 0000000..1f2b1d1
+--- /dev/null
++++ b/dlls/icuin/main.c
+@@ -0,0 +1,53 @@
++/*
++ * icuin.dll initialization
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#include <stdarg.h>
++
++#include "windef.h"
++#include "winbase.h"
++#include "wine/debug.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(icu);
++
++static HMODULE icu;
++
++BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )
++{
++    switch (reason)
++    {
++    case DLL_PROCESS_ATTACH:
++        DisableThreadLibraryCalls( instance );
++
++        /* Every export forwards to icu.dll. .NET loads icuuc.dll + icuin.dll when icu.dll
++         * refuses to load (no ICU backend installed), and then aborts on the first
++         * forward that cannot be resolved instead of falling back to NLS. Refuse to load
++         * as well when icu.dll is unusable. */
++        if (!(icu = LoadLibraryW( L"icu.dll" )))
++        {
++            WARN( "ICU unavailable: cannot load icu.dll\n" );
++            return FALSE;
++        }
++        break;
++
++    case DLL_PROCESS_DETACH:
++        if (reserved) break;
++        if (icu) FreeLibrary( icu );
++        break;
++    }
++    return TRUE;
++}
+diff --git a/dlls/icuuc/Makefile.in b/dlls/icuuc/Makefile.in
+index 7efc766..0b4cf8b 100644
+--- a/dlls/icuuc/Makefile.in
++++ b/dlls/icuuc/Makefile.in
+@@ -1,6 +1,7 @@
+ MODULE = icuuc.dll
+ 
+-EXTRADLLFLAGS = -Wb,--data-only -Wb,--prefer-native
++EXTRADLLFLAGS = -Wb,--prefer-native
+ 
+ SOURCES = \
+-	icuuc.spec
++	icuuc.spec \
++	main.c
+diff --git a/dlls/icuuc/main.c b/dlls/icuuc/main.c
+new file mode 100644
+index 0000000..f9a0a32
+--- /dev/null
++++ b/dlls/icuuc/main.c
+@@ -0,0 +1,53 @@
++/*
++ * icuuc.dll initialization
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#include <stdarg.h>
++
++#include "windef.h"
++#include "winbase.h"
++#include "wine/debug.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(icu);
++
++static HMODULE icu;
++
++BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )
++{
++    switch (reason)
++    {
++    case DLL_PROCESS_ATTACH:
++        DisableThreadLibraryCalls( instance );
++
++        /* Every export forwards to icu.dll. .NET loads icuuc.dll + icuin.dll when icu.dll
++         * refuses to load (no ICU backend installed), and then aborts on the first
++         * forward that cannot be resolved instead of falling back to NLS. Refuse to load
++         * as well when icu.dll is unusable. */
++        if (!(icu = LoadLibraryW( L"icu.dll" )))
++        {
++            WARN( "ICU unavailable: cannot load icu.dll\n" );
++            return FALSE;
++        }
++        break;
++
++    case DLL_PROCESS_DETACH:
++        if (reserved) break;
++        if (icu) FreeLibrary( icu );
++        break;
++    }
++    return TRUE;
++}

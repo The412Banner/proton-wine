@@ -444,6 +444,8 @@ do
       "dlls_ntdll_unix_registry.c_gn117_flush_unique_tmp.patch"
       "dlls_winegstreamer_unixlib.c_gn63_audio_transcode_skip.patch"
       "dlls_icu_main.c_gn107_backend_check.patch"
+      # icuuc/icuin forwarders refuse to load when icu.dll cannot (completes GN #107; .NET 9 "u_charsToUChars" abort)
+      "dlls_icuuc_icuin_backend_check.patch"
       "dlls_wintypes_main.c_gn100_border_required.patch"
       "dlls_ntdll_loader.c_gn72_stale_x64_drivers.patch"
       "dlls_opengl32_unix_wgl.c_gn88_gamma_glsl140.patch"
@@ -619,6 +621,8 @@ do
       "dlls/ntdll/unix/registry.c|static const char temp_fn[] = |registry flush unique tmp file (GameNative #117)"
       "dlls/winegstreamer/unixlib.c|Ignoring protonaudioconverterbin without an audio dump database|audio-converter skip without dump db (GameNative #63)"
       "dlls/icu/main.c|BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )|icu backend check (GameNative #107)"
+      "dlls/icuuc/main.c|cannot load icu.dll|icuuc refuses to load without icu.dll"
+      "dlls/icuin/main.c|cannot load icu.dll|icuin refuses to load without icu.dll"
       "dlls/wintypes/main.c|Graphics capture border control is not implemented|IsBorderRequired absent (GameNative #100)"
       "dlls/ntdll/loader.c|if (NtReadFile( file, 0, NULL, NULL, &io, signature, sizeof(signature), &offset, NULL )) return FALSE;|stale x64 builtin drivers (GameNative #72)"
       "dlls/win32u/opengl.c|USE_GL_FUNC(glBindFragDataLocation)|gamma pass on GLSL 1.40 (GameNative #88)"
