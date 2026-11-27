@@ -3,7 +3,7 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
-## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select: desktop icon selection + selection box (branch, CI green, device test in progress)
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select: desktop icon selection, selection box, icon right-click menu (branch, device test in progress)
 - Why: user 15:2x EST: a click on a desktop icon (XP desktop) gives no highlight like Windows. User picked the basic
   version + right-click selects; LATER (user wish): a click-and-drag selection box shown until the button is released.
 - Built bec8724f patch programs_explorer_desktop.c_icon_selection.patch (after programs_explorer_desktop.c.patch in
@@ -34,6 +34,16 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
 - CI 46068123426 (acb21caa) GREEN both legs 16:15 EST (patch applied, 2 markers ok, verify-layer PASS). explorer.exe md5
   bddc40b2, staged /sdcard/Download/.tmp-x/explorer-desk-acb21caa.exe (sha256 2da4a6a2 host == device). Swap waits for
   the container to close (wineserver running).
+- 16:2x-16:53 EST USER TESTS of acb21caa (swapped, md5 bddc40b2; videos screen-20261127-164957 / -165308): selection box
+  "works right" = DEVICE-PROVEN (EA/GOG/Vortex boxed, icon tint visible); clicks move the highlight icon to icon (frames
+  checked); logcat since 16:20 0 FATAL. Right click on an icon still showed the desktop menu.
+- User: "right click needs a delete and such like a real windows" -> 89d17f10: right click on a selected icon = Open (default,
+  new IDS_DESKTOP_OPEN) + the shell's file menu (Cut, Copy, Create Link, Delete, Rename, Properties) per desktop folder (Wine's
+  desktop folder is the user Desktop only, so user + Public get their own IContextMenu; command invoked on both); Delete = one
+  SHFileOperationW FO_DELETE FOF_ALLOWUNDO for all selected (Trash, one confirm); Rename = in-place edit -> MoveFileW of the
+  .lnk (shell rename needs a shell view), greyed for several; OleInitialize once for Cut/Copy; dialogs without owner.
+  Marker "desktop icon right-click menu". Sims 114/114 + 99/99. CI 46074321517 GREEN 17:13 EST (3 markers ok, verify-layer
+  PASS); explorer md5 5a8e0eaa swapped on the FIT 17:1x EST (sha256 5f2de2ff host == device). Device test: pending.
 
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ncrypt-ecdsa MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - Why: the Epic Games Launcher's account linking (Ubisoft) failed with "Invalid Client / 400 Bad Request". Its EOS SDK
