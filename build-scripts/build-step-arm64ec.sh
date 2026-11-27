@@ -489,6 +489,9 @@ do
       # GOG Galaxy: QtWebEngine software compositing, set inside GalaxyClient.exe (its service relaunch drops
       # outside env); its D3D11 texture sharing by NT handle fails under DXVK on Android -> all-white window
       "dlls_ntdll_loader_c_app_environment_hacks.patch"
+      # Electron main processes (resources\\app.asar next to the exe, e.g. Vortex) run V8 too: give them the
+      # same 41-bit address space report as Chromium children (EXCEPTION_BREAKPOINT at start otherwise)
+      "dlls_ntdll_unix_virtual_c_v8_electron_main.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -645,6 +648,7 @@ do
       "dlls/win32u/winstation.c|if (desktop && !wcsicmp( desktop, defaultW ) && (!winstation|explicit WinSta0 Default desktop follows the configured desktop (GOG Galaxy)"
       "dlls/win32u/dce.c|SET_WINPOS_PIXEL_FORMAT && user_driver->dc_funcs.pPutImage|GL window client area through a surface without PutImage (upstream 08464dbe9b8)"
       "dlls/ntdll/loader.c|static void apply_app_environment_hacks(void)|per-app environment hacks (GOG Galaxy QtWebEngine software compositing)"
+      "dlls/ntdll/unix/virtual.c|static BOOL main_exe_is_electron(void)|V8 sandbox address space report for Electron main processes (Vortex)"
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
       "dlls/ntdll/unix/virtual.c|static BOOL is_writable_image_section( const struct file_view *view, const char *page )|system call writes into emulator-protected writable image sections (NFS Heat)"

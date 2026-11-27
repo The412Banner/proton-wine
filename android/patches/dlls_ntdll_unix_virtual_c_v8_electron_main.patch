@@ -1,0 +1,48 @@
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index 1ee7af05da8..255b3317608 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -4343,6 +4343,34 @@ static BOOL unicode_has_ascii( const UNICODE_STRING *str, const char *needle )
+     return FALSE;
+ }
+ 
++/* Electron apps (Vortex, ...) run V8 - with its sandbox - in the main process too, which has no
++ * "--type=" switch; they ship their code as resources\app.asar next to the exe. */
++static BOOL main_exe_is_electron(void)
++{
++    static const WCHAR prefixW[] = {'\\','?','?','\\'};
++    static const WCHAR asarW[] = {'\\','r','e','s','o','u','r','c','e','s','\\','a','p','p','.','a','s','a','r'};
++    const UNICODE_STRING *image = &peb->ProcessParameters->ImagePathName;
++    FILE_BASIC_INFORMATION info;
++    OBJECT_ATTRIBUTES attr;
++    UNICODE_STRING name;
++    WCHAR buffer[MAX_PATH + 32];
++    unsigned int len = image->Length / sizeof(WCHAR), start = 0, dir;
++
++    if (!image->Buffer || !len) return FALSE;
++    /* "\\?\C:\..." or "\??\C:\...": drop the prefix, the NT one is added below */
++    if (len > 4 && image->Buffer[0] == '\\' && (image->Buffer[1] == '\\' || image->Buffer[1] == '?')
++            && image->Buffer[2] == '?' && image->Buffer[3] == '\\') start = 4;
++    for (dir = len; dir > start && image->Buffer[dir - 1] != '\\'; dir--) ;
++    if (dir <= start + 1 || ARRAY_SIZE(prefixW) + dir - 1 - start + ARRAY_SIZE(asarW) >= ARRAY_SIZE(buffer)) return FALSE;
++    memcpy( buffer, prefixW, sizeof(prefixW) );
++    memcpy( buffer + ARRAY_SIZE(prefixW), image->Buffer + start, (dir - 1 - start) * sizeof(WCHAR) );
++    memcpy( buffer + ARRAY_SIZE(prefixW) + dir - 1 - start, asarW, sizeof(asarW) );
++    name.Buffer = buffer;
++    name.Length = name.MaximumLength = (ARRAY_SIZE(prefixW) + dir - 1 - start + ARRAY_SIZE(asarW)) * sizeof(WCHAR);
++    InitializeObjectAttributes( &attr, &name, OBJ_CASE_INSENSITIVE, 0, NULL );
++    return !NtQueryAttributesFile( &attr, &info );
++}
++
+ static BOOL android_large_address_report(void)
+ {
+     static int enabled = -1;
+@@ -4352,7 +4380,7 @@ static BOOL android_large_address_report(void)
+     if (!is_win64 || (ULONG_PTR)user_space_limit >= ANDROID_REPORTED_SPACE_LIMIT) return (enabled = FALSE);
+     if ((env = getenv( "WINE_LARGE_ADDRESS_REPORT" )) && *env) enabled = !!atoi( env );
+     else if (!peb || !peb->ProcessParameters) return FALSE;  /* too early to tell, decide later */
+-    else enabled = unicode_has_ascii( &peb->ProcessParameters->CommandLine, "--type=" );
++    else enabled = unicode_has_ascii( &peb->ProcessParameters->CommandLine, "--type=" ) || main_exe_is_electron();
+     if (enabled) FIXME( "HACK: reporting a %#lx user address space (real limit %p) for the V8 sandbox.\n",
+                         (unsigned long)ANDROID_REPORTED_SPACE_LIMIT, user_space_limit );
+     return enabled;
