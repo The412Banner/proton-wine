@@ -3,6 +3,30 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/gog-galaxy MERGED into proton_11.14.1-DroidDeck (fast-forward)
+- Why: GOG Galaxy crashed / stayed white, Vortex died at start and then failed its .NET 9 check, in Bannerlator container
+  desktops (FIT, Wayland). User 12:2x EST: "get vortex finished then merge all to parent branch".
+- Merged (parent b9694e6c -> this log commit on 98328296; backup ref
+  refs/backup/20261127/proton_11.14.1-DroidDeck-before-gog-galaxy = b9694e6c):
+  - 129c6d81 win32u: an explicit WinSta0\\Default desktop follows the configured desktop (Galaxy's /deelevated relaunch
+    through its service crashed on a desktop of its own).
+  - efd9e665 + 29af2ff3 ntdll: per-app environment defaults, set only when unset: galaxyclient.exe gets
+    QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu --disable-gpu-compositing" and QT_QUICK_BACKEND=software (QtWebEngine
+    shared D3D11 textures by NT handle -> DXVK "Failed to open shared NT handle" ~600x -> white window; now 0).
+  - 8c2bfa2d ntdll: the V8 address-space report also covers Electron main processes (resources\\app.asar beside the
+    exe): Vortex 2.11 main process hit the V8 sandbox CHECK (int3) at start.
+  - 98328296 icuuc, icuin: refuse to load when icu.dll is unusable (completes GN #107): .NET 9 loaded the data-only
+    forwarders after icu.dll refused and aborted ("Cannot get symbol u_charsToUChars from libicuuc / Error: 127").
+  - f0ca65e8 (upstream 08464dbe9b8 client surface without PutImage) was tried and DROPPED again (02c3d752, d724713d):
+    it did not fix Galaxy and changes every OpenGL window on Wayland.
+- CI: 46047905127 (98328296) GREEN both legs; sims arm64ec 112/112, x86_64 97/97.
+- Device (FIT, arm64ec layer from CI 46047905127, container 1, Wayland, BL test build 6270eb23), 13:38-13:48 EST:
+  Vortex opens (main window, no .NET dialog; dotnetprobe.exe 9 -> "Success: Found .NET 9.0.23", exit 0; 0
+  find_forwarded_export errors); GOG Galaxy signed in, store pages drawn, 4 hack lines, 0 NT-handle failures, no SEH;
+  AIO 2.x 64-bit --bench 10: OpenGL avg 2363.0 / 1 % low 680.3, D3D11 avg 2577.5 / 454.7; EA app 13.836: SPA fully
+  loaded 9.7 s, authenticated, 0 breakpoints, 7 V8 report lines. x86_64 leg not device-tested.
+- No release (release job `if: false`); catalog unchanged.
+
 ## 2026-11-27 — parent build 85ab3217 device-smoke-tested + staged (NOT released)
 - Parent CI 46013005665 (85ab3217) GREEN both legs, release skipped. arm64ec layer installed on the FIT
   (contents/Proton/11.0-14.1-arm64ec-18; released v18 kept in files/layer-backup-ea/): 09:28 EST NFS Most Wanted from
