@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: The412Banner <The412Banner@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 20:10:00 -0500
+Subject: [PATCH] ntdll: Don't trace the context length lookup in
+ RtlWow64GetCpuAreaInfo().
+
+Since "ntdll: Implement the new version of RtlWow64GetCpuAreaInfo"
+(03487a0dda3), RtlWow64GetCpuAreaInfo() calls
+RtlGetExtendedContextLength() every time, and
+RtlWow64GetCurrentMachine() calls it on every use from 32-bit code.
+With the seh channel on, each call writes a trace line: Counter-Strike
+(GoldSrc, OpenGL) wrote about 20,000 lines a second and dropped from
+60 to 9 fps; its log reached 1 GB in 7 minutes.
+
+Move the length calculation into get_extended_context_length(), which
+has no trace, and call it from RtlWow64GetCpuAreaInfo().
+RtlGetExtendedContextLength2() keeps its trace and returns the same
+result as before.
+---
+diff --git a/dlls/ntdll/exception.c b/dlls/ntdll/exception.c
+index 830175698ba..641e0b76187 100644
+--- a/dlls/ntdll/exception.c
++++ b/dlls/ntdll/exception.c
+@@ -716,18 +716,14 @@ ULONG64 WINAPI RtlGetEnabledExtendedFeatures(ULONG64 feature_mask)
+ }
+ 
+ 
+-/**********************************************************************
+- *              RtlGetExtendedContextLength2    (NTDLL.@)
+- */
+-NTSTATUS WINAPI RtlGetExtendedContextLength2( ULONG context_flags, ULONG *length, ULONG64 compaction_mask )
++/* RtlGetExtendedContextLength2() without the trace; RtlWow64GetCpuAreaInfo() calls it on every
++ * RtlWow64GetCurrentMachine(). */
++NTSTATUS get_extended_context_length( ULONG context_flags, ULONG *length, ULONG64 compaction_mask )
+ {
+     const XSTATE_CONFIGURATION *xstate_config;
+     const struct context_parameters *p;
+     ULONG64 size;
+ 
+-    TRACE( "context_flags %#lx, length %p, compaction_mask %s.\n", context_flags, length,
+-            wine_dbgstr_longlong(compaction_mask) );
+-
+     if (!(p = context_get_parameters( context_flags, &xstate_config )))
+         return STATUS_INVALID_PARAMETER;
+ 
+@@ -752,6 +748,18 @@ NTSTATUS WINAPI RtlGetExtendedContextLength2( ULONG context_flags, ULONG *length
+ }
+ 
+ 
++/**********************************************************************
++ *              RtlGetExtendedContextLength2    (NTDLL.@)
++ */
++NTSTATUS WINAPI RtlGetExtendedContextLength2( ULONG context_flags, ULONG *length, ULONG64 compaction_mask )
++{
++    TRACE( "context_flags %#lx, length %p, compaction_mask %s.\n", context_flags, length,
++            wine_dbgstr_longlong(compaction_mask) );
++
++    return get_extended_context_length( context_flags, length, compaction_mask );
++}
++
++
+ /**********************************************************************
+  *              RtlGetExtendedContextLength    (NTDLL.@)
+  */
+diff --git a/dlls/ntdll/ntdll_misc.h b/dlls/ntdll/ntdll_misc.h
+index 27995442ad4..45ea017beb7 100644
+--- a/dlls/ntdll/ntdll_misc.h
++++ b/dlls/ntdll/ntdll_misc.h
+@@ -56,6 +56,7 @@ extern BOOL heap_zero_hack;
+ extern BOOL heap_top_down_hack;
+ 
+ /* exceptions */
++extern NTSTATUS get_extended_context_length( ULONG context_flags, ULONG *length, ULONG64 compaction_mask );
+ extern NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *context );
+ extern NTSTATUS WINAPI dispatch_exception( EXCEPTION_RECORD *rec, CONTEXT *context );
+ extern NTSTATUS WINAPI dispatch_user_callback( void *args, ULONG len, ULONG id );
+diff --git a/dlls/ntdll/process.c b/dlls/ntdll/process.c
+index 3747096dd27..de35c90d090 100644
+--- a/dlls/ntdll/process.c
++++ b/dlls/ntdll/process.c
+@@ -188,7 +188,7 @@ NTSTATUS WINAPI RtlWow64GetCpuAreaInfo( WOW64_CPURESERVED *cpu, ULONG reserved,
+ #define ALIGN(ptr,align) ((void *)(((ULONG_PTR)(ptr) + (align) - 1) & ~((ULONG_PTR)(align) - 1)))
+         if (data[i].machine != cpu->Machine) continue;
+         info->Context = ALIGN( cpu + 1, data[i].align );
+-        if (RtlGetExtendedContextLength( data[i].flag, &ext_size )) ext_size = data[i].size;
++        if (get_extended_context_length( data[i].flag, &ext_size, ~(ULONG64)0 )) ext_size = data[i].size;
+         info->ContextEx = ALIGN( (char *)info->Context + ext_size, sizeof(void *) );
+         info->ContextFlagsLocation = (char *)info->Context + data[i].offset;
+         info->ContextFlag = data[i].flag;
+-- 
+2.43.0
+

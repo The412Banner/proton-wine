@@ -433,6 +433,9 @@ do
       # ntdll: NtGetContextThread on a NULL context returns STATUS_ACCESS_VIOLATION on ARM64EC (Crash Bandicoot
       # N. Sane Trilogy; main 92b57e73, 66sam). arm64ec only.
       "dlls_ntdll_signal_arm64ec.c_get_context_null.patch"
+      # ntdll: RtlWow64GetCpuAreaInfo() looks up the context length without a trace line; since 03487a0dda3
+      # every RtlWow64GetCurrentMachine() wrote one with +seh (Counter-Strike 60 -> 9 fps with BL Wine debug on)
+      "dlls_ntdll_process.c_cpu_area_no_trace.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -558,6 +561,7 @@ do
       "dlls/ntdll/unix/file.c|if (xattr_less( st )) return ret;|no xattr queries on filesystems without them (DroidDeck-Proton 11-12.6, maxjivi05)"
       "dlls/ntdll/unix/file.c|static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )|no directory listing for a missing file on case-folding volumes (DroidDeck-Proton 11-12.7, maxjivi05)"
       "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
+      "dlls/ntdll/process.c|get_extended_context_length( data[i].flag, &ext_size, ~(ULONG64)0 )|RtlWow64GetCpuAreaInfo context length without trace (+seh log flood)"
       "dlls/ntdll/signal_arm64ec.c|ldr x4, [x2, #0xf8]|ARM64EC process breakpoint stepped at Rip (DroidDeck-Proton 11-12.4, xXJSONDeruloXx)"
       "dlls/ntdll/signal_arm64ec.c|arm_ctx = (ARM64_NT_CONTEXT){ .ContextFlags = ctx_flags_x64_to_arm( context->ContextFlags ) };|ARM64EC NtGetContextThread NULL context (DroidDeck-Proton main 92b57e73, 66sam)"
       "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second mappings of a loaded DLL (DroidDeck-Proton #34, Black Ops III)"

@@ -386,6 +386,9 @@ do
       # ntdll: RtlWaitOnAddress() queue entries from a static pool, so a thread killed in a wait leaves no
       # dangling stack entry (Forza Horizon 6 loading stall; main d03ba52e, l4nr3; one line ported)
       "dlls_ntdll_sync.c_futex_entry_pool.patch"
+      # ntdll: RtlWow64GetCpuAreaInfo() looks up the context length without a trace line; since 03487a0dda3
+      # every RtlWow64GetCurrentMachine() wrote one with +seh (Counter-Strike 60 -> 9 fps with BL Wine debug on)
+      "dlls_ntdll_process.c_cpu_area_no_trace.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -490,6 +493,7 @@ do
       "dlls/ntdll/unix/file.c|if (xattr_less( st )) return ret;|no xattr queries on filesystems without them (DroidDeck-Proton 11-12.6, maxjivi05)"
       "dlls/ntdll/unix/file.c|static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )|no directory listing for a missing file on case-folding volumes (DroidDeck-Proton 11-12.7, maxjivi05)"
       "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
+      "dlls/ntdll/process.c|get_extended_context_length( data[i].flag, &ext_size, ~(ULONG64)0 )|RtlWow64GetCpuAreaInfo context length without trace (+seh log flood)"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
