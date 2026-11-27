@@ -480,6 +480,9 @@ do
       # Android: fixed MAC for interfaces Android randomizes (per-network Wi-Fi MAC, per-boot dummy0), per
       # interface name + prefix; EA OOA licences (NFS Most Wanted) went stale on every network change
       "dlls_nsiproxy.sys_ndis.c_stable_mac.patch"
+      # A service's CreateProcessAsUser for the user (GOG Galaxy /deelevated) asks for WinSta0\\Default explicitly:
+      # map it to the prefix's configured desktop (Bannerlator Wayland: "shell") so it gets a display driver
+      "dlls_win32u_winstation_c_default_desktop_alias.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -633,6 +636,7 @@ do
       "dlls/winewayland.drv/wayland_surface.c|BOOL wayland_xproc_send(HWND hwnd, HDC hdc)|Wayland: other process frames sent to the window owner"
       "dlls/ntdll/loader.c|static BOOL hide_wine_exports_from_app(void)|ntdll hides wine_get_* from EA Steam/Epic launchers (EA token cut to 1024)"
       "dlls/nsiproxy.sys/ndis.c|static void stabilize_phys_addr( const char *name, IF_PHYSICAL_ADDRESS *phys_addr )|nsiproxy fixed MAC for Android random-MAC interfaces (EA OOA licence)"
+      "dlls/win32u/winstation.c|if (desktop && !wcsicmp( desktop, defaultW ) && (!winstation|explicit WinSta0 Default desktop follows the configured desktop (GOG Galaxy)"
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
       "dlls/ntdll/unix/virtual.c|static BOOL is_writable_image_section( const struct file_view *view, const char *page )|system call writes into emulator-protected writable image sections (NFS Heat)"

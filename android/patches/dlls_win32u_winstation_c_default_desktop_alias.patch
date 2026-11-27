@@ -1,0 +1,26 @@
+diff --git a/dlls/win32u/winstation.c b/dlls/win32u/winstation.c
+index 508ecbc53b2..6bc67190d4d 100644
+--- a/dlls/win32u/winstation.c
++++ b/dlls/win32u/winstation.c
+@@ -998,6 +998,7 @@ void winstation_init(void)
+     UNICODE_STRING str;
+ 
+     static const WCHAR winsta0[] = {'W','i','n','S','t','a','0',0};
++    static const WCHAR defaultW[] = {'D','e','f','a','u','l','t',0};
+ 
+     if (params->Desktop.Length)
+     {
+@@ -1039,6 +1040,13 @@ void winstation_init(void)
+     if (buffer || !NtUserGetThreadDesktop( GetCurrentThreadId() ))
+     {
+         char buffer[4096];
++        /* A process started for the interactive user with an explicit WinSta0\Default (a service's
++         * CreateProcessAsUser, e.g. GOG Galaxy's /deelevated relaunch) means the user's desktop. When
++         * the prefix names that desktop differently (Software\Wine\Explorer\Desktop, Bannerlator
++         * Wayland: "shell"), use the configured one; otherwise the process lands on a desktop with no
++         * explorer and gets no display driver. Unconfigured prefixes still get "Default". */
++        if (desktop && !wcsicmp( desktop, defaultW ) && (!winstation || !wcsicmp( winstation, winsta0 )))
++            desktop = NULL;
+         str.Buffer = (WCHAR *)(desktop ? desktop : get_default_desktop( buffer, sizeof(buffer) ));
+         str.Length = str.MaximumLength = lstrlenW( str.Buffer ) * sizeof(WCHAR);
+         if (!dir) dir = get_winstations_dir_handle();
