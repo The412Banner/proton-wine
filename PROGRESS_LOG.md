@@ -3,6 +3,17 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — parent build 85ab3217 device-smoke-tested + staged (NOT released)
+- Parent CI 46013005665 (85ab3217) GREEN both legs, release skipped. arm64ec layer installed on the FIT
+  (contents/Proton/11.0-14.1-arm64ec-18; released v18 kept in files/layer-backup-ea/): 09:28 EST NFS Most Wanted from
+  EA app Play in a container desktop -> title 60 fps; 09:33 NFS Payback shortcut -> title ~279 fps; clean exits. This
+  build includes 89e2992e (hide wine_get_* from EA launchers) -> now device-proven as a build. x86_64 not device-tested.
+- User 09:4x EST: "keep as staged wcp and parent branch build" -> no release, catalog unchanged. Staged on the FIT:
+  /sdcard/Download/DroidDeck-Proton-11.0-14.1-EA-85ab3217/ (arm64ec sha256 c6f68b3a..., x86_64 d13afe4d...,
+  SHA256SUMS.txt checked host + device, README).
+- Related: NFS MW's EA licence runs out in ~30 min and OOA 4.2 cannot renew it with the Steam-linked JWS token; fixed
+  on the Bannerlator side (SteamLite agent drops licences older than 10 min, BL main f01f0fad).
+
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ea-cef128 MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - 09:0x EST user: "merge 14.1 work and build so parent branch produces it". Parent was d6fdead0 (= staging base) ->
   fast-forward to the staging head + this log commit (not [skip ci], so the push builds the parent). Backup ref
