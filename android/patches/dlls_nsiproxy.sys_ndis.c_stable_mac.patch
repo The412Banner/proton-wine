@@ -1,0 +1,49 @@
+diff --git a/dlls/nsiproxy.sys/ndis.c b/dlls/nsiproxy.sys/ndis.c
+index b095467cbb7..2d0bda1504c 100644
+--- a/dlls/nsiproxy.sys/ndis.c
++++ b/dlls/nsiproxy.sys/ndis.c
+@@ -294,6 +294,34 @@ static int fake_ethernet_adapter(void)
+     return cached;
+ }
+ 
++#ifdef __ANDROID__
++/* Android hands apps a random (locally administered) MAC per Wi-Fi network, and a new dummy0 MAC
++ * every boot. Software that ties a licence to the machine (EA's OOA activation) then sees a new
++ * machine whenever the network changes. Report a fixed locally administered MAC per interface name
++ * and Wine prefix instead; real (globally unique) MACs are left alone. WINE_STABLE_MAC=0 turns it off. */
++static void stabilize_phys_addr( const char *name, IF_PHYSICAL_ADDRESS *phys_addr )
++{
++    static int enabled = -1;
++    const unsigned char *p;
++    const char *seed;
++    UINT64 h = 0xcbf29ce484222325ull;
++    int i;
++
++    if (enabled == -1)
++    {
++        const char *e = getenv( "WINE_STABLE_MAC" );
++        enabled = !e || atoi( e );
++    }
++    if (!enabled || phys_addr->Length != 6 || !(phys_addr->Address[0] & 0x02)) return;
++    if (!(seed = getenv( "WINEPREFIX" ))) seed = "";
++    for (p = (const unsigned char *)seed; *p; p++) h = (h ^ *p) * 0x100000001b3ull;
++    h = (h ^ '/') * 0x100000001b3ull;
++    for (p = (const unsigned char *)name; *p; p++) h = (h ^ *p) * 0x100000001b3ull;
++    for (i = 0; i < 6; i++) phys_addr->Address[i] = (h >> (8 * i)) & 0xff;
++    phys_addr->Address[0] = (phys_addr->Address[0] & 0xfc) | 0x02;
++}
++#endif
++
+ static struct if_entry *add_entry( UINT index, const char *name )
+ {
+     struct if_entry *entry;
+@@ -323,6 +351,9 @@ static struct if_entry *add_entry( UINT index, const char *name )
+ #endif
+ 
+     if_get_physical( name, &entry->if_type, &entry->if_phys_addr );
++#ifdef __ANDROID__
++    stabilize_phys_addr( name, &entry->if_phys_addr );
++#endif
+ 
+     entry->if_luid.Info.Reserved = 0;
+     entry->if_luid.Info.NetLuidIndex = index;

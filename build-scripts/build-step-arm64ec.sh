@@ -477,6 +477,9 @@ do
       # EA app 13.836 Steam/Epic launchers cut launch env values to 1024 chars under Wine (EA token
       # for Origin-era games, NFS Most Wanted OOA activation): hide wine_get_* from those launchers
       "dlls_ntdll_loader_c_hide_wine_exports_ea_launchers.patch"
+      # Android: fixed MAC for interfaces Android randomizes (per-network Wi-Fi MAC, per-boot dummy0), per
+      # interface name + prefix; EA OOA licences (NFS Most Wanted) went stale on every network change
+      "dlls_nsiproxy.sys_ndis.c_stable_mac.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -629,6 +632,7 @@ do
       "dlls/ntdll/unix/system.c|virtual_get_reported_system_info( &sbi, FALSE );|reported system info used for SystemBasicInformation"
       "dlls/winewayland.drv/wayland_surface.c|BOOL wayland_xproc_send(HWND hwnd, HDC hdc)|Wayland: other process frames sent to the window owner"
       "dlls/ntdll/loader.c|static BOOL hide_wine_exports_from_app(void)|ntdll hides wine_get_* from EA Steam/Epic launchers (EA token cut to 1024)"
+      "dlls/nsiproxy.sys/ndis.c|static void stabilize_phys_addr( const char *name, IF_PHYSICAL_ADDRESS *phys_addr )|nsiproxy fixed MAC for Android random-MAC interfaces (EA OOA licence)"
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
       "dlls/ntdll/unix/virtual.c|static BOOL is_writable_image_section( const struct file_view *view, const char *page )|system call writes into emulator-protected writable image sections (NFS Heat)"
