@@ -1,5 +1,5 @@
 diff --git a/programs/explorer/desktop.c b/programs/explorer/desktop.c
-index 60a11282de9..14f1a0a3fa5 100644
+index 60a11282de9..aab1300c4a0 100644
 --- a/programs/explorer/desktop.c
 +++ b/programs/explorer/desktop.c
 @@ -20,6 +20,7 @@
@@ -10,15 +10,17 @@ index 60a11282de9..14f1a0a3fa5 100644
  
  #define COBJMACROS
  #define OEMRESOURCE
-@@ -29,6 +30,7 @@
+@@ -28,7 +29,9 @@
+ #include <rpc.h>
  #include <shlobj.h>
  #include <shellapi.h>
++#include <shlwapi.h>
  #include <ntuser.h>
 +#include <commctrl.h>
  #include "exdisp.h"
  
  #include "wine/debug.h"
-@@ -49,6 +51,8 @@ struct launcher
+@@ -49,6 +52,8 @@ struct launcher
      WCHAR *path;
      HICON  icon;
      WCHAR *title;
@@ -27,7 +29,7 @@ index 60a11282de9..14f1a0a3fa5 100644
  };
  
  static WCHAR *desktop_folder;
-@@ -60,6 +64,7 @@ static int desktop_width, launcher_size, launchers_per_row;
+@@ -60,6 +65,7 @@ static int desktop_width, launcher_size, launchers_per_row;
  
  static struct launcher **launchers;
  static unsigned int nb_launchers, nb_allocated;
@@ -35,7 +37,7 @@ index 60a11282de9..14f1a0a3fa5 100644
  
  static REFIID tid_ids[] =
  {
-@@ -233,20 +238,498 @@ static RECT get_title_rect( unsigned int index )
+@@ -233,20 +239,683 @@ static RECT get_title_rect( unsigned int index )
      return rect;
  }
  
@@ -361,6 +363,190 @@ index 60a11282de9..14f1a0a3fa5 100644
 +    free( list );
 +}
 +
++/* Properties of several selected launchers: one sheet for all of them, as Windows shows it */
++struct multi_properties
++{
++    WCHAR      **paths;
++    unsigned int count;
++};
++
++static const struct { UINT id; DWORD attr; } multi_attribs[] =
++{
++    { IDC_MP_READONLY, FILE_ATTRIBUTE_READONLY },
++    { IDC_MP_HIDDEN,   FILE_ATTRIBUTE_HIDDEN },
++    { IDC_MP_ARCHIVE,  FILE_ATTRIBUTE_ARCHIVE },
++};
++
++static void init_multi_properties( HWND dlg, const struct multi_properties *props )
++{
++    WCHAR format[64], text[MAX_PATH + 64], type[80], first_type[80] = { 0 }, folder[MAX_PATH] = { 0 };
++    WCHAR size[32], bytes[32];
++    unsigned int i, j, set[ARRAY_SIZE(multi_attribs)] = { 0 };
++    BOOL same_type = TRUE, same_folder = TRUE;
++    HMODULE shell32 = GetModuleHandleW( L"shell32.dll" );
++    ULONGLONG total = 0;
++
++    if (shell32)  /* IDI_SHELL_FILES */
++        SendDlgItemMessageW( dlg, IDC_MP_ICON, STM_SETICON,
++                             (WPARAM)LoadImageW( shell32, MAKEINTRESOURCEW( 133 ), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE ), 0 );
++
++    for (i = 0; i < props->count; i++)
++    {
++        const WCHAR *slash = wcsrchr( props->paths[i], '\\' );
++        size_t dir_len = slash ? slash - props->paths[i] : 0;
++        WIN32_FILE_ATTRIBUTE_DATA data;
++        SHFILEINFOW info;
++
++        if (GetFileAttributesExW( props->paths[i], GetFileExInfoStandard, &data ))
++        {
++            total += ((ULONGLONG)data.nFileSizeHigh << 32) | data.nFileSizeLow;
++            for (j = 0; j < ARRAY_SIZE(multi_attribs); j++)
++                if (data.dwFileAttributes & multi_attribs[j].attr) set[j]++;
++        }
++        type[0] = 0;
++        if (SHGetFileInfoW( props->paths[i], 0, &info, sizeof(info), SHGFI_TYPENAME ))
++            lstrcpynW( type, info.szTypeName, ARRAY_SIZE(type) );
++        if (!i)
++        {
++            lstrcpyW( first_type, type );
++            lstrcpynW( folder, props->paths[i], min( dir_len + 1, ARRAY_SIZE(folder) ) );
++        }
++        else
++        {
++            if (wcscmp( type, first_type )) same_type = FALSE;
++            if (dir_len != wcslen( folder ) || wcsnicmp( props->paths[i], folder, dir_len )) same_folder = FALSE;
++        }
++    }
++
++    LoadStringW( NULL, IDS_MP_FILES, format, ARRAY_SIZE(format) );
++    swprintf( text, ARRAY_SIZE(text), format, props->count );
++    SetDlgItemTextW( dlg, IDC_MP_COUNT, text );
++
++    if (same_type)
++    {
++        LoadStringW( NULL, IDS_MP_ALL_TYPE, format, ARRAY_SIZE(format) );
++        swprintf( text, ARRAY_SIZE(text), format, first_type );
++    }
++    else LoadStringW( NULL, IDS_MP_MULTIPLE_TYPES, text, ARRAY_SIZE(text) );
++    SetDlgItemTextW( dlg, IDC_MP_TYPE, text );
++
++    if (same_folder)
++    {
++        LoadStringW( NULL, IDS_MP_ALL_IN, format, ARRAY_SIZE(format) );
++        swprintf( text, ARRAY_SIZE(text), format, folder );
++    }
++    else LoadStringW( NULL, IDS_MP_VARIOUS_FOLDERS, text, ARRAY_SIZE(text) );
++    SetDlgItemTextW( dlg, IDC_MP_LOCATION, text );
++
++    StrFormatByteSizeW( total, size, ARRAY_SIZE(size) );
++    swprintf( bytes, ARRAY_SIZE(bytes), L"%I64u", total );
++    LoadStringW( NULL, IDS_MP_SIZE, format, ARRAY_SIZE(format) );
++    swprintf( text, ARRAY_SIZE(text), format, size, bytes );
++    SetDlgItemTextW( dlg, IDC_MP_SIZE, text );
++
++    /* an attribute that only some of them have shows the third (mixed) state */
++    for (j = 0; j < ARRAY_SIZE(multi_attribs); j++)
++    {
++        HWND button = GetDlgItem( dlg, multi_attribs[j].id );
++
++        if (!set[j] || set[j] == props->count)
++        {
++            SendMessageW( button, BM_SETSTYLE, BS_AUTOCHECKBOX, FALSE );
++            SendMessageW( button, BM_SETCHECK, set[j] ? BST_CHECKED : BST_UNCHECKED, 0 );
++        }
++        else SendMessageW( button, BM_SETCHECK, BST_INDETERMINATE, 0 );
++    }
++}
++
++static INT_PTR CALLBACK multi_properties_proc( HWND dlg, UINT msg, WPARAM wp, LPARAM lp )
++{
++    struct multi_properties *props = (struct multi_properties *)GetWindowLongPtrW( dlg, DWLP_USER );
++    unsigned int i, j;
++
++    switch (msg)
++    {
++    case WM_INITDIALOG:
++        props = (struct multi_properties *)((PROPSHEETPAGEW *)lp)->lParam;
++        SetWindowLongPtrW( dlg, DWLP_USER, (LONG_PTR)props );
++        init_multi_properties( dlg, props );
++        return TRUE;
++
++    case WM_COMMAND:
++        for (j = 0; j < ARRAY_SIZE(multi_attribs); j++)
++            if (LOWORD(wp) == multi_attribs[j].id && HIWORD(wp) == BN_CLICKED)
++                SendMessageW( GetParent( dlg ), PSM_CHANGED, (WPARAM)dlg, 0 );
++        break;
++
++    case WM_NOTIFY:
++        if (((NMHDR *)lp)->code != PSN_APPLY || !props) break;
++        for (i = 0; i < props->count; i++)
++        {
++            DWORD attr = GetFileAttributesW( props->paths[i] ), new_attr;
++
++            if (attr == INVALID_FILE_ATTRIBUTES) continue;
++            new_attr = attr;
++            for (j = 0; j < ARRAY_SIZE(multi_attribs); j++)
++            {
++                UINT state = IsDlgButtonChecked( dlg, multi_attribs[j].id );
++
++                if (state == BST_CHECKED) new_attr |= multi_attribs[j].attr;
++                else if (state == BST_UNCHECKED) new_attr &= ~multi_attribs[j].attr;
++            }
++            if (new_attr != attr) SetFileAttributesW( props->paths[i], new_attr ? new_attr : FILE_ATTRIBUTE_NORMAL );
++        }
++        SetWindowLongPtrW( dlg, DWLP_MSGRESULT, PSNRET_NOERROR );
++        return TRUE;
++
++    case WM_DESTROY:
++    {
++        HICON icon = (HICON)SendDlgItemMessageW( dlg, IDC_MP_ICON, STM_GETICON, 0, 0 );
++
++        if (icon) DestroyIcon( icon );
++        break;
++    }
++    }
++    return FALSE;
++}
++
++static void show_multi_properties(void)
++{
++    struct multi_properties props = { 0 };
++    PROPSHEETPAGEW page = { sizeof(page) };
++    PROPSHEETHEADERW header = { sizeof(header) };
++    WCHAR caption[MAX_PATH] = { 0 };
++    unsigned int i;
++
++    if (!nb_launchers || !(props.paths = calloc( nb_launchers, sizeof(*props.paths) ))) return;
++    for (i = 0; i < nb_launchers; i++)
++    {
++        if (!launchers[i]->selected || !(props.paths[props.count] = wcsdup( launchers[i]->path ))) continue;
++        if (props.count < 2)
++        {
++            if (props.count) wcsncat( caption, L", ", ARRAY_SIZE(caption) - wcslen( caption ) - 1 );
++            wcsncat( caption, launchers[i]->title, ARRAY_SIZE(caption) - wcslen( caption ) - 1 );
++        }
++        else if (props.count == 2) wcsncat( caption, L", ...", ARRAY_SIZE(caption) - wcslen( caption ) - 1 );
++        props.count++;
++    }
++
++    if (props.count)
++    {
++        page.hInstance = GetModuleHandleW( NULL );
++        page.pszTemplate = MAKEINTRESOURCEW( IDD_MULTI_PROPERTIES );
++        page.pfnDlgProc = multi_properties_proc;
++        page.lParam = (LPARAM)&props;
++        /* no owner: a dialog owned by the desktop window would leave it disabled */
++        header.dwFlags = PSH_PROPSHEETPAGE | PSH_PROPTITLE;
++        header.hInstance = page.hInstance;
++        header.pszCaption = caption;
++        header.nPages = 1;
++        header.ppsp = &page;
++        PropertySheetW( &header );
++    }
++    for (i = 0; i < props.count; i++) free( props.paths[i] );
++    free( props.paths );
++}
++
 +static BOOL launcher_in_folder( const struct launcher *launcher, const WCHAR *folder )
 +{
 +    int len = lstrlenW( folder );
@@ -473,6 +659,7 @@ index 60a11282de9..14f1a0a3fa5 100644
 +                                       ARRAY_SIZE(verb) );
 +        if (!wcscmp( verb, L"rename" )) start_rename( hwnd, index );
 +        else if (!wcscmp( verb, L"delete" )) delete_selected();
++        else if (!wcscmp( verb, L"properties" ) && count_selected() > 1) show_multi_properties();
 +        else
 +        {
 +            static BOOL ole_ready;  /* Cut and Copy use the OLE clipboard */
@@ -539,7 +726,7 @@ index 60a11282de9..14f1a0a3fa5 100644
  }
  
  static void draw_launchers( HDC hdc, RECT update_rect )
-@@ -263,13 +746,27 @@ static void draw_launchers( HDC hdc, RECT update_rect )
+@@ -263,13 +932,27 @@ static void draw_launchers( HDC hdc, RECT update_rect )
      for (i = 0; i < nb_launchers; i++)
      {
          RECT dummy, icon = get_icon_rect( i ), title = get_title_rect( i );
@@ -549,13 +736,13 @@ index 60a11282de9..14f1a0a3fa5 100644
 -            DrawIconEx( hdc, icon.left, icon.top, launchers[i]->icon, icon_cx, icon_cy,
 -                        0, 0, DI_DEFAULTSIZE|DI_NORMAL );
 +            draw_launcher_icon( hdc, launcher, icon );
- 
--        if (IntersectRect( &dummy, &title, &update_rect ))
--            DrawTextW( hdc, launchers[i]->title, -1, &title,
++
 +        if (launcher->selected)
 +        {
 +            RECT box = get_title_box( hdc, i, launcher->title );
-+
+ 
+-        if (IntersectRect( &dummy, &title, &update_rect ))
+-            DrawTextW( hdc, launchers[i]->title, -1, &title,
 +            if (IntersectRect( &dummy, &box, &update_rect ))
 +            {
 +                FillRect( hdc, &box, GetSysColorBrush( COLOR_HIGHLIGHT ) );
@@ -571,7 +758,7 @@ index 60a11282de9..14f1a0a3fa5 100644
                         DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
      }
  
-@@ -387,6 +884,7 @@ static BOOL add_launcher( const WCHAR *folder, const WCHAR *filename, int len_fi
+@@ -387,6 +1070,7 @@ static BOOL add_launcher( const WCHAR *folder, const WCHAR *filename, int len_fi
      }
  
      if (!(launcher = malloc( sizeof(*launcher) ))) return FALSE;
@@ -579,7 +766,7 @@ index 60a11282de9..14f1a0a3fa5 100644
      if (!(launcher->path = append_path( folder, filename, len_filename ))) goto error;
      if (!(link = load_shelllink( launcher->path ))) goto error;
  
-@@ -409,6 +907,7 @@ error:
+@@ -409,6 +1093,7 @@ error:
  
  static void free_launcher( struct launcher *launcher )
  {
@@ -587,7 +774,7 @@ index 60a11282de9..14f1a0a3fa5 100644
      DestroyIcon( launcher->icon );
      free( launcher->path );
      free( launcher->title );
-@@ -843,16 +1342,42 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
+@@ -843,16 +1528,42 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
          handle_parent_notify( (HWND)lp, wp );
          return 0;
  
@@ -631,7 +818,7 @@ index 60a11282de9..14f1a0a3fa5 100644
          return 0;
  
      case WM_PAINT:
-@@ -863,6 +1388,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
+@@ -863,6 +1574,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
              {
                  if (!paint_xp_wallpaper( hwnd, ps.hdc )) PaintDesktop( ps.hdc );
                  draw_launchers( ps.hdc, ps.rcPaint );
@@ -640,26 +827,81 @@ index 60a11282de9..14f1a0a3fa5 100644
              EndPaint( hwnd, &ps );
          }
 diff --git a/programs/explorer/explorer.rc b/programs/explorer/explorer.rc
-index 8f76de10b1a..afe0ab878fb 100644
+index 8f76de10b1a..711a0e323e4 100644
 --- a/programs/explorer/explorer.rc
 +++ b/programs/explorer/explorer.rc
-@@ -58,6 +58,7 @@ STRINGTABLE
+@@ -58,6 +58,13 @@ STRINGTABLE
      IDS_DP_SCHEME_SILVER "Silver"
      IDS_DESKTOP_REFRESH "R&efresh"
      IDS_DESKTOP_PROPERTIES "Display P&roperties"
 +    IDS_DESKTOP_OPEN "&Open"
++    IDS_MP_FILES "%u files"
++    IDS_MP_ALL_TYPE "All of type %s"
++    IDS_MP_MULTIPLE_TYPES "Multiple types"
++    IDS_MP_ALL_IN "All in %s"
++    IDS_MP_VARIOUS_FOLDERS "Various folders"
++    IDS_MP_SIZE "%s (%s bytes)"
  }
  
  IDD_DISPLAY_PROPERTIES DIALOGEX 0, 0, 262, 286
+@@ -84,6 +91,27 @@ FONT 8, "MS Shell Dlg"
+     PUSHBUTTON      "&Apply", IDC_DP_APPLY, 203, 265, 50, 14
+ }
+ 
++IDD_MULTI_PROPERTIES DIALOGEX 0, 0, 240, 135
++STYLE DS_SHELLFONT | WS_CHILD | WS_CAPTION
++CAPTION "General"
++FONT 8, "MS Shell Dlg"
++{
++    ICON            "", IDC_MP_ICON, 10, 5, 32, 32
++    LTEXT           "", IDC_MP_COUNT, 70, 12, 160, 10
++    LTEXT           "", -1, 5, 30, 230, 1, SS_ETCHEDHORZ
++    LTEXT           "Type:", -1, 10, 35, 60, 10
++    EDITTEXT        IDC_MP_TYPE, 70, 35, 160, 10, ES_READONLY | NOT WS_BORDER | NOT WS_TABSTOP
++    LTEXT           "Location:", -1, 10, 50, 60, 10
++    EDITTEXT        IDC_MP_LOCATION, 70, 50, 160, 10, ES_READONLY | ES_AUTOHSCROLL | NOT WS_BORDER | NOT WS_TABSTOP
++    LTEXT           "Size:", -1, 10, 65, 60, 10
++    EDITTEXT        IDC_MP_SIZE, 70, 65, 160, 10, ES_READONLY | NOT WS_BORDER | NOT WS_TABSTOP
++    LTEXT           "", -1, 5, 80, 230, 1, SS_ETCHEDHORZ
++    LTEXT           "Attributes:", -1, 10, 85, 60, 10
++    AUTO3STATE      "&Read Only", IDC_MP_READONLY, 70, 85, 70, 10
++    AUTO3STATE      "H&idden", IDC_MP_HIDDEN, 70, 100, 70, 10
++    AUTO3STATE      "&Archive", IDC_MP_ARCHIVE, 70, 115, 70, 10
++}
++
+ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+ 
+ #define WINE_FILEDESCRIPTION_STR "Wine Explorer"
 diff --git a/programs/explorer/resource.h b/programs/explorer/resource.h
-index 8c145e9f2dc..be00d311ece 100644
+index 8c145e9f2dc..c0ebf076a27 100644
 --- a/programs/explorer/resource.h
 +++ b/programs/explorer/resource.h
-@@ -52,6 +52,7 @@
+@@ -52,6 +52,13 @@
  #define IDS_DP_SCHEME_SILVER 34
  #define IDS_DESKTOP_REFRESH 35
  #define IDS_DESKTOP_PROPERTIES 36
 +#define IDS_DESKTOP_OPEN 37
++#define IDS_MP_FILES 38
++#define IDS_MP_ALL_TYPE 39
++#define IDS_MP_MULTIPLE_TYPES 40
++#define IDS_MP_ALL_IN 41
++#define IDS_MP_VARIOUS_FOLDERS 42
++#define IDS_MP_SIZE 43
  
  #define IDI_WINE_LOGO 100
  #define IDB_WALLPAPER_LIGHT 110
+@@ -69,4 +76,14 @@
+ #define IDC_DP_WALLPAPER 209
+ #define IDC_DP_CONTROLS 210
+ 
++#define IDD_MULTI_PROPERTIES 220
++#define IDC_MP_ICON 221
++#define IDC_MP_COUNT 222
++#define IDC_MP_TYPE 223
++#define IDC_MP_LOCATION 224
++#define IDC_MP_SIZE 225
++#define IDC_MP_READONLY 226
++#define IDC_MP_HIDDEN 227
++#define IDC_MP_ARCHIVE 228
++
+ #endif

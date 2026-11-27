@@ -290,7 +290,8 @@ do
       "programs_explorer_desktop.c.patch"
       # desktop icons: click / Ctrl+click selection (tinted icon, highlighted title, focus outline), a selection
       # box dragged from an empty spot (XP translucent band) and the icon right-click menu (Open + shell file menu:
-      # Cut, Copy, Create Link, Delete to the Trash, in-place Rename, Properties), as on Windows
+      # Cut, Copy, Create Link, Delete to the Trash, in-place Rename, Properties; one combined Properties sheet for
+      # several icons), as on Windows
       "programs_explorer_desktop.c_icon_selection.patch"
       "programs_wineboot_wineboot.c.patch"
       "programs_winebrowser_Makefile.in.patch"
@@ -581,6 +582,7 @@ do
       "programs/explorer/desktop.c|static void mouse_down( HWND hwnd, int x, int y, WPARAM keys, BOOL right_button )|desktop icons selected by a click"
       "programs/explorer/desktop.c|static void update_band( HWND hwnd, int x, int y )|desktop selection box"
       "programs/explorer/desktop.c|static void show_launcher_menu( HWND hwnd, unsigned int index, LPARAM lparam )|desktop icon right-click menu"
+      "programs/explorer/desktop.c|static void show_multi_properties(void)|combined Properties for several desktop icons"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
