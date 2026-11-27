@@ -400,15 +400,6 @@ do
       "dlls_wintypes_main.c_gn100_border_required.patch"
       "dlls_ntdll_loader.c_gn72_stale_x64_drivers.patch"
       "dlls_opengl32_unix_wgl.c_gn88_gamma_glsl140.patch"
-      # GameNative #142: private unnamed semaphores recycled without a server round trip;
-      # WINE_SEMAPHORE_RECYCLE=0 disables it
-      "dlls_ntdll_unix_sync_c_semaphore_recycle.patch"
-      "dlls_ntdll_unix_server_c_semaphore_recycle.patch"
-      "dlls_ntdll_unix_file_c_semaphore_recycle.patch"
-      "dlls_ntdll_unix_security_c_semaphore_recycle.patch"
-      "dlls_ntdll_unix_process_c_semaphore_recycle.patch"
-      "server_handle_c_semaphore_recycle.patch"
-      "server_process_c_semaphore_recycle.patch"
       # GameNative #86: ProcessorInformation power query cached for 500 ms (Wine bug 60462)
       "dlls_ntdll_unix_system_c_power_cache.patch"
       # GameNative #122 (part): NLS section-map fallback (arm64ec has it via dlls_ntdll_wow_forever_arm64ec.patch)
@@ -534,8 +525,6 @@ do
       "dlls/wintypes/main.c|Graphics capture border control is not implemented|IsBorderRequired absent (GameNative #100)"
       "dlls/ntdll/loader.c|if (NtReadFile( file, 0, NULL, NULL, &io, signature, sizeof(signature), &offset, NULL )) return FALSE;|stale x64 builtin drivers (GameNative #72)"
       "dlls/win32u/opengl.c|USE_GL_FUNC(glBindFragDataLocation)|gamma pass on GLSL 1.40 (GameNative #88)"
-      "dlls/ntdll/unix/sync.c|static NTSTATUS reuse_parked_semaphore( HANDLE *handle, ACCESS_MASK access, LONG initial, LONG max )|semaphore recycle (GameNative #142)"
-      "server/process.c|if (dup_needs_source_process( parent, info->data->console )) info->data->console = 0;|semaphore recycle server side (GameNative #142)"
       "dlls/ntdll/unix/system.c|if (cached_power && cached_cpus == out_cpus && now - cached_time < 500)|power info cache (GameNative #86)"
       "dlls/user32/clipboard.c|static int send_android_clipboard_data(android_clipboard_data_t clipboard_data) {|Android clipboard user32 side (GameNative)"
       "dlls/winex11.drv/mouse.c|if (data->clipping_cursor && clipping_cursor && EqualRect( clip, &clip_rect )) return TRUE;|X11 clip re-grab skip (GameNative #82)"
