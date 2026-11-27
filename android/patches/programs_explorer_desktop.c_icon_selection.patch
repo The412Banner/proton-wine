@@ -1,8 +1,16 @@
 diff --git a/programs/explorer/desktop.c b/programs/explorer/desktop.c
-index 60a11282de9..a985269383a 100644
+index 60a11282de9..6343df34fee 100644
 --- a/programs/explorer/desktop.c
 +++ b/programs/explorer/desktop.c
-@@ -29,6 +29,7 @@
+@@ -20,6 +20,7 @@
+  */
+ 
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ #define COBJMACROS
+ #define OEMRESOURCE
+@@ -29,6 +30,7 @@
  #include <shlobj.h>
  #include <shellapi.h>
  #include <ntuser.h>
@@ -10,15 +18,16 @@ index 60a11282de9..a985269383a 100644
  #include "exdisp.h"
  
  #include "wine/debug.h"
-@@ -49,6 +50,7 @@ struct launcher
+@@ -49,6 +51,8 @@ struct launcher
      WCHAR *path;
      HICON  icon;
      WCHAR *title;
 +    BOOL   selected;
++    BOOL   band_base;  /* selected when the selection box started */
  };
  
  static WCHAR *desktop_folder;
-@@ -60,6 +62,7 @@ static int desktop_width, launcher_size, launchers_per_row;
+@@ -60,6 +64,7 @@ static int desktop_width, launcher_size, launchers_per_row;
  
  static struct launcher **launchers;
  static unsigned int nb_launchers, nb_allocated;
@@ -26,7 +35,7 @@ index 60a11282de9..a985269383a 100644
  
  static REFIID tid_ids[] =
  {
-@@ -233,20 +236,98 @@ static RECT get_title_rect( unsigned int index )
+@@ -233,20 +238,238 @@ static RECT get_title_rect( unsigned int index )
      return rect;
  }
  
@@ -71,26 +80,166 @@ index 60a11282de9..a985269383a 100644
 +    return index == -1 ? NULL : launchers[index];
 +}
 +
-+/* a click selects the launcher under the mouse alone, or clears the selection on an empty spot;
-+ * a right click on a launcher that is already selected keeps the selection */
-+static void select_launcher_at( HWND hwnd, int x, int y, BOOL right_button )
++/* the selection box, dragged from an empty spot of the desktop */
++static struct
++{
++    BOOL  active;  /* the left button went down on an empty spot */
++    BOOL  shown;   /* the mouse moved far enough to show the box */
++    POINT start;
++    RECT  rect;
++} band;
++
++static int pending_click = -1;  /* a click on one of several selected launchers: it alone is selected at button up */
++
++static void set_launcher_selected( HWND hwnd, unsigned int index, BOOL selected )
++{
++    RECT rect;
++
++    if (launchers[index]->selected == selected) return;
++    launchers[index]->selected = selected;
++    rect = get_launcher_rect( index );
++    InvalidateRect( hwnd, &rect, TRUE );
++}
++
++static void set_focus_launcher( HWND hwnd, int index )
++{
++    struct launcher *launcher = index == -1 ? NULL : launchers[index];
++    unsigned int i;
++    RECT rect;
++
++    if (launcher == focus_launcher) return;
++    for (i = 0; i < nb_launchers; i++)
++    {
++        if (launchers[i] != focus_launcher && launchers[i] != launcher) continue;
++        rect = get_launcher_rect( i );
++        InvalidateRect( hwnd, &rect, TRUE );
++    }
++    focus_launcher = launcher;
++}
++
++/* select the launcher at index alone, or none for -1 */
++static void select_only( HWND hwnd, int index )
++{
++    unsigned int i;
++
++    for (i = 0; i < nb_launchers; i++) set_launcher_selected( hwnd, i, (int)i == index );
++    if (index != -1) set_focus_launcher( hwnd, index );
++}
++
++static unsigned int count_selected(void)
++{
++    unsigned int i, count = 0;
++
++    for (i = 0; i < nb_launchers; i++) if (launchers[i]->selected) count++;
++    return count;
++}
++
++/* a click selects the launcher under the mouse alone and Ctrl+click adds or removes it; a press on an
++ * empty spot clears the selection (not with Ctrl) and starts a selection box; a right click on a
++ * selected launcher, or a click on one of several selected ones, keeps the selection */
++static void mouse_down( HWND hwnd, int x, int y, WPARAM keys, BOOL right_button )
 +{
 +    int hit = launcher_index_from_point( x, y );
 +    unsigned int i;
 +
-+    if (hit != -1 && right_button && launchers[hit]->selected) return;
-+    if (hit != -1) focus_launcher = launchers[hit];
++    pending_click = -1;
++    if (hit == -1)
++    {
++        if (!(keys & MK_CONTROL)) select_only( hwnd, -1 );
++        if (right_button) return;
++        for (i = 0; i < nb_launchers; i++) launchers[i]->band_base = launchers[i]->selected;
++        band.active = TRUE;
++        band.shown = FALSE;
++        band.start.x = x;
++        band.start.y = y;
++        SetRectEmpty( &band.rect );
++        SetCapture( hwnd );
++        return;
++    }
++    if (right_button)
++    {
++        if (!launchers[hit]->selected) select_only( hwnd, hit );
++        return;
++    }
++    if (keys & MK_CONTROL)
++    {
++        set_launcher_selected( hwnd, hit, !launchers[hit]->selected );
++        set_focus_launcher( hwnd, hit );
++        return;
++    }
++    if (launchers[hit]->selected && count_selected() > 1)
++    {
++        set_focus_launcher( hwnd, hit );
++        pending_click = hit;
++        return;
++    }
++    select_only( hwnd, hit );
++}
++
++/* the box selects every launcher whose icon or title it touches; with Ctrl it inverts them instead */
++static void update_band( HWND hwnd, int x, int y )
++{
++    RECT old = band.rect, dirty;
++    unsigned int i;
++
++    if (!band.shown && abs( x - band.start.x ) < GetSystemMetrics( SM_CXDRAG ) &&
++        abs( y - band.start.y ) < GetSystemMetrics( SM_CYDRAG )) return;
++    band.shown = TRUE;
++    band.rect.left   = min( band.start.x, x );
++    band.rect.top    = min( band.start.y, y );
++    band.rect.right  = max( band.start.x, x ) + 1;
++    band.rect.bottom = max( band.start.y, y ) + 1;
 +
 +    for (i = 0; i < nb_launchers; i++)
 +    {
-+        BOOL selected = ((int)i == hit);
-+        RECT rect;
++        RECT dummy, icon = get_icon_rect( i ), title = get_title_rect( i );
++        BOOL inside = IntersectRect( &dummy, &icon, &band.rect ) || IntersectRect( &dummy, &title, &band.rect );
 +
-+        if (launchers[i]->selected == selected) continue;
-+        launchers[i]->selected = selected;
-+        rect = get_launcher_rect( i );
-+        InvalidateRect( hwnd, &rect, TRUE );
++        set_launcher_selected( hwnd, i, launchers[i]->band_base != inside );
 +    }
++    UnionRect( &dirty, &old, &band.rect );
++    InvalidateRect( hwnd, &dirty, FALSE );
++}
++
++static void end_band( HWND hwnd )
++{
++    if (!band.active) return;
++    band.active = FALSE;
++    if (band.shown) InvalidateRect( hwnd, &band.rect, FALSE );
++    band.shown = FALSE;
++    if (GetCapture() == hwnd) ReleaseCapture();
++}
++
++static void mouse_up( HWND hwnd, int x, int y )
++{
++    if (band.active) end_band( hwnd );
++    else if (pending_click != -1)
++    {
++        if (pending_click < (int)nb_launchers && launcher_index_from_point( x, y ) == pending_click)
++            select_only( hwnd, pending_click );
++        pending_click = -1;
++    }
++}
++
++/* the box as Windows XP draws it: the highlight colour, translucent inside, solid border */
++static void draw_band( HDC hdc )
++{
++    static const BLENDFUNCTION blend = { AC_SRC_OVER, 0, 0x50, 0 };
++    HDC mem = CreateCompatibleDC( hdc );
++    HBITMAP bitmap = CreateCompatibleBitmap( hdc, 1, 1 );
++
++    if (mem && bitmap)
++    {
++        HGDIOBJ old = SelectObject( mem, bitmap );
++
++        SetPixel( mem, 0, 0, GetSysColor( COLOR_HIGHLIGHT ) );
++        GdiAlphaBlend( hdc, band.rect.left, band.rect.top, band.rect.right - band.rect.left,
++                       band.rect.bottom - band.rect.top, mem, 0, 0, 1, 1, blend );
++        SelectObject( mem, old );
++    }
++    if (bitmap) DeleteObject( bitmap );
++    if (mem) DeleteDC( mem );
++    FrameRect( hdc, &band.rect, GetSysColorBrush( COLOR_HIGHLIGHT ) );
 +}
 +
 +/* the highlight box behind the title of a selected launcher: the drawn lines, centred, with a margin */
@@ -130,7 +279,7 @@ index 60a11282de9..a985269383a 100644
  }
  
  static void draw_launchers( HDC hdc, RECT update_rect )
-@@ -263,13 +344,27 @@ static void draw_launchers( HDC hdc, RECT update_rect )
+@@ -263,13 +486,27 @@ static void draw_launchers( HDC hdc, RECT update_rect )
      for (i = 0; i < nb_launchers; i++)
      {
          RECT dummy, icon = get_icon_rect( i ), title = get_title_rect( i );
@@ -140,13 +289,13 @@ index 60a11282de9..a985269383a 100644
 -            DrawIconEx( hdc, icon.left, icon.top, launchers[i]->icon, icon_cx, icon_cy,
 -                        0, 0, DI_DEFAULTSIZE|DI_NORMAL );
 +            draw_launcher_icon( hdc, launcher, icon );
- 
--        if (IntersectRect( &dummy, &title, &update_rect ))
--            DrawTextW( hdc, launchers[i]->title, -1, &title,
++
 +        if (launcher->selected)
 +        {
 +            RECT box = get_title_box( hdc, i, launcher->title );
-+
+ 
+-        if (IntersectRect( &dummy, &title, &update_rect ))
+-            DrawTextW( hdc, launchers[i]->title, -1, &title,
 +            if (IntersectRect( &dummy, &box, &update_rect ))
 +            {
 +                FillRect( hdc, &box, GetSysColorBrush( COLOR_HIGHLIGHT ) );
@@ -162,15 +311,15 @@ index 60a11282de9..a985269383a 100644
                         DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
      }
  
-@@ -387,6 +482,7 @@ static BOOL add_launcher( const WCHAR *folder, const WCHAR *filename, int len_fi
+@@ -387,6 +624,7 @@ static BOOL add_launcher( const WCHAR *folder, const WCHAR *filename, int len_fi
      }
  
      if (!(launcher = malloc( sizeof(*launcher) ))) return FALSE;
-+    launcher->selected = FALSE;
++    launcher->selected = launcher->band_base = FALSE;
      if (!(launcher->path = append_path( folder, filename, len_filename ))) goto error;
      if (!(link = load_shelllink( launcher->path ))) goto error;
  
-@@ -409,6 +505,7 @@ error:
+@@ -409,6 +647,7 @@ error:
  
  static void free_launcher( struct launcher *launcher )
  {
@@ -178,16 +327,43 @@ index 60a11282de9..a985269383a 100644
      DestroyIcon( launcher->icon );
      free( launcher->path );
      free( launcher->title );
-@@ -843,6 +940,12 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
+@@ -843,11 +1082,31 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
          handle_parent_notify( (HWND)lp, wp );
          return 0;
  
 +    case WM_LBUTTONDOWN:
 +    case WM_RBUTTONDOWN:
 +        if (!using_root)
-+            select_launcher_at( hwnd, (short)LOWORD(lp), (short)HIWORD(lp), message == WM_RBUTTONDOWN );
++            mouse_down( hwnd, (short)LOWORD(lp), (short)HIWORD(lp), wp, message == WM_RBUTTONDOWN );
++        break;
++
++    case WM_MOUSEMOVE:
++        if (!using_root && band.active) update_band( hwnd, (short)LOWORD(lp), (short)HIWORD(lp) );
++        break;
++
++    case WM_LBUTTONUP:
++        if (!using_root) mouse_up( hwnd, (short)LOWORD(lp), (short)HIWORD(lp) );
++        break;
++
++    case WM_CAPTURECHANGED:
++        if ((HWND)lp != hwnd) end_band( hwnd );
 +        break;
 +
      case WM_LBUTTONDBLCLK:
          if (!using_root)
          {
+             const struct launcher *launcher = launcher_from_point( (short)LOWORD(lp), (short)HIWORD(lp) );
+             if (launcher) ShellExecuteW( NULL, L"open", launcher->path, NULL, NULL, 0 );
++            /* a quick second press on an empty spot (a tap, then a drag) is a press like any other */
++            else mouse_down( hwnd, (short)LOWORD(lp), (short)HIWORD(lp), wp, FALSE );
+         }
+         return 0;
+ 
+@@ -863,6 +1122,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
+             {
+                 if (!paint_xp_wallpaper( hwnd, ps.hdc )) PaintDesktop( ps.hdc );
+                 draw_launchers( ps.hdc, ps.rcPaint );
++                if (band.shown) draw_band( ps.hdc );
+             }
+             EndPaint( hwnd, &ps );
+         }
