@@ -1,0 +1,193 @@
+diff --git a/programs/explorer/desktop.c b/programs/explorer/desktop.c
+index 60a11282de9..a985269383a 100644
+--- a/programs/explorer/desktop.c
++++ b/programs/explorer/desktop.c
+@@ -29,6 +29,7 @@
+ #include <shlobj.h>
+ #include <shellapi.h>
+ #include <ntuser.h>
++#include <commctrl.h>
+ #include "exdisp.h"
+ 
+ #include "wine/debug.h"
+@@ -49,6 +50,7 @@ struct launcher
+     WCHAR *path;
+     HICON  icon;
+     WCHAR *title;
++    BOOL   selected;
+ };
+ 
+ static WCHAR *desktop_folder;
+@@ -60,6 +62,7 @@ static int desktop_width, launcher_size, launchers_per_row;
+ 
+ static struct launcher **launchers;
+ static unsigned int nb_launchers, nb_allocated;
++static struct launcher *focus_launcher;  /* the last one clicked, outlined while it is selected */
+ 
+ static REFIID tid_ids[] =
+ {
+@@ -233,20 +236,98 @@ static RECT get_title_rect( unsigned int index )
+     return rect;
+ }
+ 
+-static const struct launcher *launcher_from_point( int x, int y )
++/* the whole cell of a launcher: its icon, its title and the highlight box around the title */
++static RECT get_launcher_rect( unsigned int index )
++{
++    RECT rect;
++
++    rect.left   = (index % launchers_per_row) * launcher_size;
++    rect.right  = rect.left + launcher_size;
++    rect.top    = (index / launchers_per_row) * launcher_size;
++    rect.bottom = rect.top + launcher_size;
++    return rect;
++}
++
++/* the index of the launcher whose icon or title is at x,y, or -1 */
++static int launcher_index_from_point( int x, int y )
+ {
+     RECT icon, title;
+     unsigned int index;
+ 
+-    if (!nb_launchers) return NULL;
++    if (!nb_launchers) return -1;
+     index = x / launcher_size + (y / launcher_size) * launchers_per_row;
+-    if (index >= nb_launchers) return NULL;
++    if (index >= nb_launchers) return -1;
+ 
+     icon = get_icon_rect( index );
+     title = get_title_rect( index );
+     if ((x < icon.left || x > icon.right || y < icon.top || y > icon.bottom) &&
+-        (x < title.left || x > title.right || y < title.top || y > title.bottom)) return NULL;
+-    return launchers[index];
++        (x < title.left || x > title.right || y < title.top || y > title.bottom)) return -1;
++    return index;
++}
++
++static const struct launcher *launcher_from_point( int x, int y )
++{
++    int index = launcher_index_from_point( x, y );
++
++    return index == -1 ? NULL : launchers[index];
++}
++
++/* a click selects the launcher under the mouse alone, or clears the selection on an empty spot;
++ * a right click on a launcher that is already selected keeps the selection */
++static void select_launcher_at( HWND hwnd, int x, int y, BOOL right_button )
++{
++    int hit = launcher_index_from_point( x, y );
++    unsigned int i;
++
++    if (hit != -1 && right_button && launchers[hit]->selected) return;
++    if (hit != -1) focus_launcher = launchers[hit];
++
++    for (i = 0; i < nb_launchers; i++)
++    {
++        BOOL selected = ((int)i == hit);
++        RECT rect;
++
++        if (launchers[i]->selected == selected) continue;
++        launchers[i]->selected = selected;
++        rect = get_launcher_rect( i );
++        InvalidateRect( hwnd, &rect, TRUE );
++    }
++}
++
++/* the highlight box behind the title of a selected launcher: the drawn lines, centred, with a margin */
++static RECT get_title_box( HDC hdc, unsigned int index, const WCHAR *text )
++{
++    RECT title = get_title_rect( index ), box = title;
++    int width;
++
++    DrawTextW( hdc, text, -1, &box, DT_CALCRECT|DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
++    width = min( box.right - box.left, title.right - title.left );
++    box.left = title.left + (title.right - title.left - width) / 2;
++    box.right = box.left + width;
++    box.top = title.top;
++    box.bottom = min( box.bottom, title.bottom );
++    InflateRect( &box, 2, 1 );
++    return box;
++}
++
++/* a selected launcher has its icon tinted with the highlight colour, as Windows draws it */
++static void draw_launcher_icon( HDC hdc, const struct launcher *launcher, RECT rect )
++{
++    if (launcher->selected)
++    {
++        HIMAGELIST list = ImageList_Create( icon_cx, icon_cy, ILC_COLOR32 | ILC_MASK, 1, 0 );
++        BOOL drawn = FALSE;
++
++        if (list)
++        {
++            if (ImageList_AddIcon( list, launcher->icon ) != -1)
++                drawn = ImageList_DrawEx( list, 0, hdc, rect.left, rect.top, icon_cx, icon_cy, CLR_NONE,
++                                          GetSysColor( COLOR_HIGHLIGHT ), ILD_TRANSPARENT | ILD_BLEND50 );
++            ImageList_Destroy( list );
++        }
++        if (drawn) return;
++    }
++    DrawIconEx( hdc, rect.left, rect.top, launcher->icon, icon_cx, icon_cy, 0, 0, DI_DEFAULTSIZE|DI_NORMAL );
+ }
+ 
+ static void draw_launchers( HDC hdc, RECT update_rect )
+@@ -263,13 +344,27 @@ static void draw_launchers( HDC hdc, RECT update_rect )
+     for (i = 0; i < nb_launchers; i++)
+     {
+         RECT dummy, icon = get_icon_rect( i ), title = get_title_rect( i );
++        const struct launcher *launcher = launchers[i];
+ 
+         if (IntersectRect( &dummy, &icon, &update_rect ))
+-            DrawIconEx( hdc, icon.left, icon.top, launchers[i]->icon, icon_cx, icon_cy,
+-                        0, 0, DI_DEFAULTSIZE|DI_NORMAL );
++            draw_launcher_icon( hdc, launcher, icon );
+ 
+-        if (IntersectRect( &dummy, &title, &update_rect ))
+-            DrawTextW( hdc, launchers[i]->title, -1, &title,
++        if (launcher->selected)
++        {
++            RECT box = get_title_box( hdc, i, launcher->title );
++
++            if (IntersectRect( &dummy, &box, &update_rect ))
++            {
++                FillRect( hdc, &box, GetSysColorBrush( COLOR_HIGHLIGHT ) );
++                SetTextColor( hdc, GetSysColor( COLOR_HIGHLIGHTTEXT ) );
++                DrawTextW( hdc, launcher->title, -1, &title,
++                           DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
++                SetTextColor( hdc, RGB(255,255,255) );
++                if (launcher == focus_launcher) DrawFocusRect( hdc, &box );
++            }
++        }
++        else if (IntersectRect( &dummy, &title, &update_rect ))
++            DrawTextW( hdc, launcher->title, -1, &title,
+                        DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
+     }
+ 
+@@ -387,6 +482,7 @@ static BOOL add_launcher( const WCHAR *folder, const WCHAR *filename, int len_fi
+     }
+ 
+     if (!(launcher = malloc( sizeof(*launcher) ))) return FALSE;
++    launcher->selected = FALSE;
+     if (!(launcher->path = append_path( folder, filename, len_filename ))) goto error;
+     if (!(link = load_shelllink( launcher->path ))) goto error;
+ 
+@@ -409,6 +505,7 @@ error:
+ 
+ static void free_launcher( struct launcher *launcher )
+ {
++    if (focus_launcher == launcher) focus_launcher = NULL;
+     DestroyIcon( launcher->icon );
+     free( launcher->path );
+     free( launcher->title );
+@@ -843,6 +940,12 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
+         handle_parent_notify( (HWND)lp, wp );
+         return 0;
+ 
++    case WM_LBUTTONDOWN:
++    case WM_RBUTTONDOWN:
++        if (!using_root)
++            select_launcher_at( hwnd, (short)LOWORD(lp), (short)HIWORD(lp), message == WM_RBUTTONDOWN );
++        break;
++
+     case WM_LBUTTONDBLCLK:
+         if (!using_root)
+         {

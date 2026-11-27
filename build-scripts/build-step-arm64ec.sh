@@ -300,6 +300,8 @@ do
 
       # programs
       "programs_explorer_desktop.c.patch"
+      # desktop icons: a click selects one (tinted icon, highlighted title, focus outline), an empty spot clears it
+      "programs_explorer_desktop.c_icon_selection.patch"
       "programs_wineboot_wineboot.c.patch"
       "programs_winebrowser_Makefile.in.patch"
       "programs_winebrowser_main.c.patch"
@@ -656,6 +658,7 @@ do
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
       "dlls/ntdll/unix/virtual.c|static BOOL is_writable_image_section( const struct file_view *view, const char *page )|system call writes into emulator-protected writable image sections (NFS Heat)"
+      "programs/explorer/desktop.c|static void select_launcher_at( HWND hwnd, int x, int y, BOOL right_button )|desktop icons selected by a click"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
