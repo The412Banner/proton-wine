@@ -1,5 +1,5 @@
 diff --git a/programs/explorer/desktop.c b/programs/explorer/desktop.c
-index 60a11282de9..6343df34fee 100644
+index 60a11282de9..14f1a0a3fa5 100644
 --- a/programs/explorer/desktop.c
 +++ b/programs/explorer/desktop.c
 @@ -20,6 +20,7 @@
@@ -35,7 +35,7 @@ index 60a11282de9..6343df34fee 100644
  
  static REFIID tid_ids[] =
  {
-@@ -233,20 +238,238 @@ static RECT get_title_rect( unsigned int index )
+@@ -233,20 +238,498 @@ static RECT get_title_rect( unsigned int index )
      return rect;
  }
  
@@ -137,11 +137,14 @@ index 60a11282de9..6343df34fee 100644
 +/* a click selects the launcher under the mouse alone and Ctrl+click adds or removes it; a press on an
 + * empty spot clears the selection (not with Ctrl) and starts a selection box; a right click on a
 + * selected launcher, or a click on one of several selected ones, keeps the selection */
++static void end_rename( BOOL commit );
++
 +static void mouse_down( HWND hwnd, int x, int y, WPARAM keys, BOOL right_button )
 +{
 +    int hit = launcher_index_from_point( x, y );
 +    unsigned int i;
 +
++    end_rename( TRUE );
 +    pending_click = -1;
 +    if (hit == -1)
 +    {
@@ -242,6 +245,263 @@ index 60a11282de9..6343df34fee 100644
 +    FrameRect( hdc, &band.rect, GetSysColorBrush( COLOR_HIGHLIGHT ) );
 +}
 +
++/* in-place rename of a launcher title, as on Windows */
++#define WM_RENAME_END (WM_APP + 1)
++static HWND rename_edit;
++static HFONT rename_font;
++static struct launcher *rename_launcher;
++static WNDPROC rename_orig_proc;
++
++static BOOL launcher_exists( const struct launcher *launcher )
++{
++    unsigned int i;
++
++    for (i = 0; i < nb_launchers; i++) if (launchers[i] == launcher) return TRUE;
++    return FALSE;
++}
++
++/* the new name goes to the .lnk file; the folder watcher then shows the launcher under it */
++static void end_rename( BOOL commit )
++{
++    WCHAR name[MAX_PATH], *path, *slash;
++    HWND edit = rename_edit;
++    int len = 0, dir_len;
++
++    if (!edit) return;
++    rename_edit = NULL;
++    if (commit) len = GetWindowTextW( edit, name, ARRAY_SIZE(name) - 5 );
++    DestroyWindow( edit );
++    if (rename_font) DeleteObject( rename_font );
++    rename_font = 0;
++
++    while (len && name[len - 1] == ' ') name[--len] = 0;
++    if (!len || !launcher_exists( rename_launcher ) || !wcscmp( name, rename_launcher->title )) return;
++    if (wcspbrk( name, L"\\/:*?\"<>|" ) || !(slash = wcsrchr( rename_launcher->path, '\\' )))
++    {
++        MessageBeep( MB_ICONWARNING );
++        return;
++    }
++    dir_len = slash - rename_launcher->path + 1;
++    if (!(path = malloc( (dir_len + len + 5) * sizeof(WCHAR) ))) return;
++    memcpy( path, rename_launcher->path, dir_len * sizeof(WCHAR) );
++    memcpy( path + dir_len, name, len * sizeof(WCHAR) );
++    lstrcpyW( path + dir_len + len, L".lnk" );
++    if (!MoveFileW( rename_launcher->path, path )) MessageBeep( MB_ICONWARNING );
++    free( path );
++}
++
++static LRESULT CALLBACK rename_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
++{
++    switch (msg)
++    {
++    case WM_GETDLGCODE:
++        return DLGC_WANTALLKEYS;
++    case WM_KEYDOWN:
++        if (wp == VK_RETURN || wp == VK_ESCAPE)
++        {
++            end_rename( wp == VK_RETURN );
++            return 0;
++        }
++        break;
++    case WM_CHAR:
++        if (wp == '\r' || wp == 0x1b) return 0;
++        break;
++    case WM_KILLFOCUS:
++        PostMessageW( hwnd, WM_RENAME_END, 0, 0 );
++        break;
++    case WM_RENAME_END:
++        if (hwnd == rename_edit) end_rename( TRUE );
++        return 0;
++    }
++    return CallWindowProcW( rename_orig_proc, hwnd, msg, wp, lp );
++}
++
++static void start_rename( HWND hwnd, unsigned int index )
++{
++    RECT rect = get_title_rect( index );
++    LOGFONTW lf;
++
++    end_rename( TRUE );
++    MapWindowPoints( hwnd, 0, (POINT *)&rect, 2 );
++    rename_edit = CreateWindowExW( WS_EX_TOPMOST, L"Edit", launchers[index]->title,
++                                   WS_POPUP | WS_BORDER | ES_AUTOHSCROLL | ES_CENTER,
++                                   rect.left - 2, rect.top - 1, rect.right - rect.left + 4, title_cy / 2 + 6,
++                                   hwnd, 0, 0, NULL );
++    if (!rename_edit) return;
++    rename_launcher = launchers[index];
++    SystemParametersInfoW( SPI_GETICONTITLELOGFONT, sizeof(lf), &lf, 0 );
++    if ((rename_font = CreateFontIndirectW( &lf ))) SendMessageW( rename_edit, WM_SETFONT, (WPARAM)rename_font, FALSE );
++    rename_orig_proc = (WNDPROC)SetWindowLongPtrW( rename_edit, GWLP_WNDPROC, (LONG_PTR)rename_proc );
++    SendMessageW( rename_edit, EM_SETSEL, 0, -1 );
++    ShowWindow( rename_edit, SW_SHOW );
++    SetForegroundWindow( rename_edit );
++    SetFocus( rename_edit );
++}
++
++/* the selected launchers go to the Trash together, with one confirmation */
++static void delete_selected(void)
++{
++    SHFILEOPSTRUCTW op = { 0 };
++    unsigned int i, size = 1;
++    WCHAR *list, *p;
++
++    for (i = 0; i < nb_launchers; i++) if (launchers[i]->selected) size += lstrlenW( launchers[i]->path ) + 1;
++    if (size == 1 || !(list = p = malloc( size * sizeof(WCHAR) ))) return;
++    for (i = 0; i < nb_launchers; i++)
++    {
++        if (!launchers[i]->selected) continue;
++        lstrcpyW( p, launchers[i]->path );
++        p += lstrlenW( p ) + 1;
++    }
++    *p = 0;
++    op.wFunc = FO_DELETE;
++    op.pFrom = list;
++    op.fFlags = FOF_ALLOWUNDO;
++    SHFileOperationW( &op );
++    free( list );
++}
++
++static BOOL launcher_in_folder( const struct launcher *launcher, const WCHAR *folder )
++{
++    int len = lstrlenW( folder );
++
++    return !wcsnicmp( launcher->path, folder, len ) && launcher->path[len] == '\\' &&
++           !wcschr( launcher->path + len + 1, '\\' );
++}
++
++/* the shell's context menu of the selected launchers of one desktop folder, or NULL */
++static IContextMenu *get_folder_menu( HWND hwnd, const WCHAR *folder )
++{
++    IShellFolder *desktop, *shell_folder = NULL;
++    IContextMenu *menu = NULL;
++    LPITEMIDLIST pidl, *children;
++    unsigned int i, count = 0;
++
++    if (!folder || !nb_launchers || !(children = calloc( nb_launchers, sizeof(*children) ))) return NULL;
++    if (SUCCEEDED( SHGetDesktopFolder( &desktop ) ))
++    {
++        if (SUCCEEDED( SHParseDisplayName( folder, NULL, &pidl, 0, NULL ) ))
++        {
++            IShellFolder_BindToObject( desktop, pidl, NULL, &IID_IShellFolder, (void **)&shell_folder );
++            ILFree( pidl );
++        }
++        IShellFolder_Release( desktop );
++    }
++    if (shell_folder)
++    {
++        for (i = 0; i < nb_launchers; i++)
++        {
++            if (!launchers[i]->selected || !launcher_in_folder( launchers[i], folder )) continue;
++            if (SUCCEEDED( IShellFolder_ParseDisplayName( shell_folder, hwnd, NULL,
++                                                          launchers[i]->path + lstrlenW( folder ) + 1,
++                                                          NULL, &children[count], NULL ) ))
++                count++;
++        }
++        if (count)
++            IShellFolder_GetUIObjectOf( shell_folder, hwnd, count, (LPCITEMIDLIST *)children,
++                                        &IID_IContextMenu, NULL, (void **)&menu );
++        IShellFolder_Release( shell_folder );
++    }
++    for (i = 0; i < count; i++) ILFree( children[i] );
++    free( children );
++    return menu;
++}
++
++#define IDM_LAUNCHER_FIRST 1       /* the shell menu commands */
++#define IDM_LAUNCHER_LAST  0x6fff
++#define IDM_LAUNCHER_OPEN  0x7000
++
++/* one name at a time: the shell only knows about the selected launchers of one folder */
++static void disable_rename( HMENU menu, IContextMenu *context )
++{
++    int i, count = GetMenuItemCount( menu );
++
++    for (i = 0; i < count; i++)
++    {
++        UINT id = GetMenuItemID( menu, i );
++        WCHAR verb[32] = { 0 };
++
++        if (id < IDM_LAUNCHER_FIRST || id > IDM_LAUNCHER_LAST) continue;
++        if (SUCCEEDED( IContextMenu_GetCommandString( context, id - IDM_LAUNCHER_FIRST, GCS_VERBW, NULL,
++                                                      (char *)verb, ARRAY_SIZE(verb) ) ) &&
++            !wcscmp( verb, L"rename" ))
++            EnableMenuItem( menu, id, MF_BYCOMMAND | MF_GRAYED );
++    }
++}
++
++/* right click on a selected launcher: Open, then the shell's file menu (Cut, Copy, Create Link, Delete,
++ * Rename, Properties); a command runs on the selected launchers of both desktop folders */
++static void show_launcher_menu( HWND hwnd, unsigned int index, LPARAM lparam )
++{
++    const WCHAR *folders[2] = { desktop_folder, desktop_folder_public };
++    IContextMenu *menus[2], *main_menu;
++    WCHAR str[64], verb[32] = { 0 };
++    unsigned int i, g;
++    HMENU menu;
++    POINT pt;
++    int cmd;
++
++    for (g = 0; g < 2; g++) menus[g] = get_folder_menu( hwnd, folders[g] );
++    main_menu = menus[folders[1] && launcher_in_folder( launchers[index], folders[1] ) ? 1 : 0];
++    if (!main_menu) main_menu = menus[0] ? menus[0] : menus[1];
++    if (!(menu = CreatePopupMenu())) goto done;
++
++    LoadStringW( NULL, IDS_DESKTOP_OPEN, str, ARRAY_SIZE(str) );
++    AppendMenuW( menu, MF_STRING, IDM_LAUNCHER_OPEN, str );
++    if (main_menu)
++    {
++        AppendMenuW( menu, MF_SEPARATOR, 0, NULL );
++        IContextMenu_QueryContextMenu( main_menu, menu, 2, IDM_LAUNCHER_FIRST, IDM_LAUNCHER_LAST, CMF_CANRENAME );
++        if (count_selected() > 1) disable_rename( menu, main_menu );
++    }
++    SetMenuDefaultItem( menu, IDM_LAUNCHER_OPEN, FALSE );
++
++    pt.x = (short)LOWORD( lparam );
++    pt.y = (short)HIWORD( lparam );
++    ClientToScreen( hwnd, &pt );
++    cmd = TrackPopupMenuEx( menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN, pt.x, pt.y, hwnd, NULL );
++    DestroyMenu( menu );
++
++    if (cmd == IDM_LAUNCHER_OPEN)
++    {
++        for (i = 0; i < nb_launchers; i++)
++            if (launchers[i]->selected) ShellExecuteW( NULL, L"open", launchers[i]->path, NULL, NULL, SW_SHOWNORMAL );
++    }
++    else if (cmd >= IDM_LAUNCHER_FIRST && cmd <= IDM_LAUNCHER_LAST && main_menu)
++    {
++        IContextMenu_GetCommandString( main_menu, cmd - IDM_LAUNCHER_FIRST, GCS_VERBW, NULL, (char *)verb,
++                                       ARRAY_SIZE(verb) );
++        if (!wcscmp( verb, L"rename" )) start_rename( hwnd, index );
++        else if (!wcscmp( verb, L"delete" )) delete_selected();
++        else
++        {
++            static BOOL ole_ready;  /* Cut and Copy use the OLE clipboard */
++
++            if (!ole_ready) ole_ready = SUCCEEDED( OleInitialize( NULL ) );
++            for (g = 0; g < 2; g++)
++            {
++                /* no owner: a dialog owned by the desktop window would leave it disabled */
++                CMINVOKECOMMANDINFO info = { sizeof(info) };
++                HMENU dummy;
++
++                if (!menus[g]) continue;
++                if (menus[g] != main_menu && (dummy = CreatePopupMenu()))
++                {
++                    IContextMenu_QueryContextMenu( menus[g], dummy, 0, IDM_LAUNCHER_FIRST, IDM_LAUNCHER_LAST,
++                                                   CMF_CANRENAME );
++                    DestroyMenu( dummy );
++                }
++                info.lpVerb = MAKEINTRESOURCEA( cmd - IDM_LAUNCHER_FIRST );
++                info.nShow = SW_SHOWNORMAL;
++                IContextMenu_InvokeCommand( menus[g], &info );
++            }
++        }
++    }
++
++done:
++    for (g = 0; g < 2; g++) if (menus[g]) IContextMenu_Release( menus[g] );
++}
++
 +/* the highlight box behind the title of a selected launcher: the drawn lines, centred, with a margin */
 +static RECT get_title_box( HDC hdc, unsigned int index, const WCHAR *text )
 +{
@@ -279,7 +539,7 @@ index 60a11282de9..6343df34fee 100644
  }
  
  static void draw_launchers( HDC hdc, RECT update_rect )
-@@ -263,13 +486,27 @@ static void draw_launchers( HDC hdc, RECT update_rect )
+@@ -263,13 +746,27 @@ static void draw_launchers( HDC hdc, RECT update_rect )
      for (i = 0; i < nb_launchers; i++)
      {
          RECT dummy, icon = get_icon_rect( i ), title = get_title_rect( i );
@@ -289,13 +549,13 @@ index 60a11282de9..6343df34fee 100644
 -            DrawIconEx( hdc, icon.left, icon.top, launchers[i]->icon, icon_cx, icon_cy,
 -                        0, 0, DI_DEFAULTSIZE|DI_NORMAL );
 +            draw_launcher_icon( hdc, launcher, icon );
-+
-+        if (launcher->selected)
-+        {
-+            RECT box = get_title_box( hdc, i, launcher->title );
  
 -        if (IntersectRect( &dummy, &title, &update_rect ))
 -            DrawTextW( hdc, launchers[i]->title, -1, &title,
++        if (launcher->selected)
++        {
++            RECT box = get_title_box( hdc, i, launcher->title );
++
 +            if (IntersectRect( &dummy, &box, &update_rect ))
 +            {
 +                FillRect( hdc, &box, GetSysColorBrush( COLOR_HIGHLIGHT ) );
@@ -311,7 +571,7 @@ index 60a11282de9..6343df34fee 100644
                         DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
      }
  
-@@ -387,6 +624,7 @@ static BOOL add_launcher( const WCHAR *folder, const WCHAR *filename, int len_fi
+@@ -387,6 +884,7 @@ static BOOL add_launcher( const WCHAR *folder, const WCHAR *filename, int len_fi
      }
  
      if (!(launcher = malloc( sizeof(*launcher) ))) return FALSE;
@@ -319,7 +579,7 @@ index 60a11282de9..6343df34fee 100644
      if (!(launcher->path = append_path( folder, filename, len_filename ))) goto error;
      if (!(link = load_shelllink( launcher->path ))) goto error;
  
-@@ -409,6 +647,7 @@ error:
+@@ -409,6 +907,7 @@ error:
  
  static void free_launcher( struct launcher *launcher )
  {
@@ -327,7 +587,7 @@ index 60a11282de9..6343df34fee 100644
      DestroyIcon( launcher->icon );
      free( launcher->path );
      free( launcher->title );
-@@ -843,11 +1082,31 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
+@@ -843,16 +1342,42 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
          handle_parent_notify( (HWND)lp, wp );
          return 0;
  
@@ -359,7 +619,19 @@ index 60a11282de9..6343df34fee 100644
          }
          return 0;
  
-@@ -863,6 +1122,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
+     case WM_RBUTTONUP:
+-        if (!using_root) show_desktop_menu( hwnd, lp );
++        if (!using_root)
++        {
++            int hit = launcher_index_from_point( (short)LOWORD(lp), (short)HIWORD(lp) );
++
++            if (hit != -1 && launchers[hit]->selected) show_launcher_menu( hwnd, hit, lp );
++            else show_desktop_menu( hwnd, lp );
++        }
+         return 0;
+ 
+     case WM_PAINT:
+@@ -863,6 +1388,7 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
              {
                  if (!paint_xp_wallpaper( hwnd, ps.hdc )) PaintDesktop( ps.hdc );
                  draw_launchers( ps.hdc, ps.rcPaint );
@@ -367,3 +639,27 @@ index 60a11282de9..6343df34fee 100644
              }
              EndPaint( hwnd, &ps );
          }
+diff --git a/programs/explorer/explorer.rc b/programs/explorer/explorer.rc
+index 8f76de10b1a..afe0ab878fb 100644
+--- a/programs/explorer/explorer.rc
++++ b/programs/explorer/explorer.rc
+@@ -58,6 +58,7 @@ STRINGTABLE
+     IDS_DP_SCHEME_SILVER "Silver"
+     IDS_DESKTOP_REFRESH "R&efresh"
+     IDS_DESKTOP_PROPERTIES "Display P&roperties"
++    IDS_DESKTOP_OPEN "&Open"
+ }
+ 
+ IDD_DISPLAY_PROPERTIES DIALOGEX 0, 0, 262, 286
+diff --git a/programs/explorer/resource.h b/programs/explorer/resource.h
+index 8c145e9f2dc..be00d311ece 100644
+--- a/programs/explorer/resource.h
++++ b/programs/explorer/resource.h
+@@ -52,6 +52,7 @@
+ #define IDS_DP_SCHEME_SILVER 34
+ #define IDS_DESKTOP_REFRESH 35
+ #define IDS_DESKTOP_PROPERTIES 36
++#define IDS_DESKTOP_OPEN 37
+ 
+ #define IDI_WINE_LOGO 100
+ #define IDB_WALLPAPER_LIGHT 110
