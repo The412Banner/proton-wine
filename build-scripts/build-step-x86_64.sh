@@ -413,6 +413,9 @@ do
       # WINE_DISABLE_VULKAN_OPWR=0 turns it on (user decision 2026-11-26). Both adapted.
       "dlls_win32u_vulkan_c_other_process_readback.patch"
       "dlls_winex11.drv_init.c_opwr_readback.patch"
+      # V8 sandbox (Chrome / CEF 128+, EA app 13.836): report a 41-bit user address space to Chromium
+      # child processes, Android gives 64-bit processes only 39 bits and V8 crashes below 1 TB
+      "dlls_ntdll_unix_virtual_c_v8_sandbox_address_space.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -535,6 +538,8 @@ do
       "dlls/winex11.drv/init.c|static void android_opwr_position( HWND hwnd, UINT dpi, int *x, int *y )|other process surfaces kept behind their window (GameNative #122)"
       "dlls/winex11.drv/init.c|disable = !e || atoi( e );|other process rendering off by default on Android"
       "dlls/ntdll/unix/env.c|using fallback for type %u id %u|NLS section-map fallback (GameNative #122)"
+      "dlls/ntdll/unix/virtual.c|static BOOL android_large_address_report(void)|V8 sandbox address space report for Chromium children (EA app 13.836)"
+      "dlls/ntdll/unix/system.c|virtual_get_reported_system_info( &sbi, FALSE );|reported system info used for SystemBasicInformation"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"

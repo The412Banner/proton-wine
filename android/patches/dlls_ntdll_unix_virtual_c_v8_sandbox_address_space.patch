@@ -1,0 +1,131 @@
+Subject: ntdll: Report a 41-bit user address space to Chromium child processes on Android.
+
+Android kernels give 64-bit processes a 39-bit (512 GB) address space. V8 with the V8 sandbox
+(Chrome / CEF 128 and newer) refuses to start unless GetSystemInfo reports more than its 1 TB
+sandbox: CHECK_LT(kSandboxSize, address_space_limit) in Sandbox::Initialize -> int3. Seen with the
+EA app 13.836 (EA's own CEF 128.4.13, Chrome 128.0.6613.138, forced update 2026-11-26): every
+EACefSubProcess renderer died at libcef+0x9f68cc, the sign-in page never drew. Past the check V8
+uses a partially reserved sandbox that fits in 512 GB (proven on the Pocket FIT by skipping the
+check in libcef: page loads, HTTP 200, no crash).
+
+Only the value reported through NtQuerySystemInformation (basic / native / emulation basic info)
+changes, and only for processes with "--type=" on the command line (Chromium/CEF/Electron
+children); Wine keeps using the real limit internally, and MEM_ADDRESS_REQUIREMENTS upper limits
+up to the reported value are clamped to the real one. WINE_LARGE_ADDRESS_REPORT=1 reports it to
+every 64-bit process, =0 to none. Kernels with >= 41-bit address spaces are unaffected.
+
+diff --git a/dlls/ntdll/unix/system.c b/dlls/ntdll/unix/system.c
+index 3938bf23a2f..69cbd9a5df7 100644
+--- a/dlls/ntdll/unix/system.c
++++ b/dlls/ntdll/unix/system.c
+@@ -3667,7 +3667,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
+     {
+         SYSTEM_BASIC_INFORMATION sbi;
+ 
+-        virtual_get_system_info( &sbi, FALSE );
++        virtual_get_reported_system_info( &sbi, FALSE );
+         len = sizeof(sbi);
+         if (size == len)
+         {
+@@ -4099,7 +4099,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
+     {
+         SYSTEM_BASIC_INFORMATION sbi;
+ 
+-        virtual_get_system_info( &sbi, is_wow64() );
++        virtual_get_reported_system_info( &sbi, is_wow64() );
+         len = sizeof(sbi);
+         if (size == len)
+         {
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index d0e0861f41f..de7fc1ba956 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -313,6 +313,7 @@ extern void virtual_init(void);
+ extern void sleep0_note_image( const UNICODE_STRING *nt_name );
+ extern ULONG_PTR get_system_affinity_mask(void);
+ extern void virtual_get_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 );
++extern void virtual_get_reported_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 );
+ extern NTSTATUS virtual_map_builtin_module( HANDLE mapping, void **module, SIZE_T *size,
+                                             SECTION_IMAGE_INFORMATION *info, ULONG_PTR limit_low,
+                                             ULONG_PTR limit_high, WORD machine, BOOL prefer_native, off_t offset );
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index 626dcb15bde..e68fc407ac3 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -4316,6 +4316,63 @@ void virtual_get_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 )
+     else info->HighestUserAddress = (char *)user_space_limit - 1;
+ }
+ 
++#ifdef __ANDROID__
++/* Android kernels give 64-bit processes a 39-bit (512 GB) user address space. V8 in
++ * Chromium-based programs with the V8 sandbox (Chrome / CEF 128 and newer, e.g. the EA app
++ * 13.836 renderers) checks that the address space reported by GetSystemInfo is larger than
++ * its 1 TB sandbox and deliberately crashes otherwise (CHECK_LT(kSandboxSize,
++ * address_space_limit), int3). Past that check V8 falls back to a partially reserved sandbox
++ * that fits in 512 GB. So report a 41-bit limit to Chromium child processes ("--type=" on the
++ * command line: renderer, utility, gpu). Only the reported value changes: Wine still allocates
++ * within the real limit, and address requirements up to the reported limit are clamped (see
++ * get_extended_params). WINE_LARGE_ADDRESS_REPORT=1 reports it to every 64-bit process, =0 to
++ * none. */
++#define ANDROID_REPORTED_SPACE_LIMIT ((ULONG_PTR)1 << 41)
++
++static BOOL unicode_has_ascii( const UNICODE_STRING *str, const char *needle )
++{
++    size_t n = strlen( needle ), len, i, j;
++
++    if (!str || !str->Buffer) return FALSE;
++    len = str->Length / sizeof(WCHAR);
++    for (i = 0; i + n <= len; i++)
++    {
++        for (j = 0; j < n; j++) if (str->Buffer[i + j] != (WCHAR)(unsigned char)needle[j]) break;
++        if (j == n) return TRUE;
++    }
++    return FALSE;
++}
++
++static BOOL android_large_address_report(void)
++{
++    static int enabled = -1;
++    const char *env;
++
++    if (enabled != -1) return enabled;
++    if (!is_win64 || (ULONG_PTR)user_space_limit >= ANDROID_REPORTED_SPACE_LIMIT) return (enabled = FALSE);
++    if ((env = getenv( "WINE_LARGE_ADDRESS_REPORT" )) && *env) enabled = !!atoi( env );
++    else if (!peb || !peb->ProcessParameters) return FALSE;  /* too early to tell, decide later */
++    else enabled = unicode_has_ascii( &peb->ProcessParameters->CommandLine, "--type=" );
++    if (enabled) FIXME( "HACK: reporting a %#lx user address space (real limit %p) for the V8 sandbox.\n",
++                        (unsigned long)ANDROID_REPORTED_SPACE_LIMIT, user_space_limit );
++    return enabled;
++}
++#endif
++
++/***********************************************************************
++ *           virtual_get_reported_system_info
++ *
++ * SystemBasicInformation as reported to programs.
++ */
++void virtual_get_reported_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 )
++{
++    virtual_get_system_info( info, wow64 );
++#ifdef __ANDROID__
++    if (!wow64 && android_large_address_report())
++        info->HighestUserAddress = (void *)(ANDROID_REPORTED_SPACE_LIMIT - 0x10000 - 1);
++#endif
++}
++
+ 
+ /***********************************************************************
+  *           virtual_map_builtin_module
+@@ -6068,6 +6125,12 @@ static NTSTATUS get_extended_params( const MEM_EXTENDED_PARAMETER *parameters, U
+             if (r->HighestEndingAddress)
+             {
+                 *limit_high = (ULONG_PTR)r->HighestEndingAddress;
++#ifdef __ANDROID__
++                /* a limit taken from the reported address space, see android_large_address_report */
++                if (*limit_high > limit && *limit_high < ANDROID_REPORTED_SPACE_LIMIT &&
++                    !is_wow64() && android_large_address_report())
++                    *limit_high = limit - 1;
++#endif
+                 if (*limit_high > limit ||
+                     *limit_high <= *limit_low ||
+                     ((*limit_high + 1) & (page_mask - 1)))

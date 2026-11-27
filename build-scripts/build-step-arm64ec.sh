@@ -466,6 +466,9 @@ do
       # WINE_DISABLE_VULKAN_OPWR=0 turns it on (user decision 2026-11-26). Both adapted.
       "dlls_win32u_vulkan_c_other_process_readback.patch"
       "dlls_winex11.drv_init.c_opwr_readback.patch"
+      # V8 sandbox (Chrome / CEF 128+, EA app 13.836): report a 41-bit user address space to Chromium
+      # child processes, Android gives 64-bit processes only 39 bits and V8 crashes below 1 TB
+      "dlls_ntdll_unix_virtual_c_v8_sandbox_address_space.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -614,6 +617,8 @@ do
       "dlls/ntdll/signal_arm64ec.c|ldr x4, [x2, #0xf8]|ARM64EC process breakpoint stepped at Rip (DroidDeck-Proton 11-12.4, xXJSONDeruloXx)"
       "dlls/ntdll/signal_arm64ec.c|arm_ctx = (ARM64_NT_CONTEXT){ .ContextFlags = ctx_flags_x64_to_arm( context->ContextFlags ) };|ARM64EC NtGetContextThread NULL context (DroidDeck-Proton main 92b57e73, 66sam)"
       "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second mappings of a loaded DLL (DroidDeck-Proton #34, Black Ops III)"
+      "dlls/ntdll/unix/virtual.c|static BOOL android_large_address_report(void)|V8 sandbox address space report for Chromium children (EA app 13.836)"
+      "dlls/ntdll/unix/system.c|virtual_get_reported_system_info( &sbi, FALSE );|reported system info used for SystemBasicInformation"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
