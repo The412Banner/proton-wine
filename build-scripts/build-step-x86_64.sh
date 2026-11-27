@@ -428,6 +428,9 @@ do
       # A service's CreateProcessAsUser for the user (GOG Galaxy /deelevated) asks for WinSta0\\Default explicitly:
       # map it to the prefix's configured desktop (Bannerlator Wayland: "shell") so it gets a display driver
       "dlls_win32u_winstation_c_default_desktop_alias.patch"
+      # upstream Wine 08464dbe9b8 (11.1): OpenGL windows paint their client area through a surface when the
+      # driver has no PutImage (Wayland) - GDI drawing into a GL window was lost (GOG Galaxy all white)
+      "dlls_win32u_dce_c_client_surface_no_putimage.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -556,6 +559,7 @@ do
       "dlls/ntdll/loader.c|static BOOL hide_wine_exports_from_app(void)|ntdll hides wine_get_* from EA Steam/Epic launchers (EA token cut to 1024)"
       "dlls/nsiproxy.sys/ndis.c|static void stabilize_phys_addr( const char *name, IF_PHYSICAL_ADDRESS *phys_addr )|nsiproxy fixed MAC for Android random-MAC interfaces (EA OOA licence)"
       "dlls/win32u/winstation.c|if (desktop && !wcsicmp( desktop, defaultW ) && (!winstation|explicit WinSta0 Default desktop follows the configured desktop (GOG Galaxy)"
+      "dlls/win32u/dce.c|SET_WINPOS_PIXEL_FORMAT && user_driver->dc_funcs.pPutImage|GL window client area through a surface without PutImage (upstream 08464dbe9b8)"
       "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
       "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
     )
