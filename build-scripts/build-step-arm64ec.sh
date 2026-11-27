@@ -436,6 +436,41 @@ do
       # ntdll: RtlWow64GetCpuAreaInfo() looks up the context length without a trace line; since 03487a0dda3
       # every RtlWow64GetCurrentMachine() wrote one with +seh (Counter-Strike 60 -> 9 fps with BL Wine debug on)
       "dlls_ntdll_process.c_cpu_area_no_trace.patch"
+      # GameNative fixes (2026-11-26, see the Source line in each patch; LGPL-2.1, credit kept)
+      # group B, GameNative AI-help PRs (butilly): #144 DNS canonname, #117 registry flush tmp,
+      # #63 WMA audio-converter skip, #107 icu backend check, #100 IsBorderRequired, #72 stale x64
+      # .sys, #88 gamma pass on GLSL 1.40 (#139 wmic is a configure.ac commit)
+      "dlls_ws2_32_unixlib.c_gn144_dns_canonname.patch"
+      "dlls_ntdll_unix_registry.c_gn117_flush_unique_tmp.patch"
+      "dlls_winegstreamer_unixlib.c_gn63_audio_transcode_skip.patch"
+      "dlls_icu_main.c_gn107_backend_check.patch"
+      "dlls_wintypes_main.c_gn100_border_required.patch"
+      "dlls_ntdll_loader.c_gn72_stale_x64_drivers.patch"
+      "dlls_opengl32_unix_wgl.c_gn88_gamma_glsl140.patch"
+      # GameNative #142: private unnamed semaphores recycled without a server round trip;
+      # WINE_SEMAPHORE_RECYCLE=0 disables it
+      "dlls_ntdll_unix_sync_c_semaphore_recycle.patch"
+      "dlls_ntdll_unix_server_c_semaphore_recycle.patch"
+      "dlls_ntdll_unix_file_c_semaphore_recycle.patch"
+      "dlls_ntdll_unix_security_c_semaphore_recycle.patch"
+      "dlls_ntdll_unix_process_c_semaphore_recycle.patch"
+      "server_handle_c_semaphore_recycle.patch"
+      "server_process_c_semaphore_recycle.patch"
+      # GameNative #86: ProcessorInformation power query cached for 500 ms (Wine bug 60462)
+      "dlls_ntdll_unix_system_c_power_cache.patch"
+      # GameNative #85 ntdll side: arm64x_check_call follows the -import fast-forward thunk (winebuild
+      # side = TOOLS_PATCHES in build-step0.sh; Wine bug 60463). Adapted next to our .Lhotpatch check.
+      "dlls_ntdll_signal_arm64ec_c_ffwd_import.patch"
+      # GameNative #86: NtContinue to x64 code resumes in the emulator without a syscall. Adapted.
+      "dlls_ntdll_signal_arm64ec_c_fast_continue.patch"
+      # GameNative #122 (part): native ARM64 unwind stops when it makes no progress. The WoW Forever
+      # ntdll gaps of #122 are already covered by dlls_ntdll_wow_forever_arm64ec.patch (same report).
+      "dlls_ntdll_signal_arm64_c_no_unwind_progress.patch"
+      # GameNative Android clipboard (user32 side, app socket 127.0.0.1:20000 = BL WineRequestHandler)
+      # and X11 pointer clip re-grab / grab on the foreground window (#82)
+      "dlls_user32_clipboard_c.patch"
+      "dlls_winex11_drv_mouse_c_clip_regrab.patch"
+      "dlls_winex11_drv_mouse_c_clip_grab_foreground.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -562,6 +597,23 @@ do
       "dlls/ntdll/unix/file.c|static BOOLEAN is_hashed_short_name( const WCHAR *name, int length )|no directory listing for a missing file on case-folding volumes (DroidDeck-Proton 11-12.7, maxjivi05)"
       "dlls/ntdll/sync.c|static struct futex_entry futex_entries[4096];|RtlWaitOnAddress entries off the waiter's stack (DroidDeck-Proton main d03ba52e, l4nr3)"
       "dlls/ntdll/process.c|get_extended_context_length( data[i].flag, &ext_size, ~(ULONG64)0 )|RtlWow64GetCpuAreaInfo context length without trace (+seh log flood)"
+      "dlls/ws2_32/unixlib.c|dst->ai_canonname = NULL;|ws2_32 DNS canonname cleared (GameNative #144)"
+      "dlls/ntdll/unix/registry.c|static const char temp_fn[] = |registry flush unique tmp file (GameNative #117)"
+      "dlls/winegstreamer/unixlib.c|Ignoring protonaudioconverterbin without an audio dump database|audio-converter skip without dump db (GameNative #63)"
+      "dlls/icu/main.c|BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )|icu backend check (GameNative #107)"
+      "dlls/wintypes/main.c|Graphics capture border control is not implemented|IsBorderRequired absent (GameNative #100)"
+      "dlls/ntdll/loader.c|if (NtReadFile( file, 0, NULL, NULL, &io, signature, sizeof(signature), &offset, NULL )) return FALSE;|stale x64 builtin drivers (GameNative #72)"
+      "dlls/opengl32/unix_wgl.c|USE_GL_FUNC(glBindFragDataLocation)|gamma pass on GLSL 1.40 (GameNative #88)"
+      "dlls/ntdll/unix/sync.c|static NTSTATUS reuse_parked_semaphore( HANDLE *handle, ACCESS_MASK access, LONG initial, LONG max )|semaphore recycle (GameNative #142)"
+      "server/process.c|if (dup_needs_source_process( parent, info->data->console )) info->data->console = 0;|semaphore recycle server side (GameNative #142)"
+      "dlls/ntdll/unix/system.c|if (cached_power && cached_cpus == out_cpus && now - cached_time < 500)|power info cache (GameNative #86)"
+      "dlls/user32/clipboard.c|static int send_android_clipboard_data(android_clipboard_data_t clipboard_data) {|Android clipboard user32 side (GameNative)"
+      "dlls/winex11.drv/mouse.c|if (data->clipping_cursor && clipping_cursor && EqualRect( clip, &clip_rect )) return TRUE;|X11 clip re-grab skip (GameNative #82)"
+      "dlls/winex11.drv/mouse.c|if (fg_data->whole_window && fg_data->display == data->display) grab_window = fg_data->whole_window;|X11 grab on foreground window (GameNative #82)"
+      "configure.ac|enable_wmic=|wmic built for ARM64EC (GameNative #139)"
+      "dlls/ntdll/signal_arm64ec.c|Lffwd_imp|arm64x_check_call follows -import fast-forward thunks (GameNative #85)"
+      "dlls/ntdll/signal_arm64ec.c|if (!alertable && can_continue_in_emulator( context, (ULONG_PTR)__builtin_frame_address(0) ))|fast NtContinue in the emulator (GameNative #86)"
+      "dlls/ntdll/signal_arm64.c|no unwind progress at pc|native ARM64 unwind progress guard (GameNative #122)"
       "dlls/ntdll/signal_arm64ec.c|ldr x4, [x2, #0xf8]|ARM64EC process breakpoint stepped at Rip (DroidDeck-Proton 11-12.4, xXJSONDeruloXx)"
       "dlls/ntdll/signal_arm64ec.c|arm_ctx = (ARM64_NT_CONTEXT){ .ContextFlags = ctx_flags_x64_to_arm( context->ContextFlags ) };|ARM64EC NtGetContextThread NULL context (DroidDeck-Proton main 92b57e73, 66sam)"
       "dlls/ntdll/unix/virtual.c|copy_arm64ec_hybrid_pointers( view, nt, dir, image_info->map_addr );|ARM64EC dispatch pointers in second mappings of a loaded DLL (DroidDeck-Proton #34, Black Ops III)"

@@ -1,0 +1,18 @@
+Subject: ws2_32: Clear canonical-name pointer when packing DNS results
+Source: GameNative/proton-wine PR #144 by butilly (GameNative AI help, github.com/butilly), commit 948f8d17a0 (open, not merged by GameNative as of 2026-11-26). LGPL-2.1.
+Ported unchanged to DroidDeck-Proton 11.0-14.1 (Bannerlator bionic layer).
+
+diff --git a/dlls/ws2_32/unixlib.c b/dlls/ws2_32/unixlib.c
+index e0e1263e025b..8deebd06b281 100644
+--- a/dlls/ws2_32/unixlib.c
++++ b/dlls/ws2_32/unixlib.c
+@@ -790,6 +790,9 @@ static NTSTATUS unix_getaddrinfo( void *args )
+             dst->ai_socktype = socktype_from_unix( src->ai_socktype );
+             dst->ai_protocol = protocol_from_unix( src->ai_protocol );
+         }
++        /* A discarded duplicate may leave data in this slot, including past
++         * its header when the next result has a shorter canonical name. */
++        dst->ai_canonname = NULL;
+         if (src->ai_canonname)
+         {
+             size_t len = strlen( src->ai_canonname ) + 1;

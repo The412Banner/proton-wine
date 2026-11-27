@@ -1,0 +1,56 @@
+Subject: opengl32: Allow the fullscreen gamma pass on GLSL 1.40
+Source: GameNative/proton-wine PR #88 by butilly (GameNative AI help, github.com/butilly), commit 9e9989000e (open, not merged by GameNative as of 2026-11-26). LGPL-2.1.
+Ported unchanged to DroidDeck-Proton 11.0-14.1 (Bannerlator bionic layer).
+
+diff --git a/dlls/opengl32/unix_wgl.c b/dlls/opengl32/unix_wgl.c
+index 28152c5a9cdf..cf6c84d34514 100644
+--- a/dlls/opengl32/unix_wgl.c
++++ b/dlls/opengl32/unix_wgl.c
+@@ -1391,7 +1391,7 @@ static BOOL fs_hack_is_integer(void)
+ }
+ 
+ static const char *fs_hack_gamma_vertex_shader_src =
+-"#version 330\n"
++"#version 140\n"
+ "\n"
+ "const vec4 square[4] = vec4[4](\n"
+ "    vec4(-1.0, -1.0, 0.0, 1.0),\n"
+@@ -1416,7 +1416,7 @@ static const char *fs_hack_gamma_vertex_shader_src =
+ ;
+ 
+ static const char *fs_hack_gamma_frag_shader_src =
+-"#version 330\n"
++"#version 140\n"
+ "\n"
+ "uniform sampler2D tex;\n"
+ "in vec2 texCoord;\n"
+@@ -1424,7 +1424,7 @@ static const char *fs_hack_gamma_frag_shader_src =
+ "    vec3 values[256];\n"
+ "};\n"
+ "\n"
+-"layout(location = 0) out vec4 outColor;\n"
++"out vec4 outColor;\n"
+ "\n"
+ "vec3 color_from_index(vec3 index)\n"
+ "{\n"
+@@ -1525,6 +1525,8 @@ static void fs_hack_setup_gamma_shader( struct wgl_context *ctx, const struct op
+     funcs->p_glAttachShader( program, vshader );
+     funcs->p_glAttachShader( program, fshader );
+ 
++    /* Keep the gamma pass usable on GLSL 1.40 contexts without explicit locations. */
++    funcs->p_glBindFragDataLocation( program, 0, "outColor" );
+     funcs->p_glLinkProgram( program );
+ 
+     funcs->p_glGetProgramiv( program, GL_LINK_STATUS, &success );
+diff --git a/dlls/win32u/opengl.c b/dlls/win32u/opengl.c
+index 03346f5b5f6a..8dea6eb07ea0 100644
+--- a/dlls/win32u/opengl.c
++++ b/dlls/win32u/opengl.c
+@@ -3333,6 +3333,7 @@ static void display_funcs_init(void)
+     USE_GL_FUNC(glBindBuffer)
+     USE_GL_FUNC(glBindBufferBase)
+     USE_GL_FUNC(glBindBufferRange)
++    USE_GL_FUNC(glBindFragDataLocation)
+     USE_GL_FUNC(glBindFramebuffer)
+     USE_GL_FUNC(glBindSampler)
+     USE_GL_FUNC(glBlitFramebuffer)

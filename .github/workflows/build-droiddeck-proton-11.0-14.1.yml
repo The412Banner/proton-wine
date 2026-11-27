@@ -139,7 +139,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wine-tools
-          key: wine-tools-${{ hashFiles('configure.ac', 'configure') }}
+          key: wine-tools-${{ hashFiles('configure.ac', 'configure', 'tools/**', 'android/patches/tools_*.patch', 'build-scripts/build-step0.sh') }}
 
       - name: Install ccache
         run: sudo apt-get update && sudo apt-get install -y ccache

@@ -280,6 +280,15 @@ def main():
     report(os.path.isfile(os.path.join(pe, "mfwmaaec.dll")), "mfwmaaec.dll present (Valve Voice Capture DSP)")
     report(u16("showdown_avx.exe") in read(os.path.join(pe, "ws2_32.dll")), "ws2_32.dll: DiRT 3 / DiRT Showdown telemetry sendto fix")
 
+    # GameNative fixes (2026-11-26). The winebuild half of #85 is applied in build-step0.sh, so only the
+    # built DLLs can show it reached winebuild: kernel32's ~790 -import exports become fast-forward thunks.
+    print("-- GameNative fixes")
+    if arm64ec:
+        ffwd = read(os.path.join(pe, "kernel32.dll")).count(bytes.fromhex("488bc448895820555dff25"))
+        report(ffwd >= 500, "kernel32.dll: -import exports are fast-forward thunks (GameNative #85)", "%d thunks" % ffwd)
+    report(b"WINE_SEMAPHORE_RECYCLE" in ntdll_so, "ntdll.so: semaphore recycle (GameNative #142, WINE_SEMAPHORE_RECYCLE)")
+    report(b"127.0.0.1" in read(os.path.join(pe, "user32.dll")), "user32.dll: Android clipboard socket (GameNative)")
+
     print("== verify-layer: %s" % ("PASS" if fails == 0 else "%d FATAL check(s)" % fails))
     return 0 if fails == 0 else 1
 

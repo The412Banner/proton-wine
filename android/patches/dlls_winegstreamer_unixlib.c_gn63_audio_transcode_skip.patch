@@ -1,0 +1,24 @@
+Subject: winegstreamer: skip unavailable audio transcoding fallback
+Source: GameNative/proton-wine PR #63 by butilly (GameNative AI help, github.com/butilly), commit b6acbb7888 (open, not merged by GameNative as of 2026-11-26). LGPL-2.1.
+Ported unchanged to DroidDeck-Proton 11.0-14.1 (Bannerlator bionic layer).
+
+diff --git a/dlls/winegstreamer/unixlib.c b/dlls/winegstreamer/unixlib.c
+index b259388026b1..a45f35b4c6d1 100644
+--- a/dlls/winegstreamer/unixlib.c
++++ b/dlls/winegstreamer/unixlib.c
+@@ -141,6 +141,15 @@ GstElement *find_element(GstElementFactoryListType type, GstCaps *element_sink_c
+     {
+         name = gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(tmp->data));
+ 
++        if (!strcmp(name, "protonaudioconverterbin") && !g_getenv("MEDIACONV_AUDIO_DUMP_FILE"))
++        {
++            /* The transcoding fallback cannot enter READY without its dump database.
++             * Standalone launches may not configure it; keep looking for a real decoder.
++             */
++            GST_INFO("Ignoring protonaudioconverterbin without an audio dump database.");
++            continue;
++        }
++
+         if (!strcmp(name, "vaapidecodebin"))
+         {
+             /* vaapidecodebin adds asynchronicity which breaks wg_transform synchronous drain / flush
