@@ -1,21 +1,23 @@
 diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
-index 9257d6e3b4c..0b436900c6c 100644
+index 9257d6e3b4c..c5da472c0d7 100644
 --- a/dlls/ntdll/loader.c
 +++ b/dlls/ntdll/loader.c
-@@ -4879,6 +4879,42 @@ static void release_address_space(void)
+@@ -4879,6 +4879,44 @@ static void release_address_space(void)
  #endif
  }
  
 +/* GOG Galaxy (GalaxyClient.exe) hands each web page from its QtWebEngine device to its D3D11 window
 + * device as a texture shared by NT handle. DXVK cannot open those handles on Android ("Failed to open
-+ * shared NT handle"), so the window stayed white. Software compositing in QtWebEngine needs no shared
-+ * textures. Set it inside the process: Galaxy is relaunched by its service with a fresh environment
++ * shared NT handle"), so the window stayed white. Chromium without the GPU alone was not enough (its
++ * D3D11 compositor still shared textures); with Qt Quick on its software backend as well, the page is
++ * composited in memory and no texture is shared. Set it inside the process: Galaxy is relaunched by its service with a fresh environment
 + * (/deelevated), so a variable set outside never reaches it. A value already set is left alone. */
 +static void apply_app_environment_hacks(void)
 +{
 +    static const struct { const WCHAR *app, *name, *value; } hacks[] =
 +    {
-+        { L"galaxyclient.exe", L"QTWEBENGINE_CHROMIUM_FLAGS", L"--disable-gpu" },
++        { L"galaxyclient.exe", L"QTWEBENGINE_CHROMIUM_FLAGS", L"--disable-gpu --disable-gpu-compositing" },
++        { L"galaxyclient.exe", L"QT_QUICK_BACKEND", L"software" },
 +    };
 +    const RTL_USER_PROCESS_PARAMETERS *params = NtCurrentTeb()->Peb->ProcessParameters;
 +    const WCHAR *path, *base;
@@ -45,7 +47,7 @@ index 9257d6e3b4c..0b436900c6c 100644
  /******************************************************************
   *		loader_init
   *
-@@ -4948,6 +4984,7 @@ void loader_init( CONTEXT *context, void **entry )
+@@ -4948,6 +4986,7 @@ void loader_init( CONTEXT *context, void **entry )
              InitializeListHead( &hash_table[i] );
  
          init_user_process_params();
