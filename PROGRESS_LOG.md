@@ -3,6 +3,17 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ea-cef128 MERGED into proton_11.14.1-DroidDeck (fast-forward)
+- 09:0x EST user: "merge 14.1 work and build so parent branch produces it". Parent was d6fdead0 (= staging base) ->
+  fast-forward to the staging head + this log commit (not [skip ci], so the push builds the parent). Backup ref
+  refs/backup/20261127/proton_11.14.1-DroidDeck-before-ea-cef128 = d6fdead0 (pushed).
+- Merged: 67eb63c1 V8 sandbox address space report, d576450f winewayland other-process frames, 1763102e marker token,
+  34308f42 emulated code write into image sections (NFS Heat), 89e2992e hide wine_get_* from EA Steam/Epic launchers,
+  83b31019 fixed MAC for Android random-MAC interfaces.
+- Device proof so far (FIT): 34308f42 build + 83b31019 nsiproxy.so; 89e2992e only proven by an equivalent hand patch
+  (EASteamLauncher string) -> the parent-built layer gets a FIT smoke test (EA app + NFS MW/Payback) before any release.
+- No release (workflow release job is `if: false`); catalog unchanged (v18 rows still the released 11.0-14.1 build).
+
 ## 2026-11-27 — Fixed MAC for Android random-MAC interfaces: EA OOA licences stop going stale (ea-cef128 83b31019, device-proven FIT)
 - Why: NFS Most Wanted's OOA activation failed again after the user changed Wi-Fi ("unable to connect to EA servers to
   activate"). EA said "License files valid [true]" both times; OOA itself rejected the local licence and asked the server
