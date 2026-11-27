@@ -13,7 +13,14 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
   opens as before; messages still go on to the original desktop proc. Selection is a flag per launcher (ready for a
   drag box / several selected); focus pointer cleared in free_launcher (folder watcher thread).
 - Checks: sims arm64ec 114/114, x86_64 99/99 (desktop.c == edited, marker found); new functions compile clean
-  (clang -fsyntax-only, x86_64 + aarch64 mingw headers, extracted). CI: pending. Device: NOT tested.
+  (clang -fsyntax-only, x86_64 + aarch64 mingw headers, extracted).
+- CI 46063847659 (headSha 681cc0ce) GREEN both legs 15:54 EST: patch applied, marker ok, verify-layer PASS, no
+  desktop.c compiler output. New aarch64-windows explorer.exe md5 95dedd62 (imports ImageList_Create/DrawEx/
+  ReplaceIcon/Destroy; old 9b995bcd has none), staged /sdcard/Download/.tmp-x/explorer-desk-681cc0ce.exe (sha256
+  d3aea694 host == device).
+- 15:57 EST SWAPPED on the FIT (root-bf OK): 64-bit explorer.exe in layer 11.0-14.1-arm64ec-18 (= CI fa021603, parent
+  tree) + container 1 C:\windows + system32; originals in /sdcard/Download/desk-select-backup/; undo =
+  rootsh 'sh /sdcard/Download/.tmp-x/desk-undo.sh' (Wine stopped). Device test: pending (user opens container 1).
 - Plan: CI -> swap only explorer.exe into the FIT 14.1 layer + container prefix (backups) -> test click/empty/right
   click/double click on X11 + Wayland -> then the other 5 parents; release = user word.
 
