@@ -3,6 +3,26 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — Fixed MAC for Android random-MAC interfaces: EA OOA licences stop going stale (ea-cef128 83b31019, device-proven FIT)
+- Why: NFS Most Wanted's OOA activation failed again after the user changed Wi-Fi ("unable to connect to EA servers to
+  activate"). EA said "License files valid [true]" both times; OOA itself rejected the local licence and asked the server
+  with the long JWS token, which its 256-char buffer cuts (see the 11-27 NFS MW entry).
+- Evidence: a test exe in container 1 printed what Windows programs see: wlan0 MAC = Android's per-network random MAC
+  (92:be:b2:90:f9:eb on the current SSID; the home SSID has its own; WifiConfigStore MacRandomizationSetting=3),
+  dummy0 MAC random per boot; volume serial, computer/user name, ProductId stable.
+- Fix 83b31019: android/patches/dlls_nsiproxy.sys_ndis.c_stable_mac.patch (both legs + MARKERS): on Android a locally
+  administered MAC is replaced by a fixed locally administered one = FNV-1a(WINEPREFIX + '/' + interface name);
+  real MACs untouched; WINE_STABLE_MAC=0 turns it off. WINEPREFIX is inherited by every child (spawn_process execv).
+  Sim apply: arm64ec 108/108, x86_64 93/93. CI 46005225921 GREEN both legs (artifact nsiproxy.so 54e3cea5).
+- Device (FIT, only nsiproxy.so swapped into the installed ea-cef128 layer; old file backed up): test exe now shows
+  wlan0 4e:38:d6:96:68:56 + dummy0 1e:09:a1:94:ed:14 in 32- and 64-bit processes, IP intact. After clearing the stale
+  licences once: NFS MW (EA app Play 08:33 EST + SteamLite shortcut 08:49) and NFS Payback (EA app Play 08:45 +
+  shortcut 08:53) all reached the title screen with automatic activation. A Wi-Fi off/on kept the same Android MAC, so
+  a live network-change test was not possible; the reported MAC no longer depends on it.
+- Note for release: licences created before this patch were tied to the random MAC and go stale ONCE (OOA asks for an
+  EA sign-in); clearing ProgramData\Electronic Arts\EA Services\License\*.dlf lets EA fetch fresh ones.
+- Not released/merged (user decision). x86_64 leg not device-tested. Other layers (GE 11-14, DD 12.8, Valve 11.0-3) not ported.
+
 ## 2026-11-27 05:42 EST — NFS Most Wanted: SteamLite launch works, EA-app Play open (ea-cef128, PAUSED by user)
 - Cause of the activation error: stale OOA license (EA Services\License\71530.dlf from 11-11) -> EA thinks the license is valid and sends the 4 KB JWS token instead of a short opaque token -> OOA 4.2 reads EALaunchUserAuthToken into a 256-char buffer -> garbage token -> AUTHENTICATION_FAILED. License reset -> EA fetches an opaque token -> activation OK, game runs (59 fps) and relaunches fine.
 - Also found: EASteamLauncher cuts launch env values to 1024 chars when it detects Wine. 89e2992e hides wine_get_* from EA's Steam/Epic launchers; not needed for NFS MW, keep/revert undecided.
