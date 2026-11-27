@@ -44,6 +44,19 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
   .lnk (shell rename needs a shell view), greyed for several; OleInitialize once for Cut/Copy; dialogs without owner.
   Marker "desktop icon right-click menu". Sims 114/114 + 99/99. CI 46074321517 GREEN 17:13 EST (3 markers ok, verify-layer
   PASS); explorer md5 5a8e0eaa swapped on the FIT 17:1x EST (sha256 5f2de2ff host == device). Device test: pending.
+- 17:19 EST USER TEST of 89d17f10 ("works right", video screen-20261127-171945): menu Open/Cut/Copy/Create Link/Delete/
+  Rename (greyed for 3 selected)/Properties = DEVICE-PROVEN; logcat 17:15-17:2x 0 FATAL. Properties on Ubisoft (user) + EA +
+  GOG (Public) opened 2 single-file sheets (Ubisoft Connect.lnk, then EA.lnk only: Wine DoOpenProperties shows the first
+  item; SHMultiFileProperties = stub). User wants ONE combined sheet like Windows.
+- 15003425: own combined sheet for >1 selected (PropertySheetW, page IDD_MULTI_PROPERTIES "General": IDI_SHELL_FILES icon,
+  "N files", "All of type X"/"Multiple types", "All in <dir>"/"Various folders", total size (StrFormatByteSizeW + bytes),
+  Read Only/Hidden/Archive AUTO3STATE (2-state when uniform), PSN_APPLY sets/clears on all); 1 selected = shell sheet. New
+  strings IDS_MP_* 38-43, dialog 220-228. Marker "combined Properties for several desktop icons". Sims 114/114 + 99/99,
+  extracted compile clean. CI 46076540126 started 17:25 EST. NOT device-tested.
+- RESUME (user leaving work, Wi-Fi lost): when CI green -> fastdl artifact proton-arm64ec-sdk28 -> extract
+  lib/wine/aarch64-windows/explorer.exe -> stage /sdcard/Download/.tmp-x/explorer-desk-15003425.exe (sha256 host==device)
+  -> container 1 closed (no wineserver) -> rootsh 'sh /sdcard/Download/.tmp-x/desk-swap.sh <exe>' -> user tests Properties
+  on 2-3 mixed icons. FIT now has 89d17f10 explorer (md5 5a8e0eaa); originals 9b995bcd in /sdcard/Download/desk-select-backup/.
 
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ncrypt-ecdsa MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - Why: the Epic Games Launcher's account linking (Ubisoft) failed with "Invalid Client / 400 Bad Request". Its EOS SDK
