@@ -1,0 +1,486 @@
+Subject: winewayland: Show frames other processes draw into a window.
+
+Wayland can't put one client's surface inside another client's window, so a Vulkan swapchain one
+Wine process creates for a window owned by another gets a wl_surface the compositor never shows.
+That is how Chromium/CEF draws in windowed mode: the GPU process presents into the browser
+process's child window ("Chrome Legacy Window"). EA app 13.836 (and the Windows Steam client)
+stayed an empty window on Wayland; X11 works because winex11 refuses such surfaces and Chromium
+falls back to drawing into the foreign X window with GDI.
+
+The drawing process now reads such frames back (GameNative #122 readback in win32u, on by default;
+WINE_DISABLE_VULKAN_OPWR=1 turns it off; winex11 still refuses other process surfaces unless
+WINE_DISABLE_VULKAN_OPWR=0, so X11 is unchanged), copies them into a section shared with the
+window's owner (handle duplicated into the owner once per size) and posts WM_WAYLAND_XPROC_FRAME.
+The owner shows them in a subsurface of its toplevel over the window's client area (above the
+toplevel's own client surface, empty input region), hides it when the window is hidden and frees
+it with the window. One message at a time per window (pending flag), seqlock against tearing.
+Swapchains on a process's own windows are not touched.
+
+diff --git a/dlls/win32u/vulkan.c b/dlls/win32u/vulkan.c
+index a3651a3f7b1..3dac7eb1042 100644
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -3370,11 +3370,14 @@ static BOOL readback_wanted( struct surface *surface )
+ {
+     static int enabled = -1;
+ 
+-    /* off unless WINE_DISABLE_VULKAN_OPWR=0 turns other process rendering on (winex11 init.c) */
++    /* on unless WINE_DISABLE_VULKAN_OPWR is set to anything but 0. winex11 refuses other process
++     * surfaces by default (init.c), so on X11 this still needs WINE_DISABLE_VULKAN_OPWR=0; on
++     * Wayland a swapchain on another process's window exists and winewayland hands the read-back
++     * frames to the window's owner (wayland_xproc_send), the only way they reach the screen. */
+     if (enabled == -1)
+     {
+         const char *e = getenv( "WINE_DISABLE_VULKAN_OPWR" );
+-        enabled = e && !atoi( e );
++        enabled = !e || !atoi( e );
+     }
+     if (!enabled) return FALSE;
+     return surface->hwnd && surface->hwnd != NtUserGetDesktopWindow() &&
+diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
+index 236bf6e82bb..36249c0fe68 100644
+--- a/dlls/winewayland.drv/wayland_surface.c
++++ b/dlls/winewayland.drv/wayland_surface.c
+@@ -25,6 +25,7 @@
+ #include "config.h"
+ 
+ #include <assert.h>
++#include <limits.h>
+ #include <stdlib.h>
+ #include <unistd.h>
+ 
+@@ -1083,6 +1084,10 @@ static void wayland_client_surface_present(struct client_surface *client, HDC hd
+ {
+     struct wayland_client_surface *surface = impl_from_client_surface(client);
+     HWND hwnd = client->hwnd, toplevel = NtUserGetAncestor(hwnd, GA_ROOT);
++#ifdef __ANDROID__
++    /* a frame read back from a swapchain on another process's window: hand it to the owner */
++    if (client->readback_hdc && wayland_xproc_send(hwnd, client->readback_hdc)) return;
++#endif
+     ensure_window_surface_contents(toplevel);
+     set_client_surface(hwnd, surface);
+ }
+@@ -1352,3 +1357,351 @@ void wayland_surface_assign_icon(struct wayland_surface *surface)
+                                               surface->xdg_toplevel, surface->xdg_toplevel_icon);
+     }
+ }
++
++/**********************************************************************
++ *          Other process rendering
++ *
++ * Wayland has no way to put one client's surface inside another client's window, so a
++ * Vulkan swapchain that one Wine process creates for a window owned by another (Chromium's
++ * GPU process drawing into the browser's window: EA app, Steam, other CEF launchers) gets
++ * a wl_surface the compositor never shows. win32u reads such frames back into a DIB (see
++ * readback_init in win32u/vulkan.c); the drawing process copies the DIB into a section
++ * shared with the window's owner and posts WM_WAYLAND_XPROC_FRAME, and the owner shows the
++ * pixels in a subsurface of its toplevel over that window's client area.
++ */
++
++#define XPROC_MAGIC 0x43525058  /* "XPRC" */
++
++struct xproc_header
++{
++    UINT magic;
++    UINT width;
++    UINT height;
++    UINT stride;
++    LONG seq;      /* odd while the drawing process writes the pixels */
++    LONG pending;  /* a WM_WAYLAND_XPROC_FRAME is queued for the owner */
++    UINT reserved[2];
++};
++
++struct xproc_sender
++{
++    HWND hwnd;
++    DWORD owner_pid;
++    HANDLE section;
++    struct xproc_header *view;
++    SIZE_T view_size;
++    UINT width, height, stride;
++    HANDLE remote;  /* the section duplicated into the owner, not sent yet */
++};
++
++static pthread_mutex_t xproc_mutex = PTHREAD_MUTEX_INITIALIZER;
++static struct xproc_sender xproc_senders[8];
++
++static void xproc_sender_free(struct xproc_sender *sender)
++{
++    if (sender->view) NtUnmapViewOfSection(GetCurrentProcess(), sender->view);
++    if (sender->section) NtClose(sender->section);
++    memset(sender, 0, sizeof(*sender));
++}
++
++static BOOL xproc_sender_init(struct xproc_sender *sender, HWND hwnd, DWORD pid,
++                              UINT width, UINT height, UINT stride)
++{
++    LARGE_INTEGER section_size;
++    OBJECT_ATTRIBUTES attr;
++    CLIENT_ID cid;
++    HANDLE process;
++    NTSTATUS status;
++
++    section_size.QuadPart = sizeof(struct xproc_header) + (SIZE_T)stride * height;
++    if ((status = NtCreateSection(&sender->section, SECTION_ALL_ACCESS, NULL, &section_size,
++                                  PAGE_READWRITE, SEC_COMMIT, 0)))
++        goto failed;
++    if ((status = NtMapViewOfSection(sender->section, GetCurrentProcess(), (void **)&sender->view, 0, 0,
++                                     NULL, &sender->view_size, ViewUnmap, 0, PAGE_READWRITE)))
++    {
++        sender->view = NULL;
++        goto failed;
++    }
++
++    InitializeObjectAttributes(&attr, NULL, 0, NULL, NULL);
++    cid.UniqueProcess = ULongToHandle(pid);
++    cid.UniqueThread = 0;
++    if ((status = NtOpenProcess(&process, PROCESS_DUP_HANDLE, &attr, &cid))) goto failed;
++    status = NtDuplicateObject(GetCurrentProcess(), sender->section, process, &sender->remote,
++                               SECTION_MAP_READ | SECTION_MAP_WRITE | SECTION_QUERY, 0, 0);
++    NtClose(process);
++    if (status) goto failed;
++
++    sender->hwnd = hwnd;
++    sender->owner_pid = pid;
++    sender->width = width;
++    sender->height = height;
++    sender->stride = stride;
++    sender->view->magic = XPROC_MAGIC;
++    sender->view->width = width;
++    sender->view->height = height;
++    sender->view->stride = stride;
++    TRACE("hwnd %p owner %04x %ux%u section %p\n", hwnd, (int)pid, width, height, sender->section);
++    return TRUE;
++
++failed:
++    ERR("hwnd %p owner %04x %ux%u: shared frame setup failed, status %#x\n", hwnd, (int)pid,
++        width, height, (int)status);
++    xproc_sender_free(sender);
++    return FALSE;
++}
++
++/***********************************************************************
++ *          wayland_xproc_send
++ *
++ * Called in the drawing process with the read-back frame of a swapchain on hwnd.
++ * Returns FALSE when hwnd belongs to this process or the frame can't be handed over.
++ */
++BOOL wayland_xproc_send(HWND hwnd, HDC hdc)
++{
++    struct xproc_sender *sender = NULL;
++    UINT width, height, stride, i;
++    HBITMAP bitmap;
++    DIBSECTION dib;
++    DWORD pid = 0;
++    HANDLE remote;
++    BOOL post;
++
++    if (!NtUserGetWindowThread(hwnd, &pid) || pid == GetCurrentProcessId()) return FALSE;
++    if (!(bitmap = NtGdiGetDCObject(hdc, NTGDI_OBJ_SURF)) ||
++        NtGdiExtGetObjectW(bitmap, sizeof(dib), &dib) != sizeof(dib) ||
++        !dib.dsBm.bmBits || dib.dsBm.bmBitsPixel != 32)
++        return FALSE;
++    width = dib.dsBm.bmWidth;
++    height = dib.dsBm.bmHeight;
++    stride = dib.dsBm.bmWidthBytes;
++    if (!width || !height || width > 0xffff || height > 0xffff || stride < width * 4) return FALSE;
++
++    pthread_mutex_lock(&xproc_mutex);
++    for (i = 0; i < ARRAY_SIZE(xproc_senders) && !sender; i++)
++        if (xproc_senders[i].hwnd == hwnd) sender = &xproc_senders[i];
++    for (i = 0; i < ARRAY_SIZE(xproc_senders) && !sender; i++)
++        if (!xproc_senders[i].hwnd) sender = &xproc_senders[i];
++    if (!sender) xproc_sender_free((sender = &xproc_senders[0]));
++    if (sender->hwnd && (sender->owner_pid != pid || sender->width != width ||
++                         sender->height != height || sender->stride != stride))
++        xproc_sender_free(sender);
++    if (!sender->section && !xproc_sender_init(sender, hwnd, pid, width, height, stride))
++    {
++        pthread_mutex_unlock(&xproc_mutex);
++        return FALSE;
++    }
++
++    __atomic_add_fetch(&sender->view->seq, 1, __ATOMIC_ACQ_REL);
++    memcpy(sender->view + 1, dib.dsBm.bmBits, (SIZE_T)stride * height);
++    __atomic_add_fetch(&sender->view->seq, 1, __ATOMIC_RELEASE);
++
++    remote = sender->remote;
++    sender->remote = 0;
++    post = !__atomic_exchange_n(&sender->view->pending, 1, __ATOMIC_ACQ_REL) || remote;
++    pthread_mutex_unlock(&xproc_mutex);
++
++    if (post && !NtUserPostMessage(hwnd, WM_WAYLAND_XPROC_FRAME, MAKEWPARAM(width, height),
++                                   (LPARAM)remote))
++    {
++        WARN("hwnd %p is gone, dropping its shared frame\n", hwnd);
++        pthread_mutex_lock(&xproc_mutex);
++        if (sender->hwnd == hwnd) xproc_sender_free(sender);
++        pthread_mutex_unlock(&xproc_mutex);
++    }
++    return TRUE;
++}
++
++struct wayland_xproc_surface
++{
++    HWND toplevel;
++    struct wl_surface *parent;  /* the toplevel's wl_surface our subsurface belongs to */
++    HANDLE section;
++    struct xproc_header *view;
++    SIZE_T view_size;
++    struct wl_surface *wl_surface;
++    struct wl_subsurface *wl_subsurface;
++    struct wp_viewport *wp_viewport;
++    int x, y, width, height;  /* last subsurface position and size, in surface coordinates */
++    BOOL mapped;
++};
++
++static void xproc_buffer_release(void *data, struct wl_buffer *buffer)
++{
++    wayland_shm_buffer_unref(data);
++}
++
++static const struct wl_buffer_listener xproc_buffer_listener =
++{
++    xproc_buffer_release
++};
++
++void wayland_xproc_hide(struct wayland_xproc_surface *xproc)
++{
++    if (!xproc || !xproc->mapped) return;
++    wl_surface_attach(xproc->wl_surface, NULL, 0, 0);
++    wl_surface_commit(xproc->wl_surface);
++    xproc->mapped = FALSE;
++}
++
++void wayland_xproc_destroy(struct wayland_xproc_surface *xproc)
++{
++    if (!xproc) return;
++    if (xproc->wp_viewport) wp_viewport_destroy(xproc->wp_viewport);
++    if (xproc->wl_subsurface) wl_subsurface_destroy(xproc->wl_subsurface);
++    if (xproc->wl_surface) wl_surface_destroy(xproc->wl_surface);
++    if (xproc->view) NtUnmapViewOfSection(GetCurrentProcess(), xproc->view);
++    if (xproc->section) NtClose(xproc->section);
++    free(xproc);
++}
++
++static BOOL xproc_surface_create(struct wayland_xproc_surface *xproc)
++{
++    struct wl_region *empty_region;
++
++    if (!(xproc->wl_surface = wl_compositor_create_surface(process_wayland.wl_compositor))) return FALSE;
++    /* input stays with the window underneath, which belongs to this process */
++    if ((empty_region = wl_compositor_create_region(process_wayland.wl_compositor)))
++    {
++        wl_surface_set_input_region(xproc->wl_surface, empty_region);
++        wl_region_destroy(empty_region);
++    }
++    if (!(xproc->wp_viewport = wp_viewporter_get_viewport(process_wayland.wp_viewporter, xproc->wl_surface)))
++        return FALSE;
++    return TRUE;
++}
++
++/***********************************************************************
++ *          wayland_xproc_frame
++ *
++ * WM_WAYLAND_XPROC_FRAME handler, in the process owning hwnd. wp is the frame size, lp the
++ * section handle when the drawing process (re)created it.
++ */
++void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)
++{
++    UINT width = LOWORD(wp), height = HIWORD(wp), dpi, row, tries;
++    HWND toplevel = NtUserGetAncestor(hwnd, GA_ROOT);
++    struct wayland_win_data *data, *toplevel_data;
++    struct wayland_shm_buffer *shm_buffer;
++    struct wayland_xproc_surface *xproc;
++    struct wayland_surface *surface;
++    struct xproc_header *header;
++    int client_x, client_y, x, y, w, h;
++    LONG seq;
++    RECT rect;
++
++    if (!(data = wayland_win_data_get(hwnd)))
++    {
++        if (lp) NtClose((HANDLE)lp);
++        return;
++    }
++    if (!(xproc = data->xproc) && !(xproc = data->xproc = calloc(1, sizeof(*xproc))))
++    {
++        if (lp) NtClose((HANDLE)lp);
++        goto done;
++    }
++
++    if (lp)
++    {
++        if (xproc->view) NtUnmapViewOfSection(GetCurrentProcess(), xproc->view);
++        if (xproc->section) NtClose(xproc->section);
++        xproc->view = NULL;
++        xproc->view_size = 0;
++        xproc->section = (HANDLE)lp;
++        if (NtMapViewOfSection(xproc->section, GetCurrentProcess(), (void **)&xproc->view, 0, 0, NULL,
++                               &xproc->view_size, ViewUnmap, 0, PAGE_READWRITE))
++            xproc->view = NULL;
++    }
++
++    if (!(header = xproc->view)) goto done;
++    if (header->magic != XPROC_MAGIC || header->width != width || header->height != height ||
++        header->stride < width * 4 ||
++        xproc->view_size < sizeof(*header) + (SIZE_T)header->stride * height)
++        goto done;
++    /* frames drawn from now on need a new message */
++    __atomic_store_n(&header->pending, 0, __ATOMIC_RELEASE);
++
++    toplevel_data = toplevel ? wayland_win_data_get_nolock(toplevel) : NULL;
++    surface = toplevel_data ? toplevel_data->wayland_surface : NULL;
++    if (!surface || !NtUserIsWindowVisible(hwnd))
++    {
++        wayland_xproc_hide(xproc);
++        goto done;
++    }
++
++    if (!xproc->wl_surface && !xproc_surface_create(xproc))
++    {
++        ERR("hwnd %p: failed to create the shared frame surface\n", hwnd);
++        goto done;
++    }
++    if (xproc->toplevel != toplevel || xproc->parent != surface->wl_surface || !xproc->wl_subsurface)
++    {
++        if (xproc->wl_subsurface) wl_subsurface_destroy(xproc->wl_subsurface);
++        /* a new subsurface starts on top of its siblings, above the toplevel's own client surface */
++        if (!(xproc->wl_subsurface = wl_subcompositor_get_subsurface(process_wayland.wl_subcompositor,
++                                                                     xproc->wl_surface, surface->wl_surface)))
++        {
++            ERR("hwnd %p: failed to create the shared frame subsurface\n", hwnd);
++            goto done;
++        }
++        wl_subsurface_set_desync(xproc->wl_subsurface);
++        xproc->toplevel = toplevel;
++        xproc->parent = surface->wl_surface;
++        xproc->x = xproc->y = INT_MIN;
++        xproc->width = xproc->height = 0;
++    }
++
++    if (!(shm_buffer = wayland_shm_buffer_create(width, height, WL_SHM_FORMAT_XRGB8888))) goto done;
++    /* retry while the drawing process rewrites the frame; the last try keeps a torn frame
++     * rather than an empty buffer */
++    for (tries = 0; ; tries++)
++    {
++        seq = __atomic_load_n(&header->seq, __ATOMIC_ACQUIRE);
++        if ((seq & 1) && tries < 3) continue;
++        for (row = 0; row < height; row++)
++            memcpy((char *)shm_buffer->map_data + (SIZE_T)row * width * 4,
++                   (char *)(header + 1) + (SIZE_T)row * header->stride, width * 4);
++        if (__atomic_load_n(&header->seq, __ATOMIC_ACQUIRE) == seq || tries >= 3) break;
++    }
++    wl_buffer_add_listener(shm_buffer->wl_buffer, &xproc_buffer_listener, shm_buffer);
++
++    /* the window's client area, relative to the toplevel window's origin */
++    dpi = NtUserGetWinMonitorDpi(hwnd, MDT_RAW_DPI);
++    NtUserGetClientRect(hwnd, &rect, dpi);
++    NtUserMapWindowPoints(hwnd, toplevel, (POINT *)&rect, 2, dpi);
++    client_x = rect.left + surface->window.client_rect.left - surface->window.rect.left;
++    client_y = rect.top + surface->window.client_rect.top - surface->window.rect.top;
++    wayland_surface_coords_from_window(surface, client_x, client_y, &x, &y);
++    wayland_surface_coords_from_window(surface, rect.right - rect.left, rect.bottom - rect.top, &w, &h);
++    if (w <= 0 || h <= 0)
++    {
++        w = width;
++        h = height;
++    }
++    if (w != xproc->width || h != xproc->height)
++    {
++        wp_viewport_set_destination(xproc->wp_viewport, w, h);
++        xproc->width = w;
++        xproc->height = h;
++    }
++
++    wl_surface_attach(xproc->wl_surface, shm_buffer->wl_buffer, 0, 0);
++    wl_surface_damage_buffer(xproc->wl_surface, 0, 0, width, height);
++    wl_surface_commit(xproc->wl_surface);
++    xproc->mapped = TRUE;
++
++    if (x != xproc->x || y != xproc->y)
++    {
++        TRACE("hwnd %p toplevel %p frame %ux%u at %d,%d+%dx%d\n", hwnd, toplevel, width, height, x, y, w, h);
++        wl_subsurface_set_position(xproc->wl_subsurface, x, y);
++        xproc->x = x;
++        xproc->y = y;
++        /* subsurface position is parent state */
++        wl_surface_commit(surface->wl_surface);
++    }
++    wl_display_flush(process_wayland.wl_display);
++
++done:
++    wayland_win_data_release(data);
++}
+diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
+index b0e6f8c5f05..b8858f9c0bf 100644
+--- a/dlls/winewayland.drv/waylanddrv.h
++++ b/dlls/winewayland.drv/waylanddrv.h
+@@ -68,6 +68,7 @@ enum wayland_window_message
+     WM_WAYLAND_INIT_DISPLAY_DEVICES = WM_WINE_FIRST_DRIVER_MSG,
+     WM_WAYLAND_CONFIGURE,
+     WM_WAYLAND_SET_FOREGROUND,
++    WM_WAYLAND_XPROC_FRAME,
+ };
+ 
+ enum wayland_surface_config_state
+@@ -376,6 +377,8 @@ void wayland_shm_buffer_unref(struct wayland_shm_buffer *shm_buffer);
+  */
+ 
+ /* private window data */
++struct wayland_xproc_surface;
++
+ struct wayland_win_data
+ {
+     struct rb_entry entry;
+@@ -392,6 +395,8 @@ struct wayland_win_data
+     BOOL is_fullscreen;
+     BOOL managed;
+     BOOL layered_attribs_set;
++    /* frames another process draws into this window (see wayland_xproc_frame) */
++    struct wayland_xproc_surface *xproc;
+ };
+ 
+ BOOL wayland_desktop_mode(void);
+@@ -400,6 +405,10 @@ struct wayland_win_data *wayland_win_data_get_nolock(HWND hwnd);
+ void wayland_win_data_release(struct wayland_win_data *data);
+ 
+ struct wayland_client_surface *get_client_surface(HWND hwnd);
++BOOL wayland_xproc_send(HWND hwnd, HDC hdc);
++void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp);
++void wayland_xproc_hide(struct wayland_xproc_surface *xproc);
++void wayland_xproc_destroy(struct wayland_xproc_surface *xproc);
+ void set_client_surface(HWND hwnd, struct wayland_client_surface *client);
+ BOOL set_window_surface_contents(HWND hwnd, struct wayland_shm_buffer *shm_buffer, HRGN damage_region);
+ struct wayland_shm_buffer *get_window_surface_contents(HWND hwnd);
+diff --git a/dlls/winewayland.drv/window.c b/dlls/winewayland.drv/window.c
+index 8c177dfac41..c294a43004b 100644
+--- a/dlls/winewayland.drv/window.c
++++ b/dlls/winewayland.drv/window.c
+@@ -101,6 +101,7 @@ static void wayland_win_data_destroy(struct wayland_win_data *data)
+ 
+     pthread_mutex_unlock(&win_data_mutex);
+ 
++    if (data->xproc) wayland_xproc_destroy(data->xproc);
+     if (data->wayland_surface) wayland_surface_destroy(data->wayland_surface);
+     if (data->window_contents) wayland_shm_buffer_unref(data->window_contents);
+     free(data);
+@@ -715,6 +716,8 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
+         toplevel = owner_hint;
+ 
+     if (!(data = wayland_win_data_get(hwnd))) return;
++    /* a hidden window no longer shows frames another process draws into it */
++    if (data->xproc && !NtUserIsWindowVisible(hwnd)) wayland_xproc_hide(data->xproc);
+     toplevel_data = toplevel && toplevel != hwnd ? wayland_win_data_get_nolock(toplevel) : NULL;
+     toplevel_surface = toplevel_data ? toplevel_data->wayland_surface : NULL;
+ 
+@@ -918,6 +921,9 @@ LRESULT WAYLAND_WindowMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+     case WM_WAYLAND_SET_FOREGROUND:
+         NtUserSetForegroundWindowInternal(hwnd);
+         return 0;
++    case WM_WAYLAND_XPROC_FRAME:
++        wayland_xproc_frame(hwnd, wp, lp);
++        return 0;
+     default:
+         FIXME("got window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, (long)wp, lp);
+         return 0;

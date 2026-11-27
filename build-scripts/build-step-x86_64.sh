@@ -416,6 +416,9 @@ do
       # V8 sandbox (Chrome / CEF 128+, EA app 13.836): report a 41-bit user address space to Chromium
       # child processes, Android gives 64-bit processes only 39 bits and V8 crashes below 1 TB
       "dlls_ntdll_unix_virtual_c_v8_sandbox_address_space.patch"
+      # Wayland: frames a process draws into another process's window (Chromium/CEF GPU process ->
+      # browser window: EA app, Windows Steam) are read back and shown by the window's owner
+      "dlls_winewayland_drv_other_process_frames.patch"
     )
 
     # Fail-HARD apply loop. The old loop reported a drifted patch as "SKIPPED" and
@@ -534,12 +537,15 @@ do
       "dlls/winex11.drv/mouse.c|if (fg_data->whole_window && fg_data->display == data->display) grab_window = fg_data->whole_window;|X11 grab on foreground window (GameNative #82)"
       "configure.ac|enable_wmic=|wmic built for ARM64EC (GameNative #139)"
       "dlls/win32u/vulkan.c|static BOOL readback_wanted( struct surface *surface )|other process Vulkan readback (GameNative #122, opt-in)"
-      "dlls/win32u/vulkan.c|enabled = e && !atoi( e );|readback off unless WINE_DISABLE_VULKAN_OPWR=0"
+      "dlls/win32u/vulkan.c|enabled = !e || !atoi( e );|readback on by default (winex11 still refuses other process surfaces)"
       "dlls/winex11.drv/init.c|static void android_opwr_position( HWND hwnd, UINT dpi, int *x, int *y )|other process surfaces kept behind their window (GameNative #122)"
       "dlls/winex11.drv/init.c|disable = !e || atoi( e );|other process rendering off by default on Android"
       "dlls/ntdll/unix/env.c|using fallback for type %u id %u|NLS section-map fallback (GameNative #122)"
       "dlls/ntdll/unix/virtual.c|static BOOL android_large_address_report(void)|V8 sandbox address space report for Chromium children (EA app 13.836)"
       "dlls/ntdll/unix/system.c|virtual_get_reported_system_info( &sbi, FALSE );|reported system info used for SystemBasicInformation"
+      "dlls/winewayland.drv/wayland_surface.c|BOOL wayland_xproc_send(HWND hwnd, HDC hdc)|Wayland: other process frames sent to the window owner"
+      "dlls/winewayland.drv/wayland_surface.c|void wayland_xproc_frame(HWND hwnd, WPARAM wp, LPARAM lp)|Wayland: owner shows other process frames in a subsurface"
+      "dlls/winewayland.drv/window.c|case WM_WAYLAND_XPROC_FRAME:|Wayland: WM_WAYLAND_XPROC_FRAME handled"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
