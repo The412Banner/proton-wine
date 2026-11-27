@@ -3,6 +3,11 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 05:42 EST — NFS Most Wanted: SteamLite launch works, EA-app Play open (ea-cef128, PAUSED by user)
+- Cause of the activation error: stale OOA license (EA Services\License\71530.dlf from 11-11) -> EA thinks the license is valid and sends the 4 KB JWS token instead of a short opaque token -> OOA 4.2 reads EALaunchUserAuthToken into a 256-char buffer -> garbage token -> AUTHENTICATION_FAILED. License reset -> EA fetches an opaque token -> activation OK, game runs (59 fps) and relaunches fine.
+- Also found: EASteamLauncher cuts launch env values to 1024 chars when it detects Wine. 89e2992e hides wine_get_* from EA's Steam/Epic launchers; not needed for NFS MW, keep/revert undecided.
+- Open: why the license went stale (OOA machine fingerprint change); EA-app Play in a container desktop (steam:// reaches the SteamLite agent without Bannerlator's login env).
+
 ## 2026-11-27 04:35 EST — NFS Most Wanted (OOA 4.2) activation, both launch methods (staging/proton_11.14.1-DroidDeck/ea-cef128, investigating)
 - Why: user order — container desktop EA Play + SteamLite shortcut must both start NFS MW 2012.
 - Known: SteamLite launch -> game's Core\Activation.dll sends a 6-char garbage ea_eadmtoken -> EA GetLicense VALIDATION_FAILED/AUTHENTICATION_FAILED (also 11-11, pre-existing). Worked 09-06 on GE 11.0-6 eanet2.
