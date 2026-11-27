@@ -3,6 +3,24 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ncrypt-ecdsa MERGED into proton_11.14.1-DroidDeck (fast-forward)
+- Why: the Epic Games Launcher's account linking (Ubisoft) failed with "Invalid Client / 400 Bad Request". Its EOS SDK
+  opens or creates the ECDSA_P256 key "Epic/EpicGamesLauncher/EOS/Auth" in the software key storage provider for DPoP;
+  our ncrypt had RSA only, no persisted keys and a stub NCryptOpenKey -> "GenerateDpop failed to parse public key" ->
+  EOS_NotConfigured on every login retry. User 14:2x EST: "fix it"; 15:0x EST: "merge it".
+- Merged fa021603 dlls_ncrypt_main.c_ecdsa_persisted_keys.patch: upstream Wine ncrypt (wine-mirror 2026-10-29: ECDSA
+  P256/P384/P521, common object header, refcounted provider handles, import/encrypt/decrypt fixes; Hans Leidekker,
+  Piotr Caban) + persisted keys (ours): private blob + algorithm in the prefix registry
+  HKCU|HKLM Software\\Wine\\NCrypt\\UserKeys|MachineKeys\\<name>; NCryptOpenKey loads (NTE_BAD_KEYSET when missing),
+  named NCryptCreatePersistedKey returns NTE_EXISTS without NCRYPT_OVERWRITE_KEY_FLAG, NCryptFinalizeKey stores,
+  NCryptDeleteKey removes; ncrypt imports advapi32; ncrypt_internal.h folded into main.c as upstream.
+  Backup ref refs/backup/20261127/proton_11.14.1-DroidDeck-before-ncrypt-ecdsa = 1e9d640d.
+- CI 46055749323 (fa021603) GREEN both legs; sims arm64ec 113/113, x86_64 98/98; clang syntax check 0 errors.
+- Device (FIT, arm64ec, container 1, Wayland), 14:52 EST: EpicGamesLauncher.log "EOS Auth Login succeeded",
+  "OnEOSSDKLoginComplete success 1 error 0" (before: EOS_NotConfigured every retry); key stored in user.reg
+  (Algorithm ECDSA_P256); only remaining ncrypt log line = NCryptOpenStorageProvider stub fixme. NOT yet proven: the
+  Ubisoft link itself, key reuse on a later launch. x86_64 not device-tested. No release.
+
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/gog-galaxy MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - Why: GOG Galaxy crashed / stayed white, Vortex died at start and then failed its .NET 9 check, in Bannerlator container
   desktops (FIT, Wayland). User 12:2x EST: "get vortex finished then merge all to parent branch".
