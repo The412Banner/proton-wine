@@ -3,6 +3,11 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 04:35 EST — NFS Most Wanted (OOA 4.2) activation, both launch methods (staging/proton_11.14.1-DroidDeck/ea-cef128, investigating)
+- Why: user order — container desktop EA Play + SteamLite shortcut must both start NFS MW 2012.
+- Known: SteamLite launch -> game's Core\Activation.dll sends a 6-char garbage ea_eadmtoken -> EA GetLicense VALIDATION_FAILED/AUTHENTICATION_FAILED (also 11-11, pre-existing). Worked 09-06 on GE 11.0-6 eanet2.
+- Resume: FIT container 1 on this branch's 34308f42 build; nothing running at 04:35 EST. Next: launch both methods with recording + logs.
+
 ## 2026-11-27 01:10 EST — EA app 13.836 fixed: V8 sandbox address space + Wayland other-process frames (+ NFS Heat Denuvo code write) (`staging/proton_11.14.1-DroidDeck/ea-cef128`, device-proven arm64ec on the Pocket FIT, NOT released)
 - **Why (user, 11-26 ~23:20 EST):** EA Desktop opened as an empty window in Bannerlator after EA's forced update (13.822 -> 13.836.0.6349, 11-26 13:04 EST); fix it for shortcuts, container desktop on X11 and Wayland, and Steam EA games through SteamLite; branch off the 11.14.1 parent, stage for a morning test, no release.
 - **Cause 1 (all backends):** EA 13.836 ships EA's own CEF 128.4.13 (Chrome 128.0.6613.138) with the V8 sandbox. `Sandbox::Initialize` does `CHECK_LT(kSandboxSize 1 TB, address_space_limit)` (libcef+0x9f6813 `cmp $0x28; jbe int3`); the limit comes from `GetSystemInfo` lpMaximumApplicationAddress, 39 bits on Android -> every renderer (`EACefSubProcess --type=renderer`) died with 0x80000003 at libcef+0x9f68cc, "CEF render process terminated", empty window. Not the Chromium sandbox: Valve's ARM `--no-sandbox` hack applied to EACefSubProcess (kernelbase test) changed nothing. Proven by skipping the check in libcef (page loads, HTTP 200).
