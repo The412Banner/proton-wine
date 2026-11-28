@@ -3,6 +3,18 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select MERGED into proton_11.14.1-DroidDeck (--no-ff)
+- Why: user 19:0x EST "merge but wait to copy to other layers still" (all four parts device-proven on the FIT).
+- Merged 15003425 (branch head 5bd4f31b) as merge commit 6d9a34fd on parent 6d899c3b; only conflict PROGRESS_LOG.md (both
+  entries kept); every other file == the tested build 15003425 (git diff empty). Backup ref
+  refs/backup/20261127/proton_11.14.1-DroidDeck-before-desktop-select = 6d899c3b.
+- Contents: programs_explorer_desktop.c_icon_selection.patch (desktop.c, explorer.rc, resource.h) + 4 markers in both build
+  steps: click / Ctrl+click selection, selection box, icon right-click menu (Open, Cut, Copy, Create Link, Delete, Rename,
+  Properties), combined Properties for several icons. Release-note line (own work, The412Banner): "Wine XP desktop: icons can
+  be selected (click, Ctrl+click, drag a box), right-click menu with Open / Cut / Copy / Create Link / Delete / Rename /
+  Properties, one Properties window for several icons."
+- NOT copied to the other 5 parents (user: wait). Not released. Parent CI on this commit: see next entry / run list.
+
 ## 2026-11-27 — NEXT RELEASE: credits for the launcher fixes (user order, 18:5x EST)
 - Why: the user asked that the next release that ships the 11-27 launcher work (EA app, Ubisoft Connect, Epic, GOG
   Galaxy, Vortex) credits the code it builds on. Not released yet; this is the list to copy into those notes (and into
