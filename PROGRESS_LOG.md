@@ -3,7 +3,7 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
-## 2026-11-27 — win10 round 2: Start menu fixes + tiles + bold start glass (branch, CI running, NOT device-tested)
+## 2026-11-27 — win10 round 2: Start menu fixes + tiles + bold start glass (branch, CI green, staged, NOT device-tested)
 - Why: user 22:25 EST screenshot "start menu looking off"; I listed 5 differences from Windows 10 (too tall, hard grey
   scroll bar, Settings icon a sun, cramped top/small text, no tiles); user 22:2x "all 5, same branch, one new build".
   Bold start glass (proposed earlier, held until the pointer was sorted) folded into the same build.
@@ -22,6 +22,9 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
   - Local check: MinGW -fsyntax-only clean for startmenu.c + systray.c (only the old GetDpiForWindow header warning);
     cog rendered in Python = reads as a cog.
 - CI: run 46103493264 (headSha 6dc03bc4 asserted), same branch = warm cache.
+- 22:46 EST CI GREEN (both legs, 5/5 markers, verify-layer PASS x2, explorer recompiled, no warnings); win32u.so in the
+  artifact = a4b08af9 (unchanged). Staged /sdcard/Download/.tmp-x/explorer-win10-6dc03bc4.exe (md5 07b74e3c, host == device);
+  swap waits for the user's OK (FIT screen held by another session meanwhile).
 - Next: CI green -> stage explorer.exe on the FIT, swap (win10-swap.sh, explorer only; win32u unchanged) with the user's
   OK when the container is closed; user tests start menu (tiles, scroll bar, cog), then the rest of the test list.
 - Resume: worktree /root/src/proton-wine-wt-win10 (branch staging/proton_11.14.1-DroidDeck/win10 6dc03bc4), sim tree
