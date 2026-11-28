@@ -3,6 +3,21 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-28 — win10 round 6 + self test drive (branch, CI green, swapped on FIT, testing)
+- 00:4x EST user tested round 5 (Dark): theme applied by itself (ThemeManager win10.msstyles Dark), flat buttons, combo,
+  check boxes, flat dark scroll bars in Pale Moon + cmd, chevron tree glyphs. Then: "title bars are not easy to read"
+  -> measured: inactive titles 134 on 43 (my 0x88 inactive text), Pale Moon paints its own title (74 on 33, even when
+  active), BL desktop mode: explorer dialogs never auto-activated, clicks go to the desktop surface.
+- User 00:5x: "do them all, test drive yourself and keep fixing until it is all right and as close to a legit windows
+  10 ui as possible, even the smallest details. device is yours".
+- Built 9cd141d5: win10.msstyles Window parts (caption/frames/46x30 buttons, Light+Dark), win32u wide caption buttons
+  (46/30 x caption height, drawing + title room + hit test), inactive title text 0xb4 dark / 0x6d light. CI 46114307208
+  GREEN. Swapped on FIT 01:0x EST (explorer 0530f8e7, win32u 0ee89e80, win10.msstyles c0ec96e3/a1ddc4b6).
+- Pale Moon: user.js browser.tabs.drawInTitlebar=false added in container 1 profile vayjpafx.default (backup none: no
+  user.js before; undo = delete user.js).
+- Next: self test drive (kit /root/.claude/kits/win10drive/d.sh, gated taps), then BL compositor click-focus (APK, ask
+  before install).
+
 ## 2026-11-28 — win10 round 5: win10.msstyles (Light + Dark) + start-up theme fix (branch, CI running, NOT device-tested)
 - 23:5x EST 11-27 user tested round 4: caption hover DEVICE-PROVEN (FIT screenshots: close 0xe81123, minimize 0x3a3a3a,
   neighbour unlit), label fits. User Q "I can set the theme dark in the container settings though?": BL
