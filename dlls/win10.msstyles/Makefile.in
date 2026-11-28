@@ -1,0 +1,6 @@
+MODULE = win10.msstyles
+
+EXTRADLLFLAGS = -Wb,--data-only
+
+SOURCES = \
+	win10.rc

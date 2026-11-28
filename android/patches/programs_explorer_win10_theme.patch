@@ -1329,7 +1329,7 @@ index 0ed31ea04d3..e05d83d10bc 100644
 +    w10_font = w10_small_font = 0;
 +}
 diff --git a/programs/explorer/systray.c b/programs/explorer/systray.c
-index 69b57035a0c..9588905623d 100644
+index 69b57035a0c..ffa0bb85f59 100644
 --- a/programs/explorer/systray.c
 +++ b/programs/explorer/systray.c
 @@ -19,6 +19,7 @@
@@ -1944,7 +1944,89 @@ index 69b57035a0c..9588905623d 100644
  }
  
  /*
-@@ -2196,10 +2641,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
+@@ -1975,15 +2420,19 @@ static const WCHAR * const saved_theme_values[] = { L"ThemeActive", L"DllName",
+ static const WCHAR * const xp_theme_colors[][2] = { { L"Blue", L"BlueDark" }, { L"Olive", L"OliveDark" },
+                                                    { L"Silver", L"SilverDark" } };
+ 
+-static BOOL get_xp_theme_path( WCHAR *path, DWORD size )
++/* winexp.msstyles, or win10.msstyles (Light and Dark) for the Windows 10 style */
++static BOOL get_xp_theme_path( WCHAR *path, DWORD size, BOOL win10 )
+ {
+-    static const WCHAR * const locations[] = { L"%SystemRoot%\\resources\\themes\\winexp\\winexp.msstyles",
+-                                               L"%SystemRoot%\\system32\\winexp.msstyles" };
++    static const WCHAR * const locations[2][2] =
++    {
++        { L"%SystemRoot%\\resources\\themes\\winexp\\winexp.msstyles", L"%SystemRoot%\\system32\\winexp.msstyles" },
++        { L"%SystemRoot%\\resources\\themes\\win10\\win10.msstyles", L"%SystemRoot%\\system32\\win10.msstyles" },
++    };
+     unsigned int i;
+ 
+-    for (i = 0; i < ARRAY_SIZE(locations); i++)
++    for (i = 0; i < ARRAY_SIZE(locations[0]); i++)
+     {
+-        DWORD len = ExpandEnvironmentStringsW( locations[i], path, size );
++        DWORD len = ExpandEnvironmentStringsW( locations[win10 ? 1 : 0][i], path, size );
+         if (len && len <= size && GetFileAttributesW( path ) != INVALID_FILE_ATTRIBUTES) return TRUE;
+     }
+     return FALSE;
+@@ -2012,11 +2461,19 @@ static void copy_theme_value( HKEY from, HKEY to, const WCHAR *name )
+         RegDeleteValueW( to, name );
+ }
+ 
++/* one of our two visual styles */
+ static BOOL is_xp_theme( const WCHAR *dll )
+ {
+-    int len = lstrlenW( dll ), suffix = lstrlenW( L"\\winexp.msstyles" );
++    static const WCHAR * const names[] = { L"\\winexp.msstyles", L"\\win10.msstyles" };
++    int len = lstrlenW( dll );
++    unsigned int i;
+ 
+-    return len >= suffix && !lstrcmpiW( dll + len - suffix, L"\\winexp.msstyles" );
++    for (i = 0; i < ARRAY_SIZE(names); i++)
++    {
++        int suffix = lstrlenW( names[i] );
++        if (len >= suffix && !lstrcmpiW( dll + len - suffix, names[i] )) return TRUE;
++    }
++    return FALSE;
+ }
+ 
+ static BOOL CALLBACK post_theme_changed_child( HWND hwnd, LPARAM lparam )
+@@ -2033,7 +2490,7 @@ static BOOL CALLBACK post_theme_changed( HWND hwnd, LPARAM lparam )
+ }
+ 
+ /* point the theme settings at the XP theme, or back at the theme used before */
+-static void apply_xp_controls( BOOL use_xp, UINT scheme )
++static void apply_xp_controls( BOOL use_xp, BOOL win10, UINT scheme )
+ {
+     WCHAR dll[MAX_PATH], color[64], value[MAX_PATH], xp_path[MAX_PATH];
+     BOOL active, changed = FALSE;
+@@ -2053,9 +2510,10 @@ static void apply_xp_controls( BOOL use_xp, UINT scheme )
+     if (!get_theme_value( theme, L"ColorName", color, ARRAY_SIZE(color) )) color[0] = 0;
+     active = get_theme_value( theme, L"ThemeActive", value, ARRAY_SIZE(value) ) && value[0] != '0';
+ 
+-    if (use_xp && get_xp_theme_path( xp_path, ARRAY_SIZE(xp_path) ))
++    if (use_xp && get_xp_theme_path( xp_path, ARRAY_SIZE(xp_path), win10 ))
+     {
+-        const WCHAR *xp_color = xp_theme_colors[scheme < ARRAY_SIZE(xp_theme_colors) ? scheme : 0][is_dark_theme()];
++        const WCHAR *xp_color = win10 ? (is_dark_theme() ? L"Dark" : L"Light")
++                                      : xp_theme_colors[scheme < ARRAY_SIZE(xp_theme_colors) ? scheme : 0][is_dark_theme()];
+ 
+         if (!active || !is_xp_theme( dll ))
+         {
+@@ -2070,9 +2528,11 @@ static void apply_xp_controls( BOOL use_xp, UINT scheme )
+             set_theme_value( theme, L"ThemeActive", L"1" );
+             changed = TRUE;
+         }
+-        else if (lstrcmpiW( color, xp_color ))
++        else if (lstrcmpiW( color, xp_color ) || lstrcmpiW( dll, xp_path ))
+         {
++            /* another scheme, or between the XP and the Windows 10 style */
+             set_theme_value( theme, L"ColorName", xp_color );
++            set_theme_value( theme, L"DllName", xp_path );
+             changed = TRUE;
+         }
+     }
+@@ -2196,10 +2656,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
      SetTimer( tray_window, SYNC_TIMER, SYNC_DELAY, NULL );
  }
  
@@ -1973,7 +2055,7 @@ index 69b57035a0c..9588905623d 100644
      if (xp_initialized)
      {
          /* switching back from the classic style */
-@@ -2318,9 +2781,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
+@@ -2318,9 +2796,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
      return bitmap;
  }
  
@@ -2091,7 +2173,7 @@ index 69b57035a0c..9588905623d 100644
      BOOL dark = is_dark_theme();
      HGDIOBJ old;
      RECT rect;
-@@ -2329,13 +2900,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
+@@ -2329,13 +2915,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
      if (!use_xp_wallpaper( xp_style, xp_wallpaper )) return FALSE;
      GetClientRect( hwnd, &rect );
      if (!wallpaper_cache || rect.right != wallpaper_cache_width || rect.bottom != wallpaper_cache_height ||
@@ -2108,7 +2190,7 @@ index 69b57035a0c..9588905623d 100644
      }
      if (!wallpaper_cache || !(mem = CreateCompatibleDC( hdc ))) return FALSE;
      old = SelectObject( mem, wallpaper_cache );
-@@ -2362,7 +2934,8 @@ void reset_xp_wallpaper(void)
+@@ -2362,7 +2949,8 @@ void reset_xp_wallpaper(void)
  
  struct display_settings
  {
@@ -2118,7 +2200,7 @@ index 69b57035a0c..9588905623d 100644
      UINT scheme;
      int  rows;
      BOOL locked;
-@@ -2370,9 +2943,12 @@ struct display_settings
+@@ -2370,9 +2958,12 @@ struct display_settings
      BOOL frames;
      BOOL wallpaper;
      BOOL controls;
@@ -2131,7 +2213,7 @@ index 69b57035a0c..9588905623d 100644
  
  /* only the frame is invalidated, the windows are not moved or resized */
  static BOOL CALLBACK refresh_frame_proc( HWND hwnd, LPARAM lparam )
-@@ -2402,19 +2978,30 @@ static void invalidate_taskbar(void)
+@@ -2402,19 +2993,30 @@ static void invalidate_taskbar(void)
      }
  }
  
@@ -2165,7 +2247,7 @@ index 69b57035a0c..9588905623d 100644
      }
      do_show_systray();
  }
-@@ -2431,7 +3018,7 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2431,7 +3033,7 @@ static void apply_display_settings( const struct display_settings *settings )
      if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, NULL, 0,
                            KEY_SET_VALUE, NULL, &hkey, NULL ))
      {
@@ -2174,7 +2256,7 @@ index 69b57035a0c..9588905623d 100644
  
          RegSetValueExW( hkey, L"Style", 0, REG_SZ, (const BYTE *)style, (lstrlenW( style ) + 1) * sizeof(WCHAR) );
          RegCloseKey( hkey );
-@@ -2444,17 +3031,28 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2444,17 +3046,28 @@ static void apply_display_settings( const struct display_settings *settings )
      xp_save_setting( L"Wallpaper", settings->wallpaper );
      xp_save_setting( L"Controls", settings->controls );
      xp_controls = settings->controls;
@@ -2188,8 +2270,8 @@ index 69b57035a0c..9588905623d 100644
 +        xp_save_setting( L"Accent", win10_accent );
 +        xp_save_setting( L"Dark", win10_dark );
 +    }
-+    /* the Windows 10 style keeps the default Wine theme for the controls, which is flat already */
-+    apply_xp_controls( settings->xp && !settings->win10 && settings->controls, taskbar_scheme );
++    /* the Windows 10 style always has its own controls, light or dark like the window colours */
++    apply_xp_controls( settings->win10 || (settings->xp && settings->controls), settings->win10, taskbar_scheme );
      /* let the other processes pick up the frame style, then have every window repaint its frame */
      if (settings->frames != xp_frames || settings->frames) SetTimer( tray_window, FRAMES_TIMER, FRAMES_DELAY, NULL );
      xp_frames = settings->frames;
@@ -2206,7 +2288,7 @@ index 69b57035a0c..9588905623d 100644
      else do_show_systray();
      invalidate_taskbar();
  }
-@@ -2479,7 +3077,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+@@ -2479,7 +3092,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
  {
      LRESULT sel;
  
@@ -2218,7 +2300,7 @@ index 69b57035a0c..9588905623d 100644
      sel = SendDlgItemMessageW( dlg, IDC_DP_SCHEME, CB_GETCURSEL, 0, 0 );
      settings->scheme = sel > 0 ? sel : 0;
      sel = SendDlgItemMessageW( dlg, IDC_DP_ROWS, CB_GETCURSEL, 0, 0 );
-@@ -2489,17 +3090,38 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+@@ -2489,17 +3105,38 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
      settings->frames = IsDlgButtonChecked( dlg, IDC_DP_FRAMES ) == BST_CHECKED;
      settings->wallpaper = IsDlgButtonChecked( dlg, IDC_DP_WALLPAPER ) == BST_CHECKED;
      settings->controls = IsDlgButtonChecked( dlg, IDC_DP_CONTROLS ) == BST_CHECKED;
@@ -2258,7 +2340,7 @@ index 69b57035a0c..9588905623d 100644
      InvalidateRect( GetDlgItem( dlg, IDC_DP_PREVIEW ), NULL, FALSE );
  }
  
-@@ -2524,7 +3146,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2524,7 +3161,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
      if (use_xp_wallpaper( settings->xp, settings->wallpaper ))
      {
@@ -2267,7 +2349,7 @@ index 69b57035a0c..9588905623d 100644
          HDC background_dc = CreateCompatibleDC( hdc );
          HGDIOBJ old_background = SelectObject( background_dc, background );
  
-@@ -2554,7 +3176,20 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2554,7 +3191,20 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
          if (wh > cap + 6)
          {
@@ -2289,7 +2371,7 @@ index 69b57035a0c..9588905623d 100644
              {
                  fill_solid( hdc, wx, wy, ww, wh, caption[index][2] );
                  fill_gradient2( hdc, wx, wy, ww, cap / 2, caption[index][0], caption[index][1] );
-@@ -2577,7 +3212,29 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2577,7 +3227,29 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
          }
      }
  
@@ -2320,7 +2402,7 @@ index 69b57035a0c..9588905623d 100644
      {
          fill_gradient( hdc, 0, top, width, bar, 0, bar, scheme->bar, scheme->bar_count );
          fill_gradient( hdc, width - bar * 3, top, bar * 3, bar, 0, bar, scheme->notify, scheme->notify_count );
-@@ -2621,9 +3278,121 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2621,9 +3293,121 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
      DeleteDC( hdc );
  }
  
@@ -2443,7 +2525,7 @@ index 69b57035a0c..9588905623d 100644
      static const UINT scheme_ids[] = { IDS_DP_SCHEME_BLUE, IDS_DP_SCHEME_OLIVE, IDS_DP_SCHEME_SILVER };
      static const UINT rows_ids[] = { IDS_TASKBAR_ROWS1, IDS_TASKBAR_ROWS2, IDS_TASKBAR_ROWS3 };
      struct display_settings settings;
-@@ -2632,7 +3401,8 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2632,7 +3416,8 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
      {
      case WM_INITDIALOG:
          display_dialog = dlg;
@@ -2453,7 +2535,7 @@ index 69b57035a0c..9588905623d 100644
          load_combo_strings( GetDlgItem( dlg, IDC_DP_SCHEME ), scheme_ids, ARRAY_SIZE(scheme_ids), get_taskbar_scheme() );
          load_combo_strings( GetDlgItem( dlg, IDC_DP_ROWS ), rows_ids, ARRAY_SIZE(rows_ids), taskbar_rows - 1 );
          CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
-@@ -2640,10 +3410,17 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2640,10 +3425,17 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
          CheckDlgButton( dlg, IDC_DP_FRAMES, xp_frames ? BST_CHECKED : BST_UNCHECKED );
          CheckDlgButton( dlg, IDC_DP_CONTROLS, xp_controls ? BST_CHECKED : BST_UNCHECKED );
          CheckDlgButton( dlg, IDC_DP_WALLPAPER, xp_wallpaper ? BST_CHECKED : BST_UNCHECKED );
@@ -2471,7 +2553,7 @@ index 69b57035a0c..9588905623d 100644
          if (wparam != IDC_DP_PREVIEW) break;
          get_dialog_settings( dlg, &settings );
          draw_display_preview( (const DRAWITEMSTRUCT *)lparam, &settings );
-@@ -2662,8 +3439,14 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2662,8 +3454,14 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
          case IDC_DP_FRAMES:
          case IDC_DP_CONTROLS:
          case IDC_DP_WALLPAPER:
@@ -2486,7 +2568,7 @@ index 69b57035a0c..9588905623d 100644
          case IDC_DP_APPLY:
          case IDOK:
              get_dialog_settings( dlg, &settings );
-@@ -2695,6 +3478,12 @@ static void show_display_properties( HWND owner )
+@@ -2695,6 +3493,12 @@ static void show_display_properties( HWND owner )
      if (owner && !IsWindowEnabled( owner )) EnableWindow( owner, TRUE );
  }
  
@@ -2499,7 +2581,7 @@ index 69b57035a0c..9588905623d 100644
  /* right click on the desktop */
  void show_desktop_menu( HWND hwnd, LPARAM lparam )
  {
-@@ -2870,6 +3659,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2870,6 +3674,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          break;
  
      case WM_LBUTTONDOWN:
@@ -2512,7 +2594,7 @@ index 69b57035a0c..9588905623d 100644
          if (xp_style && !taskbar_locked)
          {
              POINT pt;
-@@ -2888,6 +3683,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2888,6 +3698,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  
      case WM_LBUTTONUP:
@@ -2531,7 +2613,7 @@ index 69b57035a0c..9588905623d 100644
          if (sizing_taskbar)
          {
              xp_update_sizing();
-@@ -2896,6 +3703,34 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2896,6 +3718,34 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          }
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  
@@ -2566,3 +2648,12 @@ index 69b57035a0c..9588905623d 100644
      case WM_SETCURSOR:
          if (xp_style && !taskbar_locked && (HWND)wparam == hwnd && LOWORD(lparam) == HTCLIENT)
          {
+@@ -3018,7 +3868,7 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
+     if (enable_taskbar)
+     {
+         xp_load_settings();
+-        apply_xp_controls( xp_style && xp_controls, taskbar_scheme );
++        apply_xp_controls( win10_style || (xp_style && xp_controls), win10_style, taskbar_scheme );
+ 
+         SystemParametersInfoW( SPI_GETWORKAREA, 0, &work_rect, 0 );
+         SetRect( &primary_rect, 0, 0, GetSystemMetrics( SM_CXSCREEN ), GetSystemMetrics( SM_CYSCREEN ) );
