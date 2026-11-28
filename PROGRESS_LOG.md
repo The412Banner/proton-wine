@@ -23,6 +23,68 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
     Steam/Epic launchers, fixed MAC for Android random MACs.
 - Not used (no credit owed, do not list as sources): GameNative #32 (RDR2 Social Club V8, open), #141 (Ubisoft
   adapter MAC, open).
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select: desktop icon selection, selection box, icon menu, combined Properties (branch, DEVICE-PROVEN, not merged)
+- Why: user 15:2x EST: a click on a desktop icon (XP desktop) gives no highlight like Windows. User picked the basic
+  version + right-click selects; LATER (user wish): a click-and-drag selection box shown until the button is released.
+- Built bec8724f patch programs_explorer_desktop.c_icon_selection.patch (after programs_explorer_desktop.c.patch in
+  both build steps + marker "desktop icons selected by a click"): left/right button down on an icon selects it alone
+  (icon ImageList_DrawEx ILD_BLEND50 with COLOR_HIGHLIGHT, title on a COLOR_HIGHLIGHT box in COLOR_HIGHLIGHTTEXT,
+  DrawFocusRect on the last clicked one); empty spot clears; right click on a selected icon keeps it; double click
+  opens as before; messages still go on to the original desktop proc. Selection is a flag per launcher (ready for a
+  drag box / several selected); focus pointer cleared in free_launcher (folder watcher thread).
+- Checks: sims arm64ec 114/114, x86_64 99/99 (desktop.c == edited, marker found); new functions compile clean
+  (clang -fsyntax-only, x86_64 + aarch64 mingw headers, extracted).
+- CI 46063847659 (headSha 681cc0ce) GREEN both legs 15:54 EST: patch applied, marker ok, verify-layer PASS, no
+  desktop.c compiler output. New aarch64-windows explorer.exe md5 95dedd62 (imports ImageList_Create/DrawEx/
+  ReplaceIcon/Destroy; old 9b995bcd has none), staged /sdcard/Download/.tmp-x/explorer-desk-681cc0ce.exe (sha256
+  d3aea694 host == device).
+- 15:57 EST SWAPPED on the FIT (root-bf OK): 64-bit explorer.exe in layer 11.0-14.1-arm64ec-18 (= CI fa021603, parent
+  tree) + container 1 C:\windows + system32; originals in /sdcard/Download/desk-select-backup/; undo =
+  rootsh 'sh /sdcard/Download/.tmp-x/desk-undo.sh' (Wine stopped). Device test: pending (user opens container 1).
+- Plan: CI -> swap only explorer.exe into the FIT 14.1 layer + container prefix (backups) -> test click/empty/right
+  click/double click on X11 + Wayland -> then the other 5 parents; release = user word.
+- 16:01 EST USER TEST of 681cc0ce (FIT, Wayland, container 1): clicked GOG GALAXY -> blue title box, white text,
+  dotted focus outline = DEVICE-PROVEN; icon tint not confirmed from the screenshot; logcat 15:57-16:02 0 FATAL/crash.
+- User: "can't tap and hold, then drag with a second finger to select multiple" -> selection box built in acb21caa
+  (same patch file): press on an empty spot + move past SM_CXDRAG = XP band (COLOR_HIGHLIGHT, GdiAlphaBlend 0x50 fill +
+  FrameRect), selects launchers whose icon/title rect it touches, Ctrl inverts; Ctrl+click toggles; click on one of
+  several selected = selects it alone at button up; double-click on empty = press (tap then drag); capture released on
+  WM_CAPTURECHANGED. BL main 4e42eda9f TouchpadView: Box Select (Cursor to Touch) and the two-finger wide hold both send
+  LMB down/move/up, so no BL change. Markers: mouse_down + update_band.
+- CI 46068123426 (acb21caa) GREEN both legs 16:15 EST (patch applied, 2 markers ok, verify-layer PASS). explorer.exe md5
+  bddc40b2, staged /sdcard/Download/.tmp-x/explorer-desk-acb21caa.exe (sha256 2da4a6a2 host == device). Swap waits for
+  the container to close (wineserver running).
+- 16:2x-16:53 EST USER TESTS of acb21caa (swapped, md5 bddc40b2; videos screen-20261127-164957 / -165308): selection box
+  "works right" = DEVICE-PROVEN (EA/GOG/Vortex boxed, icon tint visible); clicks move the highlight icon to icon (frames
+  checked); logcat since 16:20 0 FATAL. Right click on an icon still showed the desktop menu.
+- User: "right click needs a delete and such like a real windows" -> 89d17f10: right click on a selected icon = Open (default,
+  new IDS_DESKTOP_OPEN) + the shell's file menu (Cut, Copy, Create Link, Delete, Rename, Properties) per desktop folder (Wine's
+  desktop folder is the user Desktop only, so user + Public get their own IContextMenu; command invoked on both); Delete = one
+  SHFileOperationW FO_DELETE FOF_ALLOWUNDO for all selected (Trash, one confirm); Rename = in-place edit -> MoveFileW of the
+  .lnk (shell rename needs a shell view), greyed for several; OleInitialize once for Cut/Copy; dialogs without owner.
+  Marker "desktop icon right-click menu". Sims 114/114 + 99/99. CI 46074321517 GREEN 17:13 EST (3 markers ok, verify-layer
+  PASS); explorer md5 5a8e0eaa swapped on the FIT 17:1x EST (sha256 5f2de2ff host == device). Device test: pending.
+- 17:19 EST USER TEST of 89d17f10 ("works right", video screen-20261127-171945): menu Open/Cut/Copy/Create Link/Delete/
+  Rename (greyed for 3 selected)/Properties = DEVICE-PROVEN; logcat 17:15-17:2x 0 FATAL. Properties on Ubisoft (user) + EA +
+  GOG (Public) opened 2 single-file sheets (Ubisoft Connect.lnk, then EA.lnk only: Wine DoOpenProperties shows the first
+  item; SHMultiFileProperties = stub). User wants ONE combined sheet like Windows.
+- 15003425: own combined sheet for >1 selected (PropertySheetW, page IDD_MULTI_PROPERTIES "General": IDI_SHELL_FILES icon,
+  "N files", "All of type X"/"Multiple types", "All in <dir>"/"Various folders", total size (StrFormatByteSizeW + bytes),
+  Read Only/Hidden/Archive AUTO3STATE (2-state when uniform), PSN_APPLY sets/clears on all); 1 selected = shell sheet. New
+  strings IDS_MP_* 38-43, dialog 220-228. Marker "combined Properties for several desktop icons". Sims 114/114 + 99/99,
+  extracted compile clean. CI 46076540126 started 17:25 EST. NOT device-tested.
+- RESUME (user leaving work, Wi-Fi lost): when CI green -> fastdl artifact proton-arm64ec-sdk28 -> extract
+  lib/wine/aarch64-windows/explorer.exe -> stage /sdcard/Download/.tmp-x/explorer-desk-15003425.exe (sha256 host==device)
+  -> container 1 closed (no wineserver) -> rootsh 'sh /sdcard/Download/.tmp-x/desk-swap.sh <exe>' -> user tests Properties
+  on 2-3 mixed icons. FIT now has 89d17f10 explorer (md5 5a8e0eaa); originals 9b995bcd in /sdcard/Download/desk-select-backup/.
+- 18:07 EST CI 46076540126 (15003425) GREEN both legs (4 markers ok, verify-layer PASS); explorer md5 dc513086 swapped on the
+  FIT 18:12 EST (after root-bf's BL reinstall ae6ebb3c, which left the layer alone).
+- 18:27 EST USER TEST (screenshot): EA + GOG + Vortex -> one sheet "Properties for EA, GOG GALAXY, ...", 3 files, All of type
+  Shortcut, All in C:\users\Public\Desktop, 1.90 KB (1949 bytes), attributes = DEVICE-PROVEN. User saw the cursor stay an
+  I-beam/resize shape once; 18:59 video (4 icons from both folders: "4 files", "Various folders", 2.60 KB (2664 bytes)) cursor
+  normal, user: "seems ok I might have just hit a fluke" -> not reproduced, cause unknown. logcat 18:12-19:00 0 FATAL.
+- STATE: all four parts device-proven on the FIT (arm64ec, Wayland, container 1). Not merged, not ported to the other 5 parents,
+  not released. FIT keeps the test explorer.exe (dc513086) until the user decides; undo = desk-undo.sh.
 
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ncrypt-ecdsa MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - Why: the Epic Games Launcher's account linking (Ubisoft) failed with "Invalid Client / 400 Bad Request". Its EOS SDK
