@@ -13,7 +13,8 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
   Properties), combined Properties for several icons. Release-note line (own work, The412Banner): "Wine XP desktop: icons can
   be selected (click, Ctrl+click, drag a box), right-click menu with Open / Cut / Copy / Create Link / Delete / Rename /
   Properties, one Properties window for several icons."
-- NOT copied to the other 5 parents (user: wait). Not released. Parent CI on this commit: see next entry / run list.
+- NOT copied to the other 5 parents (user: wait). Not released. Parent CI 46087088150 (headSha a0e2578a) GREEN both legs
+  19:25 EST: patch applied, 4 markers ok, verify-layer PASS; release skipped.
 
 ## 2026-11-27 — NEXT RELEASE: credits for the launcher fixes (user order, 18:5x EST)
 - Why: the user asked that the next release that ships the 11-27 launcher work (EA app, Ubisoft Connect, Epic, GOG
