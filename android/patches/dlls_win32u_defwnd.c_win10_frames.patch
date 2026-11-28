@@ -1,8 +1,8 @@
 diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
-index 633d932e2f9..f570f9255bc 100644
+index 633d932e2f9..ac6fc4d909a 100644
 --- a/dlls/win32u/defwnd.c
 +++ b/dlls/win32u/defwnd.c
-@@ -1658,7 +1658,40 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
+@@ -1658,7 +1658,49 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
  
  #define XP_FRAME_SCHEMES  3  /* the ones picked in the registry, each has a dark twin */
  
@@ -40,10 +40,19 @@ index 633d932e2f9..f570f9255bc 100644
  static UINT xp_frame_scheme = ~0u;  /* ~0u: plain Wine frames */
 +static BOOL xp_frame_win10;         /* the Windows 10 style frames */
 +static BOOL xp_frame_win10_dark = TRUE;
++
++/* the Windows 10 style caption button under the pointer (HTMINBUTTON, HTMAXBUTTON or HTCLOSE) */
++static HWND win10_hot_hwnd;
++static UINT win10_hot_ht;
++
++static BOOL win10_is_hot( HWND hwnd, UINT ht )
++{
++    return hwnd && hwnd == win10_hot_hwnd && ht == win10_hot_ht;
++}
  
  /* the settings are read again at most once a second, so a change reaches every process */
  static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
-@@ -1670,10 +1703,13 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1670,10 +1712,13 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
      if (!last_check || now - last_check > 1000)
      {
          static const WCHAR classicW[] = {'c','l','a','s','s','i','c',0};
@@ -57,7 +66,7 @@ index 633d932e2f9..f570f9255bc 100644
          HKEY hkey;
  
          if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Taskbar" )))
-@@ -1681,24 +1717,41 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1681,24 +1726,41 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
              if (query_reg_ascii_value( hkey, "Frames", info, sizeof(buffer) ) == sizeof(DWORD) &&
                  info->Type == REG_DWORD)
                  frames = *(DWORD *)info->Data;
@@ -103,14 +112,14 @@ index 633d932e2f9..f570f9255bc 100644
      return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
  }
  
-@@ -1785,6 +1838,95 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
+@@ -1785,9 +1847,100 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
      NtGdiDeleteObjectApp( pen );
  }
  
 +/* a flat Windows 10 style caption button over the full height of the title bar, with a thin glyph;
 + * pressed, the close button turns red */
 +static void win10_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,
-+                                       const struct xp_frame_colors *colors )
++                                       const struct xp_frame_colors *colors, BOOL hot )
 +{
 +    BOOL down = (flags & DFCS_PUSHED) != 0, grayed = (flags & DFCS_INACTIVE) != 0;
 +    BOOL dark = GetRValue( colors->fill ) < 0x80;
@@ -133,14 +142,16 @@ index 633d932e2f9..f570f9255bc 100644
 +    height = box.bottom - box.top;
 +    if (width <= 4 || height <= 4) return;
 +
-+    if (down)
++    /* under the pointer: light grey, or red for close; pressed: a step lighter */
++    if (down || (hot && !grayed))
 +    {
 +        if (type == DFCS_CAPTIONCLOSE)
 +        {
-+            back = RGB(0xe8,0x11,0x23);
++            back = down ? RGB(0xf1,0x70,0x7a) : RGB(0xe8,0x11,0x23);
 +            glyph = RGB(0xff,0xff,0xff);
 +        }
-+        else back = dark ? RGB(0x44,0x44,0x44) : RGB(0xcc,0xcc,0xcc);
++        else if (down) back = dark ? RGB(0x55,0x55,0x55) : RGB(0xcc,0xcc,0xcc);
++        else back = dark ? RGB(0x3a,0x3a,0x3a) : RGB(0xe5,0xe5,0xe5);
 +    }
 +    if (grayed) glyph = RGB( (GetRValue( glyph ) + 2 * GetRValue( back )) / 3, (GetGValue( glyph ) + 2 * GetGValue( back )) / 3,
 +                             (GetBValue( glyph ) + 2 * GetBValue( back )) / 3 );
@@ -198,20 +209,128 @@ index 633d932e2f9..f570f9255bc 100644
 +
  /* draw a rounded caption button with its glyph, flags are the DFCS_CAPTION* values */
  static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,
-                                     const struct xp_frame_colors *colors )
-@@ -1800,6 +1942,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
+-                                    const struct xp_frame_colors *colors )
++                                    const struct xp_frame_colors *colors, BOOL hot )
+ {
+     int size = min( rect->right - rect->left, rect->bottom - rect->top ), extent, x, y, t, radius;
+     BOOL down = (flags & DFCS_PUSHED) != 0, grayed = (flags & DFCS_INACTIVE) != 0;
+@@ -1800,6 +1953,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
      RECT box, caption;
      HDC mem;
  
 +    if (is_win10_frame( colors ))
 +    {
-+        win10_draw_caption_button( hwnd, hdc, rect, flags, colors );
++        win10_draw_caption_button( hwnd, hdc, rect, flags, colors, hot );
 +        return;
 +    }
      if (size <= 4) return;
      /* square buttons on the right side of the classic button rectangle */
      box.right = rect->right;
-@@ -2070,7 +2217,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+@@ -1938,7 +2096,7 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+     if (down) flags |= DFCS_PUSHED;
+     if (grayed) flags |= DFCS_INACTIVE;
+     if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
+-        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors );
++        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors, win10_is_hot( hwnd, HTCLOSE ));
+     else
+         draw_frame_caption( hdc, &rect, flags );
+ }
+@@ -1965,7 +2123,7 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+     if (down) flags |= DFCS_PUSHED;
+     if (grayed) flags |= DFCS_INACTIVE;
+     if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
+-        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors );
++        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors, win10_is_hot( hwnd, HTMAXBUTTON ));
+     else
+         draw_frame_caption( hdc, &rect, flags );
+ }
+@@ -1995,11 +2153,84 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+     if (down) flags |= DFCS_PUSHED;
+     if (grayed) flags |= DFCS_INACTIVE;
+     if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
+-        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors );
++        xp_draw_caption_button( hwnd, hdc, &rect, flags, colors, win10_is_hot( hwnd, HTMINBUTTON ));
+     else
+         draw_frame_caption( hdc, &rect, flags );
+ }
+ 
++/* draw one caption button again, for its hover state */
++static void redraw_caption_button( HWND hwnd, UINT ht )
++{
++    DWORD style = get_window_long( hwnd, GWL_STYLE );
++    HMENU sys_menu;
++    UINT state;
++    HDC hdc;
++
++    if (!(style & WS_SYSMENU) || !(hdc = NtUserGetWindowDC( hwnd ))) return;
++    switch (ht)
++    {
++    case HTCLOSE:
++        sys_menu = NtUserGetSystemMenu( hwnd, FALSE );
++        state = sys_menu ? get_menu_state( sys_menu, SC_CLOSE, MF_BYCOMMAND ) : 0xffffffff;
++        draw_close_button( hwnd, hdc, FALSE, (state & (MF_DISABLED | MF_GRAYED)) || state == 0xffffffff );
++        break;
++    case HTMAXBUTTON:
++        if (style & (WS_MAXIMIZEBOX | WS_MINIMIZEBOX)) draw_max_button( hwnd, hdc, FALSE, !(style & WS_MAXIMIZEBOX) );
++        break;
++    case HTMINBUTTON:
++        if (style & (WS_MAXIMIZEBOX | WS_MINIMIZEBOX)) draw_min_button( hwnd, hdc, FALSE, !(style & WS_MINIMIZEBOX) );
++        break;
++    }
++    NtUserReleaseDC( hwnd, hdc );
++}
++
++/* light the button under the pointer and put out the one before; a system timer checks the
++ * pointer while one is lit, so that leaving the button, or the window, puts it out too */
++static void set_caption_hot( HWND hwnd, UINT ht )
++{
++    HWND old_hwnd = win10_hot_hwnd;
++    UINT old_ht = win10_hot_ht;
++
++    if (!ht) hwnd = 0;
++    if (hwnd == old_hwnd && ht == old_ht) return;
++    win10_hot_hwnd = hwnd;
++    win10_hot_ht = ht;
++    if (old_hwnd && is_window( old_hwnd )) redraw_caption_button( old_hwnd, old_ht );
++    if (hwnd)
++    {
++        redraw_caption_button( hwnd, ht );
++        NtUserSetSystemTimer( hwnd, SYSTEM_TIMER_CAPTION_HOT, 100 );
++    }
++}
++
++static void track_caption_hot( HWND hwnd, WPARAM ht )
++{
++    DWORD style = get_window_long( hwnd, GWL_STYLE ), ex_style = get_window_long( hwnd, GWL_EXSTYLE );
++    const struct xp_frame_colors *colors;
++
++    if (ht != HTCLOSE && ht != HTMAXBUTTON && ht != HTMINBUTTON) ht = 0;
++    else if (!(colors = get_xp_window_colors( hwnd, style, ex_style )) || !is_win10_frame( colors )) ht = 0;
++    if (ht || hwnd == win10_hot_hwnd) set_caption_hot( hwnd, ht );
++}
++
++/* SYSTEM_TIMER_CAPTION_HOT */
++void check_caption_hot( HWND hwnd )
++{
++    POINT pt;
++
++    if (hwnd != win10_hot_hwnd)
++    {
++        NtUserKillSystemTimer( hwnd, SYSTEM_TIMER_CAPTION_HOT );
++        return;
++    }
++    if (!NtUserGetCursorPos( &pt ) || NtUserWindowFromPoint( pt.x, pt.y ) != hwnd ||
++        handle_nc_hit_test( hwnd, pt ) != win10_hot_ht)
++    {
++        set_caption_hot( 0, 0 );
++        NtUserKillSystemTimer( hwnd, SYSTEM_TIMER_CAPTION_HOT );
++    }
++}
++
+ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+                              DWORD  ex_style, BOOL active )
+ {
+@@ -2070,7 +2301,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
          nclm.cbSize = sizeof(nclm);
          NtUserSystemParametersInfo( SPI_GETNONCLIENTMETRICS, 0, &nclm, 0 );
          lf = (ex_style & WS_EX_TOOLWINDOW) ? nclm.lfSmCaptionFont : nclm.lfCaptionFont;
@@ -221,3 +340,50 @@ index 633d932e2f9..f570f9255bc 100644
          font = NtGdiHfontCreate( &lf, sizeof(lf), 0, 0, NULL );
          prev_font = NtGdiSelectFont( hdc, font );
          NtGdiGetAndSetDCDword( hdc, NtGdiSetBkMode, TRANSPARENT, NULL );
+@@ -2931,6 +3163,7 @@ static LRESULT handle_nc_mouse_move( HWND hwnd, WPARAM wparam, LPARAM lparam )
+ 
+     TRACE( "hwnd=%p wparam=%#lx lparam=%#lx\n", hwnd, (long)wparam, lparam );
+ 
++    track_caption_hot( hwnd, wparam );
+     if (wparam != HTHSCROLL && wparam != HTVSCROLL)
+         return 0;
+ 
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index d3ac05a443e..20ebf813a22 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -4093,6 +4093,10 @@ LRESULT WINAPI NtUserDispatchMessage( const MSG *msg )
+             case SYSTEM_TIMER_TRACK_MOUSE:
+                 update_mouse_tracking_info( msg->hwnd );
+                 return 0;
++
++            case SYSTEM_TIMER_CAPTION_HOT:
++                check_caption_hot( msg->hwnd );
++                return 0;
+         }
+     }
+ 
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index 67cbe230195..a7518acb512 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -34,6 +34,7 @@
+ 
+ enum system_timer_id
+ {
++    SYSTEM_TIMER_CAPTION_HOT = 0xfff9,
+     SYSTEM_TIMER_TRACK_MOUSE = 0xfffa,
+     SYSTEM_TIMER_CARET = 0xffff,
+ };
+diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
+index 803655b3541..eabd1eb6ea7 100644
+--- a/dlls/win32u/win32u_private.h
++++ b/dlls/win32u/win32u_private.h
+@@ -70,6 +70,7 @@ extern BOOL draw_rect_edge( HDC hdc, RECT *rc, UINT uType, UINT uFlags, UINT wid
+ extern void fill_rect( HDC dc, const RECT *rect, HBRUSH hbrush );
+ extern void get_sys_popup_pos( HWND hwnd, RECT *rect );
+ extern LRESULT handle_nc_hit_test( HWND hwnd, POINT pt );
++extern void check_caption_hot( HWND hwnd );
+ 
+ /* hook.c */
+ extern LRESULT call_current_hook( HHOOK hhook, INT code, WPARAM wparam, LPARAM lparam );
