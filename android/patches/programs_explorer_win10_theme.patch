@@ -113,10 +113,10 @@ index aab1300c4a0..2c8f29de823 100644
              draw_launcher_icon( hdc, launcher, icon );
  
 diff --git a/programs/explorer/explorer.rc b/programs/explorer/explorer.rc
-index 711a0e323e4..344d50eb183 100644
+index 711a0e323e4..f0698eed6cb 100644
 --- a/programs/explorer/explorer.rc
 +++ b/programs/explorer/explorer.rc
-@@ -65,6 +65,21 @@ STRINGTABLE
+@@ -65,6 +65,23 @@ STRINGTABLE
      IDS_MP_ALL_IN "All in %s"
      IDS_MP_VARIOUS_FOLDERS "Various folders"
      IDS_MP_SIZE "%s (%s bytes)"
@@ -135,6 +135,8 @@ index 711a0e323e4..344d50eb183 100644
 +    IDS_W10_WINE_SYSTEM "Wine System"
 +    IDS_W10_START       "START"
 +    IDS_W10_RUN         "Run"
++    IDS_W10_TILES_WINE  "Wine"
++    IDS_W10_TILES_DESKTOP "Desktop"
  }
  
  IDD_DISPLAY_PROPERTIES DIALOGEX 0, 0, 262, 286
@@ -155,10 +157,10 @@ index 630427ccce3..23b955e6a0c 100644
  extern UINT get_taskbar_palette(void);
  extern void show_desktop_menu( HWND hwnd, LPARAM lparam );
 diff --git a/programs/explorer/resource.h b/programs/explorer/resource.h
-index c0ebf076a27..b65154d95ad 100644
+index c0ebf076a27..970862f1d56 100644
 --- a/programs/explorer/resource.h
 +++ b/programs/explorer/resource.h
-@@ -59,6 +59,21 @@
+@@ -59,6 +59,23 @@
  #define IDS_MP_ALL_IN 41
  #define IDS_MP_VARIOUS_FOLDERS 42
  #define IDS_MP_SIZE 43
@@ -177,14 +179,24 @@ index c0ebf076a27..b65154d95ad 100644
 +#define IDS_W10_WINE_SYSTEM 62
 +#define IDS_W10_START 63
 +#define IDS_W10_RUN 64
++#define IDS_W10_TILES_WINE 65
++#define IDS_W10_TILES_DESKTOP 66
  
  #define IDI_WINE_LOGO 100
  #define IDB_WALLPAPER_LIGHT 110
 diff --git a/programs/explorer/startmenu.c b/programs/explorer/startmenu.c
-index 0ed31ea04d3..a55e23d1d1b 100644
+index 0ed31ea04d3..fbdceb16502 100644
 --- a/programs/explorer/startmenu.c
 +++ b/programs/explorer/startmenu.c
-@@ -2047,3 +2047,866 @@ void do_xp_startmenu( HWND tray )
+@@ -17,6 +17,7 @@
+  */
+ 
+ #define COBJMACROS
++#include <math.h>
+ #include <stdlib.h>
+ #include <windows.h>
+ #include <shellapi.h>
+@@ -2047,3 +2048,1067 @@ void do_xp_startmenu( HWND tray )
      if (xp_logo) DestroyIcon( xp_logo );
      xp_logo = 0;
  }
@@ -249,7 +261,25 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +#define W10_RAIL_BACK  RGB(0x2b,0x2b,0x2b)
 +#define W10_HOT_BACK   RGB(0x3a,0x3a,0x3a)
 +#define W10_TEXT       RGB(0xff,0xff,0xff)
-+#define W10_SCROLL     RGB(0x80,0x80,0x80)
++#define W10_SCROLL     RGB(0x6a,0x6a,0x6a)
++#define W10_MAX_TILES  12
++
++/* the tiles on the right: Wine's tools and the shortcuts of the desktop, launched by a click */
++struct w10_tile
++{
++    WCHAR name[MAX_PATH];
++    WCHAR path[MAX_PATH];
++    HICON icon;
++    RECT  rect;
++};
++
++static struct w10_tile w10_tiles[W10_MAX_TILES];
++static unsigned int w10_tile_count;
++static int  w10_hot_tile = -1;
++static int  w10_list_right;        /* right edge of the program list, the tiles are beyond it */
++static RECT w10_group_rects[2];    /* where the two group names are written */
++static BOOL w10_list_hover;        /* the pointer is over the list: the thin scroll bar shows */
++static HFONT w10_small_font;
 +
 +static struct w10_node w10_root;
 +static struct w10_row *w10_rows;
@@ -488,7 +518,7 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +static void w10_build_rows(void)
 +{
 +    unsigned int i;
-+    int y = w10_px( 4 );
++    int y = w10_px( 10 );  /* some room above the first heading */
 +
 +    w10_row_count = 0;
 +    w10_add_rows( &w10_root, 0 );
@@ -504,7 +534,6 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +/* simple line glyphs of the rail */
 +static void w10_draw_rail_glyph( HDC hdc, int item, int cx, int cy )
 +{
-+    static const int spokes[8][2] = { {100,0}, {71,71}, {0,100}, {-71,71}, {-100,0}, {-71,-71}, {0,-100}, {71,-71} };
 +    int s = w10_px( 8 ), i;
 +    HGDIOBJ old_pen, old_brush;
 +    POINT pts[7];
@@ -549,13 +578,28 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +        Ellipse( hdc, cx + s / 3, cy - s / 2, cx + s * 2 / 3 + 1, cy - s / 6 + 1 );
 +        break;
 +    case W10_RAIL_SETTINGS:
-+        Ellipse( hdc, cx - s / 2, cy - s / 2, cx + s / 2 + 1, cy + s / 2 + 1 );
-+        for (i = 0; i < 8; i++)
++    {
++        /* a cog: eight square teeth around a ring, and the hole in the middle */
++        static const double teeth[4][2] = { { -15.0, 0.72 }, { -9.0, 1.0 }, { 9.0, 1.0 }, { 15.0, 0.72 } };
++        POINT gear[33];
++        int count = 0, k, j;
++
++        for (k = 0; k < 8; k++)
 +        {
-+            MoveToEx( hdc, cx + spokes[i][0] * s * 6 / 1000, cy + spokes[i][1] * s * 6 / 1000, NULL );
-+            LineTo( hdc, cx + spokes[i][0] * s / 100, cy + spokes[i][1] * s / 100 );
++            for (j = 0; j < 4; j++)
++            {
++                double a = (k * 45.0 + teeth[j][0]) * 3.14159265358979 / 180.0, r = teeth[j][1] * s;
++
++                gear[count].x = cx + (LONG)floor( r * sin( a ) + 0.5 );
++                gear[count].y = cy - (LONG)floor( r * cos( a ) + 0.5 );
++                count++;
++            }
 +        }
++        gear[count++] = gear[0];
++        Polyline( hdc, gear, count );
++        Ellipse( hdc, cx - s * 3 / 10, cy - s * 3 / 10, cx + s * 3 / 10 + 1, cy + s * 3 / 10 + 1 );
 +        break;
++    }
 +    case W10_RAIL_POWER:
 +        /* counterclockwise from the top left to the top right leaves the gap at the top */
 +        Arc( hdc, cx - s * 3 / 4, cy - s * 3 / 4 + 1, cx + s * 3 / 4 + 1, cy + s * 3 / 4 + 2,
@@ -589,6 +633,146 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    else w10_load_string( ids[item], str, size );
 +}
 +
++static void w10_add_tile( const WCHAR *name, const WCHAR *path )
++{
++    struct w10_tile *tile;
++    SHFILEINFOW info;
++
++    if (w10_tile_count >= W10_MAX_TILES) return;
++    tile = &w10_tiles[w10_tile_count++];
++    memset( tile, 0, sizeof(*tile) );
++    lstrcpynW( tile->name, name, ARRAY_SIZE(tile->name) );
++    lstrcpynW( tile->path, path, ARRAY_SIZE(tile->path) );
++    if (!lstrcmpiW( PathFindExtensionW( path ), L".lnk" )) tile->icon = get_shortcut_icon( path );
++    if (!tile->icon && SHGetFileInfoW( path, 0, &info, sizeof(info), SHGFI_ICON | SHGFI_LARGEICON ))
++        tile->icon = info.hIcon;
++}
++
++static void w10_add_tool_tile( UINT string_id, const WCHAR *exe )
++{
++    WCHAR path[MAX_PATH], name[MAX_PATH];
++
++    if (!SearchPathW( NULL, exe, NULL, MAX_PATH, path, NULL )) return;
++    w10_load_string( string_id, name, ARRAY_SIZE(name) );
++    w10_add_tile( name, path );
++}
++
++/* the shortcuts of one desktop folder */
++static void w10_add_desktop_tiles( int csidl )
++{
++    WCHAR dir[MAX_PATH], pattern[MAX_PATH], path[MAX_PATH], name[MAX_PATH];
++    WIN32_FIND_DATAW data;
++    unsigned int i;
++    HANDLE handle;
++
++    if (FAILED(SHGetFolderPathW( NULL, csidl, NULL, SHGFP_TYPE_CURRENT, dir ))) return;
++    if (!xp_join_path( pattern, dir, L"*.lnk" )) return;
++    if ((handle = FindFirstFileW( pattern, &data )) == INVALID_HANDLE_VALUE) return;
++    do
++    {
++        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
++        if (!xp_join_path( path, dir, data.cFileName )) continue;
++        lstrcpynW( name, data.cFileName, ARRAY_SIZE(name) );
++        PathRemoveExtensionW( name );
++        for (i = 0; i < w10_tile_count; i++) if (!lstrcmpiW( w10_tiles[i].name, name )) break;
++        if (i == w10_tile_count) w10_add_tile( name, path );
++    } while (w10_tile_count < W10_MAX_TILES && FindNextFileW( handle, &data ));
++    FindClose( handle );
++}
++
++static unsigned int w10_tile_split;  /* the first desktop tile, after the Wine tools */
++
++static void w10_build_tiles(void)
++{
++    w10_tile_count = 0;
++    if (SearchPathW( NULL, L"wfm.exe", NULL, 0, NULL, NULL )) w10_add_tool_tile( IDS_XP_FILE_MANAGER, L"wfm.exe" );
++    else w10_add_tool_tile( IDS_XP_FILE_MANAGER, L"winefile.exe" );
++    w10_add_tool_tile( IDS_XP_CONTROL_PANEL, L"control.exe" );
++    w10_add_tool_tile( IDS_XP_WINECFG, L"winecfg.exe" );
++    w10_add_tool_tile( IDS_XP_COMMAND_PROMPT, L"cmd.exe" );
++    w10_add_tool_tile( IDS_TASK_MANAGER, L"taskmgr.exe" );
++    w10_tile_split = w10_tile_count;
++    w10_add_desktop_tiles( CSIDL_DESKTOPDIRECTORY );
++    w10_add_desktop_tiles( CSIDL_COMMON_DESKTOPDIRECTORY );
++}
++
++/* two groups of square tiles, three per row; what does not fit is left out */
++static void w10_layout_tiles(void)
++{
++    int size = w10_px( 96 ), gap = w10_px( 4 ), left = w10_list_right + w10_px( 8 ), y = w10_px( 6 );
++    int label = w10_px( 30 ), bottom = w10_height - w10_px( 8 );
++    unsigned int group, i, start, end;
++
++    for (group = 0; group < 2; group++)
++    {
++        start = group ? w10_tile_split : 0;
++        end = group ? w10_tile_count : w10_tile_split;
++        SetRectEmpty( &w10_group_rects[group] );
++        for (i = start; i < end; i++) SetRectEmpty( &w10_tiles[i].rect );
++        if (start >= end || y + label + size > bottom) continue;
++        SetRect( &w10_group_rects[group], left, y, left + 3 * size + 2 * gap, y + label );
++        y += label;
++        for (i = start; i < end; i++)
++        {
++            int col = (i - start) % 3, row = (i - start) / 3;
++            RECT *rect = &w10_tiles[i].rect;
++
++            SetRect( rect, left + col * (size + gap), y + row * (size + gap),
++                     left + col * (size + gap) + size, y + row * (size + gap) + size );
++            if (rect->bottom > bottom) SetRectEmpty( rect );
++        }
++        y += (int)((end - start + 2) / 3) * (size + gap) + w10_px( 8 );
++    }
++}
++
++static void w10_paint_tiles( HDC hdc )
++{
++    COLORREF accent = get_accent_color(), hot = xp_blend( accent, RGB(0xff,0xff,0xff), 1, 2 );
++    int icon = w10_px( 36 ), edge = max( 1, w10_px( 2 ));
++    WCHAR str[64];
++    unsigned int i;
++    HGDIOBJ old_font;
++    RECT rect;
++
++    for (i = 0; i < 2; i++)
++    {
++        if (IsRectEmpty( &w10_group_rects[i] )) continue;
++        w10_load_string( i ? IDS_W10_TILES_DESKTOP : IDS_W10_TILES_WINE, str, ARRAY_SIZE(str) );
++        rect = w10_group_rects[i];
++        DrawTextW( hdc, str, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX );
++    }
++    old_font = SelectObject( hdc, w10_small_font );
++    for (i = 0; i < w10_tile_count; i++)
++    {
++        const struct w10_tile *tile = &w10_tiles[i];
++        const RECT *r = &tile->rect;
++
++        if (IsRectEmpty( r )) continue;
++        w10_fill( hdc, r->left, r->top, r->right - r->left, r->bottom - r->top, accent );
++        if (tile->icon)
++            DrawIconEx( hdc, (r->left + r->right - icon) / 2, r->top + (r->bottom - r->top - icon) / 2 - w10_px( 8 ),
++                        tile->icon, icon, icon, 0, NULL, DI_NORMAL );
++        SetRect( &rect, r->left + w10_px( 6 ), r->bottom - w10_px( 24 ), r->right - w10_px( 4 ), r->bottom - w10_px( 4 ));
++        DrawTextW( hdc, tile->name, -1, &rect, DT_SINGLELINE | DT_BOTTOM | DT_LEFT | DT_NOPREFIX | DT_END_ELLIPSIS );
++        if ((int)i == w10_hot_tile)
++        {
++            w10_fill( hdc, r->left, r->top, r->right - r->left, edge, hot );
++            w10_fill( hdc, r->left, r->bottom - edge, r->right - r->left, edge, hot );
++            w10_fill( hdc, r->left, r->top, edge, r->bottom - r->top, hot );
++            w10_fill( hdc, r->right - edge, r->top, edge, r->bottom - r->top, hot );
++        }
++    }
++    SelectObject( hdc, old_font );
++}
++
++static void w10_free_tiles(void)
++{
++    unsigned int i;
++
++    for (i = 0; i < w10_tile_count; i++) if (w10_tiles[i].icon) DestroyIcon( w10_tiles[i].icon );
++    w10_tile_count = 0;
++}
++
 +static void w10_paint( HWND hwnd )
 +{
 +    int rail = w10_rail_width(), list_left = w10_rail_item(), row_h = w10_row_height(), icon = w10_px( 24 );
@@ -615,30 +799,30 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    w10_fill( mem, 0, 0, w10_width, w10_height, W10_BACK );
 +
 +    /* the list */
-+    IntersectClipRect( mem, list_left, 0, w10_width, w10_height );
++    IntersectClipRect( mem, list_left, 0, w10_list_right, w10_height );
 +    for (i = 0; i < w10_row_count; i++)
 +    {
 +        const struct w10_row *row = &w10_rows[i];
 +        int y = row->top - w10_scroll, x = list_left + w10_px( 12 ) + row->depth * w10_px( 16 );
 +
 +        if (y + row_h <= 0 || y >= w10_height) continue;
-+        if ((int)i == w10_hot_row) w10_fill( mem, list_left, y, w10_width - list_left, row_h, W10_HOT_BACK );
++        if ((int)i == w10_hot_row) w10_fill( mem, list_left, y, w10_list_right - list_left, row_h, W10_HOT_BACK );
 +        if (!row->node)
 +        {
 +            str[0] = row->letter;
 +            str[1] = 0;
-+            SetRect( &rect, list_left + w10_px( 14 ), y, w10_width, y + row_h );
++            SetRect( &rect, list_left + w10_px( 14 ), y, w10_list_right, y + row_h );
 +            DrawTextW( mem, str, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX );
 +            continue;
 +        }
 +        if (w10_node_icon( row->node ))
 +            DrawIconEx( mem, x, y + (row_h - icon) / 2, w10_node_icon( row->node ), icon, icon, 0, NULL, DI_NORMAL );
-+        SetRect( &rect, x + icon + w10_px( 12 ), y, w10_width - w10_px( row->node->folder ? 32 : 10 ), y + row_h );
++        SetRect( &rect, x + icon + w10_px( 12 ), y, w10_list_right - w10_px( row->node->folder ? 32 : 10 ), y + row_h );
 +        DrawTextW( mem, row->node->name, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX | DT_END_ELLIPSIS );
 +        if (row->node->folder)
 +        {
 +            /* a chevron, pointing up while the folder is open */
-+            int cx = w10_width - w10_px( 20 ), cy = y + row_h / 2, s = w10_px( 4 ), dir = row->node->expanded ? -1 : 1;
++            int cx = w10_list_right - w10_px( 20 ), cy = y + row_h / 2, s = w10_px( 4 ), dir = row->node->expanded ? -1 : 1;
 +            HPEN pen = CreatePen( PS_SOLID, max( 1, w10_px( 1 )), W10_TEXT );
 +            HGDIOBJ old_pen = SelectObject( mem, pen );
 +
@@ -649,14 +833,15 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +            DeleteObject( pen );
 +        }
 +    }
-+    if (w10_content_height > w10_height)
++    if (w10_content_height > w10_height && (w10_list_hover || w10_dragging))
 +    {
 +        int thumb = max( w10_px( 24 ), w10_height * w10_height / w10_content_height );
 +        int pos = MulDiv( w10_scroll, w10_height - thumb, max( 1, w10_max_scroll() ));
 +
-+        w10_fill( mem, w10_width - w10_px( 4 ), pos, w10_px( 3 ), thumb, W10_SCROLL );
++        w10_fill( mem, w10_list_right - w10_px( 3 ), pos, max( 1, w10_px( 2 )), thumb, W10_SCROLL );
 +    }
 +    SelectClipRgn( mem, NULL );
++    w10_paint_tiles( mem );
 +
 +    /* the rail, over the list while it shows the names */
 +    if (w10_rail_wide)
@@ -687,14 +872,19 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    EndPaint( hwnd, &ps );
 +}
 +
-+static void w10_hit_test( POINT pt, int *rail, int *row )
++static void w10_hit_test( POINT pt, int *rail, int *row, int *tile )
 +{
 +    unsigned int i;
 +    int item, y;
 +    RECT rect;
 +
-+    *rail = *row = -1;
++    *rail = *row = *tile = -1;
 +    if (pt.x < 0 || pt.y < 0 || pt.x >= w10_width || pt.y >= w10_height) return;
++    if (pt.x >= w10_list_right)
++    {
++        for (i = 0; i < w10_tile_count; i++) if (PtInRect( &w10_tiles[i].rect, pt )) *tile = i;
++        return;
++    }
 +    if (pt.x < w10_rail_width())
 +    {
 +        for (item = 0; item < W10_RAIL_COUNT; item++)
@@ -713,11 +903,12 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    }
 +}
 +
-+static void w10_set_hot( int rail, int row )
++static void w10_set_hot( int rail, int row, int tile )
 +{
-+    if (rail == w10_hot_rail && row == w10_hot_row) return;
++    if (rail == w10_hot_rail && row == w10_hot_row && tile == w10_hot_tile) return;
 +    w10_hot_rail = rail;
 +    w10_hot_row = row;
++    w10_hot_tile = tile;
 +    InvalidateRect( w10_window, NULL, FALSE );
 +}
 +
@@ -856,7 +1047,8 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +
 +static LRESULT CALLBACK w10_menu_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 +{
-+    int rail, row;
++    int rail, row, tile;
++    BOOL hover;
 +    POINT pt;
 +
 +    switch (msg)
@@ -871,18 +1063,24 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    case WM_MOUSEMOVE:
 +        pt.x = (short)LOWORD( lparam );
 +        pt.y = (short)HIWORD( lparam );
++        hover = pt.x >= w10_rail_item() && pt.x < w10_list_right && pt.y >= 0 && pt.y < w10_height;
++        if (hover != w10_list_hover)
++        {
++            w10_list_hover = hover;
++            InvalidateRect( hwnd, NULL, FALSE );
++        }
 +        if (w10_button_down && !w10_dragging && w10_down_pt.x >= w10_rail_width() &&
-+            abs( pt.y - w10_down_pt.y ) > w10_px( 8 ))
++            w10_down_pt.x < w10_list_right && abs( pt.y - w10_down_pt.y ) > w10_px( 8 ))
 +            w10_dragging = TRUE;  /* a drag scrolls the list, as with touch on Windows */
 +        if (w10_dragging)
 +        {
 +            w10_scroll = max( 0, min( w10_down_scroll - (pt.y - w10_down_pt.y), w10_max_scroll() ));
-+            w10_set_hot( -1, -1 );
++            w10_set_hot( -1, -1, -1 );
 +            InvalidateRect( hwnd, NULL, FALSE );
 +            return 0;
 +        }
-+        w10_hit_test( pt, &rail, &row );
-+        w10_set_hot( rail, row );
++        w10_hit_test( pt, &rail, &row, &tile );
++        w10_set_hot( rail, row, tile );
 +        return 0;
 +
 +    case WM_LBUTTONDOWN:
@@ -912,9 +1110,15 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +        }
 +        pt.x = (short)LOWORD( lparam );
 +        pt.y = (short)HIWORD( lparam );
-+        w10_hit_test( pt, &rail, &row );
-+        w10_set_hot( rail, row );
++        w10_hit_test( pt, &rail, &row, &tile );
++        w10_set_hot( rail, row, tile );
 +        if (rail >= 0) w10_click_rail( hwnd, rail );
++        else if (tile >= 0)
++        {
++            lstrcpynW( w10_action_path, w10_tiles[tile].path, ARRAY_SIZE(w10_action_path) );
++            w10_action = W10_LAUNCH;
++            w10_done = TRUE;
++        }
 +        else if (w10_rail_wide)
 +        {
 +            w10_rail_wide = FALSE;
@@ -926,7 +1130,8 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    case WM_MOUSEWHEEL:
 +        w10_scroll -= MulDiv( GET_WHEEL_DELTA_WPARAM( wparam ), 3 * w10_row_height(), WHEEL_DELTA );
 +        w10_scroll = max( 0, min( w10_scroll, w10_max_scroll() ));
-+        w10_set_hot( -1, -1 );
++        w10_set_hot( -1, -1, -1 );
++        w10_list_hover = TRUE;
 +        InvalidateRect( hwnd, NULL, FALSE );
 +        return 0;
 +
@@ -991,22 +1196,28 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    w10_dpi = GetDpiForWindow( tray );
 +    if (!w10_dpi) w10_dpi = USER_DEFAULT_SCREEN_DPI;
 +    memset( &lf, 0, sizeof(lf) );
-+    lf.lfHeight = -w10_px( 12 );
++    lf.lfHeight = -w10_px( 13 );
 +    lf.lfWeight = FW_NORMAL;
 +    lf.lfCharSet = DEFAULT_CHARSET;
 +    lstrcpyW( lf.lfFaceName, L"Tahoma" );
 +    w10_font = CreateFontIndirectW( &lf );
++    lf.lfHeight = -w10_px( 11 );
++    w10_small_font = CreateFontIndirectW( &lf );
 +    size = ARRAY_SIZE(w10_user);
 +    if (!GetUserNameW( w10_user, &size )) lstrcpyW( w10_user, L"User" );
 +    GetSystemDirectoryW( sysdir, ARRAY_SIZE(sysdir) );
 +    w10_folder_icon = SHGetFileInfoW( sysdir, 0, &info, sizeof(info), SHGFI_ICON | SHGFI_LARGEICON ) ? info.hIcon : NULL;
 +
 +    GetWindowRect( tray, &tray_rect );
-+    w10_width = w10_px( 48 + 272 );
-+    w10_height = min( max( tray_rect.top, w10_px( 200 )), w10_px( 640 ));
++    /* about two thirds of the screen high, as Windows 10 opens it */
++    w10_height = min( max( tray_rect.top, w10_px( 200 )), max( w10_px( 360 ), GetSystemMetrics( SM_CYSCREEN ) * 2 / 3 ));
++    w10_list_right = w10_px( 48 + 272 );
++    w10_build_tiles();
++    w10_width = w10_tile_count ? w10_list_right + w10_px( 8 + 3 * 96 + 2 * 4 + 12 ) : w10_list_right;
++    w10_layout_tiles();
 +    w10_scroll = 0;
-+    w10_hot_row = w10_hot_rail = -1;
-+    w10_rail_wide = w10_done = w10_in_popup = w10_button_down = w10_dragging = FALSE;
++    w10_hot_row = w10_hot_rail = w10_hot_tile = -1;
++    w10_rail_wide = w10_done = w10_in_popup = w10_button_down = w10_dragging = w10_list_hover = FALSE;
 +    w10_action = W10_NONE;
 +    w10_build_tree();
 +    w10_build_rows();
@@ -1043,16 +1254,18 @@ index 0ed31ea04d3..a55e23d1d1b 100644
 +    }
 +
 +    w10_free_node( &w10_root );
++    w10_free_tiles();
 +    free( w10_rows );
 +    w10_rows = NULL;
 +    w10_row_count = w10_row_capacity = 0;
 +    if (w10_folder_icon) DestroyIcon( w10_folder_icon );
 +    w10_folder_icon = NULL;
 +    if (w10_font) DeleteObject( w10_font );
-+    w10_font = 0;
++    if (w10_small_font) DeleteObject( w10_small_font );
++    w10_font = w10_small_font = 0;
 +}
 diff --git a/programs/explorer/systray.c b/programs/explorer/systray.c
-index 69b57035a0c..acb1e4f6670 100644
+index 69b57035a0c..54443d6ad06 100644
 --- a/programs/explorer/systray.c
 +++ b/programs/explorer/systray.c
 @@ -19,6 +19,7 @@
@@ -1237,7 +1450,7 @@ index 69b57035a0c..acb1e4f6670 100644
              CloseHandle( process );
          }
      }
-@@ -1799,6 +1875,307 @@ static void xp_draw_start_button( HDC hdc, int width, int height, BOOL down )
+@@ -1799,6 +1875,308 @@ static void xp_draw_start_button( HDC hdc, int width, int height, BOOL down )
      SelectObject( hdc, old_font );
  }
  
@@ -1268,8 +1481,9 @@ index 69b57035a0c..acb1e4f6670 100644
 +    }
 +}
 +
-+/* coverage of the glass in a size x size square, 0 to 255, free() it after use */
-+static BYTE *render_wine_glass( int size )
++/* coverage of the glass in a size x size square, 0 to 255, free() it after use; bold draws
++ * thicker lines and solid wine, for small sizes such as the start button */
++static BYTE *render_wine_glass( int size, BOOL bold )
 +{
 +    BITMAPINFO info;
 +    int big = size * 4, count, x, y, sx, sy;
@@ -1323,7 +1537,7 @@ index 69b57035a0c..acb1e4f6670 100644
 +    lb.lbStyle = BS_SOLID;
 +    lb.lbColor = RGB(0xff,0x00,0x00);
 +    lb.lbHatch = 0;
-+    pen = ExtCreatePen( PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND, (DWORD)(3.2 * k + 0.5), &lb, 0, NULL );
++    pen = ExtCreatePen( PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND, (DWORD)((bold ? 5.6 : 3.2) * k + 0.5), &lb, 0, NULL );
 +    SelectObject( hdc, pen );
 +    count = 0;
 +    glass_point( pts, &count, k, 19.0, 5.0 );
@@ -1358,7 +1572,7 @@ index 69b57035a0c..acb1e4f6670 100644
 +                }
 +            }
 +            solid /= 16;
-+            wine = wine / 16 * 55 / 100;
++            wine = bold ? wine / 16 : wine / 16 * 55 / 100;
 +            alpha[y * size + x] = max( solid, wine );
 +        }
 +    }
@@ -1419,13 +1633,13 @@ index 69b57035a0c..acb1e4f6670 100644
 +
 +static void win10_draw_start_button( HDC hdc, int width, int height, BOOL down )
 +{
-+    int size = xp_scale( 18 );
++    int size = xp_scale( 22 );
 +
 +    fill_solid( hdc, 0, 0, width, height, down ? WIN10_HOT : WIN10_BAR );
 +    if (!start_glyph || start_glyph_size != size)
 +    {
 +        free( start_glyph );
-+        start_glyph = render_wine_glass( size );
++        start_glyph = render_wine_glass( size, TRUE );
 +        start_glyph_size = size;
 +    }
 +    draw_coverage( hdc, (width - size) / 2, (height - size) / 2, size, start_glyph, RGB(0xff,0xff,0xff) );
@@ -1545,7 +1759,7 @@ index 69b57035a0c..acb1e4f6670 100644
  static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_button *win )
  {
      BOOL down = (dis->itemState & ODS_SELECTED) != 0;
-@@ -1817,7 +2194,12 @@ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_b
+@@ -1817,7 +2195,12 @@ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_b
      /* rounded corners show the taskbar through */
      MapWindowPoints( dis->hwndItem, tray_window, &origin, 1 );
      xp_draw_background( hdc, 0, 0, origin.x, origin.y, rect.right, rect.bottom );
@@ -1559,7 +1773,7 @@ index 69b57035a0c..acb1e4f6670 100644
      else xp_draw_task_button( hdc, win, rect.right, rect.bottom, down || win->active );
  
      BitBlt( dis->hDC, 0, 0, rect.right, rect.bottom, hdc, 0, 0, SRCCOPY );
-@@ -1843,7 +2225,12 @@ static void xp_paint_tray( HWND hwnd )
+@@ -1843,7 +2226,12 @@ static void xp_paint_tray( HWND hwnd )
          old_bitmap = SelectObject( mem, bitmap );
          SetWindowOrgEx( mem, ps.rcPaint.left, ps.rcPaint.top, NULL );
          xp_draw_background( mem, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.left, ps.rcPaint.top, width, height );
@@ -1573,7 +1787,7 @@ index 69b57035a0c..acb1e4f6670 100644
          xp_draw_clock( mem );
          BitBlt( hdc, ps.rcPaint.left, ps.rcPaint.top, width, height, mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY );
          SelectObject( mem, old_bitmap );
-@@ -1880,6 +2267,26 @@ static void xp_update_metrics(void)
+@@ -1880,6 +2268,26 @@ static void xp_update_metrics(void)
      lstrcpynW( start_text, start_label, ARRAY_SIZE(start_text) );
      CharLowerW( start_text );
  
@@ -1600,7 +1814,7 @@ index 69b57035a0c..acb1e4f6670 100644
      hdc = GetDC( 0 );
      old_font = SelectObject( hdc, xp_font );
      GetTextMetricsW( hdc, &tm );
-@@ -1928,9 +2335,11 @@ static void xp_load_settings(void)
+@@ -1928,9 +2336,11 @@ static void xp_load_settings(void)
      if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, KEY_QUERY_VALUE, &hkey ))
      {
          size = sizeof(style);
@@ -1615,7 +1829,7 @@ index 69b57035a0c..acb1e4f6670 100644
          size = sizeof(value);
          if (!RegGetValueW( hkey, NULL, L"Rows", RRF_RT_REG_DWORD, NULL, &value, &size ))
              taskbar_rows = max( 1, min( (int)value, TASKBAR_MAX_ROWS ));
-@@ -1954,10 +2363,16 @@ static void xp_load_settings(void)
+@@ -1954,10 +2364,16 @@ static void xp_load_settings(void)
              xp_controls = value != 0;
          RegCloseKey( hkey );
      }
@@ -1635,7 +1849,7 @@ index 69b57035a0c..acb1e4f6670 100644
  }
  
  /*
-@@ -2196,10 +2611,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
+@@ -2196,10 +2612,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
      SetTimer( tray_window, SYNC_TIMER, SYNC_DELAY, NULL );
  }
  
@@ -1664,7 +1878,7 @@ index 69b57035a0c..acb1e4f6670 100644
      if (xp_initialized)
      {
          /* switching back from the classic style */
-@@ -2318,9 +2751,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
+@@ -2318,9 +2752,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
      return bitmap;
  }
  
@@ -1748,7 +1962,7 @@ index 69b57035a0c..acb1e4f6670 100644
 +    glass = height * 24 / 100;
 +    gx = (width - glass) / 2;
 +    gy = height * 44 / 100 - glass / 2;
-+    if (glass > 0 && (alpha = render_wine_glass( glass )))
++    if (glass > 0 && (alpha = render_wine_glass( glass, FALSE )))
 +    {
 +        for (y = 0; y < glass; y++)
 +        {
@@ -1782,7 +1996,7 @@ index 69b57035a0c..acb1e4f6670 100644
      BOOL dark = is_dark_theme();
      HGDIOBJ old;
      RECT rect;
-@@ -2329,13 +2870,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
+@@ -2329,13 +2871,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
      if (!use_xp_wallpaper( xp_style, xp_wallpaper )) return FALSE;
      GetClientRect( hwnd, &rect );
      if (!wallpaper_cache || rect.right != wallpaper_cache_width || rect.bottom != wallpaper_cache_height ||
@@ -1799,7 +2013,7 @@ index 69b57035a0c..acb1e4f6670 100644
      }
      if (!wallpaper_cache || !(mem = CreateCompatibleDC( hdc ))) return FALSE;
      old = SelectObject( mem, wallpaper_cache );
-@@ -2362,7 +2904,8 @@ void reset_xp_wallpaper(void)
+@@ -2362,7 +2905,8 @@ void reset_xp_wallpaper(void)
  
  struct display_settings
  {
@@ -1809,7 +2023,7 @@ index 69b57035a0c..acb1e4f6670 100644
      UINT scheme;
      int  rows;
      BOOL locked;
-@@ -2402,19 +2945,30 @@ static void invalidate_taskbar(void)
+@@ -2402,19 +2946,30 @@ static void invalidate_taskbar(void)
      }
  }
  
@@ -1843,7 +2057,7 @@ index 69b57035a0c..acb1e4f6670 100644
      }
      do_show_systray();
  }
-@@ -2431,7 +2985,7 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2431,7 +2986,7 @@ static void apply_display_settings( const struct display_settings *settings )
      if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, NULL, 0,
                            KEY_SET_VALUE, NULL, &hkey, NULL ))
      {
@@ -1852,7 +2066,7 @@ index 69b57035a0c..acb1e4f6670 100644
  
          RegSetValueExW( hkey, L"Style", 0, REG_SZ, (const BYTE *)style, (lstrlenW( style ) + 1) * sizeof(WCHAR) );
          RegCloseKey( hkey );
-@@ -2444,17 +2998,19 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2444,17 +2999,19 @@ static void apply_display_settings( const struct display_settings *settings )
      xp_save_setting( L"Wallpaper", settings->wallpaper );
      xp_save_setting( L"Controls", settings->controls );
      xp_controls = settings->controls;
@@ -1875,7 +2089,7 @@ index 69b57035a0c..acb1e4f6670 100644
      else do_show_systray();
      invalidate_taskbar();
  }
-@@ -2479,7 +3035,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+@@ -2479,7 +3036,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
  {
      LRESULT sel;
  
@@ -1887,7 +2101,7 @@ index 69b57035a0c..acb1e4f6670 100644
      sel = SendDlgItemMessageW( dlg, IDC_DP_SCHEME, CB_GETCURSEL, 0, 0 );
      settings->scheme = sel > 0 ? sel : 0;
      sel = SendDlgItemMessageW( dlg, IDC_DP_ROWS, CB_GETCURSEL, 0, 0 );
-@@ -2498,8 +3057,21 @@ static void update_dialog_state( HWND dlg )
+@@ -2498,8 +3058,21 @@ static void update_dialog_state( HWND dlg )
                     IDC_DP_CLOCK };
      unsigned int i;
  
@@ -1909,7 +2123,7 @@ index 69b57035a0c..acb1e4f6670 100644
      InvalidateRect( GetDlgItem( dlg, IDC_DP_PREVIEW ), NULL, FALSE );
  }
  
-@@ -2524,7 +3096,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2524,7 +3097,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
      if (use_xp_wallpaper( settings->xp, settings->wallpaper ))
      {
@@ -1918,7 +2132,7 @@ index 69b57035a0c..acb1e4f6670 100644
          HDC background_dc = CreateCompatibleDC( hdc );
          HGDIOBJ old_background = SelectObject( background_dc, background );
  
-@@ -2554,7 +3126,19 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2554,7 +3127,19 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
          if (wh > cap + 6)
          {
@@ -1939,7 +2153,7 @@ index 69b57035a0c..acb1e4f6670 100644
              {
                  fill_solid( hdc, wx, wy, ww, wh, caption[index][2] );
                  fill_gradient2( hdc, wx, wy, ww, cap / 2, caption[index][0], caption[index][1] );
-@@ -2577,7 +3161,30 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2577,7 +3162,30 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
          }
      }
  
@@ -1952,7 +2166,7 @@ index 69b57035a0c..acb1e4f6670 100644
 +        BYTE *alpha;
 +
 +        fill_solid( hdc, 0, top, width, bar, WIN10_BAR );
-+        if ((alpha = render_wine_glass( glyph )))
++        if ((alpha = render_wine_glass( glyph, TRUE )))
 +        {
 +            draw_coverage( hdc, (bar * 3 / 2 - glyph) / 2, top + (bar - glyph) / 2, glyph, alpha, RGB(0xff,0xff,0xff) );
 +            free( alpha );
@@ -1971,7 +2185,7 @@ index 69b57035a0c..acb1e4f6670 100644
      {
          fill_gradient( hdc, 0, top, width, bar, 0, bar, scheme->bar, scheme->bar_count );
          fill_gradient( hdc, width - bar * 3, top, bar * 3, bar, 0, bar, scheme->notify, scheme->notify_count );
-@@ -2623,7 +3230,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2623,7 +3231,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
  static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lparam )
  {
@@ -1980,7 +2194,7 @@ index 69b57035a0c..acb1e4f6670 100644
      static const UINT scheme_ids[] = { IDS_DP_SCHEME_BLUE, IDS_DP_SCHEME_OLIVE, IDS_DP_SCHEME_SILVER };
      static const UINT rows_ids[] = { IDS_TASKBAR_ROWS1, IDS_TASKBAR_ROWS2, IDS_TASKBAR_ROWS3 };
      struct display_settings settings;
-@@ -2632,7 +3239,8 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2632,7 +3240,8 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
      {
      case WM_INITDIALOG:
          display_dialog = dlg;
@@ -1990,7 +2204,7 @@ index 69b57035a0c..acb1e4f6670 100644
          load_combo_strings( GetDlgItem( dlg, IDC_DP_SCHEME ), scheme_ids, ARRAY_SIZE(scheme_ids), get_taskbar_scheme() );
          load_combo_strings( GetDlgItem( dlg, IDC_DP_ROWS ), rows_ids, ARRAY_SIZE(rows_ids), taskbar_rows - 1 );
          CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
-@@ -2695,6 +3303,12 @@ static void show_display_properties( HWND owner )
+@@ -2695,6 +3304,12 @@ static void show_display_properties( HWND owner )
      if (owner && !IsWindowEnabled( owner )) EnableWindow( owner, TRUE );
  }
  
@@ -2003,7 +2217,7 @@ index 69b57035a0c..acb1e4f6670 100644
  /* right click on the desktop */
  void show_desktop_menu( HWND hwnd, LPARAM lparam )
  {
-@@ -2870,6 +3484,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2870,6 +3485,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          break;
  
      case WM_LBUTTONDOWN:
@@ -2016,7 +2230,7 @@ index 69b57035a0c..acb1e4f6670 100644
          if (xp_style && !taskbar_locked)
          {
              POINT pt;
-@@ -2888,6 +3508,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2888,6 +3509,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  
      case WM_LBUTTONUP:
@@ -2035,7 +2249,7 @@ index 69b57035a0c..acb1e4f6670 100644
          if (sizing_taskbar)
          {
              xp_update_sizing();
-@@ -2896,6 +3528,34 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2896,6 +3529,34 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          }
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  
