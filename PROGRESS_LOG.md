@@ -3,6 +3,21 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-28 — win10 rounds 7-8 from the self test drive (branch, round 7 device-checked, round 8 CI running)
+- Driver kit /root/.claude/kits/win10drive/drive.py: closed-loop pointer placement in BL touchpad mode (SENS 1.4,
+  corner reset, screenshot diff, gestures >= 40 px because BL treats < 14 px pointer travel as a tap = click; my
+  first small corrections caused stray clicks: Start opened/closed 4x, a Facebook link opened in Pale Moon).
+- Device findings (round 6): wide caption buttons + dark frames OK; clicking a window activates it (BL needs NO
+  change); Pale Moon black title bar = Wine dwmapi says composition on for >= 8.1 (dwmapi_main.c:48-51) and Pale
+  Moon leaves the bar to DWM -> fix in the user's profile: xulstore toolbar-menubar autohide=false (+ reg
+  AppDefaults\palemoon.exe Version=win7, its toolbars then follow the dark colours) -> native Win10 frame, readable;
+  explorer dialogs from the desktop/taskbar came up inactive; Light colours DEVICE-PROVEN (container switched to
+  LIGHT and back to DARK; BL re-applies colours only when desktopTheme != the extra copy, XSDA:9094).
+- Round 7 4ed06856 (CI 46117127216 green, device-checked): dialogs take the foreground, window-icon fallback,
+  Run bottom-left, desktop icons column-first (proven), dark power flyout (proven).
+- Round 8 da1e7c2c (CI 46118372613): taskbar hover highlights (HOVER_TIMER 100 ms while over the taskbar), console
+  windows get cmd.exe's icon, Run above the taskbar + foreground, shutdown question MB_SETFOREGROUND.
+
 ## 2026-11-28 — win10 round 6 + self test drive (branch, CI green, swapped on FIT, testing)
 - 00:4x EST user tested round 5 (Dark): theme applied by itself (ThemeManager win10.msstyles Dark), flat buttons, combo,
   check boxes, flat dark scroll bars in Pale Moon + cmd, chevron tree glyphs. Then: "title bars are not easy to read"
