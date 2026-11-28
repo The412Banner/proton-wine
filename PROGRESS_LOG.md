@@ -3,6 +3,26 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — win10 round 3: accent color picker, dark grey default, dark title bars (branch, CI running, NOT device-tested)
+- Why: user 22:54 EST screenshot of round 2 (2/3 height, tiles, hover scroll bar, cog, bold glass all seen working);
+  "are the tiles supposed to be gray?" (accent came from Scheme 2 = slate); user 22:5x "B, I feel like a dark gray to
+  match the start bar would fit as a default"; "even the windows should be a dark gray to match the start menu and bar
+  right?"; "this is all just for this theme right? doesn't effect classic or xp?" (answer: yes, win10 only).
+- Built ef757bea (both patches):
+  - explorer: Taskbar "Accent" (REG_DWORD COLORREF, default RGB(0x33,0x33,0x33) = pressed start button grey) and
+    "Dark" (default 1). Display Properties in win10: "Accent color" owner-draw swatch button replaces the scheme combo,
+    opens IDD_ACCENT_COLORS (8x7 grid: 48 Windows 10 accents + 8 greys, default first; tap selects, double-tap/OK
+    applies); "Dark title bars" checkbox replaces the disabled controls box. Preview uses accent + dark. Task underline
+    tint 4/10 (dark accents show). Desktop selection box fixed Windows 10 blue 0x0078d7 (not the accent). Control Panel
+    tile icon = shell32 IDI_SHELL_CONTROL_PANEL_ID (as the XP menu).
+  - win32u defwnd.c: win10_frames[2][2] (light/dark x active/inactive), active border = Accent, Dark=1 -> dark title
+    bars (0x202020) whatever the window colours; XP/classic paths unchanged.
+  - Local: MinGW syntax clean for startmenu.c + systray.c (desktop.c only the old Wine-only errors); defwnd.c CI only.
+- CI: run 46105812070 (headSha ef757bea asserted).
+- Separate (Bannerlator, not Wine): user "can we stop having the wfm open on container launch?" -> BL starts
+  `winhandler.exe "wfm.exe"` (XServerDisplayActivity ~16769) and winhandler.c defaults to wfm.exe with no args;
+  Wine rundll32.exe with no args exits silently (GUI, no window) -> one-line BL change possible; proposal to user.
+
 ## 2026-11-27 — win10 round 2: Start menu fixes + tiles + bold start glass (branch, CI green, staged, NOT device-tested)
 - Why: user 22:25 EST screenshot "start menu looking off"; I listed 5 differences from Windows 10 (too tall, hard grey
   scroll bar, Settings icon a sun, cramped top/small text, no tiles); user 22:2x "all 5, same branch, one new build".
