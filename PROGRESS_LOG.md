@@ -3,6 +3,24 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-28 — win10 round 5: win10.msstyles (Light + Dark) + start-up theme fix (branch, CI running, NOT device-tested)
+- 23:5x EST 11-27 user tested round 4: caption hover DEVICE-PROVEN (FIT screenshots: close 0xe81123, minimize 0x3a3a3a,
+  neighbour unlit), label fits. User Q "I can set the theme dark in the container settings though?": BL
+  WineThemeManager (DARK) writes Control Panel\Colors only (ButtonFace 33, Window 48, text white), never the msstyles.
+  Found bug: systray.c start-up apply_xp_controls( xp_style && xp_controls ) re-applied winexp (SilverDark when dark) in
+  the win10 style every container start. User picked option 1: a Windows 10 msstyles, light + dark.
+- Built 023a2c41:
+  - in tree: dlls/win10.msstyles (genimages.py = winexp's framework + flat Windows 10 artwork; 94 bitmaps, win10.rc;
+    ColorNames Light/Dark, FILERESNAMES LIGHT_INI/DARK_INI), configure.ac WINE_CONFIG_MAKEFILE, loader/wine.inf.in
+    10,resources\themes\win10,win10.msstyles. Dark palette matched to BL dark colours (dialog 0x212121, fields 0x303030).
+  - explorer patch: apply_xp_controls( use, win10, scheme ): win10 style always applies win10.msstyles, ColorName Dark when
+    is_dark_theme() else Light; switching winexp<->win10 rewrites DllName+ColorName; start-up call fixed; leaving
+    win10/xp restores the saved theme as before.
+  - Preview sheet checked (scratchpad win10-sheet.png). systray.c MinGW syntax clean.
+- CI 46110049864 (configure.ac changed -> wine-tools cache miss, longer build).
+- Device test needs win10.msstyles copied to C:\windows\resources\themes\win10\ (wineboot -u only runs when wine.inf
+  changes; a layer update would install it).
+
 ## 2026-11-27 — win10 round 4: label fix + caption button hover (branch, CI running, NOT device-tested)
 - 23:2x EST user tested round 3 (dark title bars, border, tiles, Control Panel icon, picker button): works.
   User switched to a dark theme (registry: ThemeManager DllName winexp.msstyles, ColorName SilverDark, set after the
