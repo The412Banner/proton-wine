@@ -1,5 +1,5 @@
 diff --git a/programs/explorer/desktop.c b/programs/explorer/desktop.c
-index aab1300c4a0..2c8f29de823 100644
+index aab1300c4a0..96d90151892 100644
 --- a/programs/explorer/desktop.c
 +++ b/programs/explorer/desktop.c
 @@ -419,25 +419,54 @@ static void mouse_up( HWND hwnd, int x, int y )
@@ -53,11 +53,11 @@ index aab1300c4a0..2c8f29de823 100644
 +    alpha_fill( hdc, &line, color, alpha );
 +}
 +
-+/* the box as Windows draws it: translucent inside, solid border; in the accent color for the
-+ * Windows 10 style, the highlight color otherwise */
++/* the box as Windows draws it: translucent inside, solid border; Windows 10 blue for the
++ * Windows 10 style (not the accent, which may be grey), the highlight color otherwise */
 +static void draw_band( HDC hdc )
 +{
-+    COLORREF color = is_win10_style() ? get_accent_color() : GetSysColor( COLOR_HIGHLIGHT );
++    COLORREF color = is_win10_style() ? RGB(0x00,0x78,0xd7) : GetSysColor( COLOR_HIGHLIGHT );
 +    HBRUSH brush = CreateSolidBrush( color );
 +
 +    alpha_fill( hdc, &band.rect, color, 0x50 );
@@ -113,10 +113,10 @@ index aab1300c4a0..2c8f29de823 100644
              draw_launcher_icon( hdc, launcher, icon );
  
 diff --git a/programs/explorer/explorer.rc b/programs/explorer/explorer.rc
-index 711a0e323e4..f0698eed6cb 100644
+index 711a0e323e4..e6731d15945 100644
 --- a/programs/explorer/explorer.rc
 +++ b/programs/explorer/explorer.rc
-@@ -65,6 +65,23 @@ STRINGTABLE
+@@ -65,6 +65,25 @@ STRINGTABLE
      IDS_MP_ALL_IN "All in %s"
      IDS_MP_VARIOUS_FOLDERS "Various folders"
      IDS_MP_SIZE "%s (%s bytes)"
@@ -137,9 +137,42 @@ index 711a0e323e4..f0698eed6cb 100644
 +    IDS_W10_RUN         "Run"
 +    IDS_W10_TILES_WINE  "Wine"
 +    IDS_W10_TILES_DESKTOP "Desktop"
++    IDS_DP_SCHEME_LABEL "&Color scheme:"
++    IDS_DP_ACCENT_LABEL "&Accent color:"
  }
  
  IDD_DISPLAY_PROPERTIES DIALOGEX 0, 0, 262, 286
+@@ -76,10 +95,12 @@ FONT 8, "MS Shell Dlg"
+     GROUPBOX        "Theme", -1, 7, 75, 248, 104
+     LTEXT           "&Windows and buttons:", -1, 14, 90, 90, 10
+     COMBOBOX        IDC_DP_STYLE, 108, 88, 140, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+-    LTEXT           "&Color scheme:", -1, 14, 110, 90, 10
++    LTEXT           "&Color scheme:", IDC_DP_SCHEME_LABEL, 14, 110, 90, 10
+     COMBOBOX        IDC_DP_SCHEME, 108, 108, 140, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
++    CONTROL         "", IDC_DP_ACCENT, "Button", BS_OWNERDRAW | WS_TABSTOP | NOT WS_VISIBLE, 108, 107, 60, 15
+     AUTOCHECKBOX    "XP style title bars and window &frames", IDC_DP_FRAMES, 14, 129, 230, 10
+     AUTOCHECKBOX    "XP style b&uttons and controls", IDC_DP_CONTROLS, 14, 145, 230, 10
++    AUTOCHECKBOX    "&Dark title bars", IDC_DP_DARK, 14, 145, 230, 10, NOT WS_VISIBLE
+     AUTOCHECKBOX    "Wine XP desktop &background (follows the light or dark theme)", IDC_DP_WALLPAPER, 14, 161, 236, 10
+     GROUPBOX        "Taskbar", -1, 7, 185, 248, 72
+     LTEXT           "Taskbar &size:", -1, 14, 200, 90, 10
+@@ -91,6 +112,16 @@ FONT 8, "MS Shell Dlg"
+     PUSHBUTTON      "&Apply", IDC_DP_APPLY, 203, 265, 50, 14
+ }
+ 
++IDD_ACCENT_COLORS DIALOGEX 0, 0, 176, 146
++STYLE DS_MODALFRAME | DS_CENTER | DS_SHELLFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
++CAPTION "Accent color"
++FONT 8, "MS Shell Dlg"
++{
++    CONTROL         "", IDC_AC_GRID, "Static", SS_OWNERDRAW, 8, 8, 160, 112
++    DEFPUSHBUTTON   "OK", IDOK, 62, 126, 50, 14
++    PUSHBUTTON      "Cancel", IDCANCEL, 118, 126, 50, 14
++}
++
+ IDD_MULTI_PROPERTIES DIALOGEX 0, 0, 240, 135
+ STYLE DS_SHELLFONT | WS_CHILD | WS_CAPTION
+ CAPTION "General"
 diff --git a/programs/explorer/explorer_private.h b/programs/explorer/explorer_private.h
 index 630427ccce3..23b955e6a0c 100644
 --- a/programs/explorer/explorer_private.h
@@ -157,10 +190,10 @@ index 630427ccce3..23b955e6a0c 100644
  extern UINT get_taskbar_palette(void);
  extern void show_desktop_menu( HWND hwnd, LPARAM lparam );
 diff --git a/programs/explorer/resource.h b/programs/explorer/resource.h
-index c0ebf076a27..970862f1d56 100644
+index c0ebf076a27..ffa32093b6e 100644
 --- a/programs/explorer/resource.h
 +++ b/programs/explorer/resource.h
-@@ -59,6 +59,23 @@
+@@ -59,6 +59,25 @@
  #define IDS_MP_ALL_IN 41
  #define IDS_MP_VARIOUS_FOLDERS 42
  #define IDS_MP_SIZE 43
@@ -181,11 +214,31 @@ index c0ebf076a27..970862f1d56 100644
 +#define IDS_W10_RUN 64
 +#define IDS_W10_TILES_WINE 65
 +#define IDS_W10_TILES_DESKTOP 66
++#define IDS_DP_SCHEME_LABEL 67
++#define IDS_DP_ACCENT_LABEL 68
  
  #define IDI_WINE_LOGO 100
  #define IDB_WALLPAPER_LIGHT 110
+@@ -75,6 +94,9 @@
+ #define IDC_DP_FRAMES 208
+ #define IDC_DP_WALLPAPER 209
+ #define IDC_DP_CONTROLS 210
++#define IDC_DP_SCHEME_LABEL 211
++#define IDC_DP_ACCENT 212
++#define IDC_DP_DARK 213
+ 
+ #define IDD_MULTI_PROPERTIES 220
+ #define IDC_MP_ICON 221
+@@ -86,4 +108,7 @@
+ #define IDC_MP_HIDDEN 227
+ #define IDC_MP_ARCHIVE 228
+ 
++#define IDD_ACCENT_COLORS 230
++#define IDC_AC_GRID 231
++
+ #endif
 diff --git a/programs/explorer/startmenu.c b/programs/explorer/startmenu.c
-index 0ed31ea04d3..fbdceb16502 100644
+index 0ed31ea04d3..e05d83d10bc 100644
 --- a/programs/explorer/startmenu.c
 +++ b/programs/explorer/startmenu.c
 @@ -17,6 +17,7 @@
@@ -196,7 +249,7 @@ index 0ed31ea04d3..fbdceb16502 100644
  #include <stdlib.h>
  #include <windows.h>
  #include <shellapi.h>
-@@ -2047,3 +2048,1067 @@ void do_xp_startmenu( HWND tray )
+@@ -2047,3 +2048,1078 @@ void do_xp_startmenu( HWND tray )
      if (xp_logo) DestroyIcon( xp_logo );
      xp_logo = 0;
  }
@@ -688,6 +741,17 @@ index 0ed31ea04d3..fbdceb16502 100644
 +    if (SearchPathW( NULL, L"wfm.exe", NULL, 0, NULL, NULL )) w10_add_tool_tile( IDS_XP_FILE_MANAGER, L"wfm.exe" );
 +    else w10_add_tool_tile( IDS_XP_FILE_MANAGER, L"winefile.exe" );
 +    w10_add_tool_tile( IDS_XP_CONTROL_PANEL, L"control.exe" );
++    /* control.exe has no icon of its own: the Control Panel one, as in the XP style menu */
++    if (w10_tile_count && !lstrcmpiW( PathFindFileNameW( w10_tiles[w10_tile_count - 1].path ), L"control.exe" ))
++    {
++        HICON icon = NULL;
++
++        if (ExtractIconExW( L"shell32.dll", -IDI_SHELL_CONTROL_PANEL_ID, &icon, NULL, 1 ) && icon)
++        {
++            if (w10_tiles[w10_tile_count - 1].icon) DestroyIcon( w10_tiles[w10_tile_count - 1].icon );
++            w10_tiles[w10_tile_count - 1].icon = icon;
++        }
++    }
 +    w10_add_tool_tile( IDS_XP_WINECFG, L"winecfg.exe" );
 +    w10_add_tool_tile( IDS_XP_COMMAND_PROMPT, L"cmd.exe" );
 +    w10_add_tool_tile( IDS_TASK_MANAGER, L"taskmgr.exe" );
@@ -1265,7 +1329,7 @@ index 0ed31ea04d3..fbdceb16502 100644
 +    w10_font = w10_small_font = 0;
 +}
 diff --git a/programs/explorer/systray.c b/programs/explorer/systray.c
-index 69b57035a0c..54443d6ad06 100644
+index 69b57035a0c..9588905623d 100644
 --- a/programs/explorer/systray.c
 +++ b/programs/explorer/systray.c
 @@ -19,6 +19,7 @@
@@ -1366,16 +1430,39 @@ index 69b57035a0c..54443d6ad06 100644
          }
          else do_startmenu( tray_window );
          if (xp_style)
-@@ -1344,6 +1389,19 @@ UINT get_taskbar_palette(void)
+@@ -1344,6 +1389,42 @@ UINT get_taskbar_palette(void)
      return xp_palette( taskbar_scheme );
  }
  
 +/* Windows 10 style accent colors for the three schemes: blue, green and slate */
-+static const COLORREF win10_accents[XP_USER_SCHEMES] = { RGB(0x00,0x78,0xd7), RGB(0x49,0x82,0x05), RGB(0x68,0x76,0x8a) };
++/* the Windows 10 style accent color (HKCU\Software\Wine\Explorer\Taskbar "Accent"), dark grey like
++ * the pressed start button by default, and its dark title bars ("Dark", on by default) */
++#define WIN10_DEFAULT_ACCENT RGB(0x33,0x33,0x33)
++static COLORREF win10_accent = WIN10_DEFAULT_ACCENT;
++static BOOL win10_dark = TRUE;
++
++/* the 48 accent colors of Windows 10 and a row of greys, the default first */
++static const COLORREF win10_palette[56] =
++{
++    RGB(0xff,0xb9,0x00), RGB(0xff,0x8c,0x00), RGB(0xf7,0x63,0x0c), RGB(0xca,0x50,0x10),
++    RGB(0xda,0x3b,0x01), RGB(0xef,0x69,0x50), RGB(0xd1,0x34,0x38), RGB(0xff,0x43,0x43),
++    RGB(0xe7,0x48,0x56), RGB(0xe8,0x11,0x23), RGB(0xea,0x00,0x5e), RGB(0xc3,0x00,0x52),
++    RGB(0xe3,0x00,0x8c), RGB(0xbf,0x00,0x77), RGB(0xc2,0x39,0xb3), RGB(0x9a,0x00,0x89),
++    RGB(0x00,0x78,0xd7), RGB(0x00,0x63,0xb1), RGB(0x8e,0x8c,0xd8), RGB(0x6b,0x69,0xd6),
++    RGB(0x87,0x64,0xb8), RGB(0x74,0x4d,0xa9), RGB(0xb1,0x46,0xc2), RGB(0x88,0x17,0x98),
++    RGB(0x00,0x99,0xbc), RGB(0x2d,0x7d,0x9a), RGB(0x00,0xb7,0xc3), RGB(0x03,0x83,0x87),
++    RGB(0x00,0xb2,0x94), RGB(0x01,0x85,0x74), RGB(0x00,0xcc,0x6a), RGB(0x10,0x89,0x3e),
++    RGB(0x7a,0x75,0x74), RGB(0x5d,0x5a,0x58), RGB(0x68,0x76,0x8a), RGB(0x51,0x5c,0x6b),
++    RGB(0x56,0x7c,0x73), RGB(0x48,0x68,0x60), RGB(0x49,0x82,0x05), RGB(0x10,0x7c,0x10),
++    RGB(0x76,0x76,0x76), RGB(0x4c,0x4a,0x48), RGB(0x69,0x79,0x7e), RGB(0x4a,0x54,0x59),
++    RGB(0x64,0x7c,0x64), RGB(0x52,0x5e,0x54), RGB(0x84,0x75,0x45), RGB(0x7e,0x73,0x5f),
++    WIN10_DEFAULT_ACCENT, RGB(0x2b,0x2b,0x2b), RGB(0x3c,0x3c,0x3c), RGB(0x46,0x46,0x46),
++    RGB(0x55,0x55,0x55), RGB(0x60,0x60,0x60), RGB(0x80,0x80,0x80), RGB(0x9a,0x9a,0x9a),
++};
 +
 +COLORREF get_accent_color(void)
 +{
-+    return win10_accents[get_taskbar_scheme()];
++    return win10_accent;
 +}
 +
 +BOOL is_win10_style(void)
@@ -1386,7 +1473,7 @@ index 69b57035a0c..54443d6ad06 100644
  static const struct gradient_stop start_gradient[] =
  {
      {   0, RGB(0x2f,0x7a,0x2c) }, {   5, RGB(0x78,0xc6,0x6f) }, {  12, RGB(0x60,0xb7,0x58) },
-@@ -1365,6 +1423,7 @@ static int xp_scale( int size )
+@@ -1365,6 +1446,7 @@ static int xp_scale( int size )
  
  static int xp_band_left(void)
  {
@@ -1394,7 +1481,7 @@ index 69b57035a0c..54443d6ad06 100644
      return start_button_width + xp_scale( taskbar_locked ? 6 : 14 );
  }
  
-@@ -1445,6 +1504,11 @@ static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int
+@@ -1445,6 +1527,11 @@ static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int
      int split = notify_left - x;  /* start of the notification area */
  
      if (width <= 0 || height <= 0) return;
@@ -1406,7 +1493,7 @@ index 69b57035a0c..54443d6ad06 100644
      if (split > 0)
          fill_gradient( hdc, dst_x, dst_y, min( split, width ), height, y, tray_height,
                         scheme->bar, scheme->bar_count );
-@@ -1476,6 +1540,12 @@ static void xp_draw_gripper( HDC hdc, int x )
+@@ -1476,6 +1563,12 @@ static void xp_draw_gripper( HDC hdc, int x )
  static unsigned int xp_clock_lines( const WCHAR **lines )
  {
      lines[0] = clock_time;
@@ -1419,7 +1506,7 @@ index 69b57035a0c..54443d6ad06 100644
      if (taskbar_rows < 2) return 1;
      lines[1] = clock_day;
      lines[2] = clock_date;
-@@ -1508,7 +1578,7 @@ static void xp_draw_clock( HDC hdc )
+@@ -1508,7 +1601,7 @@ static void xp_draw_clock( HDC hdc )
      get_clock_rect( &rect );
      top = (tray_height - (int)count * tm.tmHeight) / 2;
      SetBkMode( hdc, TRANSPARENT );
@@ -1428,7 +1515,7 @@ index 69b57035a0c..54443d6ad06 100644
      for (i = 0; i < count; i++)
      {
          SetRect( &line, rect.left, top + i * tm.tmHeight, rect.right, top + (i + 1) * tm.tmHeight );
-@@ -1647,6 +1717,12 @@ static void xp_sync_taskbar_buttons(void)
+@@ -1647,6 +1740,12 @@ static void xp_sync_taskbar_buttons(void)
      int spacing = xp_scale( 3 ), margin = xp_scale( 3 ), max_width = xp_scale( 160 ), min_width = xp_scale( 36 );
      int band_left, band_width, per_row, width, count = 0, index = 0, left;
  
@@ -1441,7 +1528,7 @@ index 69b57035a0c..54443d6ad06 100644
      left = tray_width - xp_notify_width();
      if (left != notify_left)
      {
-@@ -1710,7 +1786,7 @@ static HICON xp_get_task_icon( struct taskbar_button *win )
+@@ -1710,7 +1809,7 @@ static HICON xp_get_task_icon( struct taskbar_button *win )
          if ((process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid )))
          {
              if (QueryFullProcessImageNameW( process, 0, path, &len ))
@@ -1450,7 +1537,7 @@ index 69b57035a0c..54443d6ad06 100644
              CloseHandle( process );
          }
      }
-@@ -1799,6 +1875,308 @@ static void xp_draw_start_button( HDC hdc, int width, int height, BOOL down )
+@@ -1799,6 +1898,308 @@ static void xp_draw_start_button( HDC hdc, int width, int height, BOOL down )
      SelectObject( hdc, old_font );
  }
  
@@ -1655,7 +1742,7 @@ index 69b57035a0c..54443d6ad06 100644
 +/* icon only, with a line in the accent color under it, the active window also lighter */
 +static void win10_draw_task_button( HDC hdc, struct taskbar_button *win, int width, int height, BOOL down )
 +{
-+    COLORREF accent = blend_color( get_accent_color(), RGB(0xff,0xff,0xff), 3, 10 );
++    COLORREF accent = blend_color( get_accent_color(), RGB(0xff,0xff,0xff), 4, 10 );
 +    int size = xp_scale( 24 ), bar = max( 2, xp_scale( 2 )), inset = win->active ? 0 : xp_scale( 8 );
 +
 +    fill_solid( hdc, 0, 0, width, height, down ? WIN10_HOT : WIN10_BAR );
@@ -1759,7 +1846,7 @@ index 69b57035a0c..54443d6ad06 100644
  static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_button *win )
  {
      BOOL down = (dis->itemState & ODS_SELECTED) != 0;
-@@ -1817,7 +2195,12 @@ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_b
+@@ -1817,7 +2218,12 @@ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_b
      /* rounded corners show the taskbar through */
      MapWindowPoints( dis->hwndItem, tray_window, &origin, 1 );
      xp_draw_background( hdc, 0, 0, origin.x, origin.y, rect.right, rect.bottom );
@@ -1773,7 +1860,7 @@ index 69b57035a0c..54443d6ad06 100644
      else xp_draw_task_button( hdc, win, rect.right, rect.bottom, down || win->active );
  
      BitBlt( dis->hDC, 0, 0, rect.right, rect.bottom, hdc, 0, 0, SRCCOPY );
-@@ -1843,7 +2226,12 @@ static void xp_paint_tray( HWND hwnd )
+@@ -1843,7 +2249,12 @@ static void xp_paint_tray( HWND hwnd )
          old_bitmap = SelectObject( mem, bitmap );
          SetWindowOrgEx( mem, ps.rcPaint.left, ps.rcPaint.top, NULL );
          xp_draw_background( mem, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.left, ps.rcPaint.top, width, height );
@@ -1787,7 +1874,7 @@ index 69b57035a0c..54443d6ad06 100644
          xp_draw_clock( mem );
          BitBlt( hdc, ps.rcPaint.left, ps.rcPaint.top, width, height, mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY );
          SelectObject( mem, old_bitmap );
-@@ -1880,6 +2268,26 @@ static void xp_update_metrics(void)
+@@ -1880,6 +2291,26 @@ static void xp_update_metrics(void)
      lstrcpynW( start_text, start_label, ARRAY_SIZE(start_text) );
      CharLowerW( start_text );
  
@@ -1814,7 +1901,7 @@ index 69b57035a0c..54443d6ad06 100644
      hdc = GetDC( 0 );
      old_font = SelectObject( hdc, xp_font );
      GetTextMetricsW( hdc, &tm );
-@@ -1928,9 +2336,11 @@ static void xp_load_settings(void)
+@@ -1928,9 +2359,11 @@ static void xp_load_settings(void)
      if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, KEY_QUERY_VALUE, &hkey ))
      {
          size = sizeof(style);
@@ -1829,8 +1916,16 @@ index 69b57035a0c..54443d6ad06 100644
          size = sizeof(value);
          if (!RegGetValueW( hkey, NULL, L"Rows", RRF_RT_REG_DWORD, NULL, &value, &size ))
              taskbar_rows = max( 1, min( (int)value, TASKBAR_MAX_ROWS ));
-@@ -1954,10 +2364,16 @@ static void xp_load_settings(void)
+@@ -1952,12 +2385,24 @@ static void xp_load_settings(void)
+         size = sizeof(value);
+         if (!RegGetValueW( hkey, NULL, L"Controls", RRF_RT_REG_DWORD, NULL, &value, &size ))
              xp_controls = value != 0;
++        size = sizeof(value);
++        if (!RegGetValueW( hkey, NULL, L"Accent", RRF_RT_REG_DWORD, NULL, &value, &size ))
++            win10_accent = value & 0xffffff;
++        size = sizeof(value);
++        if (!RegGetValueW( hkey, NULL, L"Dark", RRF_RT_REG_DWORD, NULL, &value, &size ))
++            win10_dark = value != 0;
          RegCloseKey( hkey );
      }
 -    /* WINE_TASKBAR_STYLE=classic brings back the plain Wine taskbar */
@@ -1849,7 +1944,7 @@ index 69b57035a0c..54443d6ad06 100644
  }
  
  /*
-@@ -2196,10 +2612,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
+@@ -2196,10 +2641,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
      SetTimer( tray_window, SYNC_TIMER, SYNC_DELAY, NULL );
  }
  
@@ -1878,7 +1973,7 @@ index 69b57035a0c..54443d6ad06 100644
      if (xp_initialized)
      {
          /* switching back from the classic style */
-@@ -2318,9 +2752,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
+@@ -2318,9 +2781,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
      return bitmap;
  }
  
@@ -1996,7 +2091,7 @@ index 69b57035a0c..54443d6ad06 100644
      BOOL dark = is_dark_theme();
      HGDIOBJ old;
      RECT rect;
-@@ -2329,13 +2871,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
+@@ -2329,13 +2900,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
      if (!use_xp_wallpaper( xp_style, xp_wallpaper )) return FALSE;
      GetClientRect( hwnd, &rect );
      if (!wallpaper_cache || rect.right != wallpaper_cache_width || rect.bottom != wallpaper_cache_height ||
@@ -2013,7 +2108,7 @@ index 69b57035a0c..54443d6ad06 100644
      }
      if (!wallpaper_cache || !(mem = CreateCompatibleDC( hdc ))) return FALSE;
      old = SelectObject( mem, wallpaper_cache );
-@@ -2362,7 +2905,8 @@ void reset_xp_wallpaper(void)
+@@ -2362,7 +2934,8 @@ void reset_xp_wallpaper(void)
  
  struct display_settings
  {
@@ -2023,7 +2118,20 @@ index 69b57035a0c..54443d6ad06 100644
      UINT scheme;
      int  rows;
      BOOL locked;
-@@ -2402,19 +2946,30 @@ static void invalidate_taskbar(void)
+@@ -2370,9 +2943,12 @@ struct display_settings
+     BOOL frames;
+     BOOL wallpaper;
+     BOOL controls;
++    COLORREF accent;  /* Windows 10 style */
++    BOOL dark;
+ };
+ 
+ static HWND display_dialog;
++static COLORREF dialog_accent;  /* the accent picked in the dialog, not applied yet */
+ 
+ /* only the frame is invalidated, the windows are not moved or resized */
+ static BOOL CALLBACK refresh_frame_proc( HWND hwnd, LPARAM lparam )
+@@ -2402,19 +2978,30 @@ static void invalidate_taskbar(void)
      }
  }
  
@@ -2057,7 +2165,7 @@ index 69b57035a0c..54443d6ad06 100644
      }
      do_show_systray();
  }
-@@ -2431,7 +2986,7 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2431,7 +3018,7 @@ static void apply_display_settings( const struct display_settings *settings )
      if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, NULL, 0,
                            KEY_SET_VALUE, NULL, &hkey, NULL ))
      {
@@ -2066,11 +2174,20 @@ index 69b57035a0c..54443d6ad06 100644
  
          RegSetValueExW( hkey, L"Style", 0, REG_SZ, (const BYTE *)style, (lstrlenW( style ) + 1) * sizeof(WCHAR) );
          RegCloseKey( hkey );
-@@ -2444,17 +2999,19 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2444,17 +3031,28 @@ static void apply_display_settings( const struct display_settings *settings )
      xp_save_setting( L"Wallpaper", settings->wallpaper );
      xp_save_setting( L"Controls", settings->controls );
      xp_controls = settings->controls;
 -    apply_xp_controls( settings->xp && settings->controls, taskbar_scheme );
++    if (settings->win10)
++    {
++        if (settings->accent != win10_accent || settings->dark != win10_dark)
++            InvalidateRect( GetDesktopWindow(), NULL, TRUE );
++        win10_accent = settings->accent;
++        win10_dark = settings->dark;
++        xp_save_setting( L"Accent", win10_accent );
++        xp_save_setting( L"Dark", win10_dark );
++    }
 +    /* the Windows 10 style keeps the default Wine theme for the controls, which is flat already */
 +    apply_xp_controls( settings->xp && !settings->win10 && settings->controls, taskbar_scheme );
      /* let the other processes pick up the frame style, then have every window repaint its frame */
@@ -2089,7 +2206,7 @@ index 69b57035a0c..54443d6ad06 100644
      else do_show_systray();
      invalidate_taskbar();
  }
-@@ -2479,7 +3036,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+@@ -2479,7 +3077,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
  {
      LRESULT sel;
  
@@ -2101,8 +2218,20 @@ index 69b57035a0c..54443d6ad06 100644
      sel = SendDlgItemMessageW( dlg, IDC_DP_SCHEME, CB_GETCURSEL, 0, 0 );
      settings->scheme = sel > 0 ? sel : 0;
      sel = SendDlgItemMessageW( dlg, IDC_DP_ROWS, CB_GETCURSEL, 0, 0 );
-@@ -2498,8 +3058,21 @@ static void update_dialog_state( HWND dlg )
-                    IDC_DP_CLOCK };
+@@ -2489,17 +3090,38 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+     settings->frames = IsDlgButtonChecked( dlg, IDC_DP_FRAMES ) == BST_CHECKED;
+     settings->wallpaper = IsDlgButtonChecked( dlg, IDC_DP_WALLPAPER ) == BST_CHECKED;
+     settings->controls = IsDlgButtonChecked( dlg, IDC_DP_CONTROLS ) == BST_CHECKED;
++    settings->accent = dialog_accent;
++    settings->dark = IsDlgButtonChecked( dlg, IDC_DP_DARK ) == BST_CHECKED;
+ }
+ 
+ static void update_dialog_state( HWND dlg )
+ {
+     struct display_settings settings;
+     UINT ids[] = { IDC_DP_SCHEME, IDC_DP_FRAMES, IDC_DP_CONTROLS, IDC_DP_WALLPAPER, IDC_DP_ROWS, IDC_DP_LOCK,
+-                   IDC_DP_CLOCK };
++                   IDC_DP_CLOCK, IDC_DP_ACCENT, IDC_DP_DARK };
      unsigned int i;
  
 +    static const UINT labels[][3] =
@@ -2110,20 +2239,26 @@ index 69b57035a0c..54443d6ad06 100644
 +        { IDC_DP_FRAMES, IDS_DP_FRAMES_XP, IDS_DP_FRAMES_WIN10 },
 +        { IDC_DP_CONTROLS, IDS_DP_CONTROLS_XP, IDS_DP_CONTROLS_WIN10 },
 +        { IDC_DP_WALLPAPER, IDS_DP_WALLPAPER_XP, IDS_DP_WALLPAPER_WIN10 },
++        { IDC_DP_SCHEME_LABEL, IDS_DP_SCHEME_LABEL, IDS_DP_ACCENT_LABEL },
 +    };
 +    WCHAR str[128];
 +
      get_dialog_settings( dlg, &settings );
      for (i = 0; i < ARRAY_SIZE(ids); i++) EnableWindow( GetDlgItem( dlg, ids[i] ), settings.xp );
-+    /* the Windows 10 style always uses the flat default Wine theme for the controls */
-+    if (settings.win10) EnableWindow( GetDlgItem( dlg, IDC_DP_CONTROLS ), FALSE );
++    /* the Windows 10 style always uses the flat default Wine theme for the controls; in their place
++     * it has the accent color and the dark title bars */
++    ShowWindow( GetDlgItem( dlg, IDC_DP_SCHEME ), settings.win10 ? SW_HIDE : SW_SHOW );
++    ShowWindow( GetDlgItem( dlg, IDC_DP_CONTROLS ), settings.win10 ? SW_HIDE : SW_SHOW );
++    ShowWindow( GetDlgItem( dlg, IDC_DP_ACCENT ), settings.win10 ? SW_SHOW : SW_HIDE );
++    ShowWindow( GetDlgItem( dlg, IDC_DP_DARK ), settings.win10 ? SW_SHOW : SW_HIDE );
++    InvalidateRect( GetDlgItem( dlg, IDC_DP_ACCENT ), NULL, FALSE );
 +    for (i = 0; i < ARRAY_SIZE(labels); i++)
 +        if (LoadStringW( NULL, labels[i][settings.win10 ? 2 : 1], str, ARRAY_SIZE(str) ))
 +            SetDlgItemTextW( dlg, labels[i][0], str );
      InvalidateRect( GetDlgItem( dlg, IDC_DP_PREVIEW ), NULL, FALSE );
  }
  
-@@ -2524,7 +3097,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2524,7 +3146,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
      if (use_xp_wallpaper( settings->xp, settings->wallpaper ))
      {
@@ -2132,7 +2267,7 @@ index 69b57035a0c..54443d6ad06 100644
          HDC background_dc = CreateCompatibleDC( hdc );
          HGDIOBJ old_background = SelectObject( background_dc, background );
  
-@@ -2554,7 +3127,19 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2554,7 +3176,20 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
          if (wh > cap + 6)
          {
@@ -2140,28 +2275,28 @@ index 69b57035a0c..54443d6ad06 100644
 +            if (settings->win10 && settings->frames)
 +            {
 +                /* flat title bar, a thin border in the accent color */
-+                COLORREF back = is_dark_theme() ? RGB(0x20,0x20,0x20) : RGB(0xff,0xff,0xff);
++                BOOL dark = settings->dark || is_dark_theme();
++                COLORREF back = dark ? RGB(0x20,0x20,0x20) : RGB(0xff,0xff,0xff);
 +
-+                fill_solid( hdc, wx, wy, ww, wh, win10_accents[settings->scheme < XP_USER_SCHEMES ? settings->scheme : 0] );
++                fill_solid( hdc, wx, wy, ww, wh, settings->accent );
 +                fill_solid( hdc, wx + 1, wy + 1, ww - 2, wh - 2, back );
 +                fill_solid( hdc, wx + 1, wy + cap, ww - 2, wh - cap - 1, GetSysColor( COLOR_BTNFACE ));
 +                fill_solid( hdc, wx + ww - button - 6, wy + cap / 2, button * 2 / 3, 1,
-+                            is_dark_theme() ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
-+                SetTextColor( hdc, is_dark_theme() ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
++                            dark ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
++                SetTextColor( hdc, dark ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
 +            }
 +            else if (settings->xp && settings->frames)
              {
                  fill_solid( hdc, wx, wy, ww, wh, caption[index][2] );
                  fill_gradient2( hdc, wx, wy, ww, cap / 2, caption[index][0], caption[index][1] );
-@@ -2577,7 +3162,30 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2577,7 +3212,29 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
          }
      }
  
 -    if (settings->xp)
 +    if (settings->win10)
 +    {
-+        COLORREF accent = blend_color( win10_accents[settings->scheme < XP_USER_SCHEMES ? settings->scheme : 0],
-+                                       RGB(0xff,0xff,0xff), 3, 10 );
++        COLORREF accent = blend_color( settings->accent, RGB(0xff,0xff,0xff), 4, 10 );
 +        int glyph = max( bar * 2 / 3, 6 );
 +        BYTE *alpha;
 +
@@ -2185,8 +2320,122 @@ index 69b57035a0c..54443d6ad06 100644
      {
          fill_gradient( hdc, 0, top, width, bar, 0, bar, scheme->bar, scheme->bar_count );
          fill_gradient( hdc, width - bar * 3, top, bar * 3, bar, 0, bar, scheme->notify, scheme->notify_count );
-@@ -2623,7 +3231,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2621,9 +3278,121 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+     DeleteDC( hdc );
+ }
  
++/* the accent button of Display Properties: a swatch of the color */
++static void draw_accent_button( const DRAWITEMSTRUCT *dis, COLORREF accent )
++{
++    RECT rect = dis->rcItem;
++    HBRUSH brush;
++
++    DrawFrameControl( dis->hDC, &rect, DFC_BUTTON, DFCS_BUTTONPUSH | ((dis->itemState & ODS_SELECTED) ? DFCS_PUSHED : 0) );
++    InflateRect( &rect, -4, -4 );
++    if ((brush = CreateSolidBrush( (dis->itemState & ODS_DISABLED) ? GetSysColor( COLOR_BTNSHADOW ) : accent )))
++    {
++        FillRect( dis->hDC, &rect, brush );
++        DeleteObject( brush );
++    }
++    FrameRect( dis->hDC, &rect, GetSysColorBrush( COLOR_WINDOWFRAME ));
++    if (dis->itemState & ODS_FOCUS)
++    {
++        InflateRect( &rect, 2, 2 );
++        DrawFocusRect( dis->hDC, &rect );
++    }
++}
++
++#define ACCENT_COLUMNS 8
++
++static BOOL get_accent_cell( HWND grid, int index, RECT *rect )
++{
++    RECT client;
++    int cw, ch;
++
++    GetClientRect( grid, &client );
++    cw = client.right / ACCENT_COLUMNS;
++    ch = client.bottom / (ARRAY_SIZE(win10_palette) / ACCENT_COLUMNS);
++    if (index < 0 || index >= (int)ARRAY_SIZE(win10_palette) || cw <= 0 || ch <= 0) return FALSE;
++    SetRect( rect, (index % ACCENT_COLUMNS) * cw, (index / ACCENT_COLUMNS) * ch,
++             (index % ACCENT_COLUMNS + 1) * cw, (index / ACCENT_COLUMNS + 1) * ch );
++    return TRUE;
++}
++
++static void draw_accent_grid( const DRAWITEMSTRUCT *dis, COLORREF selected )
++{
++    int i, edge = max( 2, xp_scale( 2 ));
++    HBRUSH brush;
++    RECT rect;
++
++    FillRect( dis->hDC, &dis->rcItem, GetSysColorBrush( COLOR_BTNFACE ));
++    for (i = 0; i < (int)ARRAY_SIZE(win10_palette); i++)
++    {
++        if (!get_accent_cell( dis->hwndItem, i, &rect )) continue;
++        if (win10_palette[i] == selected)
++        {
++            if ((brush = CreateSolidBrush( GetSysColor( COLOR_WINDOWTEXT ))))
++            {
++                FillRect( dis->hDC, &rect, brush );
++                DeleteObject( brush );
++            }
++        }
++        InflateRect( &rect, -edge, -edge );
++        if ((brush = CreateSolidBrush( win10_palette[i] )))
++        {
++            FillRect( dis->hDC, &rect, brush );
++            DeleteObject( brush );
++        }
++    }
++}
++
++/* a grid of swatches; lparam points to the color, which is changed on OK */
++static INT_PTR CALLBACK accent_colors_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lparam )
++{
++    static COLORREF *result, selected;
++    HWND grid = GetDlgItem( dlg, IDC_AC_GRID );
++    POINT pt;
++    RECT rect;
++    int i;
++
++    switch (msg)
++    {
++    case WM_INITDIALOG:
++        result = (COLORREF *)lparam;
++        selected = *result;
++        return TRUE;
++
++    case WM_DRAWITEM:
++        if (wparam != IDC_AC_GRID) break;
++        draw_accent_grid( (const DRAWITEMSTRUCT *)lparam, selected );
++        return TRUE;
++
++    case WM_LBUTTONDOWN:
++    case WM_LBUTTONDBLCLK:
++        pt.x = (short)LOWORD( lparam );
++        pt.y = (short)HIWORD( lparam );
++        MapWindowPoints( dlg, grid, &pt, 1 );
++        for (i = 0; get_accent_cell( grid, i, &rect ); i++)
++        {
++            if (!PtInRect( &rect, pt )) continue;
++            selected = win10_palette[i];
++            InvalidateRect( grid, NULL, FALSE );
++            if (msg == WM_LBUTTONDBLCLK)
++            {
++                *result = selected;
++                EndDialog( dlg, IDOK );
++            }
++            break;
++        }
++        return TRUE;
++
++    case WM_COMMAND:
++        if (LOWORD( wparam ) == IDOK) *result = selected;
++        if (LOWORD( wparam ) == IDOK || LOWORD( wparam ) == IDCANCEL) EndDialog( dlg, LOWORD( wparam ));
++        return TRUE;
++    }
++    return FALSE;
++}
++
  static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lparam )
  {
 -    static const UINT style_ids[] = { IDS_DP_STYLE_XP, IDS_DP_STYLE_CLASSIC };
@@ -2194,7 +2443,7 @@ index 69b57035a0c..54443d6ad06 100644
      static const UINT scheme_ids[] = { IDS_DP_SCHEME_BLUE, IDS_DP_SCHEME_OLIVE, IDS_DP_SCHEME_SILVER };
      static const UINT rows_ids[] = { IDS_TASKBAR_ROWS1, IDS_TASKBAR_ROWS2, IDS_TASKBAR_ROWS3 };
      struct display_settings settings;
-@@ -2632,7 +3240,8 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2632,7 +3401,8 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
      {
      case WM_INITDIALOG:
          display_dialog = dlg;
@@ -2204,7 +2453,40 @@ index 69b57035a0c..54443d6ad06 100644
          load_combo_strings( GetDlgItem( dlg, IDC_DP_SCHEME ), scheme_ids, ARRAY_SIZE(scheme_ids), get_taskbar_scheme() );
          load_combo_strings( GetDlgItem( dlg, IDC_DP_ROWS ), rows_ids, ARRAY_SIZE(rows_ids), taskbar_rows - 1 );
          CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
-@@ -2695,6 +3304,12 @@ static void show_display_properties( HWND owner )
+@@ -2640,10 +3410,17 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+         CheckDlgButton( dlg, IDC_DP_FRAMES, xp_frames ? BST_CHECKED : BST_UNCHECKED );
+         CheckDlgButton( dlg, IDC_DP_CONTROLS, xp_controls ? BST_CHECKED : BST_UNCHECKED );
+         CheckDlgButton( dlg, IDC_DP_WALLPAPER, xp_wallpaper ? BST_CHECKED : BST_UNCHECKED );
++        CheckDlgButton( dlg, IDC_DP_DARK, win10_dark ? BST_CHECKED : BST_UNCHECKED );
++        dialog_accent = win10_accent;
+         update_dialog_state( dlg );
+         return TRUE;
+ 
+     case WM_DRAWITEM:
++        if (wparam == IDC_DP_ACCENT)
++        {
++            draw_accent_button( (const DRAWITEMSTRUCT *)lparam, dialog_accent );
++            return TRUE;
++        }
+         if (wparam != IDC_DP_PREVIEW) break;
+         get_dialog_settings( dlg, &settings );
+         draw_display_preview( (const DRAWITEMSTRUCT *)lparam, &settings );
+@@ -2662,8 +3439,14 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+         case IDC_DP_FRAMES:
+         case IDC_DP_CONTROLS:
+         case IDC_DP_WALLPAPER:
++        case IDC_DP_DARK:
+             update_dialog_state( dlg );
+             break;
++        case IDC_DP_ACCENT:
++            if (DialogBoxParamW( GetModuleHandleW( NULL ), MAKEINTRESOURCEW( IDD_ACCENT_COLORS ), dlg,
++                                 accent_colors_proc, (LPARAM)&dialog_accent ) == IDOK)
++                update_dialog_state( dlg );
++            break;
+         case IDC_DP_APPLY:
+         case IDOK:
+             get_dialog_settings( dlg, &settings );
+@@ -2695,6 +3478,12 @@ static void show_display_properties( HWND owner )
      if (owner && !IsWindowEnabled( owner )) EnableWindow( owner, TRUE );
  }
  
@@ -2217,7 +2499,7 @@ index 69b57035a0c..54443d6ad06 100644
  /* right click on the desktop */
  void show_desktop_menu( HWND hwnd, LPARAM lparam )
  {
-@@ -2870,6 +3485,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2870,6 +3659,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          break;
  
      case WM_LBUTTONDOWN:
@@ -2230,7 +2512,7 @@ index 69b57035a0c..54443d6ad06 100644
          if (xp_style && !taskbar_locked)
          {
              POINT pt;
-@@ -2888,6 +3509,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2888,6 +3683,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  
      case WM_LBUTTONUP:
@@ -2249,7 +2531,7 @@ index 69b57035a0c..54443d6ad06 100644
          if (sizing_taskbar)
          {
              xp_update_sizing();
-@@ -2896,6 +3529,34 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2896,6 +3703,34 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          }
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  

@@ -1,16 +1,17 @@
 diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
-index 633d932e2f9..e7dad3c0ab3 100644
+index 633d932e2f9..f570f9255bc 100644
 --- a/dlls/win32u/defwnd.c
 +++ b/dlls/win32u/defwnd.c
-@@ -1658,7 +1658,38 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
+@@ -1658,7 +1658,40 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
  
  #define XP_FRAME_SCHEMES  3  /* the ones picked in the registry, each has a dark twin */
  
 +/*
 + * Windows 10 style frames (HKCU\Software\Wine\Explorer\Taskbar: Style "win10"): a flat title bar,
-+ * white or dark with dark window colours, a one pixel border in the accent color of the scheme
-+ * (blue, green or slate) and flat caption buttons. Same sizes as the other frames.
++ * dark grey ("Dark", on by default) or white, a one pixel border in the accent color ("Accent",
++ * dark grey by default) and flat caption buttons. Same sizes as the other frames.
 + */
++#define WIN10_DEFAULT_ACCENT RGB(0x33,0x33,0x33)
 +static const struct xp_stop win10_light_caption[] = { { 0, RGB(0xff,0xff,0xff) }, { 100, RGB(0xff,0xff,0xff) } };
 +static const struct xp_stop win10_dark_caption[] = { { 0, RGB(0x20,0x20,0x20) }, { 100, RGB(0x20,0x20,0x20) } };
 +static const struct xp_stop win10_dark_caption_inactive[] = { { 0, RGB(0x2b,0x2b,0x2b) }, { 100, RGB(0x2b,0x2b,0x2b) } };
@@ -25,23 +26,24 @@ index 633d932e2f9..e7dad3c0ab3 100644
 +    { WIN10_FRAME( win10_dark_caption, RGB(0x20,0x20,0x20), accent, RGB(0xff,0xff,0xff) ), \
 +      WIN10_FRAME( win10_dark_caption_inactive, RGB(0x2b,0x2b,0x2b), RGB(0x44,0x44,0x44), RGB(0x88,0x88,0x88) ) }
 +
-+static const struct xp_frame_colors win10_frame_schemes[6][2] =
++/* light and dark, active and inactive; the active border takes the accent color when it is read */
++static struct xp_frame_colors win10_frames[2][2] =
 +{
-+    WIN10_LIGHT( RGB(0x00,0x78,0xd7) ), WIN10_LIGHT( RGB(0x49,0x82,0x05) ), WIN10_LIGHT( RGB(0x68,0x76,0x8a) ),
-+    WIN10_DARK( RGB(0x00,0x78,0xd7) ), WIN10_DARK( RGB(0x49,0x82,0x05) ), WIN10_DARK( RGB(0x68,0x76,0x8a) ),
++    WIN10_LIGHT( WIN10_DEFAULT_ACCENT ), WIN10_DARK( WIN10_DEFAULT_ACCENT ),
 +};
 +
 +static BOOL is_win10_frame( const struct xp_frame_colors *colors )
 +{
-+    return colors >= &win10_frame_schemes[0][0] && colors < &win10_frame_schemes[0][0] + 12;
++    return colors >= &win10_frames[0][0] && colors < &win10_frames[0][0] + 4;
 +}
 +
  static UINT xp_frame_scheme = ~0u;  /* ~0u: plain Wine frames */
 +static BOOL xp_frame_win10;         /* the Windows 10 style frames */
++static BOOL xp_frame_win10_dark = TRUE;
  
  /* the settings are read again at most once a second, so a change reaches every process */
  static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
-@@ -1670,10 +1701,12 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1670,10 +1703,13 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
      if (!last_check || now - last_check > 1000)
      {
          static const WCHAR classicW[] = {'c','l','a','s','s','i','c',0};
@@ -50,11 +52,12 @@ index 633d932e2f9..e7dad3c0ab3 100644
          KEY_VALUE_PARTIAL_INFORMATION *info = (void *)buffer;
          const char *env = getenv( "WINE_XP_FRAMES" );
          UINT scheme = ~0u, frames = 1;
-+        BOOL win10 = FALSE;
++        COLORREF accent = WIN10_DEFAULT_ACCENT;
++        BOOL win10 = FALSE, dark = TRUE;
          HKEY hkey;
  
          if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Taskbar" )))
-@@ -1681,9 +1714,11 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1681,24 +1717,41 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
              if (query_reg_ascii_value( hkey, "Frames", info, sizeof(buffer) ) == sizeof(DWORD) &&
                  info->Type == REG_DWORD)
                  frames = *(DWORD *)info->Data;
@@ -69,11 +72,20 @@ index 633d932e2f9..e7dad3c0ab3 100644
              if (query_reg_ascii_value( hkey, "Scheme", info, sizeof(buffer) ) == sizeof(DWORD) &&
                  info->Type == REG_DWORD && *(DWORD *)info->Data < XP_FRAME_SCHEMES)
                  scheme = *(DWORD *)info->Data;
-@@ -1691,14 +1726,20 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
++            if (win10 && query_reg_ascii_value( hkey, "Accent", info, sizeof(buffer) ) == sizeof(DWORD) &&
++                info->Type == REG_DWORD)
++                accent = *(DWORD *)info->Data & 0xffffff;
++            if (win10 && query_reg_ascii_value( hkey, "Dark", info, sizeof(buffer) ) == sizeof(DWORD) &&
++                info->Type == REG_DWORD)
++                dark = *(DWORD *)info->Data != 0;
+             NtClose( hkey );
          }
          if (env) frames = atoi( env );
          xp_frame_scheme = !frames ? ~0u : scheme == ~0u ? 0 : scheme;
 +        xp_frame_win10 = win10;
++        xp_frame_win10_dark = dark;
++        win10_frames[0][0].outer[0] = win10_frames[0][0].shade[0] = accent;
++        win10_frames[1][0].outer[0] = win10_frames[1][0].shade[0] = accent;
          last_check = now ? now : 1;
      }
      if (xp_frame_scheme >= XP_FRAME_SCHEMES) return NULL;
@@ -84,14 +96,14 @@ index 633d932e2f9..e7dad3c0ab3 100644
      window = get_sys_color( COLOR_WINDOW );
      if ((GetRValue(window) * 299 + GetGValue(window) * 587 + GetBValue(window) * 114) / 1000 < 128)
 +    {
-+        if (xp_frame_win10) return &win10_frame_schemes[xp_frame_scheme + XP_FRAME_SCHEMES][active ? 0 : 1];
++        if (xp_frame_win10) return &win10_frames[1][active ? 0 : 1];
          return &xp_frame_schemes[xp_frame_scheme + XP_FRAME_SCHEMES][active ? 0 : 1];
 +    }
-+    if (xp_frame_win10) return &win10_frame_schemes[xp_frame_scheme][active ? 0 : 1];
++    if (xp_frame_win10) return &win10_frames[xp_frame_win10_dark ? 1 : 0][active ? 0 : 1];
      return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
  }
  
-@@ -1785,6 +1826,95 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
+@@ -1785,6 +1838,95 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
      NtGdiDeleteObjectApp( pen );
  }
  
@@ -187,7 +199,7 @@ index 633d932e2f9..e7dad3c0ab3 100644
  /* draw a rounded caption button with its glyph, flags are the DFCS_CAPTION* values */
  static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,
                                      const struct xp_frame_colors *colors )
-@@ -1800,6 +1930,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
+@@ -1800,6 +1942,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
      RECT box, caption;
      HDC mem;
  
@@ -199,7 +211,7 @@ index 633d932e2f9..e7dad3c0ab3 100644
      if (size <= 4) return;
      /* square buttons on the right side of the classic button rectangle */
      box.right = rect->right;
-@@ -2070,7 +2205,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+@@ -2070,7 +2217,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
          nclm.cbSize = sizeof(nclm);
          NtUserSystemParametersInfo( SPI_GETNONCLIENTMETRICS, 0, &nclm, 0 );
          lf = (ex_style & WS_EX_TOOLWINDOW) ? nclm.lfSmCaptionFont : nclm.lfCaptionFont;
