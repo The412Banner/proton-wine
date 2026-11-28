@@ -1128,11 +1128,7 @@ SizingMargins = 0, 2, 1, 1
 Transparent = True
 
 [Status.GripperPane]
-BgType = ImageFile
-ImageFile = status_pane.bmp
-SizingType = Stretch
-SizingMargins = 0, 2, 1, 1
-Transparent = True
+BgType = None
 
 [Status.Gripper]
 BgType = ImageFile
