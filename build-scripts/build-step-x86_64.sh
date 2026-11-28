@@ -504,7 +504,7 @@ do
       "dlls/ntdll/signal_arm64ec.c|if (ptr >> 47) return FALSE;|RtlIsEcCode bounds guard (Denuvo / NFS Heat, in-tree)"
       "programs/explorer/systray.c|WINE_TASKBAR_STYLE|XP taskbar (in-tree)"
       "dlls/win32u/defwnd.c|WINE_XP_FRAMES|XP window frames (in-tree)"
-      "dlls/win32u/menu.c|win10_menu_hot_colors( menu_bar|Windows 10 style menu highlight"
+      "dlls/win32u/menu.c|win10_menu_colors( menu_bar|Windows 10 style menu highlight and separators"
       "dlls/ntdll/unix/esync.c|ESYNC_AUTO_EVENT|esync re-added to Wine-11 (Proton 11 dropped it upstream)"
       "server/esync.c|esync: up and running|esync server side re-added to Wine-11"
       "server/inproc_sync.c|WINENTSYNC set, no usable /dev/ntsync, using userspace ntsync|userspace ntsync, opt-in via WINENTSYNC=1 (server)"

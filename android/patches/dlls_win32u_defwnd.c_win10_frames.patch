@@ -1,5 +1,5 @@
 diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
-index 633d932e2f9..cc0dcf5e65d 100644
+index 633d932e2f9..88b4c0abb96 100644
 --- a/dlls/win32u/defwnd.c
 +++ b/dlls/win32u/defwnd.c
 @@ -1658,7 +1658,68 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
@@ -85,7 +85,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
          HKEY hkey;
  
          if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Taskbar" )))
-@@ -1681,27 +1745,64 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1681,27 +1745,67 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
              if (query_reg_ascii_value( hkey, "Frames", info, sizeof(buffer) ) == sizeof(DWORD) &&
                  info->Type == REG_DWORD)
                  frames = *(DWORD *)info->Data;
@@ -131,8 +131,9 @@ index 633d932e2f9..cc0dcf5e65d 100644
      return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
  }
  
-+/* the Windows 10 style menu highlight: grey on dark menus, light blue on light ones */
-+BOOL win10_menu_hot_colors( BOOL menu_bar, COLORREF *fill, COLORREF *text )
++/* the Windows 10 style menu colours: a grey highlight and separators on dark menus, light blue
++ * highlight and light grey separators on light ones */
++BOOL win10_menu_colors( BOOL menu_bar, COLORREF *fill, COLORREF *text, COLORREF *separator )
 +{
 +    COLORREF menu;
 +
@@ -142,11 +143,13 @@ index 633d932e2f9..cc0dcf5e65d 100644
 +    {
 +        *fill = RGB(0x41,0x41,0x41);
 +        *text = RGB(0xff,0xff,0xff);
++        *separator = RGB(0x80,0x80,0x80);
 +    }
 +    else
 +    {
 +        *fill = menu_bar ? RGB(0xcc,0xe8,0xff) : RGB(0x91,0xc9,0xf7);
 +        *text = RGB(0x00,0x00,0x00);
++        *separator = RGB(0xd7,0xd7,0xd7);
 +    }
 +    return TRUE;
 +}
@@ -154,7 +157,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
  /* windows with a caption get the XP frame, but not regular child windows */
  static BOOL has_xp_frame( DWORD style, DWORD ex_style )
  {
-@@ -1785,9 +1886,100 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
+@@ -1785,9 +1889,100 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
      NtGdiDeleteObjectApp( pen );
  }
  
@@ -256,7 +259,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
  {
      int size = min( rect->right - rect->left, rect->bottom - rect->top ), extent, x, y, t, radius;
      BOOL down = (flags & DFCS_PUSHED) != 0, grayed = (flags & DFCS_INACTIVE) != 0;
-@@ -1800,6 +1992,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
+@@ -1800,6 +1995,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
      RECT box, caption;
      HDC mem;
  
@@ -268,7 +271,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
      if (size <= 4) return;
      /* square buttons on the right side of the classic button rectangle */
      box.right = rect->right;
-@@ -1929,7 +2126,12 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+@@ -1929,7 +2129,12 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
      }
      else
      {
@@ -282,7 +285,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
          rect.bottom = rect.top + get_system_metrics( SM_CYSIZE ) - 2;
          rect.top += 2;
          rect.right -= 2;
-@@ -1938,13 +2140,14 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+@@ -1938,13 +2143,14 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
      if (down) flags |= DFCS_PUSHED;
      if (grayed) flags |= DFCS_INACTIVE;
      if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
@@ -298,7 +301,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
      const struct xp_frame_colors *colors;
      RECT rect;
      UINT flags;
-@@ -1957,21 +2160,30 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+@@ -1957,21 +2163,30 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
      flags = (style & WS_MAXIMIZE) ? DFCS_CAPTIONRESTORE : DFCS_CAPTIONMAX;
  
      get_inside_rect( hwnd, COORDS_WINDOW, &rect, style, ex_style );
@@ -332,7 +335,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
      const struct xp_frame_colors *colors;
      RECT rect;
      UINT flags;
-@@ -1984,22 +2196,105 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+@@ -1984,22 +2199,105 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
      flags = (style & WS_MINIMIZE) ? DFCS_CAPTIONRESTORE : DFCS_CAPTIONMIN;
  
      get_inside_rect( hwnd, COORDS_WINDOW, &rect, style, ex_style );
@@ -444,7 +447,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
  static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
                               DWORD  ex_style, BOOL active )
  {
-@@ -2010,7 +2305,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+@@ -2010,7 +2308,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
      BOOL gradient = FALSE;
      UINT pen_color = COLOR_3DFACE;
      const struct xp_frame_colors *xp = has_xp_frame( style, ex_style ) ? get_xp_frame_colors( active ) : NULL;
@@ -454,7 +457,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
  
      if (xp)
      {
-@@ -2048,15 +2344,16 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+@@ -2048,15 +2347,16 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
          /* Draw a grayed close button if disabled or if SC_CLOSE is not there */
          draw_close_button( hwnd, hdc, FALSE,
                             (state & (MF_DISABLED | MF_GRAYED)) || (state == 0xFFFFFFFF) );
@@ -474,7 +477,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
          }
      }
  
-@@ -2070,7 +2367,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+@@ -2070,7 +2370,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
          nclm.cbSize = sizeof(nclm);
          NtUserSystemParametersInfo( SPI_GETNONCLIENTMETRICS, 0, &nclm, 0 );
          lf = (ex_style & WS_EX_TOOLWINDOW) ? nclm.lfSmCaptionFont : nclm.lfCaptionFont;
@@ -484,7 +487,26 @@ index 633d932e2f9..cc0dcf5e65d 100644
          font = NtGdiHfontCreate( &lf, sizeof(lf), 0, 0, NULL );
          prev_font = NtGdiSelectFont( hdc, font );
          NtGdiGetAndSetDCDword( hdc, NtGdiSetBkMode, TRANSPARENT, NULL );
-@@ -2554,6 +2852,9 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
+@@ -2331,11 +2632,15 @@ static void nc_paint( HWND hwnd, HRGN clip )
+     if ((style & WS_VSCROLL) && (style & WS_HSCROLL))
+     {
+         RECT r = rect;
++        /* the Windows 10 style fills the whole corner; one pixel less left a line of old
++         * pixels along its top and left */
++        int edge = get_xp_frame_colors( TRUE ) && xp_frame_win10 ? 0 : 1;
++
+         if ((ex_style & WS_EX_LEFTSCROLLBAR) != 0)
+-            r.right = r.left + get_system_metrics( SM_CXVSCROLL ) + 1;
++            r.right = r.left + get_system_metrics( SM_CXVSCROLL ) + edge;
+         else
+-            r.left = r.right - get_system_metrics( SM_CXVSCROLL ) + 1;
+-        r.top  = r.bottom - get_system_metrics( SM_CYHSCROLL ) + 1;
++            r.left = r.right - get_system_metrics( SM_CXVSCROLL ) + edge;
++        r.top  = r.bottom - get_system_metrics( SM_CYHSCROLL ) + edge;
+         fill_rect( hdc, &r, get_sys_color_brush( COLOR_BTNFACE ) );
+     }
+ 
+@@ -2554,6 +2859,9 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
          if (!PtInRect( &rects.window, pt ))
          {
              BOOL min_or_max_box = (style & WS_SYSMENU) && (style & (WS_MINIMIZEBOX | WS_MAXIMIZEBOX));
@@ -494,7 +516,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
              if (ex_style & WS_EX_LAYOUTRTL)
              {
                  /* Check system menu */
-@@ -2567,18 +2868,18 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
+@@ -2567,18 +2875,18 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
                  /* Check close button */
                  if (style & WS_SYSMENU)
                  {
@@ -516,7 +538,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
                      if (pt.x < rects.window.left) return HTMINBUTTON;
                  }
              }
-@@ -2595,18 +2896,18 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
+@@ -2595,18 +2903,18 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
                  /* Check close button */
                  if (style & WS_SYSMENU)
                  {
@@ -538,7 +560,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
                      if (pt.x > rects.window.right) return HTMINBUTTON;
                  }
              }
-@@ -2931,6 +3232,7 @@ static LRESULT handle_nc_mouse_move( HWND hwnd, WPARAM wparam, LPARAM lparam )
+@@ -2931,6 +3239,7 @@ static LRESULT handle_nc_mouse_move( HWND hwnd, WPARAM wparam, LPARAM lparam )
  
      TRACE( "hwnd=%p wparam=%#lx lparam=%#lx\n", hwnd, (long)wparam, lparam );
  
@@ -547,7 +569,7 @@ index 633d932e2f9..cc0dcf5e65d 100644
          return 0;
  
 diff --git a/dlls/win32u/menu.c b/dlls/win32u/menu.c
-index dda7d119ecc..4474604b185 100644
+index dda7d119ecc..8142857cb39 100644
 --- a/dlls/win32u/menu.c
 +++ b/dlls/win32u/menu.c
 @@ -2385,7 +2385,8 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,
@@ -556,7 +578,7 @@ index dda7d119ecc..4474604b185 100644
      HRGN old_clip = NULL, clip;
 -    BOOL flat_menu = FALSE;
 +    BOOL flat_menu = FALSE, win10;
-+    COLORREF win10_fill, win10_text;
++    COLORREF win10_fill, win10_text, win10_separator;
      RECT rect, bmprc;
      int bkgnd;
  
@@ -564,7 +586,7 @@ index dda7d119ecc..4474604b185 100644
      NtUserSystemParametersInfo( SPI_GETFLATMENU, 0, &flat_menu, 0 );
      bkgnd = (menu_bar && flat_menu) ? COLOR_MENUBAR : COLOR_MENU;
  
-+    win10 = win10_menu_hot_colors( menu_bar, &win10_fill, &win10_text );
++    win10 = win10_menu_colors( menu_bar, &win10_fill, &win10_text, &win10_separator );
 +
      /* Setup colors */
 -    if (item->fState & MF_HILITE)
@@ -594,6 +616,25 @@ index dda7d119ecc..4474604b185 100644
      {
          if (flat_menu)
          {
+@@ -2545,7 +2561,17 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,
+ 
+         InflateRect( &rc, -1, 0 );
+         rc.top = ( rc.top + rc.bottom) / 2;
+-        if (flat_menu)
++        if (win10)
++        {
++            HPEN pen = NtGdiCreatePen( PS_SOLID, 1, win10_separator, NULL );
++
++            oldPen = NtGdiSelectPen( hdc, pen );
++            NtGdiMoveTo( hdc, rc.left, rc.top, NULL );
++            NtGdiLineTo( hdc, rc.right, rc.top );
++            NtGdiSelectPen( hdc, oldPen );
++            NtGdiDeleteObjectApp( pen );
++        }
++        else if (flat_menu)
+         {
+             oldPen = NtGdiSelectPen( hdc, get_sys_color_pen( COLOR_BTNSHADOW ));
+             NtGdiMoveTo( hdc, rc.left, rc.top, NULL );
 diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
 index d3ac05a443e..20ebf813a22 100644
 --- a/dlls/win32u/message.c
@@ -622,14 +663,14 @@ index 67cbe230195..a7518acb512 100644
      SYSTEM_TIMER_CARET = 0xffff,
  };
 diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
-index 803655b3541..5f4ae5332f7 100644
+index 803655b3541..c8e94223229 100644
 --- a/dlls/win32u/win32u_private.h
 +++ b/dlls/win32u/win32u_private.h
 @@ -67,9 +67,11 @@ extern void draw_menu_button( HWND hwnd, HDC dc, RECT *r, enum NONCLIENT_BUTTON_
  extern BOOL draw_frame_menu( HDC dc, RECT *r, UINT flags );
  extern BOOL draw_nc_sys_button( HWND hwnd, HDC hdc, BOOL down );
  extern BOOL draw_rect_edge( HDC hdc, RECT *rc, UINT uType, UINT uFlags, UINT width );
-+extern BOOL win10_menu_hot_colors( BOOL menu_bar, COLORREF *fill, COLORREF *text );
++extern BOOL win10_menu_colors( BOOL menu_bar, COLORREF *fill, COLORREF *text, COLORREF *separator );
  extern void fill_rect( HDC dc, const RECT *rect, HBRUSH hbrush );
  extern void get_sys_popup_pos( HWND hwnd, RECT *rect );
  extern LRESULT handle_nc_hit_test( HWND hwnd, POINT pt );
