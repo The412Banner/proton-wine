@@ -3,6 +3,30 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — win10 round 2: Start menu fixes + tiles + bold start glass (branch, CI running, NOT device-tested)
+- Why: user 22:25 EST screenshot "start menu looking off"; I listed 5 differences from Windows 10 (too tall, hard grey
+  scroll bar, Settings icon a sun, cramped top/small text, no tiles); user 22:2x "all 5, same branch, one new build".
+  Bold start glass (proposed earlier, held until the pointer was sorted) folded into the same build.
+- Pointer flicker: user 22:25 "cursor works now". I changed NOTHING for it (checked 22:26 EST: FIT win32u a4b08af9 +
+  explorer bbd03b35 unchanged, container 1 has no +waylanddrv, BL lastUpdate 20:48). Flicker = intermittent, cause
+  still unknown; the +waylanddrv trace plan (container 1 env, backup first) stays ready if it comes back.
+- Built 6dc03bc4 (programs_explorer_win10_theme.patch only; defwnd patch unchanged):
+  - startmenu.c: height = min(tray top, max(360, screen*2/3)); scroll bar 2 px, colour 0x6a6a6a, only while the pointer
+    is over the list or a drag scrolls; Settings = 8-tooth cog polyline + hole (math.h); first heading 10 px down; list
+    font 13 px; tiles: Wine group (file manager, Control Panel, Wine config, Command Prompt, Task Manager) + Desktop
+    group (*.lnk of user + common desktop, max 12 tiles), 96 px squares 3 per row on the accent colour, hot = light
+    border, click launches (W10_LAUNCH); menu width 320 + 316 with tiles. New strings IDS_W10_TILES_WINE 65 /
+    IDS_W10_TILES_DESKTOP 66.
+  - systray.c: render_wine_glass( size, bold ): bold = 5.6 pen + solid wine; start button glyph 22 px bold; Display
+    Properties preview bold; wallpaper glass unchanged.
+  - Local check: MinGW -fsyntax-only clean for startmenu.c + systray.c (only the old GetDpiForWindow header warning);
+    cog rendered in Python = reads as a cog.
+- CI: run 46103493264 (headSha 6dc03bc4 asserted), same branch = warm cache.
+- Next: CI green -> stage explorer.exe on the FIT, swap (win10-swap.sh, explorer only; win32u unchanged) with the user's
+  OK when the container is closed; user tests start menu (tiles, scroll bar, cog), then the rest of the test list.
+- Resume: worktree /root/src/proton-wine-wt-win10 (branch staging/proton_11.14.1-DroidDeck/win10 6dc03bc4), sim tree
+  /root/src/sim-win10 (working tree = all win10 changes vs baseline).
+
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/win10: Windows 10 style ("win10") for the Wine desktop (branch, CI green, on the FIT for testing)
 - Why: user 19:2x EST "could we also do a windows 10 theme as well?"; HTML preview /sdcard/Download/
   Wine-Windows10-Style-Preview.html (20:31 EST); user 20:4x "do it all on a new branch from the layer, win10 we will call
