@@ -188,6 +188,9 @@ def write_bmp(path, frames, horizontal=False):
 # colours: Windows 10 light and dark, flat
 
 LIGHT = dict(
+    window=dict(caption=hexc('ffffff'), caption_inactive=hexc('ffffff'), text=(0, 0, 0), text_inactive=(109, 109, 109),
+                frame=hexc('aaaaaa'), glyph=hexc('000000'), glyph_inactive=hexc('6d6d6d'), glyph_disabled=hexc('c8c8c8'),
+                hot=hexc('e5e5e5'), pressed=hexc('cccccc')),
     btn=dict(normal=(hexc('adadad'), hexc('e1e1e1')), hot=(hexc('0078d7'), hexc('e5f1fb')),
              pressed=(hexc('005499'), hexc('cce4f7')), disabled=(hexc('bfbfbf'), hexc('cccccc')),
              default=(hexc('0078d7'), hexc('e1e1e1'))),
@@ -222,6 +225,9 @@ LIGHT = dict(
 )
 
 DARK = dict(
+    window=dict(caption=hexc('202020'), caption_inactive=hexc('2b2b2b'), text=(255, 255, 255), text_inactive=(180, 180, 180),
+                frame=hexc('333333'), glyph=hexc('ffffff'), glyph_inactive=hexc('b4b4b4'), glyph_disabled=hexc('5a5a5a'),
+                hot=hexc('3a3a3a'), pressed=hexc('555555')),
     btn=dict(normal=(hexc('5a5a5a'), hexc('333333')), hot=(hexc('8a8a8a'), hexc('454545')),
              pressed=(hexc('9b9b9b'), hexc('5a5a5a')), disabled=(hexc('3a3a3a'), hexc('2a2a2a')),
              default=(hexc('0078d7'), hexc('333333'))),
@@ -636,6 +642,65 @@ def make_shared_images():
     save('rebar_chevron_vert_glyph.bmp', [double_chevron(True)] * 3)
     save('rebar_gripper.bmp', [rebar_gripper()])
     save('status_pane.bmp', [status_pane()])
+    return images
+
+
+
+# window caption buttons (for programs that draw their own title bar from the theme):
+# normal, hot, pushed, disabled, then the same four for an inactive window
+
+WINDOW_BUTTON_STATES = ['normal', 'hot', 'pressed', 'disabled'] * 2
+
+
+def window_button_bg(s, close, state):
+    w, h = 46, 30
+    c = Canvas(w, h)
+    wn = s['window']
+    if state == 'hot':
+        c.draw(rect(0, 0, w, h), solid(hexc('e81123') if close else wn['hot']))
+    elif state == 'pressed':
+        c.draw(rect(0, 0, w, h), solid(hexc('f1707a') if close else wn['pressed']))
+    return c
+
+
+def window_glyph(s, kind, close, state, inactive):
+    n = 10
+    c = Canvas(n, n)
+    wn = s['window']
+    if state == 'disabled':
+        colour = wn['glyph_disabled']
+    elif close and state in ('hot', 'pressed'):
+        colour = (255, 255, 255)
+    else:
+        colour = wn['glyph_inactive'] if inactive and state == 'normal' else wn['glyph']
+    if kind == 'close':
+        c.draw(polyline([(0.5, 0.5), (9.5, 9.5)], 1.0), solid(colour))
+        c.draw(polyline([(9.5, 0.5), (0.5, 9.5)], 1.0), solid(colour))
+    elif kind == 'min':
+        c.draw(rect(0, 5, 10, 6), solid(colour))
+    elif kind == 'max':
+        c.draw(ring(0, 0, 10, 10, 0, 1), solid(colour))
+    elif kind == 'restore':
+        c.draw(both(ring(2, 0, 10, 8, 0, 1), lambda x, y: not (x < 8 and y >= 2)), solid(colour))
+        c.draw(ring(0, 2, 8, 10, 0, 1), solid(colour))
+    elif kind == 'help':
+        c.draw(polyline([(2.5, 3), (3.5, 1), (6.5, 1), (7.5, 3), (5, 5), (5, 7)], 1.0), solid(colour))
+        c.draw(rect(4.5, 8.5, 5.5, 9.5), solid(colour))
+    return c
+
+
+def make_window_images(name, s):
+    images = []
+
+    def save(file, frames):
+        write_bmp(file, frames)
+        images.append(file)
+
+    save(f'{name}_window_button.bmp', [window_button_bg(s, False, st) for st in WINDOW_BUTTON_STATES])
+    save(f'{name}_window_close_button.bmp', [window_button_bg(s, True, st) for st in WINDOW_BUTTON_STATES])
+    for kind in ('close', 'min', 'max', 'restore', 'help'):
+        save(f'{name}_window_{kind}_glyph.bmp',
+             [window_glyph(s, kind, kind == 'close', st, i >= 4) for i, st in enumerate(WINDOW_BUTTON_STATES)])
     return images
 
 
@@ -1089,6 +1154,161 @@ Transparent = True
 GlyphType = ImageGlyph
 GlyphImageFile = rebar_chevron_vert_glyph.bmp
 GlyphTransparent = True
+
+[Window.Caption]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['caption'])}
+TextColor = {rgb(s['window']['text'])}
+ContentMargins = 0, 0, 0, 0
+CaptionMargins = 8, 0, 0, 0
+
+[Window.Caption(Inactive)]
+FillColor = {rgb(s['window']['caption_inactive'])}
+TextColor = {rgb(s['window']['text_inactive'])}
+
+[Window.Caption(Disabled)]
+FillColor = {rgb(s['window']['caption_inactive'])}
+TextColor = {rgb(s['window']['text_inactive'])}
+
+[Window.SmallCaption]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['caption'])}
+TextColor = {rgb(s['window']['text'])}
+
+[Window.SmallCaption(Inactive)]
+FillColor = {rgb(s['window']['caption_inactive'])}
+TextColor = {rgb(s['window']['text_inactive'])}
+
+[Window.MaxCaption]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['caption'])}
+TextColor = {rgb(s['window']['text'])}
+CaptionMargins = 8, 0, 0, 0
+
+[Window.MaxCaption(Inactive)]
+FillColor = {rgb(s['window']['caption_inactive'])}
+TextColor = {rgb(s['window']['text_inactive'])}
+
+[Window.MinCaption]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['caption'])}
+TextColor = {rgb(s['window']['text'])}
+
+[Window.MinCaption(Inactive)]
+FillColor = {rgb(s['window']['caption_inactive'])}
+TextColor = {rgb(s['window']['text_inactive'])}
+
+[Window.FrameLeft]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['frame'])}
+
+[Window.FrameRight]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['frame'])}
+
+[Window.FrameBottom]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['frame'])}
+
+[Window.SmallFrameLeft]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['frame'])}
+
+[Window.SmallFrameRight]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['frame'])}
+
+[Window.SmallFrameBottom]
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['window']['frame'])}
+
+[Window.MinButton]
+BgType = ImageFile
+ImageFile = {name}_window_button.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 0, 0, 0, 0
+ContentMargins = 0, 0, 0, 0
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = {name}_window_min_glyph.bmp
+GlyphTransparent = True
+
+[Window.MaxButton]
+BgType = ImageFile
+ImageFile = {name}_window_button.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 0, 0, 0, 0
+ContentMargins = 0, 0, 0, 0
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = {name}_window_max_glyph.bmp
+GlyphTransparent = True
+
+[Window.CloseButton]
+BgType = ImageFile
+ImageFile = {name}_window_close_button.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 0, 0, 0, 0
+ContentMargins = 0, 0, 0, 0
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = {name}_window_close_glyph.bmp
+GlyphTransparent = True
+
+[Window.SmallCloseButton]
+BgType = ImageFile
+ImageFile = {name}_window_close_button.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 0, 0, 0, 0
+ContentMargins = 0, 0, 0, 0
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = {name}_window_close_glyph.bmp
+GlyphTransparent = True
+
+[Window.RestoreButton]
+BgType = ImageFile
+ImageFile = {name}_window_button.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 0, 0, 0, 0
+ContentMargins = 0, 0, 0, 0
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = {name}_window_restore_glyph.bmp
+GlyphTransparent = True
+
+[Window.HelpButton]
+BgType = ImageFile
+ImageFile = {name}_window_button.bmp
+ImageCount = 8
+ImageLayout = Vertical
+SizingType = Stretch
+SizingMargins = 0, 0, 0, 0
+ContentMargins = 0, 0, 0, 0
+Transparent = True
+GlyphType = ImageGlyph
+GlyphImageFile = {name}_window_help_glyph.bmp
+GlyphTransparent = True
 """
 
 
@@ -1178,7 +1398,7 @@ def main():
     images = make_shared_images() + make_mode_images('light_', LIGHT) + make_mode_images('dark_', DARK)
     out = [HEADER]
     for name, p in (('light', LIGHT), ('dark', DARK)):
-        images += make_images(name, p)
+        images += make_images(name, p) + make_window_images(name, p)
         text = ini(name, p, name + '_')
         out.append(f'\n{name.upper()}_INI TEXTFILE\n{{\n{rc_text(text)}\n}}\n')
     out.append('\n/* images */\n')

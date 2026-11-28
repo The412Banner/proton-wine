@@ -1,8 +1,8 @@
 diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
-index 633d932e2f9..ac6fc4d909a 100644
+index 633d932e2f9..3392d09721b 100644
 --- a/dlls/win32u/defwnd.c
 +++ b/dlls/win32u/defwnd.c
-@@ -1658,7 +1658,49 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
+@@ -1658,7 +1658,68 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
  
  #define XP_FRAME_SCHEMES  3  /* the ones picked in the registry, each has a dark twin */
  
@@ -21,10 +21,10 @@ index 633d932e2f9..ac6fc4d909a 100644
 +      text, CLR_INVALID, back, back, back, text }
 +#define WIN10_LIGHT( accent ) \
 +    { WIN10_FRAME( win10_light_caption, RGB(0xff,0xff,0xff), accent, RGB(0x00,0x00,0x00) ), \
-+      WIN10_FRAME( win10_light_caption, RGB(0xff,0xff,0xff), RGB(0xaa,0xaa,0xaa), RGB(0x99,0x99,0x99) ) }
++      WIN10_FRAME( win10_light_caption, RGB(0xff,0xff,0xff), RGB(0xaa,0xaa,0xaa), RGB(0x6d,0x6d,0x6d) ) }
 +#define WIN10_DARK( accent ) \
 +    { WIN10_FRAME( win10_dark_caption, RGB(0x20,0x20,0x20), accent, RGB(0xff,0xff,0xff) ), \
-+      WIN10_FRAME( win10_dark_caption_inactive, RGB(0x2b,0x2b,0x2b), RGB(0x44,0x44,0x44), RGB(0x88,0x88,0x88) ) }
++      WIN10_FRAME( win10_dark_caption_inactive, RGB(0x2b,0x2b,0x2b), RGB(0x44,0x44,0x44), RGB(0xb4,0xb4,0xb4) ) }
 +
 +/* light and dark, active and inactive; the active border takes the accent color when it is read */
 +static struct xp_frame_colors win10_frames[2][2] =
@@ -49,10 +49,29 @@ index 633d932e2f9..ac6fc4d909a 100644
 +{
 +    return hwnd && hwnd == win10_hot_hwnd && ht == win10_hot_ht;
 +}
++
++static const struct xp_frame_colors *get_xp_window_colors( HWND hwnd, DWORD style, DWORD ex_style );
++
++/* the caption buttons are 46 x 30 on Windows 10: as wide as one and a half caption heights.
++ * Returns the width of the close button and of the other two; the classic sizes otherwise. */
++static BOOL caption_button_widths( HWND hwnd, DWORD style, DWORD ex_style, int *close_w, int *button_w )
++{
++    const struct xp_frame_colors *colors;
++
++    if (!(ex_style & WS_EX_TOOLWINDOW) && (colors = get_xp_window_colors( hwnd, style, ex_style )) &&
++        is_win10_frame( colors ))
++    {
++        *close_w = *button_w = muldiv( get_system_metrics( SM_CYCAPTION ), 46, 30 );
++        return TRUE;
++    }
++    *close_w = get_system_metrics( SM_CYCAPTION );
++    *button_w = get_system_metrics( SM_CXSIZE );
++    return FALSE;
++}
  
  /* the settings are read again at most once a second, so a change reaches every process */
  static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
-@@ -1670,10 +1712,13 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1670,10 +1731,13 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
      if (!last_check || now - last_check > 1000)
      {
          static const WCHAR classicW[] = {'c','l','a','s','s','i','c',0};
@@ -66,7 +85,7 @@ index 633d932e2f9..ac6fc4d909a 100644
          HKEY hkey;
  
          if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Taskbar" )))
-@@ -1681,24 +1726,41 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1681,24 +1745,41 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
              if (query_reg_ascii_value( hkey, "Frames", info, sizeof(buffer) ) == sizeof(DWORD) &&
                  info->Type == REG_DWORD)
                  frames = *(DWORD *)info->Data;
@@ -112,7 +131,7 @@ index 633d932e2f9..ac6fc4d909a 100644
      return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
  }
  
-@@ -1785,9 +1847,100 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
+@@ -1785,9 +1866,100 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
      NtGdiDeleteObjectApp( pen );
  }
  
@@ -214,7 +233,7 @@ index 633d932e2f9..ac6fc4d909a 100644
  {
      int size = min( rect->right - rect->left, rect->bottom - rect->top ), extent, x, y, t, radius;
      BOOL down = (flags & DFCS_PUSHED) != 0, grayed = (flags & DFCS_INACTIVE) != 0;
-@@ -1800,6 +1953,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
+@@ -1800,6 +1972,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
      RECT box, caption;
      HDC mem;
  
@@ -226,7 +245,21 @@ index 633d932e2f9..ac6fc4d909a 100644
      if (size <= 4) return;
      /* square buttons on the right side of the classic button rectangle */
      box.right = rect->right;
-@@ -1938,7 +2096,7 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+@@ -1929,7 +2106,12 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+     }
+     else
+     {
+-        rect.left = rect.right - get_system_metrics( SM_CXSIZE );
++        int close_w, button_w;
++
++        if (caption_button_widths( hwnd, style, ex_style, &close_w, &button_w ))
++            rect.left = rect.right - close_w;
++        else
++            rect.left = rect.right - get_system_metrics( SM_CXSIZE );
+         rect.bottom = rect.top + get_system_metrics( SM_CYSIZE ) - 2;
+         rect.top += 2;
+         rect.right -= 2;
+@@ -1938,13 +2120,14 @@ static void draw_close_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
      if (down) flags |= DFCS_PUSHED;
      if (grayed) flags |= DFCS_INACTIVE;
      if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
@@ -235,7 +268,32 @@ index 633d932e2f9..ac6fc4d909a 100644
      else
          draw_frame_caption( hdc, &rect, flags );
  }
-@@ -1965,7 +2123,7 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+ 
+ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+ {
++    int close_w, button_w;
+     const struct xp_frame_colors *colors;
+     RECT rect;
+     UINT flags;
+@@ -1957,21 +2140,30 @@ static void draw_max_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+     flags = (style & WS_MAXIMIZE) ? DFCS_CAPTIONRESTORE : DFCS_CAPTIONMAX;
+ 
+     get_inside_rect( hwnd, COORDS_WINDOW, &rect, style, ex_style );
+-    if (style & WS_SYSMENU) rect.right -= get_system_metrics( SM_CXSIZE );
+-    rect.left = rect.right - get_system_metrics( SM_CXSIZE );
++    if (caption_button_widths( hwnd, style, ex_style, &close_w, &button_w ))
++    {
++        if (style & WS_SYSMENU) rect.right -= close_w;
++        rect.left = rect.right - button_w;
++    }
++    else
++    {
++        if (style & WS_SYSMENU) rect.right -= get_system_metrics( SM_CXSIZE );
++        rect.left = rect.right - get_system_metrics( SM_CXSIZE );
++    }
+     rect.bottom = rect.top + get_system_metrics( SM_CYSIZE ) - 2;
+     rect.top += 2;
+     rect.right -= 2;
      if (down) flags |= DFCS_PUSHED;
      if (grayed) flags |= DFCS_INACTIVE;
      if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
@@ -244,7 +302,40 @@ index 633d932e2f9..ac6fc4d909a 100644
      else
          draw_frame_caption( hdc, &rect, flags );
  }
-@@ -1995,11 +2153,84 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+ 
+ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+ {
++    int close_w, button_w;
+     const struct xp_frame_colors *colors;
+     RECT rect;
+     UINT flags;
+@@ -1984,22 +2176,105 @@ static void draw_min_button( HWND hwnd, HDC hdc, BOOL down, BOOL grayed )
+     flags = (style & WS_MINIMIZE) ? DFCS_CAPTIONRESTORE : DFCS_CAPTIONMIN;
+ 
+     get_inside_rect( hwnd, COORDS_WINDOW, &rect, style, ex_style );
+-    if (style & WS_SYSMENU)
+-        rect.right -= get_system_metrics( SM_CXSIZE );
+-    if (style & (WS_MAXIMIZEBOX|WS_MINIMIZEBOX))
+-        rect.right -= get_system_metrics( SM_CXSIZE ) - 2;
+-    rect.left = rect.right - get_system_metrics( SM_CXSIZE );
++    if (caption_button_widths( hwnd, style, ex_style, &close_w, &button_w ))
++    {
++        /* the buttons touch: close, maximize, minimize */
++        if (style & WS_SYSMENU) rect.right -= close_w;
++        if (style & (WS_MAXIMIZEBOX|WS_MINIMIZEBOX)) rect.right -= button_w;
++        rect.left = rect.right - button_w;
++    }
++    else
++    {
++        if (style & WS_SYSMENU)
++            rect.right -= get_system_metrics( SM_CXSIZE );
++        if (style & (WS_MAXIMIZEBOX|WS_MINIMIZEBOX))
++            rect.right -= get_system_metrics( SM_CXSIZE ) - 2;
++        rect.left = rect.right - get_system_metrics( SM_CXSIZE );
++    }
+     rect.bottom = rect.top + get_system_metrics( SM_CYSIZE ) - 2;
+     rect.top += 2;
+     rect.right -= 2;
      if (down) flags |= DFCS_PUSHED;
      if (grayed) flags |= DFCS_INACTIVE;
      if ((colors = get_xp_window_colors( hwnd, style, ex_style )))
@@ -330,7 +421,37 @@ index 633d932e2f9..ac6fc4d909a 100644
  static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
                               DWORD  ex_style, BOOL active )
  {
-@@ -2070,7 +2301,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+@@ -2010,7 +2285,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+     BOOL gradient = FALSE;
+     UINT pen_color = COLOR_3DFACE;
+     const struct xp_frame_colors *xp = has_xp_frame( style, ex_style ) ? get_xp_frame_colors( active ) : NULL;
+-    int len;
++    int len, close_w, button_w;
++    BOOL wide;
+ 
+     if (xp)
+     {
+@@ -2048,15 +2324,16 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+         /* Draw a grayed close button if disabled or if SC_CLOSE is not there */
+         draw_close_button( hwnd, hdc, FALSE,
+                            (state & (MF_DISABLED | MF_GRAYED)) || (state == 0xFFFFFFFF) );
+-        r.right -= get_system_metrics( SM_CYCAPTION ) - 1;
++        wide = caption_button_widths( hwnd, style, ex_style, &close_w, &button_w );
++        r.right -= wide ? close_w : get_system_metrics( SM_CYCAPTION ) - 1;
+ 
+         if ((style & WS_MAXIMIZEBOX) || (style & WS_MINIMIZEBOX))
+         {
+             draw_max_button( hwnd, hdc, FALSE, !(style & WS_MAXIMIZEBOX) );
+-            r.right -= get_system_metrics( SM_CXSIZE ) + 1;
++            r.right -= wide ? button_w : get_system_metrics( SM_CXSIZE ) + 1;
+ 
+             draw_min_button( hwnd, hdc, FALSE, !(style & WS_MINIMIZEBOX) );
+-            r.right -= get_system_metrics( SM_CXSIZE ) + 1;
++            r.right -= wide ? button_w : get_system_metrics( SM_CXSIZE ) + 1;
+         }
+     }
+ 
+@@ -2070,7 +2347,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
          nclm.cbSize = sizeof(nclm);
          NtUserSystemParametersInfo( SPI_GETNONCLIENTMETRICS, 0, &nclm, 0 );
          lf = (ex_style & WS_EX_TOOLWINDOW) ? nclm.lfSmCaptionFont : nclm.lfCaptionFont;
@@ -340,7 +461,61 @@ index 633d932e2f9..ac6fc4d909a 100644
          font = NtGdiHfontCreate( &lf, sizeof(lf), 0, 0, NULL );
          prev_font = NtGdiSelectFont( hdc, font );
          NtGdiGetAndSetDCDword( hdc, NtGdiSetBkMode, TRANSPARENT, NULL );
-@@ -2931,6 +3163,7 @@ static LRESULT handle_nc_mouse_move( HWND hwnd, WPARAM wparam, LPARAM lparam )
+@@ -2554,6 +2832,9 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
+         if (!PtInRect( &rects.window, pt ))
+         {
+             BOOL min_or_max_box = (style & WS_SYSMENU) && (style & (WS_MINIMIZEBOX | WS_MAXIMIZEBOX));
++            int close_w, button_w;
++
++            caption_button_widths( hwnd, style, ex_style, &close_w, &button_w );
+             if (ex_style & WS_EX_LAYOUTRTL)
+             {
+                 /* Check system menu */
+@@ -2567,18 +2848,18 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
+                 /* Check close button */
+                 if (style & WS_SYSMENU)
+                 {
+-                    rects.window.left += get_system_metrics( SM_CYCAPTION );
++                    rects.window.left += close_w;
+                     if (pt.x < rects.window.left) return HTCLOSE;
+                 }
+ 
+                 if (min_or_max_box && !(ex_style & WS_EX_TOOLWINDOW))
+                 {
+                     /* Check maximize box */
+-                    rects.window.left += get_system_metrics( SM_CXSIZE );
++                    rects.window.left += button_w;
+                     if (pt.x < rects.window.left) return HTMAXBUTTON;
+ 
+                     /* Check minimize box */
+-                    rects.window.left += get_system_metrics( SM_CXSIZE );
++                    rects.window.left += button_w;
+                     if (pt.x < rects.window.left) return HTMINBUTTON;
+                 }
+             }
+@@ -2595,18 +2876,18 @@ LRESULT handle_nc_hit_test( HWND hwnd, POINT pt )
+                 /* Check close button */
+                 if (style & WS_SYSMENU)
+                 {
+-                    rects.window.right -= get_system_metrics( SM_CYCAPTION );
++                    rects.window.right -= close_w;
+                     if (pt.x > rects.window.right) return HTCLOSE;
+                 }
+ 
+                 if (min_or_max_box && !(ex_style & WS_EX_TOOLWINDOW))
+                 {
+                     /* Check maximize box */
+-                    rects.window.right -= get_system_metrics( SM_CXSIZE );
++                    rects.window.right -= button_w;
+                     if (pt.x > rects.window.right) return HTMAXBUTTON;
+ 
+                     /* Check minimize box */
+-                    rects.window.right -= get_system_metrics( SM_CXSIZE );
++                    rects.window.right -= button_w;
+                     if (pt.x > rects.window.right) return HTMINBUTTON;
+                 }
+             }
+@@ -2931,6 +3212,7 @@ static LRESULT handle_nc_mouse_move( HWND hwnd, WPARAM wparam, LPARAM lparam )
  
      TRACE( "hwnd=%p wparam=%#lx lparam=%#lx\n", hwnd, (long)wparam, lparam );
  
