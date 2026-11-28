@@ -3,7 +3,7 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
-## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select: desktop icon selection, selection box, icon right-click menu (branch, device test in progress)
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select: desktop icon selection, selection box, icon menu, combined Properties (branch, DEVICE-PROVEN, not merged)
 - Why: user 15:2x EST: a click on a desktop icon (XP desktop) gives no highlight like Windows. User picked the basic
   version + right-click selects; LATER (user wish): a click-and-drag selection box shown until the button is released.
 - Built bec8724f patch programs_explorer_desktop.c_icon_selection.patch (after programs_explorer_desktop.c.patch in
@@ -57,6 +57,14 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
   lib/wine/aarch64-windows/explorer.exe -> stage /sdcard/Download/.tmp-x/explorer-desk-15003425.exe (sha256 host==device)
   -> container 1 closed (no wineserver) -> rootsh 'sh /sdcard/Download/.tmp-x/desk-swap.sh <exe>' -> user tests Properties
   on 2-3 mixed icons. FIT now has 89d17f10 explorer (md5 5a8e0eaa); originals 9b995bcd in /sdcard/Download/desk-select-backup/.
+- 18:07 EST CI 46076540126 (15003425) GREEN both legs (4 markers ok, verify-layer PASS); explorer md5 dc513086 swapped on the
+  FIT 18:12 EST (after root-bf's BL reinstall ae6ebb3c, which left the layer alone).
+- 18:27 EST USER TEST (screenshot): EA + GOG + Vortex -> one sheet "Properties for EA, GOG GALAXY, ...", 3 files, All of type
+  Shortcut, All in C:\users\Public\Desktop, 1.90 KB (1949 bytes), attributes = DEVICE-PROVEN. User saw the cursor stay an
+  I-beam/resize shape once; 18:59 video (4 icons from both folders: "4 files", "Various folders", 2.60 KB (2664 bytes)) cursor
+  normal, user: "seems ok I might have just hit a fluke" -> not reproduced, cause unknown. logcat 18:12-19:00 0 FATAL.
+- STATE: all four parts device-proven on the FIT (arm64ec, Wayland, container 1). Not merged, not ported to the other 5 parents,
+  not released. FIT keeps the test explorer.exe (dc513086) until the user decides; undo = desk-undo.sh.
 
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/ncrypt-ecdsa MERGED into proton_11.14.1-DroidDeck (fast-forward)
 - Why: the Epic Games Launcher's account linking (Ubisoft) failed with "Invalid Client / 400 Bad Request". Its EOS SDK
