@@ -17,6 +17,9 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
   Run bottom-left, desktop icons column-first (proven), dark power flyout (proven).
 - Round 8 da1e7c2c (CI 46118372613): taskbar hover highlights (HOVER_TIMER 100 ms while over the taskbar), console
   windows get cmd.exe's icon, Run above the taskbar + foreground, shutdown question MB_SETFOREGROUND.
+- da1e7c2c FAILED the source check (my marker still had the old win10_draw_task_button signature); marker fixed
+  76d633b7, CI 46118693601 GREEN (10 marker oks). Round 8 DEVICE-PROVEN 02:08 EST: hover (start/search 16->42,
+  active task 51->61, clears), Run bottom-left above the taskbar + active, cmd task icon.
 
 ## 2026-11-28 — win10 round 6 + self test drive (branch, CI green, swapped on FIT, testing)
 - 00:4x EST user tested round 5 (Dark): theme applied by itself (ThemeManager win10.msstyles Dark), flat buttons, combo,
