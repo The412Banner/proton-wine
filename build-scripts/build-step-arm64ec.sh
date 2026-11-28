@@ -669,7 +669,7 @@ do
       "programs/explorer/desktop.c|static void update_band( HWND hwnd, int x, int y )|desktop selection box"
       "programs/explorer/desktop.c|static void show_launcher_menu( HWND hwnd, unsigned int index, LPARAM lparam )|desktop icon right-click menu"
       "programs/explorer/desktop.c|static void show_multi_properties(void)|combined Properties for several desktop icons"
-      "programs/explorer/systray.c|static void win10_draw_task_button( HDC hdc, struct taskbar_button *win, int width, int height, BOOL down )|Windows 10 style taskbar"
+      "programs/explorer/systray.c|static void win10_draw_task_button( HDC hdc, struct taskbar_button *win, int width, int height, BOOL down,|Windows 10 style taskbar"
       "programs/explorer/systray.c|static HBITMAP build_win10_wallpaper( HDC ref, int width, int height, BOOL dark )|Windows 10 style desktop background"
       "programs/explorer/startmenu.c|void do_win10_startmenu( HWND tray )|Windows 10 style start menu"
       "programs/explorer/desktop.c|static void alpha_frame( HDC hdc, const RECT *rect, COLORREF color, BYTE alpha )|Windows 10 style desktop icon selection"
