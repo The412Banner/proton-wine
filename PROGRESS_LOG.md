@@ -3,6 +3,30 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/win10: Windows 10 style ("win10") for the Wine desktop (branch, CI running)
+- Why: user 19:2x EST "could we also do a windows 10 theme as well?"; HTML preview /sdcard/Download/
+  Wine-Windows10-Style-Preview.html (20:31 EST); user 20:4x "do it all on a new branch from the layer, win10 we will call
+  the theme", then "finish it entirely and only then give it to me to test".
+- Built 45f5b3a4 (branch off parent b53c266f, which has desktop-select): two patches after
+  programs_explorer_desktop.c_icon_selection.patch in both build steps + 5 markers:
+  - programs_explorer_win10_theme.patch (systray.c, startmenu.c, desktop.c, explorer.rc, resource.h, explorer_private.h):
+    win10_style on top of xp_style (Style "win10" / WINE_TASKBAR_STYLE=win10); flat WIN10_BAR #101010 taskbar, 48 px
+    start button with a vector Wine glass (render_wine_glass: GDI at 4x, averaged; no Microsoft art), search button ->
+    Run (do_run_dialog), icon only task buttons (big icon 24 px, accent underline, tooltips via TTN_GETDISPINFOW), clock
+    time + date, Show desktop strip (minimize / restore by PostMessage SC_*), accent per scheme blue #0078d7 / green
+    #498205 / slate #68768a; do_win10_startmenu (rail: expand/user/Documents/Pictures/Settings->Display Properties/
+    Power->Shut down; A-Z list of both start menus with letter headings, folders inline, Wine System folder; wheel/drag/
+    keys); build_win10_wallpaper (radial glow + 4 beams + glass, darker in dark mode; app default wallpaper only); desktop
+    icons: light box + shadowed titles, accent band; Display Properties: third style "Windows 10 style", labels switch,
+    controls checkbox off for win10 (flat default Wine theme), win10 preview.
+  - dlls_win32u_defwnd.c_win10_frames.patch: win10_frame_schemes (white / dark title bars, 1 px accent border, inactive
+    gray), win10_draw_caption_button (flat, thin glyphs, close red when pressed), regular caption font weight.
+- Checks: sims arm64ec 116/116, x86_64 101/101, 5/5 markers; systray.c + startmenu.c compile clean (clang -Wall, mingw
+  headers + Wine shim), desktop.c clean in the new code; defwnd.c not compiled locally (CI). CI 46096484037 (45f5b3a4)
+  started 21:07 EST. Device: NOT tested (user wants it finished first).
+- Test plan: swap explorer.exe (64-bit) + win32u (aarch64-unix win32u.so, aarch64-windows win32u.dll if changed) into the
+  FIT 14.1 layer (backups), user picks "Windows 10 style" in Display Properties.
+
 ## 2026-11-27 — staging/proton_11.14.1-DroidDeck/desktop-select MERGED into proton_11.14.1-DroidDeck (--no-ff)
 - Why: user 19:0x EST "merge but wait to copy to other layers still" (all four parts device-proven on the FIT).
 - Merged 15003425 (branch head 5bd4f31b) as merge commit 6d9a34fd on parent 6d899c3b; only conflict PROGRESS_LOG.md (both
