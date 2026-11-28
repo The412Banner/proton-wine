@@ -1516,7 +1516,7 @@ index 0ed31ea04d3..07b7f67a112 100644
 +    w10_font = w10_small_font = 0;
 +}
 diff --git a/programs/explorer/systray.c b/programs/explorer/systray.c
-index 69b57035a0c..4e56208e014 100644
+index 69b57035a0c..d41ab3e9dc1 100644
 --- a/programs/explorer/systray.c
 +++ b/programs/explorer/systray.c
 @@ -19,6 +19,7 @@
@@ -1527,7 +1527,7 @@ index 69b57035a0c..4e56208e014 100644
  #include <stdlib.h>
  
  #include <windows.h>
-@@ -103,6 +104,11 @@ struct taskbar_button
+@@ -103,6 +104,12 @@ struct taskbar_button
      BOOL        active;
      BOOL        visible;
      HICON       icon;         /* small icon of the owning executable */
@@ -1536,10 +1536,11 @@ index 69b57035a0c..4e56208e014 100644
 +    BOOL        window_icon_loaded;
 +    BOOL        console_checked;
 +    BOOL        fallback_loaded;
++    HICON       console_icon; /* the command prompt's icon for a console window */
      BOOL        icon_loaded;  /* whether we tried to load the icon */
  };
  
-@@ -128,6 +134,7 @@ static WCHAR start_label[50];
+@@ -128,6 +135,7 @@ static WCHAR start_label[50];
  #define SYNC_TIMER        0x101
  #define SIZE_TIMER        0x102
  #define FRAMES_TIMER      0x103
@@ -1547,7 +1548,7 @@ index 69b57035a0c..4e56208e014 100644
  #define FRAMES_DELAY      1200  /* win32u reads the frame settings at most once a second */
  #define SYNC_DELAY        40
  #define SIZE_POLL_DELAY   15
-@@ -158,6 +165,26 @@ static int   sizing_start_y, sizing_start_rows;
+@@ -158,6 +166,26 @@ static int   sizing_start_y, sizing_start_rows;
  static WCHAR start_text[50];
  static WCHAR clock_time[32], clock_day[32], clock_date[32], clock_tip[128];
  
@@ -1574,7 +1575,7 @@ index 69b57035a0c..4e56208e014 100644
  static POINT xp_get_icon_pos( int display );
  static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int width, int height );
  static void xp_sync_taskbar_buttons(void);
-@@ -1006,6 +1033,21 @@ done:
+@@ -1006,6 +1034,21 @@ done:
      return ret;
  }
  
@@ -1596,7 +1597,7 @@ index 69b57035a0c..4e56208e014 100644
  static void add_taskbar_button( HWND hwnd )
  {
      struct taskbar_button *win;
-@@ -1024,6 +1066,7 @@ static void add_taskbar_button( HWND hwnd )
+@@ -1024,6 +1067,7 @@ static void add_taskbar_button( HWND hwnd )
      win->button = CreateWindowW( WC_BUTTONW, NULL, WS_CHILD | BS_OWNERDRAW,
                                   0, 0, 0, 0, tray_window, (HMENU)hwnd, 0, 0 );
      list_add_tail( &taskbar_buttons, &win->entry );
@@ -1604,7 +1605,7 @@ index 69b57035a0c..4e56208e014 100644
  }
  
  static struct taskbar_button *find_taskbar_button( HWND hwnd )
-@@ -1042,8 +1085,19 @@ static void remove_taskbar_button( HWND hwnd )
+@@ -1042,8 +1086,20 @@ static void remove_taskbar_button( HWND hwnd )
  
      if (!win) return;
      list_remove( &win->entry );
@@ -1621,10 +1622,11 @@ index 69b57035a0c..4e56208e014 100644
      DestroyWindow( win->button );
      if (win->icon) DestroyIcon( win->icon );
 +    if (win->big_icon) DestroyIcon( win->big_icon );
++    if (win->console_icon) DestroyIcon( win->console_icon );
      free( win );
  }
  
-@@ -1086,7 +1140,8 @@ static void click_taskbar_button( HWND button )
+@@ -1086,7 +1142,8 @@ static void click_taskbar_button( HWND button )
              start_pressed = TRUE;
              InvalidateRect( button, NULL, FALSE );
              UpdateWindow( button );
@@ -1634,7 +1636,7 @@ index 69b57035a0c..4e56208e014 100644
          }
          else do_startmenu( tray_window );
          if (xp_style)
-@@ -1344,6 +1399,42 @@ UINT get_taskbar_palette(void)
+@@ -1344,6 +1401,42 @@ UINT get_taskbar_palette(void)
      return xp_palette( taskbar_scheme );
  }
  
@@ -1677,7 +1679,7 @@ index 69b57035a0c..4e56208e014 100644
  static const struct gradient_stop start_gradient[] =
  {
      {   0, RGB(0x2f,0x7a,0x2c) }, {   5, RGB(0x78,0xc6,0x6f) }, {  12, RGB(0x60,0xb7,0x58) },
-@@ -1365,6 +1456,7 @@ static int xp_scale( int size )
+@@ -1365,6 +1458,7 @@ static int xp_scale( int size )
  
  static int xp_band_left(void)
  {
@@ -1685,7 +1687,7 @@ index 69b57035a0c..4e56208e014 100644
      return start_button_width + xp_scale( taskbar_locked ? 6 : 14 );
  }
  
-@@ -1445,6 +1537,11 @@ static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int
+@@ -1445,6 +1539,11 @@ static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int
      int split = notify_left - x;  /* start of the notification area */
  
      if (width <= 0 || height <= 0) return;
@@ -1697,7 +1699,7 @@ index 69b57035a0c..4e56208e014 100644
      if (split > 0)
          fill_gradient( hdc, dst_x, dst_y, min( split, width ), height, y, tray_height,
                         scheme->bar, scheme->bar_count );
-@@ -1476,6 +1573,12 @@ static void xp_draw_gripper( HDC hdc, int x )
+@@ -1476,6 +1575,12 @@ static void xp_draw_gripper( HDC hdc, int x )
  static unsigned int xp_clock_lines( const WCHAR **lines )
  {
      lines[0] = clock_time;
@@ -1710,7 +1712,7 @@ index 69b57035a0c..4e56208e014 100644
      if (taskbar_rows < 2) return 1;
      lines[1] = clock_day;
      lines[2] = clock_date;
-@@ -1508,7 +1611,7 @@ static void xp_draw_clock( HDC hdc )
+@@ -1508,7 +1613,7 @@ static void xp_draw_clock( HDC hdc )
      get_clock_rect( &rect );
      top = (tray_height - (int)count * tm.tmHeight) / 2;
      SetBkMode( hdc, TRANSPARENT );
@@ -1719,7 +1721,7 @@ index 69b57035a0c..4e56208e014 100644
      for (i = 0; i < count; i++)
      {
          SetRect( &line, rect.left, top + i * tm.tmHeight, rect.right, top + (i + 1) * tm.tmHeight );
-@@ -1647,6 +1750,12 @@ static void xp_sync_taskbar_buttons(void)
+@@ -1647,6 +1752,12 @@ static void xp_sync_taskbar_buttons(void)
      int spacing = xp_scale( 3 ), margin = xp_scale( 3 ), max_width = xp_scale( 160 ), min_width = xp_scale( 36 );
      int band_left, band_width, per_row, width, count = 0, index = 0, left;
  
@@ -1732,7 +1734,7 @@ index 69b57035a0c..4e56208e014 100644
      left = tray_width - xp_notify_width();
      if (left != notify_left)
      {
-@@ -1710,7 +1819,7 @@ static HICON xp_get_task_icon( struct taskbar_button *win )
+@@ -1710,7 +1821,7 @@ static HICON xp_get_task_icon( struct taskbar_button *win )
          if ((process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid )))
          {
              if (QueryFullProcessImageNameW( process, 0, path, &len ))
@@ -1741,7 +1743,7 @@ index 69b57035a0c..4e56208e014 100644
              CloseHandle( process );
          }
      }
-@@ -1799,6 +1908,414 @@ static void xp_draw_start_button( HDC hdc, int width, int height, BOOL down )
+@@ -1799,6 +1910,416 @@ static void xp_draw_start_button( HDC hdc, int width, int height, BOOL down )
      SelectObject( hdc, old_font );
  }
  
@@ -1960,18 +1962,17 @@ index 69b57035a0c..4e56208e014 100644
 +            HICON big = NULL;
 +
 +            lstrcatW( path, L"\\cmd.exe" );
-+            win->window_icon_loaded = TRUE;
 +            if (ExtractIconExW( path, 0, &big, NULL, 1 ) && big)
 +            {
-+                if (win->big_icon) DestroyIcon( win->big_icon );
-+                win->big_icon = big;
++                if (win->console_icon) DestroyIcon( win->console_icon );
++                win->console_icon = big;
 +            }
 +        }
 +    }
-+    if (win->big_icon) return win->big_icon;
-+    if (win->icon) return small_icon;
-+    /* no icon in the program file (a console window belongs to conhost.exe): the window's own
-+     * icon, as Windows shows it, before the generic one */
++    if (win->console_icon) return win->console_icon;
++
++    /* as the Windows taskbar: the window's own icon first, then its class icon, then the icon
++     * of its program file */
 +    if (!win->window_icon_loaded)
 +    {
 +        DWORD_PTR icon = 0;
@@ -1984,6 +1985,9 @@ index 69b57035a0c..4e56208e014 100644
 +        win->window_icon = (HICON)icon;
 +    }
 +    if (win->window_icon) return win->window_icon;
++    if (win->big_icon) return win->big_icon;
++    if (win->icon) return small_icon;
++
 +    /* nothing at all: the Control Panel icon for control.exe, a plain window icon for the rest,
 +     * never an empty button */
 +    if (!win->fallback_loaded)
@@ -2156,7 +2160,7 @@ index 69b57035a0c..4e56208e014 100644
  static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_button *win )
  {
      BOOL down = (dis->itemState & ODS_SELECTED) != 0;
-@@ -1817,7 +2334,14 @@ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_b
+@@ -1817,7 +2338,14 @@ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_b
      /* rounded corners show the taskbar through */
      MapWindowPoints( dis->hwndItem, tray_window, &origin, 1 );
      xp_draw_background( hdc, 0, 0, origin.x, origin.y, rect.right, rect.bottom );
@@ -2172,7 +2176,7 @@ index 69b57035a0c..4e56208e014 100644
      else xp_draw_task_button( hdc, win, rect.right, rect.bottom, down || win->active );
  
      BitBlt( dis->hDC, 0, 0, rect.right, rect.bottom, hdc, 0, 0, SRCCOPY );
-@@ -1843,7 +2367,12 @@ static void xp_paint_tray( HWND hwnd )
+@@ -1843,7 +2371,12 @@ static void xp_paint_tray( HWND hwnd )
          old_bitmap = SelectObject( mem, bitmap );
          SetWindowOrgEx( mem, ps.rcPaint.left, ps.rcPaint.top, NULL );
          xp_draw_background( mem, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.left, ps.rcPaint.top, width, height );
@@ -2186,7 +2190,7 @@ index 69b57035a0c..4e56208e014 100644
          xp_draw_clock( mem );
          BitBlt( hdc, ps.rcPaint.left, ps.rcPaint.top, width, height, mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY );
          SelectObject( mem, old_bitmap );
-@@ -1880,6 +2409,26 @@ static void xp_update_metrics(void)
+@@ -1880,6 +2413,26 @@ static void xp_update_metrics(void)
      lstrcpynW( start_text, start_label, ARRAY_SIZE(start_text) );
      CharLowerW( start_text );
  
@@ -2213,7 +2217,7 @@ index 69b57035a0c..4e56208e014 100644
      hdc = GetDC( 0 );
      old_font = SelectObject( hdc, xp_font );
      GetTextMetricsW( hdc, &tm );
-@@ -1928,9 +2477,11 @@ static void xp_load_settings(void)
+@@ -1928,9 +2481,11 @@ static void xp_load_settings(void)
      if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, KEY_QUERY_VALUE, &hkey ))
      {
          size = sizeof(style);
@@ -2228,7 +2232,7 @@ index 69b57035a0c..4e56208e014 100644
          size = sizeof(value);
          if (!RegGetValueW( hkey, NULL, L"Rows", RRF_RT_REG_DWORD, NULL, &value, &size ))
              taskbar_rows = max( 1, min( (int)value, TASKBAR_MAX_ROWS ));
-@@ -1952,12 +2503,24 @@ static void xp_load_settings(void)
+@@ -1952,12 +2507,24 @@ static void xp_load_settings(void)
          size = sizeof(value);
          if (!RegGetValueW( hkey, NULL, L"Controls", RRF_RT_REG_DWORD, NULL, &value, &size ))
              xp_controls = value != 0;
@@ -2256,7 +2260,7 @@ index 69b57035a0c..4e56208e014 100644
  }
  
  /*
-@@ -1975,15 +2538,19 @@ static const WCHAR * const saved_theme_values[] = { L"ThemeActive", L"DllName",
+@@ -1975,15 +2542,19 @@ static const WCHAR * const saved_theme_values[] = { L"ThemeActive", L"DllName",
  static const WCHAR * const xp_theme_colors[][2] = { { L"Blue", L"BlueDark" }, { L"Olive", L"OliveDark" },
                                                     { L"Silver", L"SilverDark" } };
  
@@ -2281,7 +2285,7 @@ index 69b57035a0c..4e56208e014 100644
          if (len && len <= size && GetFileAttributesW( path ) != INVALID_FILE_ATTRIBUTES) return TRUE;
      }
      return FALSE;
-@@ -2012,11 +2579,19 @@ static void copy_theme_value( HKEY from, HKEY to, const WCHAR *name )
+@@ -2012,11 +2583,19 @@ static void copy_theme_value( HKEY from, HKEY to, const WCHAR *name )
          RegDeleteValueW( to, name );
  }
  
@@ -2303,7 +2307,7 @@ index 69b57035a0c..4e56208e014 100644
  }
  
  static BOOL CALLBACK post_theme_changed_child( HWND hwnd, LPARAM lparam )
-@@ -2033,7 +2608,7 @@ static BOOL CALLBACK post_theme_changed( HWND hwnd, LPARAM lparam )
+@@ -2033,7 +2612,7 @@ static BOOL CALLBACK post_theme_changed( HWND hwnd, LPARAM lparam )
  }
  
  /* point the theme settings at the XP theme, or back at the theme used before */
@@ -2312,7 +2316,7 @@ index 69b57035a0c..4e56208e014 100644
  {
      WCHAR dll[MAX_PATH], color[64], value[MAX_PATH], xp_path[MAX_PATH];
      BOOL active, changed = FALSE;
-@@ -2053,9 +2628,10 @@ static void apply_xp_controls( BOOL use_xp, UINT scheme )
+@@ -2053,9 +2632,10 @@ static void apply_xp_controls( BOOL use_xp, UINT scheme )
      if (!get_theme_value( theme, L"ColorName", color, ARRAY_SIZE(color) )) color[0] = 0;
      active = get_theme_value( theme, L"ThemeActive", value, ARRAY_SIZE(value) ) && value[0] != '0';
  
@@ -2325,7 +2329,7 @@ index 69b57035a0c..4e56208e014 100644
  
          if (!active || !is_xp_theme( dll ))
          {
-@@ -2070,9 +2646,11 @@ static void apply_xp_controls( BOOL use_xp, UINT scheme )
+@@ -2070,9 +2650,11 @@ static void apply_xp_controls( BOOL use_xp, UINT scheme )
              set_theme_value( theme, L"ThemeActive", L"1" );
              changed = TRUE;
          }
@@ -2338,7 +2342,7 @@ index 69b57035a0c..4e56208e014 100644
              changed = TRUE;
          }
      }
-@@ -2196,10 +2774,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
+@@ -2196,10 +2778,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
      SetTimer( tray_window, SYNC_TIMER, SYNC_DELAY, NULL );
  }
  
@@ -2367,7 +2371,7 @@ index 69b57035a0c..4e56208e014 100644
      if (xp_initialized)
      {
          /* switching back from the classic style */
-@@ -2318,9 +2914,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
+@@ -2318,9 +2918,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
      return bitmap;
  }
  
@@ -2485,7 +2489,7 @@ index 69b57035a0c..4e56208e014 100644
      BOOL dark = is_dark_theme();
      HGDIOBJ old;
      RECT rect;
-@@ -2329,13 +3033,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
+@@ -2329,13 +3037,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
      if (!use_xp_wallpaper( xp_style, xp_wallpaper )) return FALSE;
      GetClientRect( hwnd, &rect );
      if (!wallpaper_cache || rect.right != wallpaper_cache_width || rect.bottom != wallpaper_cache_height ||
@@ -2502,7 +2506,7 @@ index 69b57035a0c..4e56208e014 100644
      }
      if (!wallpaper_cache || !(mem = CreateCompatibleDC( hdc ))) return FALSE;
      old = SelectObject( mem, wallpaper_cache );
-@@ -2362,7 +3067,8 @@ void reset_xp_wallpaper(void)
+@@ -2362,7 +3071,8 @@ void reset_xp_wallpaper(void)
  
  struct display_settings
  {
@@ -2512,7 +2516,7 @@ index 69b57035a0c..4e56208e014 100644
      UINT scheme;
      int  rows;
      BOOL locked;
-@@ -2370,9 +3076,12 @@ struct display_settings
+@@ -2370,9 +3080,12 @@ struct display_settings
      BOOL frames;
      BOOL wallpaper;
      BOOL controls;
@@ -2525,7 +2529,7 @@ index 69b57035a0c..4e56208e014 100644
  
  /* only the frame is invalidated, the windows are not moved or resized */
  static BOOL CALLBACK refresh_frame_proc( HWND hwnd, LPARAM lparam )
-@@ -2402,19 +3111,30 @@ static void invalidate_taskbar(void)
+@@ -2402,19 +3115,30 @@ static void invalidate_taskbar(void)
      }
  }
  
@@ -2559,7 +2563,7 @@ index 69b57035a0c..4e56208e014 100644
      }
      do_show_systray();
  }
-@@ -2431,7 +3151,7 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2431,7 +3155,7 @@ static void apply_display_settings( const struct display_settings *settings )
      if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, NULL, 0,
                            KEY_SET_VALUE, NULL, &hkey, NULL ))
      {
@@ -2568,7 +2572,7 @@ index 69b57035a0c..4e56208e014 100644
  
          RegSetValueExW( hkey, L"Style", 0, REG_SZ, (const BYTE *)style, (lstrlenW( style ) + 1) * sizeof(WCHAR) );
          RegCloseKey( hkey );
-@@ -2444,17 +3164,28 @@ static void apply_display_settings( const struct display_settings *settings )
+@@ -2444,17 +3168,28 @@ static void apply_display_settings( const struct display_settings *settings )
      xp_save_setting( L"Wallpaper", settings->wallpaper );
      xp_save_setting( L"Controls", settings->controls );
      xp_controls = settings->controls;
@@ -2600,7 +2604,7 @@ index 69b57035a0c..4e56208e014 100644
      else do_show_systray();
      invalidate_taskbar();
  }
-@@ -2479,7 +3210,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+@@ -2479,7 +3214,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
  {
      LRESULT sel;
  
@@ -2612,7 +2616,7 @@ index 69b57035a0c..4e56208e014 100644
      sel = SendDlgItemMessageW( dlg, IDC_DP_SCHEME, CB_GETCURSEL, 0, 0 );
      settings->scheme = sel > 0 ? sel : 0;
      sel = SendDlgItemMessageW( dlg, IDC_DP_ROWS, CB_GETCURSEL, 0, 0 );
-@@ -2489,17 +3223,38 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+@@ -2489,17 +3227,38 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
      settings->frames = IsDlgButtonChecked( dlg, IDC_DP_FRAMES ) == BST_CHECKED;
      settings->wallpaper = IsDlgButtonChecked( dlg, IDC_DP_WALLPAPER ) == BST_CHECKED;
      settings->controls = IsDlgButtonChecked( dlg, IDC_DP_CONTROLS ) == BST_CHECKED;
@@ -2652,7 +2656,7 @@ index 69b57035a0c..4e56208e014 100644
      InvalidateRect( GetDlgItem( dlg, IDC_DP_PREVIEW ), NULL, FALSE );
  }
  
-@@ -2524,7 +3279,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2524,7 +3283,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
      if (use_xp_wallpaper( settings->xp, settings->wallpaper ))
      {
@@ -2661,7 +2665,7 @@ index 69b57035a0c..4e56208e014 100644
          HDC background_dc = CreateCompatibleDC( hdc );
          HGDIOBJ old_background = SelectObject( background_dc, background );
  
-@@ -2554,7 +3309,20 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2554,7 +3313,20 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
  
          if (wh > cap + 6)
          {
@@ -2683,7 +2687,7 @@ index 69b57035a0c..4e56208e014 100644
              {
                  fill_solid( hdc, wx, wy, ww, wh, caption[index][2] );
                  fill_gradient2( hdc, wx, wy, ww, cap / 2, caption[index][0], caption[index][1] );
-@@ -2577,7 +3345,29 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2577,7 +3349,29 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
          }
      }
  
@@ -2714,7 +2718,7 @@ index 69b57035a0c..4e56208e014 100644
      {
          fill_gradient( hdc, 0, top, width, bar, 0, bar, scheme->bar, scheme->bar_count );
          fill_gradient( hdc, width - bar * 3, top, bar * 3, bar, 0, bar, scheme->notify, scheme->notify_count );
-@@ -2621,9 +3411,121 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+@@ -2621,9 +3415,121 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
      DeleteDC( hdc );
  }
  
@@ -2837,7 +2841,7 @@ index 69b57035a0c..4e56208e014 100644
      static const UINT scheme_ids[] = { IDS_DP_SCHEME_BLUE, IDS_DP_SCHEME_OLIVE, IDS_DP_SCHEME_SILVER };
      static const UINT rows_ids[] = { IDS_TASKBAR_ROWS1, IDS_TASKBAR_ROWS2, IDS_TASKBAR_ROWS3 };
      struct display_settings settings;
-@@ -2632,7 +3534,10 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2632,7 +3538,10 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
      {
      case WM_INITDIALOG:
          display_dialog = dlg;
@@ -2849,7 +2853,7 @@ index 69b57035a0c..4e56208e014 100644
          load_combo_strings( GetDlgItem( dlg, IDC_DP_SCHEME ), scheme_ids, ARRAY_SIZE(scheme_ids), get_taskbar_scheme() );
          load_combo_strings( GetDlgItem( dlg, IDC_DP_ROWS ), rows_ids, ARRAY_SIZE(rows_ids), taskbar_rows - 1 );
          CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
-@@ -2640,10 +3545,17 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2640,10 +3549,17 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
          CheckDlgButton( dlg, IDC_DP_FRAMES, xp_frames ? BST_CHECKED : BST_UNCHECKED );
          CheckDlgButton( dlg, IDC_DP_CONTROLS, xp_controls ? BST_CHECKED : BST_UNCHECKED );
          CheckDlgButton( dlg, IDC_DP_WALLPAPER, xp_wallpaper ? BST_CHECKED : BST_UNCHECKED );
@@ -2867,7 +2871,7 @@ index 69b57035a0c..4e56208e014 100644
          if (wparam != IDC_DP_PREVIEW) break;
          get_dialog_settings( dlg, &settings );
          draw_display_preview( (const DRAWITEMSTRUCT *)lparam, &settings );
-@@ -2662,8 +3574,14 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+@@ -2662,8 +3578,14 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
          case IDC_DP_FRAMES:
          case IDC_DP_CONTROLS:
          case IDC_DP_WALLPAPER:
@@ -2882,7 +2886,7 @@ index 69b57035a0c..4e56208e014 100644
          case IDC_DP_APPLY:
          case IDOK:
              get_dialog_settings( dlg, &settings );
-@@ -2695,6 +3613,12 @@ static void show_display_properties( HWND owner )
+@@ -2695,6 +3617,12 @@ static void show_display_properties( HWND owner )
      if (owner && !IsWindowEnabled( owner )) EnableWindow( owner, TRUE );
  }
  
@@ -2895,7 +2899,7 @@ index 69b57035a0c..4e56208e014 100644
  /* right click on the desktop */
  void show_desktop_menu( HWND hwnd, LPARAM lparam )
  {
-@@ -2834,6 +3758,9 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2834,6 +3762,9 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
      case WM_TIMER:
          switch (wparam)
          {
@@ -2905,7 +2909,7 @@ index 69b57035a0c..4e56208e014 100644
          case CLOCK_TIMER:
              if (xp_update_clock())
              {
-@@ -2870,6 +3797,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2870,6 +3801,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          break;
  
      case WM_LBUTTONDOWN:
@@ -2918,7 +2922,7 @@ index 69b57035a0c..4e56208e014 100644
          if (xp_style && !taskbar_locked)
          {
              POINT pt;
-@@ -2888,6 +3821,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2888,6 +3825,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  
      case WM_LBUTTONUP:
@@ -2937,7 +2941,7 @@ index 69b57035a0c..4e56208e014 100644
          if (sizing_taskbar)
          {
              xp_update_sizing();
-@@ -2896,7 +3841,42 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+@@ -2896,7 +3845,42 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
          }
          return DefWindowProcW( hwnd, msg, wparam, lparam );
  
@@ -2980,7 +2984,7 @@ index 69b57035a0c..4e56208e014 100644
          if (xp_style && !taskbar_locked && (HWND)wparam == hwnd && LOWORD(lparam) == HTCLIENT)
          {
              POINT pt;
-@@ -3018,7 +3998,7 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
+@@ -3018,7 +4002,7 @@ void initialize_systray( BOOL arg_using_root, BOOL arg_enable_shell, BOOL arg_sh
      if (enable_taskbar)
      {
          xp_load_settings();

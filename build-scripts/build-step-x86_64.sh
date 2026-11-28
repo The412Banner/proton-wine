@@ -297,6 +297,7 @@ do
       # (explorer), window frames (win32u); no Microsoft artwork, the Wine glass is drawn
       "programs_explorer_win10_theme.patch"
       "dlls_win32u_defwnd.c_win10_frames.patch"
+      "dlls_shell32_control.c_window_background.patch"
       "programs_wineboot_wineboot.c.patch"
       "programs_winebrowser_Makefile.in.patch"
       "programs_winebrowser_main.c.patch"
