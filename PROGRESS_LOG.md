@@ -3,7 +3,7 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
-## 2026-11-27 — staging/proton_11.14.1-DroidDeck/win10: Windows 10 style ("win10") for the Wine desktop (branch, CI running)
+## 2026-11-27 — staging/proton_11.14.1-DroidDeck/win10: Windows 10 style ("win10") for the Wine desktop (branch, CI green, on the FIT for testing)
 - Why: user 19:2x EST "could we also do a windows 10 theme as well?"; HTML preview /sdcard/Download/
   Wine-Windows10-Style-Preview.html (20:31 EST); user 20:4x "do it all on a new branch from the layer, win10 we will call
   the theme", then "finish it entirely and only then give it to me to test".
@@ -23,7 +23,13 @@ Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers
     gray), win10_draw_caption_button (flat, thin glyphs, close red when pressed), regular caption font weight.
 - Checks: sims arm64ec 116/116, x86_64 101/101, 5/5 markers; systray.c + startmenu.c compile clean (clang -Wall, mingw
   headers + Wine shim), desktop.c clean in the new code; defwnd.c not compiled locally (CI). CI 46096484037 (45f5b3a4)
-  started 21:07 EST. Device: NOT tested (user wants it finished first).
+  started 21:07 EST -> GREEN both legs 21:33 EST (both patches applied, 5/5 markers ok, verify-layer PASS, no compiler
+  output for the changed files).
+- 21:34 EST SWAPPED on the FIT (container 1, layer 11.0-14.1-arm64ec-18): explorer.exe md5 bbd03b35 (layer + C:\windows +
+  system32) and lib/wine/aarch64-unix/win32u.so md5 a4b08af9 (only file that changes: the PE win32u.dll differs by its
+  4-byte timestamp; win32u.so is reproducible, previous build == installed 477deb4d). Backups: win32u.so.orig 477deb4d in
+  /sdcard/Download/win10-backup/, explorer originals 9b995bcd in desk-select-backup/. Undo: rootsh 'sh
+  /sdcard/Download/.tmp-x/win10-undo.sh' (Wine stopped). Device test: pending (user switches to "Windows 10 style").
 - Test plan: swap explorer.exe (64-bit) + win32u (aarch64-unix win32u.so, aarch64-windows win32u.dll if changed) into the
   FIT 14.1 layer (backups), user picks "Windows 10 style" in Display Properties.
 
