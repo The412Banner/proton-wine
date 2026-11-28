@@ -903,6 +903,27 @@ TextColor = {rgb(s['text_disabled'])}
 [Edit.EditText(ReadOnly)]
 FillColor = {rgb(s['field_disabled'])}
 
+[ListView]
+BgType = BorderFill
+BorderSize = 1
+BorderColor = {rgb(s['edit_border'])}
+FillColor = {rgb(s['field'])}
+TextColor = {rgb(s['text'])}
+
+[ListBox]
+BgType = BorderFill
+BorderSize = 1
+BorderColor = {rgb(s['edit_border'])}
+FillColor = {rgb(s['field'])}
+TextColor = {rgb(s['text'])}
+
+[TreeView]
+BgType = BorderFill
+BorderSize = 1
+BorderColor = {rgb(s['edit_border'])}
+FillColor = {rgb(s['field'])}
+TextColor = {rgb(s['text'])}
+
 [Spin.Up]
 BgType = ImageFile
 ImageFile = {name}_spin_button.bmp
@@ -1094,7 +1115,10 @@ SizingMargins = 3, 3, 3, 3
 Transparent = True
 
 [Status]
-BgType = None
+BgType = BorderFill
+BorderSize = 0
+FillColor = {rgb(s['edge']['fill'])}
+TextColor = {rgb(s['text'])}
 
 [Status.Pane]
 BgType = ImageFile
