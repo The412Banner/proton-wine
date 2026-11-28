@@ -113,7 +113,7 @@ index aab1300c4a0..96d90151892 100644
              draw_launcher_icon( hdc, launcher, icon );
  
 diff --git a/programs/explorer/explorer.rc b/programs/explorer/explorer.rc
-index 711a0e323e4..e6731d15945 100644
+index 711a0e323e4..0cf55e01a57 100644
 --- a/programs/explorer/explorer.rc
 +++ b/programs/explorer/explorer.rc
 @@ -65,6 +65,25 @@ STRINGTABLE
@@ -126,7 +126,7 @@ index 711a0e323e4..e6731d15945 100644
 +    IDS_DP_CONTROLS_XP  "XP style b&uttons and controls"
 +    IDS_DP_CONTROLS_WIN10 "Windows 10 style b&uttons and controls"
 +    IDS_DP_WALLPAPER_XP "Wine XP desktop &background (follows the light or dark theme)"
-+    IDS_DP_WALLPAPER_WIN10 "Wine Windows 10 desktop &background (follows the light or dark theme)"
++    IDS_DP_WALLPAPER_WIN10 "Wine Windows 10 desktop &background"
 +    IDS_W10_DOCUMENTS   "Documents"
 +    IDS_W10_PICTURES    "Pictures"
 +    IDS_W10_SETTINGS    "Settings"
