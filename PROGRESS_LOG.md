@@ -3,6 +3,23 @@
 Newest entry at the top. The main log lives on `proton_11.0-2`; this file covers the GE-Proton 11.0-14 layer and, on
 `proton_11.14.1-DroidDeck`, the DroidDeck-Proton 11.0-14.1 layer built on it.
 
+## 2026-11-27 — win10 round 4: label fix + caption button hover (branch, CI running, NOT device-tested)
+- 23:2x EST user tested round 3 (dark title bars, border, tiles, Control Panel icon, picker button): works.
+  User switched to a dark theme (registry: ThemeManager DllName winexp.msstyles, ColorName SilverDark, set after the
+  last Display Properties apply) -> dialogs dark, dark wallpaper.
+- eca1929d: win10 wallpaper label shortened to "Wine Windows 10 desktop &background" (was clipped; XP label unchanged),
+  user "fix it". CI 46107920242.
+- 7bc6949f (user 23:3x "window title bar buttons don't get highlighted like start menu options"): win10 caption buttons
+  hover: min/max light grey (dark 0x3a3a3a / light 0xe5e5e5), close red 0xe81123, pressed lighter (close 0xf1707a);
+  WM_NCMOUSEMOVE lights, SYSTEM_TIMER_CAPTION_HOT (0xfff9, 100 ms, dispatched in NtUserDispatchMessage) puts it out
+  when the pointer leaves the button/window (no TrackMouseEvent, so programs' own tracking is untouched); grayed
+  buttons stay unlit. Files: defwnd.c, message.c, ntuser_private.h, win32u_private.h (all in the frames patch; none of
+  the 15 later patches touch them). Not compiled locally (unix side). CI 46108531492.
+- User 23:35 "why dont other windows also follow the dark theme correctly" (Pale Moon): answered = theme file in use is
+  winexp SilverDark (XP parts, some light), win10 has no msstyles of its own (reuses light.msstyles, no dark variant),
+  Pale Moon/Steam/CEF apps draw their own title bars, web pages are the site's. Offered: win10.msstyles light+dark
+  (big job). Awaiting user.
+
 ## 2026-11-27 — win10 round 3: accent color picker, dark grey default, dark title bars (branch, CI running, NOT device-tested)
 - Why: user 22:54 EST screenshot of round 2 (2/3 height, tiles, hover scroll bar, cog, bold glass all seen working);
   "are the tiles supposed to be gray?" (accent came from Scheme 2 = slate); user 22:5x "B, I feel like a dark gray to
