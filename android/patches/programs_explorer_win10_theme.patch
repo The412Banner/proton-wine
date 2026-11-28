@@ -1,0 +1,2072 @@
+diff --git a/programs/explorer/desktop.c b/programs/explorer/desktop.c
+index aab1300c4a0..2c8f29de823 100644
+--- a/programs/explorer/desktop.c
++++ b/programs/explorer/desktop.c
+@@ -419,25 +419,54 @@ static void mouse_up( HWND hwnd, int x, int y )
+     }
+ }
+ 
+-/* the box as Windows XP draws it: the highlight colour, translucent inside, solid border */
+-static void draw_band( HDC hdc )
++/* fill a rectangle with a translucent color */
++static void alpha_fill( HDC hdc, const RECT *rect, COLORREF color, BYTE alpha )
+ {
+-    static const BLENDFUNCTION blend = { AC_SRC_OVER, 0, 0x50, 0 };
+-    HDC mem = CreateCompatibleDC( hdc );
+-    HBITMAP bitmap = CreateCompatibleBitmap( hdc, 1, 1 );
++    BLENDFUNCTION blend = { AC_SRC_OVER, 0, alpha, 0 };
++    HDC mem;
++    HBITMAP bitmap;
+ 
++    if (rect->right <= rect->left || rect->bottom <= rect->top) return;
++    mem = CreateCompatibleDC( hdc );
++    bitmap = CreateCompatibleBitmap( hdc, 1, 1 );
+     if (mem && bitmap)
+     {
+         HGDIOBJ old = SelectObject( mem, bitmap );
+ 
+-        SetPixel( mem, 0, 0, GetSysColor( COLOR_HIGHLIGHT ) );
+-        GdiAlphaBlend( hdc, band.rect.left, band.rect.top, band.rect.right - band.rect.left,
+-                       band.rect.bottom - band.rect.top, mem, 0, 0, 1, 1, blend );
++        SetPixel( mem, 0, 0, color );
++        GdiAlphaBlend( hdc, rect->left, rect->top, rect->right - rect->left, rect->bottom - rect->top,
++                       mem, 0, 0, 1, 1, blend );
+         SelectObject( mem, old );
+     }
+     if (bitmap) DeleteObject( bitmap );
+     if (mem) DeleteDC( mem );
+-    FrameRect( hdc, &band.rect, GetSysColorBrush( COLOR_HIGHLIGHT ) );
++}
++
++/* a one pixel translucent frame */
++static void alpha_frame( HDC hdc, const RECT *rect, COLORREF color, BYTE alpha )
++{
++    RECT line;
++
++    SetRect( &line, rect->left, rect->top, rect->right, rect->top + 1 );
++    alpha_fill( hdc, &line, color, alpha );
++    SetRect( &line, rect->left, rect->bottom - 1, rect->right, rect->bottom );
++    alpha_fill( hdc, &line, color, alpha );
++    SetRect( &line, rect->left, rect->top + 1, rect->left + 1, rect->bottom - 1 );
++    alpha_fill( hdc, &line, color, alpha );
++    SetRect( &line, rect->right - 1, rect->top + 1, rect->right, rect->bottom - 1 );
++    alpha_fill( hdc, &line, color, alpha );
++}
++
++/* the box as Windows draws it: translucent inside, solid border; in the accent color for the
++ * Windows 10 style, the highlight color otherwise */
++static void draw_band( HDC hdc )
++{
++    COLORREF color = is_win10_style() ? get_accent_color() : GetSysColor( COLOR_HIGHLIGHT );
++    HBRUSH brush = CreateSolidBrush( color );
++
++    alpha_fill( hdc, &band.rect, color, 0x50 );
++    FrameRect( hdc, &band.rect, brush );
++    DeleteObject( brush );
+ }
+ 
+ /* in-place rename of a launcher title, as on Windows */
+@@ -898,10 +927,11 @@ static RECT get_title_box( HDC hdc, unsigned int index, const WCHAR *text )
+     return box;
+ }
+ 
+-/* a selected launcher has its icon tinted with the highlight colour, as Windows draws it */
++/* a selected launcher has its icon tinted with the highlight colour, as Windows XP draws it
++ * (the Windows 10 style puts a light box behind the whole launcher instead) */
+ static void draw_launcher_icon( HDC hdc, const struct launcher *launcher, RECT rect )
+ {
+-    if (launcher->selected)
++    if (launcher->selected && !is_win10_style())
+     {
+         HIMAGELIST list = ImageList_Create( icon_cx, icon_cy, ILC_COLOR32 | ILC_MASK, 1, 0 );
+         BOOL drawn = FALSE;
+@@ -934,6 +964,31 @@ static void draw_launchers( HDC hdc, RECT update_rect )
+         RECT dummy, icon = get_icon_rect( i ), title = get_title_rect( i );
+         const struct launcher *launcher = launchers[i];
+ 
++        if (is_win10_style())
++        {
++            RECT cell = get_launcher_rect( i ), text = get_title_box( hdc, i, launcher->title ), box;
++
++            if (!IntersectRect( &dummy, &cell, &update_rect )) continue;
++            if (launcher->selected)
++            {
++                /* a light box around the icon and its title */
++                BOOL focus = launcher == focus_launcher;
++
++                SetRect( &box, cell.left + 2, icon.top - 3, cell.right - 2, text.bottom + 2 );
++                alpha_fill( hdc, &box, RGB(0x99,0xd1,0xff), focus ? 0x6b : 0x55 );
++                alpha_frame( hdc, &box, focus ? RGB(0xbe,0xe4,0xff) : RGB(0x99,0xd1,0xff), focus ? 0xd9 : 0x8c );
++            }
++            DrawIconEx( hdc, icon.left, icon.top, launcher->icon, icon_cx, icon_cy, 0, 0, DI_DEFAULTSIZE|DI_NORMAL );
++            /* white titles with a shadow, readable on any background */
++            OffsetRect( &title, 1, 1 );
++            SetTextColor( hdc, RGB(0,0,0) );
++            DrawTextW( hdc, launcher->title, -1, &title, DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
++            OffsetRect( &title, -1, -1 );
++            SetTextColor( hdc, RGB(255,255,255) );
++            DrawTextW( hdc, launcher->title, -1, &title, DT_CENTER|DT_WORDBREAK|DT_EDITCONTROL|DT_END_ELLIPSIS );
++            continue;
++        }
++
+         if (IntersectRect( &dummy, &icon, &update_rect ))
+             draw_launcher_icon( hdc, launcher, icon );
+ 
+diff --git a/programs/explorer/explorer.rc b/programs/explorer/explorer.rc
+index 711a0e323e4..344d50eb183 100644
+--- a/programs/explorer/explorer.rc
++++ b/programs/explorer/explorer.rc
+@@ -65,6 +65,21 @@ STRINGTABLE
+     IDS_MP_ALL_IN "All in %s"
+     IDS_MP_VARIOUS_FOLDERS "Various folders"
+     IDS_MP_SIZE "%s (%s bytes)"
++    IDS_DP_STYLE_WIN10  "Windows 10 style"
++    IDS_DP_FRAMES_XP    "XP style title bars and window &frames"
++    IDS_DP_FRAMES_WIN10 "Windows 10 style title bars and window &frames"
++    IDS_DP_CONTROLS_XP  "XP style b&uttons and controls"
++    IDS_DP_CONTROLS_WIN10 "Windows 10 style b&uttons and controls"
++    IDS_DP_WALLPAPER_XP "Wine XP desktop &background (follows the light or dark theme)"
++    IDS_DP_WALLPAPER_WIN10 "Wine Windows 10 desktop &background (follows the light or dark theme)"
++    IDS_W10_DOCUMENTS   "Documents"
++    IDS_W10_PICTURES    "Pictures"
++    IDS_W10_SETTINGS    "Settings"
++    IDS_W10_POWER       "Power"
++    IDS_W10_SHUT_DOWN   "Shut down"
++    IDS_W10_WINE_SYSTEM "Wine System"
++    IDS_W10_START       "START"
++    IDS_W10_RUN         "Run"
+ }
+ 
+ IDD_DISPLAY_PROPERTIES DIALOGEX 0, 0, 262, 286
+diff --git a/programs/explorer/explorer_private.h b/programs/explorer/explorer_private.h
+index 630427ccce3..23b955e6a0c 100644
+--- a/programs/explorer/explorer_private.h
++++ b/programs/explorer/explorer_private.h
+@@ -27,6 +27,11 @@ extern void initialize_appbar(void);
+ extern void handle_parent_notify( HWND hwnd, WPARAM wp );
+ extern void do_startmenu( HWND owner );
+ extern void do_xp_startmenu( HWND tray );
++extern void do_win10_startmenu( HWND tray );
++extern void do_run_dialog(void);
++extern BOOL is_win10_style(void);
++extern COLORREF get_accent_color(void);
++extern void show_theme_settings(void);
+ extern UINT get_taskbar_scheme(void);
+ extern UINT get_taskbar_palette(void);
+ extern void show_desktop_menu( HWND hwnd, LPARAM lparam );
+diff --git a/programs/explorer/resource.h b/programs/explorer/resource.h
+index c0ebf076a27..b65154d95ad 100644
+--- a/programs/explorer/resource.h
++++ b/programs/explorer/resource.h
+@@ -59,6 +59,21 @@
+ #define IDS_MP_ALL_IN 41
+ #define IDS_MP_VARIOUS_FOLDERS 42
+ #define IDS_MP_SIZE 43
++#define IDS_DP_STYLE_WIN10 50
++#define IDS_DP_FRAMES_XP 51
++#define IDS_DP_FRAMES_WIN10 52
++#define IDS_DP_CONTROLS_XP 53
++#define IDS_DP_CONTROLS_WIN10 54
++#define IDS_DP_WALLPAPER_XP 55
++#define IDS_DP_WALLPAPER_WIN10 56
++#define IDS_W10_DOCUMENTS 57
++#define IDS_W10_PICTURES 58
++#define IDS_W10_SETTINGS 59
++#define IDS_W10_POWER 60
++#define IDS_W10_SHUT_DOWN 61
++#define IDS_W10_WINE_SYSTEM 62
++#define IDS_W10_START 63
++#define IDS_W10_RUN 64
+ 
+ #define IDI_WINE_LOGO 100
+ #define IDB_WALLPAPER_LIGHT 110
+diff --git a/programs/explorer/startmenu.c b/programs/explorer/startmenu.c
+index 0ed31ea04d3..a55e23d1d1b 100644
+--- a/programs/explorer/startmenu.c
++++ b/programs/explorer/startmenu.c
+@@ -2047,3 +2047,866 @@ void do_xp_startmenu( HWND tray )
+     if (xp_logo) DestroyIcon( xp_logo );
+     xp_logo = 0;
+ }
++
++/* the Run dialog, for the search button of the Windows 10 style taskbar */
++void do_run_dialog(void)
++{
++    run_dialog();
++}
++
++/*
++ * Windows 10 style start menu, used with the win10 taskbar: a rail of icons on the left and the
++ * programs of both start menus in alphabetical order under letter headings, folders open in
++ * place. Painted by hand like the Luna start menu.
++ */
++
++enum w10_rail
++{
++    W10_RAIL_MENU,           /* at the top, shows the names next to the icons */
++    W10_RAIL_USER,
++    W10_RAIL_DOCUMENTS,
++    W10_RAIL_PICTURES,
++    W10_RAIL_SETTINGS,
++    W10_RAIL_POWER,
++    W10_RAIL_COUNT
++};
++
++enum w10_action
++{
++    W10_NONE,
++    W10_LAUNCH,
++    W10_FOLDER,
++    W10_RUN,
++    W10_SHUT_DOWN,
++    W10_SETTINGS,
++};
++
++struct w10_node
++{
++    WCHAR name[MAX_PATH];
++    WCHAR path[MAX_PATH];    /* the file, or the directory of a folder */
++    WCHAR path2[MAX_PATH];   /* the same folder in the other start menu */
++    BOOL  folder;
++    BOOL  loaded;            /* the children are listed */
++    BOOL  expanded;
++    BOOL  run;               /* the Run entry of the Wine System folder */
++    BOOL  icon_loaded;
++    HICON icon;
++    struct w10_node *children;
++    unsigned int     child_count;
++};
++
++struct w10_row
++{
++    struct w10_node *node;   /* NULL for a letter heading */
++    WCHAR letter;
++    int   depth;
++    int   top;               /* in list coordinates */
++};
++
++#define W10_BACK       RGB(0x1f,0x1f,0x1f)
++#define W10_RAIL_BACK  RGB(0x2b,0x2b,0x2b)
++#define W10_HOT_BACK   RGB(0x3a,0x3a,0x3a)
++#define W10_TEXT       RGB(0xff,0xff,0xff)
++#define W10_SCROLL     RGB(0x80,0x80,0x80)
++
++static struct w10_node w10_root;
++static struct w10_row *w10_rows;
++static unsigned int w10_row_count, w10_row_capacity;
++static int  w10_content_height, w10_scroll, w10_width, w10_height;
++static int  w10_hot_row = -1, w10_hot_rail = -1;
++static BOOL w10_rail_wide, w10_done, w10_in_popup, w10_button_down, w10_dragging;
++static POINT w10_down_pt;
++static int  w10_down_scroll;
++static UINT w10_dpi = USER_DEFAULT_SCREEN_DPI;
++static HWND w10_window, w10_tray;
++static HFONT w10_font;
++static HICON w10_folder_icon;
++static WCHAR w10_user[64];
++static enum w10_action w10_action;
++static int  w10_action_csidl;
++static WCHAR w10_action_path[MAX_PATH];
++
++static int w10_px( int size )
++{
++    return MulDiv( size, w10_dpi, USER_DEFAULT_SCREEN_DPI );
++}
++
++static int w10_row_height(void)   { return w10_px( 36 ); }
++static int w10_rail_item(void)    { return w10_px( 48 ); }
++static int w10_rail_width(void)   { return w10_rail_wide ? w10_px( 220 ) : w10_rail_item(); }
++
++static void w10_fill( HDC hdc, int x, int y, int width, int height, COLORREF color )
++{
++    HGDIOBJ old_brush = SelectObject( hdc, GetStockObject( DC_BRUSH ));
++
++    SetDCBrushColor( hdc, color );
++    PatBlt( hdc, x, y, width, height, PATCOPY );
++    SelectObject( hdc, old_brush );
++}
++
++/* a menu string without its accelerator prefix */
++static void w10_load_string( UINT id, WCHAR *str, int size )
++{
++    WCHAR *src, *dst;
++
++    if (!LoadStringW( NULL, id, str, size )) str[0] = 0;
++    for (src = dst = str; *src; src++) if (*src != '&') *dst++ = *src;
++    *dst = 0;
++}
++
++static int __cdecl w10_compare_nodes( const void *a, const void *b )
++{
++    return lstrcmpiW( ((const struct w10_node *)a)->name, ((const struct w10_node *)b)->name );
++}
++
++static struct w10_node *w10_add_child( struct w10_node *parent )
++{
++    struct w10_node *children = realloc( parent->children, (parent->child_count + 1) * sizeof(*children) );
++
++    if (!children) return NULL;
++    parent->children = children;
++    memset( &children[parent->child_count], 0, sizeof(*children) );
++    return &children[parent->child_count++];
++}
++
++/* move the entries found by xp_add_dir_nodes under parent, only the files if files_only */
++static void w10_take_nodes( struct w10_node *parent, const struct xp_level *level, BOOL files_only )
++{
++    unsigned int i, j;
++
++    for (i = 0; i < level->count; i++)
++    {
++        const struct xp_node *src = &level->nodes[i];
++        struct w10_node *node;
++
++        if (files_only && src->folder) continue;
++        for (j = 0; j < parent->child_count; j++)
++            if (parent->children[j].folder == src->folder && !lstrcmpiW( parent->children[j].name, src->name )) break;
++        if (j < parent->child_count) continue;  /* in both places */
++        if (!(node = w10_add_child( parent ))) break;
++        lstrcpyW( node->name, src->name );
++        lstrcpyW( node->path, src->path );
++        lstrcpyW( node->path2, src->path2 );
++        node->folder = src->folder;
++    }
++    qsort( parent->children, parent->child_count, sizeof(*parent->children), w10_compare_nodes );
++}
++
++static void w10_scan( struct w10_node *parent, const WCHAR *dir, const WCHAR *dir2, BOOL files_only )
++{
++    struct xp_level level;
++    unsigned int capacity = 0;
++
++    memset( &level, 0, sizeof(level) );
++    if (dir && dir[0]) xp_add_dir_nodes( &level, &capacity, dir );
++    if (dir2 && dir2[0]) xp_add_dir_nodes( &level, &capacity, dir2 );
++    w10_take_nodes( parent, &level, files_only );
++    free( level.nodes );
++}
++
++static void w10_add_program( struct w10_node *parent, UINT string_id, const WCHAR *name )
++{
++    WCHAR path[MAX_PATH];
++    struct w10_node *node;
++
++    if (!SearchPathW( NULL, name, NULL, MAX_PATH, path, NULL )) return;
++    if (!(node = w10_add_child( parent ))) return;
++    w10_load_string( string_id, node->name, ARRAY_SIZE(node->name) );
++    lstrcpyW( node->path, path );
++}
++
++/* Wine's own tools, like the Windows System folder of Windows 10 */
++static void w10_add_system_folder(void)
++{
++    struct w10_node *folder, *node;
++    HICON icon = NULL;
++
++    if (!(folder = w10_add_child( &w10_root ))) return;
++    w10_load_string( IDS_W10_WINE_SYSTEM, folder->name, ARRAY_SIZE(folder->name) );
++    folder->folder = folder->loaded = TRUE;
++    if (SearchPathW( NULL, L"wfm.exe", NULL, MAX_PATH, folder->path, NULL ))
++        w10_add_program( folder, IDS_XP_FILE_MANAGER, L"wfm.exe" );
++    else
++        w10_add_program( folder, IDS_XP_FILE_MANAGER, L"winefile.exe" );
++    folder->path[0] = 0;
++    w10_add_program( folder, IDS_XP_COMMAND_PROMPT, L"cmd.exe" );
++    w10_add_program( folder, IDS_XP_CONTROL_PANEL, L"control.exe" );
++    if ((node = w10_add_child( folder )))
++    {
++        w10_load_string( IDS_W10_RUN, node->name, ARRAY_SIZE(node->name) );
++        node->run = node->icon_loaded = TRUE;
++        ExtractIconExW( L"shell32.dll", -IDI_SHELL_RUN_ID, &icon, NULL, 1 );
++        node->icon = icon;
++    }
++    w10_add_program( folder, IDS_TASK_MANAGER, L"taskmgr.exe" );
++    w10_add_program( folder, IDS_XP_WINECFG, L"winecfg.exe" );
++    qsort( folder->children, folder->child_count, sizeof(*folder->children), w10_compare_nodes );
++}
++
++static void w10_build_tree(void)
++{
++    WCHAR dir[MAX_PATH], dir2[MAX_PATH];
++
++    memset( &w10_root, 0, sizeof(w10_root) );
++    w10_root.folder = w10_root.loaded = w10_root.expanded = TRUE;
++    if (FAILED(SHGetFolderPathW( NULL, CSIDL_PROGRAMS, NULL, SHGFP_TYPE_CURRENT, dir ))) dir[0] = 0;
++    if (FAILED(SHGetFolderPathW( NULL, CSIDL_COMMON_PROGRAMS, NULL, SHGFP_TYPE_CURRENT, dir2 ))) dir2[0] = 0;
++    w10_scan( &w10_root, dir, dir2, FALSE );
++    /* the shortcuts at the top of the start menus, without their Programs folders */
++    if (FAILED(SHGetFolderPathW( NULL, CSIDL_STARTMENU, NULL, SHGFP_TYPE_CURRENT, dir ))) dir[0] = 0;
++    if (FAILED(SHGetFolderPathW( NULL, CSIDL_COMMON_STARTMENU, NULL, SHGFP_TYPE_CURRENT, dir2 ))) dir2[0] = 0;
++    w10_scan( &w10_root, dir, dir2, TRUE );
++    w10_add_system_folder();
++    qsort( w10_root.children, w10_root.child_count, sizeof(*w10_root.children), w10_compare_nodes );
++}
++
++static void w10_free_node( struct w10_node *node )
++{
++    unsigned int i;
++
++    for (i = 0; i < node->child_count; i++) w10_free_node( &node->children[i] );
++    free( node->children );
++    node->children = NULL;
++    node->child_count = 0;
++    if (node->icon) DestroyIcon( node->icon );
++    node->icon = NULL;
++}
++
++static void w10_load_children( struct w10_node *node )
++{
++    if (node->loaded) return;
++    node->loaded = TRUE;
++    w10_scan( node, node->path, node->path2, FALSE );
++}
++
++static HICON w10_node_icon( struct w10_node *node )
++{
++    SHFILEINFOW info;
++
++    if (node->folder) return w10_folder_icon;
++    if (node->icon_loaded) return node->icon;
++    node->icon_loaded = TRUE;
++    if (!lstrcmpiW( PathFindExtensionW( node->path ), L".lnk" )) node->icon = get_shortcut_icon( node->path );
++    if (!node->icon && SHGetFileInfoW( node->path, 0, &info, sizeof(info), SHGFI_ICON | SHGFI_LARGEICON ))
++        node->icon = info.hIcon;
++    return node->icon;
++}
++
++static WCHAR w10_letter( const WCHAR *name )
++{
++    WCHAR c = name[0];
++
++    if (!c || !IsCharAlphaW( c )) return '#';
++    return (WCHAR)(UINT_PTR)CharUpperW( (WCHAR *)(UINT_PTR)c );
++}
++
++static void w10_add_row( struct w10_node *node, WCHAR letter, int depth )
++{
++    struct w10_row *row;
++
++    if (w10_row_count == w10_row_capacity)
++    {
++        unsigned int capacity = max( 64, w10_row_capacity * 2 );
++        struct w10_row *rows = realloc( w10_rows, capacity * sizeof(*rows) );
++
++        if (!rows) return;
++        w10_rows = rows;
++        w10_row_capacity = capacity;
++    }
++    row = &w10_rows[w10_row_count++];
++    row->node = node;
++    row->letter = letter;
++    row->depth = depth;
++}
++
++static void w10_add_rows( struct w10_node *parent, int depth )
++{
++    WCHAR letter = 0;
++    unsigned int i;
++
++    for (i = 0; i < parent->child_count; i++)
++    {
++        struct w10_node *node = &parent->children[i];
++
++        if (!depth && w10_letter( node->name ) != letter)
++        {
++            letter = w10_letter( node->name );
++            w10_add_row( NULL, letter, 0 );
++        }
++        w10_add_row( node, 0, depth );
++        if (node->folder && node->expanded) w10_add_rows( node, depth + 1 );
++    }
++}
++
++static int w10_max_scroll(void)
++{
++    return max( 0, w10_content_height - w10_height );
++}
++
++static void w10_build_rows(void)
++{
++    unsigned int i;
++    int y = w10_px( 4 );
++
++    w10_row_count = 0;
++    w10_add_rows( &w10_root, 0 );
++    for (i = 0; i < w10_row_count; i++)
++    {
++        w10_rows[i].top = y;
++        y += w10_row_height();
++    }
++    w10_content_height = y + w10_px( 4 );
++    w10_scroll = max( 0, min( w10_scroll, w10_max_scroll() ));
++}
++
++/* simple line glyphs of the rail */
++static void w10_draw_rail_glyph( HDC hdc, int item, int cx, int cy )
++{
++    static const int spokes[8][2] = { {100,0}, {71,71}, {0,100}, {-71,71}, {-100,0}, {-71,-71}, {0,-100}, {71,-71} };
++    int s = w10_px( 8 ), i;
++    HGDIOBJ old_pen, old_brush;
++    POINT pts[7];
++    HPEN pen;
++
++    pen = CreatePen( PS_SOLID, max( 1, w10_px( 1 )), W10_TEXT );
++    old_pen = SelectObject( hdc, pen );
++    old_brush = SelectObject( hdc, GetStockObject( NULL_BRUSH ));
++    switch (item)
++    {
++    case W10_RAIL_MENU:
++        for (i = -1; i <= 1; i++)
++        {
++            MoveToEx( hdc, cx - s, cy + i * s * 3 / 5, NULL );
++            LineTo( hdc, cx + s + 1, cy + i * s * 3 / 5 );
++        }
++        break;
++    case W10_RAIL_USER:
++        Ellipse( hdc, cx - s / 2, cy - s, cx + s / 2 + 1, cy + 1 );
++        Arc( hdc, cx - s, cy + s / 4, cx + s + 1, cy + s * 9 / 4, cx + s, cy + s * 5 / 4, cx - s, cy + s * 5 / 4 );
++        break;
++    case W10_RAIL_DOCUMENTS:
++        pts[0].x = cx - s * 3 / 4; pts[0].y = cy - s;
++        pts[1].x = cx + s / 4;     pts[1].y = cy - s;
++        pts[2].x = cx + s * 3 / 4; pts[2].y = cy - s / 2;
++        pts[3].x = cx + s * 3 / 4; pts[3].y = cy + s;
++        pts[4].x = cx - s * 3 / 4; pts[4].y = cy + s;
++        pts[5] = pts[0];
++        Polyline( hdc, pts, 6 );
++        MoveToEx( hdc, cx + s / 4, cy - s, NULL );
++        LineTo( hdc, cx + s / 4, cy - s / 2 );
++        LineTo( hdc, cx + s * 3 / 4, cy - s / 2 );
++        break;
++    case W10_RAIL_PICTURES:
++        Rectangle( hdc, cx - s, cy - s * 3 / 4, cx + s + 1, cy + s * 3 / 4 + 1 );
++        pts[0].x = cx - s;         pts[0].y = cy + s / 2;
++        pts[1].x = cx - s / 3;     pts[1].y = cy - s / 6;
++        pts[2].x = cx + s / 6;     pts[2].y = cy + s / 4;
++        pts[3].x = cx + s / 2;     pts[3].y = cy;
++        pts[4].x = cx + s;         pts[4].y = cy + s / 2;
++        Polyline( hdc, pts, 5 );
++        Ellipse( hdc, cx + s / 3, cy - s / 2, cx + s * 2 / 3 + 1, cy - s / 6 + 1 );
++        break;
++    case W10_RAIL_SETTINGS:
++        Ellipse( hdc, cx - s / 2, cy - s / 2, cx + s / 2 + 1, cy + s / 2 + 1 );
++        for (i = 0; i < 8; i++)
++        {
++            MoveToEx( hdc, cx + spokes[i][0] * s * 6 / 1000, cy + spokes[i][1] * s * 6 / 1000, NULL );
++            LineTo( hdc, cx + spokes[i][0] * s / 100, cy + spokes[i][1] * s / 100 );
++        }
++        break;
++    case W10_RAIL_POWER:
++        /* counterclockwise from the top left to the top right leaves the gap at the top */
++        Arc( hdc, cx - s * 3 / 4, cy - s * 3 / 4 + 1, cx + s * 3 / 4 + 1, cy + s * 3 / 4 + 2,
++             cx - s / 3, cy - s, cx + s / 3, cy - s );
++        MoveToEx( hdc, cx, cy - s, NULL );
++        LineTo( hdc, cx, cy + 1 );
++        break;
++    }
++    SelectObject( hdc, old_brush );
++    SelectObject( hdc, old_pen );
++    DeleteObject( pen );
++}
++
++static void w10_rail_rect( int item, RECT *rect )
++{
++    int size = w10_rail_item();
++
++    rect->left = 0;
++    rect->right = w10_rail_width();
++    if (item == W10_RAIL_MENU) rect->top = 0;
++    else rect->top = w10_height - (W10_RAIL_COUNT - item) * size;
++    rect->bottom = rect->top + size;
++}
++
++static void w10_rail_label( int item, WCHAR *str, int size )
++{
++    static const UINT ids[W10_RAIL_COUNT] = { IDS_W10_START, 0, IDS_W10_DOCUMENTS, IDS_W10_PICTURES,
++                                              IDS_W10_SETTINGS, IDS_W10_POWER };
++
++    if (item == W10_RAIL_USER) lstrcpynW( str, w10_user, size );
++    else w10_load_string( ids[item], str, size );
++}
++
++static void w10_paint( HWND hwnd )
++{
++    int rail = w10_rail_width(), list_left = w10_rail_item(), row_h = w10_row_height(), icon = w10_px( 24 );
++    HGDIOBJ old_bitmap, old_font;
++    HBITMAP bitmap;
++    PAINTSTRUCT ps;
++    unsigned int i;
++    WCHAR str[MAX_PATH];
++    RECT rect;
++    HDC hdc, mem;
++    int item;
++
++    hdc = BeginPaint( hwnd, &ps );
++    if (!(mem = CreateCompatibleDC( hdc )))
++    {
++        EndPaint( hwnd, &ps );
++        return;
++    }
++    bitmap = CreateCompatibleBitmap( hdc, w10_width, w10_height );
++    old_bitmap = SelectObject( mem, bitmap );
++    old_font = SelectObject( mem, w10_font );
++    SetBkMode( mem, TRANSPARENT );
++    SetTextColor( mem, W10_TEXT );
++    w10_fill( mem, 0, 0, w10_width, w10_height, W10_BACK );
++
++    /* the list */
++    IntersectClipRect( mem, list_left, 0, w10_width, w10_height );
++    for (i = 0; i < w10_row_count; i++)
++    {
++        const struct w10_row *row = &w10_rows[i];
++        int y = row->top - w10_scroll, x = list_left + w10_px( 12 ) + row->depth * w10_px( 16 );
++
++        if (y + row_h <= 0 || y >= w10_height) continue;
++        if ((int)i == w10_hot_row) w10_fill( mem, list_left, y, w10_width - list_left, row_h, W10_HOT_BACK );
++        if (!row->node)
++        {
++            str[0] = row->letter;
++            str[1] = 0;
++            SetRect( &rect, list_left + w10_px( 14 ), y, w10_width, y + row_h );
++            DrawTextW( mem, str, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX );
++            continue;
++        }
++        if (w10_node_icon( row->node ))
++            DrawIconEx( mem, x, y + (row_h - icon) / 2, w10_node_icon( row->node ), icon, icon, 0, NULL, DI_NORMAL );
++        SetRect( &rect, x + icon + w10_px( 12 ), y, w10_width - w10_px( row->node->folder ? 32 : 10 ), y + row_h );
++        DrawTextW( mem, row->node->name, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX | DT_END_ELLIPSIS );
++        if (row->node->folder)
++        {
++            /* a chevron, pointing up while the folder is open */
++            int cx = w10_width - w10_px( 20 ), cy = y + row_h / 2, s = w10_px( 4 ), dir = row->node->expanded ? -1 : 1;
++            HPEN pen = CreatePen( PS_SOLID, max( 1, w10_px( 1 )), W10_TEXT );
++            HGDIOBJ old_pen = SelectObject( mem, pen );
++
++            MoveToEx( mem, cx - s, cy - dir * s / 2, NULL );
++            LineTo( mem, cx, cy + dir * s / 2 );
++            LineTo( mem, cx + s + 1, cy - dir * s / 2 - dir );
++            SelectObject( mem, old_pen );
++            DeleteObject( pen );
++        }
++    }
++    if (w10_content_height > w10_height)
++    {
++        int thumb = max( w10_px( 24 ), w10_height * w10_height / w10_content_height );
++        int pos = MulDiv( w10_scroll, w10_height - thumb, max( 1, w10_max_scroll() ));
++
++        w10_fill( mem, w10_width - w10_px( 4 ), pos, w10_px( 3 ), thumb, W10_SCROLL );
++    }
++    SelectClipRgn( mem, NULL );
++
++    /* the rail, over the list while it shows the names */
++    if (w10_rail_wide)
++    {
++        w10_fill( mem, 0, 0, rail, w10_height, W10_RAIL_BACK );
++        w10_fill( mem, rail, 0, 1, w10_height, RGB(0x10,0x10,0x10) );
++    }
++    for (item = 0; item < W10_RAIL_COUNT; item++)
++    {
++        int size = w10_rail_item();
++
++        w10_rail_rect( item, &rect );
++        if (item == w10_hot_rail) w10_fill( mem, rect.left, rect.top, rect.right - rect.left, size, W10_HOT_BACK );
++        w10_draw_rail_glyph( mem, item, size / 2, rect.top + size / 2 );
++        if (w10_rail_wide)
++        {
++            w10_rail_label( item, str, ARRAY_SIZE(str) );
++            rect.left = size;
++            DrawTextW( mem, str, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX | DT_END_ELLIPSIS );
++        }
++    }
++
++    BitBlt( hdc, 0, 0, w10_width, w10_height, mem, 0, 0, SRCCOPY );
++    SelectObject( mem, old_font );
++    SelectObject( mem, old_bitmap );
++    DeleteObject( bitmap );
++    DeleteDC( mem );
++    EndPaint( hwnd, &ps );
++}
++
++static void w10_hit_test( POINT pt, int *rail, int *row )
++{
++    unsigned int i;
++    int item, y;
++    RECT rect;
++
++    *rail = *row = -1;
++    if (pt.x < 0 || pt.y < 0 || pt.x >= w10_width || pt.y >= w10_height) return;
++    if (pt.x < w10_rail_width())
++    {
++        for (item = 0; item < W10_RAIL_COUNT; item++)
++        {
++            w10_rail_rect( item, &rect );
++            if (PtInRect( &rect, pt )) *rail = item;
++        }
++        return;
++    }
++    y = pt.y + w10_scroll;
++    for (i = 0; i < w10_row_count; i++)
++    {
++        if (y < w10_rows[i].top || y >= w10_rows[i].top + w10_row_height()) continue;
++        if (w10_rows[i].node) *row = i;
++        break;
++    }
++}
++
++static void w10_set_hot( int rail, int row )
++{
++    if (rail == w10_hot_rail && row == w10_hot_row) return;
++    w10_hot_rail = rail;
++    w10_hot_row = row;
++    InvalidateRect( w10_window, NULL, FALSE );
++}
++
++static void w10_ensure_visible( int index )
++{
++    int top = w10_rows[index].top, bottom = top + w10_row_height();
++
++    if (top < w10_scroll) w10_scroll = top;
++    else if (bottom > w10_scroll + w10_height) w10_scroll = bottom - w10_height;
++    w10_scroll = max( 0, min( w10_scroll, w10_max_scroll() ));
++}
++
++static void w10_move_hot( int dir )
++{
++    int index = w10_hot_row, count = w10_row_count;
++
++    do index += dir; while (index >= 0 && index < count && !w10_rows[index].node);
++    if (index < 0 || index >= count) return;
++    w10_ensure_visible( index );
++    w10_hot_rail = -1;
++    w10_hot_row = index;
++    InvalidateRect( w10_window, NULL, FALSE );
++}
++
++static void w10_click_row( int index )
++{
++    struct w10_node *node;
++    unsigned int i;
++
++    if (index < 0 || index >= (int)w10_row_count || !(node = w10_rows[index].node)) return;
++    if (node->folder)
++    {
++        w10_load_children( node );
++        node->expanded = !node->expanded;
++        w10_build_rows();
++        for (i = 0; i < w10_row_count; i++) if (w10_rows[i].node == node) w10_hot_row = i;
++        InvalidateRect( w10_window, NULL, FALSE );
++        return;
++    }
++    if (node->run) w10_action = W10_RUN;
++    else
++    {
++        lstrcpynW( w10_action_path, node->path, ARRAY_SIZE(w10_action_path) );
++        w10_action = W10_LAUNCH;
++    }
++    w10_done = TRUE;
++}
++
++static void w10_power_menu( HWND hwnd )
++{
++    WCHAR str[64];
++    HMENU menu;
++    RECT rect;
++    POINT pt;
++    int cmd;
++
++    if (!(menu = CreatePopupMenu())) return;
++    w10_load_string( IDS_W10_SHUT_DOWN, str, ARRAY_SIZE(str) );
++    AppendMenuW( menu, MF_STRING, 1, str );
++    w10_rail_rect( W10_RAIL_POWER, &rect );
++    pt.x = rect.left + w10_rail_item() / 2;
++    pt.y = rect.top;
++    ClientToScreen( hwnd, &pt );
++    w10_in_popup = TRUE;
++    cmd = TrackPopupMenuEx( menu, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, hwnd, NULL );
++    w10_in_popup = FALSE;
++    DestroyMenu( menu );
++    if (cmd == 1)
++    {
++        w10_action = W10_SHUT_DOWN;
++        w10_done = TRUE;
++    }
++    else SetCapture( hwnd );
++}
++
++static void w10_click_rail( HWND hwnd, int item )
++{
++    static const int csidls[W10_RAIL_COUNT] = { 0, CSIDL_PROFILE, CSIDL_PERSONAL, CSIDL_MYPICTURES, 0, 0 };
++
++    switch (item)
++    {
++    case W10_RAIL_MENU:
++        w10_rail_wide = !w10_rail_wide;
++        InvalidateRect( hwnd, NULL, FALSE );
++        break;
++    case W10_RAIL_USER:
++    case W10_RAIL_DOCUMENTS:
++    case W10_RAIL_PICTURES:
++        w10_action = W10_FOLDER;
++        w10_action_csidl = csidls[item];
++        w10_done = TRUE;
++        break;
++    case W10_RAIL_SETTINGS:
++        w10_action = W10_SETTINGS;
++        w10_done = TRUE;
++        break;
++    case W10_RAIL_POWER:
++        w10_power_menu( hwnd );
++        break;
++    }
++}
++
++static void w10_execute(void)
++{
++    SHELLEXECUTEINFOW sei;
++    LPITEMIDLIST pidl;
++
++    switch (w10_action)
++    {
++    case W10_LAUNCH:
++        ShellExecuteW( NULL, NULL, w10_action_path, NULL, NULL, SW_SHOWNORMAL );
++        break;
++    case W10_FOLDER:
++        if (FAILED(SHGetSpecialFolderLocation( NULL, w10_action_csidl, &pidl ))) break;
++        memset( &sei, 0, sizeof(sei) );
++        sei.cbSize = sizeof(sei);
++        sei.fMask = SEE_MASK_IDLIST;
++        sei.nShow = SW_SHOWNORMAL;
++        sei.lpIDList = pidl;
++        ShellExecuteExW( &sei );
++        CoTaskMemFree( pidl );
++        break;
++    case W10_RUN:
++        run_dialog();
++        break;
++    case W10_SHUT_DOWN:
++        shut_down( w10_tray );
++        break;
++    case W10_SETTINGS:
++        show_theme_settings();
++        break;
++    default:
++        break;
++    }
++}
++
++static LRESULT CALLBACK w10_menu_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
++{
++    int rail, row;
++    POINT pt;
++
++    switch (msg)
++    {
++    case WM_PAINT:
++        w10_paint( hwnd );
++        return 0;
++
++    case WM_ERASEBKGND:
++        return 1;
++
++    case WM_MOUSEMOVE:
++        pt.x = (short)LOWORD( lparam );
++        pt.y = (short)HIWORD( lparam );
++        if (w10_button_down && !w10_dragging && w10_down_pt.x >= w10_rail_width() &&
++            abs( pt.y - w10_down_pt.y ) > w10_px( 8 ))
++            w10_dragging = TRUE;  /* a drag scrolls the list, as with touch on Windows */
++        if (w10_dragging)
++        {
++            w10_scroll = max( 0, min( w10_down_scroll - (pt.y - w10_down_pt.y), w10_max_scroll() ));
++            w10_set_hot( -1, -1 );
++            InvalidateRect( hwnd, NULL, FALSE );
++            return 0;
++        }
++        w10_hit_test( pt, &rail, &row );
++        w10_set_hot( rail, row );
++        return 0;
++
++    case WM_LBUTTONDOWN:
++    case WM_RBUTTONDOWN:
++    case WM_MBUTTONDOWN:
++        pt.x = (short)LOWORD( lparam );
++        pt.y = (short)HIWORD( lparam );
++        if (pt.x < 0 || pt.y < 0 || pt.x >= w10_width || pt.y >= w10_height)
++        {
++            w10_done = TRUE;  /* clicked outside of the menu */
++            return 0;
++        }
++        if (msg != WM_LBUTTONDOWN) return 0;
++        w10_button_down = TRUE;
++        w10_dragging = FALSE;
++        w10_down_pt = pt;
++        w10_down_scroll = w10_scroll;
++        return 0;
++
++    case WM_LBUTTONUP:
++        if (!w10_button_down) return 0;
++        w10_button_down = FALSE;
++        if (w10_dragging)
++        {
++            w10_dragging = FALSE;
++            return 0;
++        }
++        pt.x = (short)LOWORD( lparam );
++        pt.y = (short)HIWORD( lparam );
++        w10_hit_test( pt, &rail, &row );
++        w10_set_hot( rail, row );
++        if (rail >= 0) w10_click_rail( hwnd, rail );
++        else if (w10_rail_wide)
++        {
++            w10_rail_wide = FALSE;
++            InvalidateRect( hwnd, NULL, FALSE );
++        }
++        else if (row >= 0) w10_click_row( row );
++        return 0;
++
++    case WM_MOUSEWHEEL:
++        w10_scroll -= MulDiv( GET_WHEEL_DELTA_WPARAM( wparam ), 3 * w10_row_height(), WHEEL_DELTA );
++        w10_scroll = max( 0, min( w10_scroll, w10_max_scroll() ));
++        w10_set_hot( -1, -1 );
++        InvalidateRect( hwnd, NULL, FALSE );
++        return 0;
++
++    case WM_KEYDOWN:
++        switch (wparam)
++        {
++        case VK_ESCAPE:
++            if (w10_rail_wide)
++            {
++                w10_rail_wide = FALSE;
++                InvalidateRect( hwnd, NULL, FALSE );
++            }
++            else w10_done = TRUE;
++            break;
++        case VK_UP:
++        case VK_DOWN:
++            w10_move_hot( wparam == VK_DOWN ? 1 : -1 );
++            break;
++        case VK_RETURN:
++            if (w10_hot_rail >= 0) w10_click_rail( hwnd, w10_hot_rail );
++            else w10_click_row( w10_hot_row );
++            break;
++        }
++        return 0;
++
++    case WM_ACTIVATE:
++        if (LOWORD( wparam ) == WA_INACTIVE && !w10_in_popup) w10_done = TRUE;
++        break;
++
++    case WM_CAPTURECHANGED:
++        if ((HWND)lparam != hwnd && !w10_in_popup) w10_done = TRUE;
++        break;
++    }
++    return DefWindowProcW( hwnd, msg, wparam, lparam );
++}
++
++void do_win10_startmenu( HWND tray )
++{
++    static const WCHAR classW[] = L"__wine_win10_start_menu";
++    static BOOL registered;
++    WCHAR sysdir[MAX_PATH];
++    SHFILEINFOW info;
++    RECT tray_rect;
++    LOGFONTW lf;
++    DWORD size;
++    MSG msg;
++
++    if (w10_window) return;
++    if (!registered)
++    {
++        WNDCLASSEXW cls;
++
++        memset( &cls, 0, sizeof(cls) );
++        cls.cbSize = sizeof(cls);
++        cls.lpfnWndProc = w10_menu_proc;
++        cls.hCursor = LoadCursorW( 0, (const WCHAR *)IDC_ARROW );
++        cls.lpszClassName = classW;
++        registered = RegisterClassExW( &cls ) != 0;
++    }
++
++    w10_tray = tray;
++    w10_dpi = GetDpiForWindow( tray );
++    if (!w10_dpi) w10_dpi = USER_DEFAULT_SCREEN_DPI;
++    memset( &lf, 0, sizeof(lf) );
++    lf.lfHeight = -w10_px( 12 );
++    lf.lfWeight = FW_NORMAL;
++    lf.lfCharSet = DEFAULT_CHARSET;
++    lstrcpyW( lf.lfFaceName, L"Tahoma" );
++    w10_font = CreateFontIndirectW( &lf );
++    size = ARRAY_SIZE(w10_user);
++    if (!GetUserNameW( w10_user, &size )) lstrcpyW( w10_user, L"User" );
++    GetSystemDirectoryW( sysdir, ARRAY_SIZE(sysdir) );
++    w10_folder_icon = SHGetFileInfoW( sysdir, 0, &info, sizeof(info), SHGFI_ICON | SHGFI_LARGEICON ) ? info.hIcon : NULL;
++
++    GetWindowRect( tray, &tray_rect );
++    w10_width = w10_px( 48 + 272 );
++    w10_height = min( max( tray_rect.top, w10_px( 200 )), w10_px( 640 ));
++    w10_scroll = 0;
++    w10_hot_row = w10_hot_rail = -1;
++    w10_rail_wide = w10_done = w10_in_popup = w10_button_down = w10_dragging = FALSE;
++    w10_action = W10_NONE;
++    w10_build_tree();
++    w10_build_rows();
++
++    w10_window = CreateWindowExW( WS_EX_TOPMOST | WS_EX_TOOLWINDOW, classW, NULL, WS_POPUP,
++                                  tray_rect.left, max( 0, tray_rect.top - w10_height ), w10_width, w10_height,
++                                  tray, 0, 0, 0 );
++    if (w10_window)
++    {
++        ShowWindow( w10_window, SW_SHOWNORMAL );
++        SetForegroundWindow( w10_window );
++        SetFocus( w10_window );
++        SetCapture( w10_window );
++        UpdateWindow( w10_window );
++
++        while (!w10_done)
++        {
++            if (!GetMessageW( &msg, 0, 0, 0 ))
++            {
++                PostQuitMessage( msg.wParam );
++                break;
++            }
++            TranslateMessage( &msg );
++            DispatchMessageW( &msg );
++        }
++
++        w10_in_popup = TRUE;
++        if (GetCapture() == w10_window) ReleaseCapture();
++        DestroyWindow( w10_window );
++        w10_window = 0;
++        w10_in_popup = FALSE;
++        /* launch after the menu is gone so that the program can take the foreground */
++        w10_execute();
++    }
++
++    w10_free_node( &w10_root );
++    free( w10_rows );
++    w10_rows = NULL;
++    w10_row_count = w10_row_capacity = 0;
++    if (w10_folder_icon) DestroyIcon( w10_folder_icon );
++    w10_folder_icon = NULL;
++    if (w10_font) DeleteObject( w10_font );
++    w10_font = 0;
++}
+diff --git a/programs/explorer/systray.c b/programs/explorer/systray.c
+index 69b57035a0c..acb1e4f6670 100644
+--- a/programs/explorer/systray.c
++++ b/programs/explorer/systray.c
+@@ -19,6 +19,7 @@
+  */
+ 
+ #include <assert.h>
++#include <math.h>
+ #include <stdlib.h>
+ 
+ #include <windows.h>
+@@ -103,6 +104,7 @@ struct taskbar_button
+     BOOL        active;
+     BOOL        visible;
+     HICON       icon;         /* small icon of the owning executable */
++    HICON       big_icon;     /* its large icon, for the Windows 10 style */
+     BOOL        icon_loaded;  /* whether we tried to load the icon */
+ };
+ 
+@@ -158,6 +160,21 @@ static int   sizing_start_y, sizing_start_rows;
+ static WCHAR start_text[50];
+ static WCHAR clock_time[32], clock_day[32], clock_date[32], clock_tip[128];
+ 
++/* Windows 10 style ("win10"): the same hand painted taskbar with a flat, dark look */
++#define WIN10_SEARCH   1
++#define WIN10_DESKTOP  2
++#define WIN10_BAR      RGB(0x10,0x10,0x10)
++#define WIN10_HOT      RGB(0x33,0x33,0x33)
++#define WIN10_MAX_MINIMIZED 64
++
++static BOOL  win10_style;        /* Style "win10", always together with xp_style */
++static int   win10_pressed;      /* WIN10_SEARCH or WIN10_DESKTOP while held down */
++static HWND  win10_task_tooltip; /* window titles of the icon only task buttons */
++static HWND  win10_minimized[WIN10_MAX_MINIMIZED];  /* minimized by Show desktop, restored next time */
++static unsigned int win10_minimized_count;
++static BYTE *start_glyph;        /* coverage of the Wine glass on the start button */
++static int   start_glyph_size;
++
+ static POINT xp_get_icon_pos( int display );
+ static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int width, int height );
+ static void xp_sync_taskbar_buttons(void);
+@@ -1006,6 +1023,21 @@ done:
+     return ret;
+ }
+ 
++/* the Windows 10 style task buttons show only an icon, the title comes as a tooltip */
++static void win10_add_task_tool( struct taskbar_button *win )
++{
++    TTTOOLINFOW ti;
++
++    if (!win10_task_tooltip || !win->hwnd) return;
++    memset( &ti, 0, sizeof(ti) );
++    ti.cbSize = sizeof(ti);
++    ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
++    ti.hwnd = tray_window;
++    ti.uId = (UINT_PTR)win->button;
++    ti.lpszText = LPSTR_TEXTCALLBACKW;
++    SendMessageW( win10_task_tooltip, TTM_ADDTOOLW, 0, (LPARAM)&ti );
++}
++
+ static void add_taskbar_button( HWND hwnd )
+ {
+     struct taskbar_button *win;
+@@ -1024,6 +1056,7 @@ static void add_taskbar_button( HWND hwnd )
+     win->button = CreateWindowW( WC_BUTTONW, NULL, WS_CHILD | BS_OWNERDRAW,
+                                  0, 0, 0, 0, tray_window, (HMENU)hwnd, 0, 0 );
+     list_add_tail( &taskbar_buttons, &win->entry );
++    win10_add_task_tool( win );
+ }
+ 
+ static struct taskbar_button *find_taskbar_button( HWND hwnd )
+@@ -1042,8 +1075,19 @@ static void remove_taskbar_button( HWND hwnd )
+ 
+     if (!win) return;
+     list_remove( &win->entry );
++    if (win10_task_tooltip)
++    {
++        TTTOOLINFOW ti;
++
++        memset( &ti, 0, sizeof(ti) );
++        ti.cbSize = sizeof(ti);
++        ti.hwnd = tray_window;
++        ti.uId = (UINT_PTR)win->button;
++        SendMessageW( win10_task_tooltip, TTM_DELTOOLW, 0, (LPARAM)&ti );
++    }
+     DestroyWindow( win->button );
+     if (win->icon) DestroyIcon( win->icon );
++    if (win->big_icon) DestroyIcon( win->big_icon );
+     free( win );
+ }
+ 
+@@ -1086,7 +1130,8 @@ static void click_taskbar_button( HWND button )
+             start_pressed = TRUE;
+             InvalidateRect( button, NULL, FALSE );
+             UpdateWindow( button );
+-            do_xp_startmenu( tray_window );
++            if (win10_style) do_win10_startmenu( tray_window );
++            else do_xp_startmenu( tray_window );
+         }
+         else do_startmenu( tray_window );
+         if (xp_style)
+@@ -1344,6 +1389,19 @@ UINT get_taskbar_palette(void)
+     return xp_palette( taskbar_scheme );
+ }
+ 
++/* Windows 10 style accent colors for the three schemes: blue, green and slate */
++static const COLORREF win10_accents[XP_USER_SCHEMES] = { RGB(0x00,0x78,0xd7), RGB(0x49,0x82,0x05), RGB(0x68,0x76,0x8a) };
++
++COLORREF get_accent_color(void)
++{
++    return win10_accents[get_taskbar_scheme()];
++}
++
++BOOL is_win10_style(void)
++{
++    return enable_taskbar && xp_style && win10_style;
++}
++
+ static const struct gradient_stop start_gradient[] =
+ {
+     {   0, RGB(0x2f,0x7a,0x2c) }, {   5, RGB(0x78,0xc6,0x6f) }, {  12, RGB(0x60,0xb7,0x58) },
+@@ -1365,6 +1423,7 @@ static int xp_scale( int size )
+ 
+ static int xp_band_left(void)
+ {
++    if (win10_style) return 2 * start_button_width;  /* the start and the search button */
+     return start_button_width + xp_scale( taskbar_locked ? 6 : 14 );
+ }
+ 
+@@ -1445,6 +1504,11 @@ static void xp_draw_background( HDC hdc, int dst_x, int dst_y, int x, int y, int
+     int split = notify_left - x;  /* start of the notification area */
+ 
+     if (width <= 0 || height <= 0) return;
++    if (win10_style)
++    {
++        fill_solid( hdc, dst_x, dst_y, width, height, WIN10_BAR );
++        return;
++    }
+     if (split > 0)
+         fill_gradient( hdc, dst_x, dst_y, min( split, width ), height, y, tray_height,
+                        scheme->bar, scheme->bar_count );
+@@ -1476,6 +1540,12 @@ static void xp_draw_gripper( HDC hdc, int x )
+ static unsigned int xp_clock_lines( const WCHAR **lines )
+ {
+     lines[0] = clock_time;
++    if (win10_style && taskbar_rows < 2)
++    {
++        /* time and date, as on Windows 10 */
++        lines[1] = clock_date;
++        return 2;
++    }
+     if (taskbar_rows < 2) return 1;
+     lines[1] = clock_day;
+     lines[2] = clock_date;
+@@ -1508,7 +1578,7 @@ static void xp_draw_clock( HDC hdc )
+     get_clock_rect( &rect );
+     top = (tray_height - (int)count * tm.tmHeight) / 2;
+     SetBkMode( hdc, TRANSPARENT );
+-    SetTextColor( hdc, xp_current_scheme()->text );
++    SetTextColor( hdc, win10_style ? RGB(0xff,0xff,0xff) : xp_current_scheme()->text );
+     for (i = 0; i < count; i++)
+     {
+         SetRect( &line, rect.left, top + i * tm.tmHeight, rect.right, top + (i + 1) * tm.tmHeight );
+@@ -1647,6 +1717,12 @@ static void xp_sync_taskbar_buttons(void)
+     int spacing = xp_scale( 3 ), margin = xp_scale( 3 ), max_width = xp_scale( 160 ), min_width = xp_scale( 36 );
+     int band_left, band_width, per_row, width, count = 0, index = 0, left;
+ 
++    if (win10_style)  /* square icon only buttons, edge to edge */
++    {
++        spacing = margin = 0;
++        max_width = min_width = start_button_width;
++    }
++
+     left = tray_width - xp_notify_width();
+     if (left != notify_left)
+     {
+@@ -1710,7 +1786,7 @@ static HICON xp_get_task_icon( struct taskbar_button *win )
+         if ((process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid )))
+         {
+             if (QueryFullProcessImageNameW( process, 0, path, &len ))
+-                ExtractIconExW( path, 0, NULL, &win->icon, 1 );
++                ExtractIconExW( path, 0, &win->big_icon, &win->icon, 1 );
+             CloseHandle( process );
+         }
+     }
+@@ -1799,6 +1875,307 @@ static void xp_draw_start_button( HDC hdc, int width, int height, BOOL down )
+     SelectObject( hdc, old_font );
+ }
+ 
++/*
++ * The Wine glass of the Windows 10 style start button and desktop background: drawn four times
++ * larger with GDI and averaged down, so that it has smooth edges at any size. The glass, its stem
++ * and its foot are solid, the wine is translucent.
++ */
++
++static void glass_point( POINT *pts, int *count, double k, double x, double y )
++{
++    pts[*count].x = (LONG)(x * k + 0.5);
++    pts[*count].y = (LONG)(y * k + 0.5);
++    (*count)++;
++}
++
++static void glass_curve( POINT *pts, int *count, double k, double x0, double y0, double x1, double y1,
++                         double x2, double y2, double x3, double y3 )
++{
++    int i;
++
++    for (i = 1; i <= 12; i++)
++    {
++        double t = i / 12.0, u = 1.0 - t;
++
++        glass_point( pts, count, k, u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
++                     u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3 );
++    }
++}
++
++/* coverage of the glass in a size x size square, 0 to 255, free() it after use */
++static BYTE *render_wine_glass( int size )
++{
++    BITMAPINFO info;
++    int big = size * 4, count, x, y, sx, sy;
++    double k = big / 64.0;
++    HGDIOBJ old_bitmap, old_pen, old_brush;
++    HBITMAP bitmap;
++    HBRUSH brush;
++    LOGBRUSH lb;
++    POINT pts[40];
++    DWORD *bits;
++    BYTE *alpha;
++    HPEN pen;
++    HDC hdc;
++
++    if (size <= 0 || !(alpha = calloc( size, size ))) return NULL;
++    memset( &info, 0, sizeof(info) );
++    info.bmiHeader.biSize = sizeof(info.bmiHeader);
++    info.bmiHeader.biWidth = big;
++    info.bmiHeader.biHeight = -big;
++    info.bmiHeader.biPlanes = 1;
++    info.bmiHeader.biBitCount = 32;
++    info.bmiHeader.biCompression = BI_RGB;
++    if (!(hdc = CreateCompatibleDC( 0 )))
++    {
++        free( alpha );
++        return NULL;
++    }
++    if (!(bitmap = CreateDIBSection( hdc, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0 )))
++    {
++        DeleteDC( hdc );
++        free( alpha );
++        return NULL;
++    }
++    old_bitmap = SelectObject( hdc, bitmap );
++    memset( bits, 0, big * big * sizeof(*bits) );
++
++    /* the wine, in the green channel */
++    brush = CreateSolidBrush( RGB(0x00,0xff,0x00) );
++    old_brush = SelectObject( hdc, brush );
++    old_pen = SelectObject( hdc, GetStockObject( NULL_PEN ));
++    count = 0;
++    glass_point( pts, &count, k, 21.6, 17.5 );
++    glass_point( pts, &count, k, 42.4, 17.5 );
++    glass_curve( pts, &count, k, 42.4, 17.5, 41.5, 26.0, 37.2, 32.9, 32.0, 34.0 );
++    glass_curve( pts, &count, k, 32.0, 34.0, 26.8, 32.9, 22.5, 26.0, 21.6, 17.5 );
++    Polygon( hdc, pts, count );
++    SelectObject( hdc, GetStockObject( NULL_BRUSH ));
++    DeleteObject( brush );
++
++    /* the glass, its stem and foot, in the red channel */
++    lb.lbStyle = BS_SOLID;
++    lb.lbColor = RGB(0xff,0x00,0x00);
++    lb.lbHatch = 0;
++    pen = ExtCreatePen( PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND, (DWORD)(3.2 * k + 0.5), &lb, 0, NULL );
++    SelectObject( hdc, pen );
++    count = 0;
++    glass_point( pts, &count, k, 19.0, 5.0 );
++    glass_point( pts, &count, k, 45.0, 5.0 );
++    glass_point( pts, &count, k, 42.8, 22.0 );
++    glass_curve( pts, &count, k, 42.8, 22.0, 41.5, 32.0, 36.5, 37.5, 32.0, 38.5 );
++    glass_curve( pts, &count, k, 32.0, 38.5, 27.5, 37.5, 22.5, 32.0, 21.2, 22.0 );
++    Polygon( hdc, pts, count );
++    MoveToEx( hdc, (int)(32.0 * k), (int)(38.5 * k), NULL );
++    LineTo( hdc, (int)(32.0 * k), (int)(54.0 * k) );
++    MoveToEx( hdc, (int)(21.0 * k), (int)(58.5 * k), NULL );
++    LineTo( hdc, (int)(43.0 * k), (int)(58.5 * k) );
++    SelectObject( hdc, old_pen );
++    SelectObject( hdc, old_brush );
++    DeleteObject( pen );
++    GdiFlush();
++
++    for (y = 0; y < size; y++)
++    {
++        for (x = 0; x < size; x++)
++        {
++            unsigned int solid = 0, wine = 0;
++
++            for (sy = 0; sy < 4; sy++)
++            {
++                const DWORD *row = bits + (y * 4 + sy) * big + x * 4;
++
++                for (sx = 0; sx < 4; sx++)
++                {
++                    solid += (row[sx] >> 16) & 0xff;
++                    wine += (row[sx] >> 8) & 0xff;
++                }
++            }
++            solid /= 16;
++            wine = wine / 16 * 55 / 100;
++            alpha[y * size + x] = max( solid, wine );
++        }
++    }
++
++    SelectObject( hdc, old_bitmap );
++    DeleteObject( bitmap );
++    DeleteDC( hdc );
++    return alpha;
++}
++
++static COLORREF blend_pixel( COLORREF dst, COLORREF src, unsigned int alpha )
++{
++    return RGB( GetRValue(dst) + ((int)GetRValue(src) - (int)GetRValue(dst)) * (int)alpha / 255,
++                GetGValue(dst) + ((int)GetGValue(src) - (int)GetGValue(dst)) * (int)alpha / 255,
++                GetBValue(dst) + ((int)GetBValue(src) - (int)GetBValue(dst)) * (int)alpha / 255 );
++}
++
++/* paint 'color' with the given coverage over what is already in the size x size square at x,y */
++static void draw_coverage( HDC hdc, int x, int y, int size, const BYTE *alpha, COLORREF color )
++{
++    BITMAPINFO info;
++    HGDIOBJ old_bitmap;
++    HBITMAP bitmap;
++    DWORD *bits;
++    HDC mem;
++    int i;
++
++    if (!alpha || size <= 0 || !(mem = CreateCompatibleDC( hdc ))) return;
++    memset( &info, 0, sizeof(info) );
++    info.bmiHeader.biSize = sizeof(info.bmiHeader);
++    info.bmiHeader.biWidth = size;
++    info.bmiHeader.biHeight = -size;
++    info.bmiHeader.biPlanes = 1;
++    info.bmiHeader.biBitCount = 32;
++    info.bmiHeader.biCompression = BI_RGB;
++    if (!(bitmap = CreateDIBSection( mem, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0 )))
++    {
++        DeleteDC( mem );
++        return;
++    }
++    old_bitmap = SelectObject( mem, bitmap );
++    BitBlt( mem, 0, 0, size, size, hdc, x, y, SRCCOPY );
++    GdiFlush();
++    for (i = 0; i < size * size; i++)
++    {
++        /* DIB pixels are 0x00RRGGBB, a COLORREF is 0x00BBGGRR */
++        COLORREF dst = RGB( (bits[i] >> 16) & 0xff, (bits[i] >> 8) & 0xff, bits[i] & 0xff );
++
++        if (!alpha[i]) continue;
++        dst = blend_pixel( dst, color, alpha[i] );
++        bits[i] = (GetRValue(dst) << 16) | (GetGValue(dst) << 8) | GetBValue(dst);
++    }
++    BitBlt( hdc, x, y, size, size, mem, 0, 0, SRCCOPY );
++    SelectObject( mem, old_bitmap );
++    DeleteObject( bitmap );
++    DeleteDC( mem );
++}
++
++static void win10_draw_start_button( HDC hdc, int width, int height, BOOL down )
++{
++    int size = xp_scale( 18 );
++
++    fill_solid( hdc, 0, 0, width, height, down ? WIN10_HOT : WIN10_BAR );
++    if (!start_glyph || start_glyph_size != size)
++    {
++        free( start_glyph );
++        start_glyph = render_wine_glass( size );
++        start_glyph_size = size;
++    }
++    draw_coverage( hdc, (width - size) / 2, (height - size) / 2, size, start_glyph, RGB(0xff,0xff,0xff) );
++}
++
++static HICON win10_get_task_icon( struct taskbar_button *win )
++{
++    HICON small = xp_get_task_icon( win );
++
++    return win->big_icon ? win->big_icon : small;
++}
++
++/* icon only, with a line in the accent color under it, the active window also lighter */
++static void win10_draw_task_button( HDC hdc, struct taskbar_button *win, int width, int height, BOOL down )
++{
++    COLORREF accent = blend_color( get_accent_color(), RGB(0xff,0xff,0xff), 3, 10 );
++    int size = xp_scale( 24 ), bar = max( 2, xp_scale( 2 )), inset = win->active ? 0 : xp_scale( 8 );
++
++    fill_solid( hdc, 0, 0, width, height, down ? WIN10_HOT : WIN10_BAR );
++    DrawIconEx( hdc, (width - size) / 2, (height - size) / 2 - xp_scale( 1 ), win10_get_task_icon( win ),
++                size, size, 0, NULL, DI_NORMAL );
++    fill_solid( hdc, inset, height - bar, width - 2 * inset, bar, accent );
++}
++
++static void win10_get_search_rect( RECT *rect )
++{
++    SetRect( rect, start_button_width, 0, 2 * start_button_width, row_height );
++}
++
++static void win10_get_desktop_rect( RECT *rect )
++{
++    SetRect( rect, tray_width - xp_scale( 6 ), 0, tray_width, tray_height );
++}
++
++/* a magnifier, the search button opens the Run dialog */
++static void win10_draw_search( HDC hdc )
++{
++    int d = xp_scale( 14 ), r = d * 3 / 8, cx, cy, ccx, ccy;
++    HGDIOBJ old_pen, old_brush;
++    HPEN pen;
++    RECT rect;
++
++    win10_get_search_rect( &rect );
++    fill_solid( hdc, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
++                win10_pressed == WIN10_SEARCH ? WIN10_HOT : WIN10_BAR );
++    cx = (rect.left + rect.right) / 2;
++    cy = (rect.top + rect.bottom) / 2;
++    ccx = cx + d / 8;
++    ccy = cy - d / 8;
++    pen = CreatePen( PS_SOLID, max( 1, xp_scale( 1 )), RGB(0xff,0xff,0xff) );
++    old_pen = SelectObject( hdc, pen );
++    old_brush = SelectObject( hdc, GetStockObject( NULL_BRUSH ));
++    Ellipse( hdc, ccx - r, ccy - r, ccx + r + 1, ccy + r + 1 );
++    MoveToEx( hdc, ccx - r * 7 / 10, ccy + r * 7 / 10, NULL );
++    LineTo( hdc, cx - d / 2, cy + d / 2 );
++    SelectObject( hdc, old_brush );
++    SelectObject( hdc, old_pen );
++    DeleteObject( pen );
++}
++
++/* the thin Show desktop strip at the right end, with a line on its left */
++static void win10_draw_desktop_edge( HDC hdc )
++{
++    RECT rect;
++
++    win10_get_desktop_rect( &rect );
++    fill_solid( hdc, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
++                win10_pressed == WIN10_DESKTOP ? WIN10_HOT : WIN10_BAR );
++    fill_solid( hdc, rect.left, rect.top, 1, rect.bottom - rect.top, RGB(0x5a,0x5a,0x5a) );
++}
++
++/* minimize the task windows, or restore the ones minimized by the previous click */
++static void win10_show_desktop(void)
++{
++    struct taskbar_button *win;
++    unsigned int i;
++
++    if (win10_minimized_count)
++    {
++        for (i = 0; i < win10_minimized_count; i++)
++            if (IsWindow( win10_minimized[i] ) && IsIconic( win10_minimized[i] ))
++                PostMessageW( win10_minimized[i], WM_SYSCOMMAND, SC_RESTORE, 0 );
++        win10_minimized_count = 0;
++        return;
++    }
++    LIST_FOR_EACH_ENTRY( win, &taskbar_buttons, struct taskbar_button, entry )
++    {
++        if (!win->hwnd || !win->visible || IsIconic( win->hwnd )) continue;
++        if (win10_minimized_count < ARRAY_SIZE(win10_minimized)) win10_minimized[win10_minimized_count++] = win->hwnd;
++        PostMessageW( win->hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0 );
++    }
++}
++
++static int win10_hit_test( LPARAM lparam )
++{
++    POINT pt = { (short)LOWORD( lparam ), (short)HIWORD( lparam ) };
++    RECT rect;
++
++    if (!win10_style) return 0;
++    win10_get_search_rect( &rect );
++    if (PtInRect( &rect, pt )) return WIN10_SEARCH;
++    win10_get_desktop_rect( &rect );
++    if (PtInRect( &rect, pt )) return WIN10_DESKTOP;
++    return 0;
++}
++
++static void win10_invalidate_part( int part )
++{
++    RECT rect;
++
++    if (part == WIN10_SEARCH) win10_get_search_rect( &rect );
++    else if (part == WIN10_DESKTOP) win10_get_desktop_rect( &rect );
++    else return;
++    InvalidateRect( tray_window, &rect, FALSE );
++}
++
+ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_button *win )
+ {
+     BOOL down = (dis->itemState & ODS_SELECTED) != 0;
+@@ -1817,7 +2194,12 @@ static void xp_paint_taskbar_button( const DRAWITEMSTRUCT *dis, struct taskbar_b
+     /* rounded corners show the taskbar through */
+     MapWindowPoints( dis->hwndItem, tray_window, &origin, 1 );
+     xp_draw_background( hdc, 0, 0, origin.x, origin.y, rect.right, rect.bottom );
+-    if (!win->hwnd) xp_draw_start_button( hdc, rect.right, rect.bottom, down || start_pressed );
++    if (win10_style)
++    {
++        if (!win->hwnd) win10_draw_start_button( hdc, rect.right, rect.bottom, down || start_pressed );
++        else win10_draw_task_button( hdc, win, rect.right, rect.bottom, down || win->active );
++    }
++    else if (!win->hwnd) xp_draw_start_button( hdc, rect.right, rect.bottom, down || start_pressed );
+     else xp_draw_task_button( hdc, win, rect.right, rect.bottom, down || win->active );
+ 
+     BitBlt( dis->hDC, 0, 0, rect.right, rect.bottom, hdc, 0, 0, SRCCOPY );
+@@ -1843,7 +2225,12 @@ static void xp_paint_tray( HWND hwnd )
+         old_bitmap = SelectObject( mem, bitmap );
+         SetWindowOrgEx( mem, ps.rcPaint.left, ps.rcPaint.top, NULL );
+         xp_draw_background( mem, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.left, ps.rcPaint.top, width, height );
+-        if (!taskbar_locked) xp_draw_gripper( mem, xp_band_left() - xp_scale( 7 ));
++        if (win10_style)
++        {
++            win10_draw_search( mem );
++            win10_draw_desktop_edge( mem );
++        }
++        else if (!taskbar_locked) xp_draw_gripper( mem, xp_band_left() - xp_scale( 7 ));
+         xp_draw_clock( mem );
+         BitBlt( hdc, ps.rcPaint.left, ps.rcPaint.top, width, height, mem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY );
+         SelectObject( mem, old_bitmap );
+@@ -1880,6 +2267,26 @@ static void xp_update_metrics(void)
+     lstrcpynW( start_text, start_label, ARRAY_SIZE(start_text) );
+     CharLowerW( start_text );
+ 
++    if (win10_style)
++    {
++        DeleteObject( xp_font );
++        lf.lfHeight = -xp_scale( 12 );
++        lf.lfWeight = FW_NORMAL;
++        lf.lfItalic = FALSE;
++        xp_font = CreateFontIndirectW( &lf );
++
++        hdc = GetDC( 0 );
++        old_font = SelectObject( hdc, xp_font );
++        GetTextMetricsW( hdc, &tm );
++        SelectObject( hdc, old_font );
++        ReleaseDC( 0, hdc );
++        /* 40 pixels at 96 dpi, with room for the two lines of the clock */
++        row_height = max( xp_scale( 40 ), max( icon_cy + xp_scale( 8 ), 2 * tm.tmHeight + xp_scale( 8 )));
++        start_button_width = xp_scale( 48 );
++        xp_update_clock();
++        return;
++    }
++
+     hdc = GetDC( 0 );
+     old_font = SelectObject( hdc, xp_font );
+     GetTextMetricsW( hdc, &tm );
+@@ -1928,9 +2335,11 @@ static void xp_load_settings(void)
+     if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, KEY_QUERY_VALUE, &hkey ))
+     {
+         size = sizeof(style);
+-        if (!RegGetValueW( hkey, NULL, L"Style", RRF_RT_REG_SZ, NULL, style, &size ) &&
+-            !lstrcmpiW( style, L"classic" ))
+-            xp_style = FALSE;
++        if (!RegGetValueW( hkey, NULL, L"Style", RRF_RT_REG_SZ, NULL, style, &size ))
++        {
++            if (!lstrcmpiW( style, L"classic" )) xp_style = FALSE;
++            else if (!lstrcmpiW( style, L"win10" )) win10_style = TRUE;
++        }
+         size = sizeof(value);
+         if (!RegGetValueW( hkey, NULL, L"Rows", RRF_RT_REG_DWORD, NULL, &value, &size ))
+             taskbar_rows = max( 1, min( (int)value, TASKBAR_MAX_ROWS ));
+@@ -1954,10 +2363,16 @@ static void xp_load_settings(void)
+             xp_controls = value != 0;
+         RegCloseKey( hkey );
+     }
+-    /* WINE_TASKBAR_STYLE=classic brings back the plain Wine taskbar */
++    /* WINE_TASKBAR_STYLE=classic brings back the plain Wine taskbar, =win10 or =xp picks a style */
+     len = GetEnvironmentVariableW( L"WINE_TASKBAR_STYLE", style, ARRAY_SIZE(style) );
+-    if (len && len < ARRAY_SIZE(style)) xp_style = lstrcmpiW( style, L"classic" ) != 0;
+-    TRACE( "style %s rows %d locked %d\n", xp_style ? "xp" : "classic", taskbar_rows, taskbar_locked );
++    if (len && len < ARRAY_SIZE(style))
++    {
++        xp_style = lstrcmpiW( style, L"classic" ) != 0;
++        win10_style = !lstrcmpiW( style, L"win10" );
++    }
++    if (!xp_style) win10_style = FALSE;
++    TRACE( "style %s rows %d locked %d\n", win10_style ? "win10" : xp_style ? "xp" : "classic",
++           taskbar_rows, taskbar_locked );
+ }
+ 
+ /*
+@@ -2196,10 +2611,28 @@ static void CALLBACK xp_winevent_proc( HWINEVENTHOOK hook, DWORD event, HWND hwn
+     SetTimer( tray_window, SYNC_TIMER, SYNC_DELAY, NULL );
+ }
+ 
++static void win10_init_tooltip(void)
++{
++    struct taskbar_button *win;
++
++    if (win10_task_tooltip)
++    {
++        SendMessageW( win10_task_tooltip, TTM_ACTIVATE, win10_style, 0 );
++        return;
++    }
++    if (!win10_style) return;
++    init_common_controls();
++    win10_task_tooltip = CreateWindowExW( WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
++                                          CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
++                                          tray_window, NULL, NULL, NULL );
++    LIST_FOR_EACH_ENTRY( win, &taskbar_buttons, struct taskbar_button, entry ) win10_add_task_tool( win );
++}
++
+ static void xp_init_taskbar(void)
+ {
+     const DWORD flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+ 
++    win10_init_tooltip();
+     if (xp_initialized)
+     {
+         /* switching back from the classic style */
+@@ -2318,9 +2751,117 @@ static HBITMAP build_xp_wallpaper( HDC ref, int width, int height, BOOL dark )
+     return bitmap;
+ }
+ 
++/*
++ * Wine Windows 10 desktop background: a deep blue glow with light beams and the Wine glass
++ * in the middle, all drawn here (no picture from Windows). Darker with dark theme colors.
++ */
++static COLORREF win10_wallpaper_base( double d )
++{
++    static const struct { double pos; COLORREF color; } stops[] =
++    {
++        { 0.00, RGB(0x0e,0x55,0xb3) }, { 0.38, RGB(0x08,0x33,0x7a) }, { 0.72, RGB(0x04,0x1b,0x45) },
++        { 1.00, RGB(0x02,0x0c,0x22) },
++    };
++    unsigned int i;
++
++    for (i = 1; i < ARRAY_SIZE(stops); i++)
++        if (d <= stops[i].pos)
++            return blend_color( stops[i - 1].color, stops[i].color, (int)((d - stops[i - 1].pos) * 1000),
++                                (int)((stops[i].pos - stops[i - 1].pos) * 1000) );
++    return stops[ARRAY_SIZE(stops) - 1].color;
++}
++
++static HBITMAP build_win10_wallpaper( HDC ref, int width, int height, BOOL dark )
++{
++    static const struct { double angle, center, half, strength; } beams[] =
++    {
++        { 64.0, 0.66, 0.065, 0.08 }, { 82.0, 0.60, 0.065, 0.11 }, { 101.0, 0.52, 0.055, 0.13 }, { 118.0, 0.41, 0.055, 0.16 },
++    };
++    const COLORREF beam_color = RGB(0x96,0xcd,0xff), glow_color = RGB(0x78,0xc3,0xff), glass_color = RGB(0xd8,0xec,0xff);
++    double sn[ARRAY_SIZE(beams)], cs[ARRAY_SIZE(beams)], len[ARRAY_SIZE(beams)];
++    int x, y, glass, gx, gy;
++    BITMAPINFO info;
++    HBITMAP bitmap;
++    unsigned int i;
++    DWORD *bits;
++    BYTE *alpha;
++
++    if (width <= 0 || height <= 0) return 0;
++    memset( &info, 0, sizeof(info) );
++    info.bmiHeader.biSize = sizeof(info.bmiHeader);
++    info.bmiHeader.biWidth = width;
++    info.bmiHeader.biHeight = -height;
++    info.bmiHeader.biPlanes = 1;
++    info.bmiHeader.biBitCount = 32;
++    info.bmiHeader.biCompression = BI_RGB;
++    if (!(bitmap = CreateDIBSection( ref, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0 ))) return 0;
++
++    for (i = 0; i < ARRAY_SIZE(beams); i++)
++    {
++        /* like a CSS linear gradient: 0 degrees points up, 90 to the right */
++        sn[i] = sin( beams[i].angle * 3.14159265358979 / 180.0 );
++        cs[i] = cos( beams[i].angle * 3.14159265358979 / 180.0 );
++        len[i] = fabs( width * sn[i] ) + fabs( height * cs[i] );
++    }
++
++    for (y = 0; y < height; y++)
++    {
++        for (x = 0; x < width; x++)
++        {
++            double dx = (x - width * 0.5) / (width * 0.5), dy = (y - height * 0.42) / (height * 0.58);
++            double d = sqrt( dx * dx + dy * dy ) / sqrt( 2.0 ), gdx, gdy, g;
++            COLORREF color = win10_wallpaper_base( min( d, 1.0 ));
++
++            for (i = 0; i < ARRAY_SIZE(beams); i++)
++            {
++                double p = ((x - width * 0.5) * sn[i] - (y - height * 0.5) * cs[i]) / len[i] + 0.5;
++                double v = 1.0 - fabs( p - beams[i].center ) / beams[i].half;
++
++                if (v > 0) color = blend_pixel( color, beam_color, (unsigned int)(v * beams[i].strength * 255) );
++            }
++            gdx = (x - width * 0.5) / (width * 0.55);
++            gdy = (y - height * 0.44) / (height * 0.65);
++            g = 1.0 - sqrt( gdx * gdx + gdy * gdy ) / 0.62;
++            if (g > 0) color = blend_pixel( color, glow_color, (unsigned int)(g * 0.5 * 255) );
++            if (dark) color = blend_color( color, RGB(0,0,0), 3, 10 );
++            bits[y * width + x] = (GetRValue(color) << 16) | (GetGValue(color) << 8) | GetBValue(color);
++        }
++    }
++
++    glass = height * 24 / 100;
++    gx = (width - glass) / 2;
++    gy = height * 44 / 100 - glass / 2;
++    if (glass > 0 && (alpha = render_wine_glass( glass )))
++    {
++        for (y = 0; y < glass; y++)
++        {
++            if (gy + y < 0 || gy + y >= height) continue;
++            for (x = 0; x < glass; x++)
++            {
++                DWORD *pixel;
++                COLORREF color;
++
++                if (gx + x < 0 || gx + x >= width || !alpha[y * glass + x]) continue;
++                pixel = &bits[(gy + y) * width + gx + x];
++                color = RGB( (*pixel >> 16) & 0xff, (*pixel >> 8) & 0xff, *pixel & 0xff );
++                color = blend_pixel( color, glass_color, alpha[y * glass + x] * 92 / 100 );
++                *pixel = (GetRValue(color) << 16) | (GetGValue(color) << 8) | GetBValue(color);
++            }
++        }
++        free( alpha );
++    }
++    return bitmap;
++}
++
++static HBITMAP build_wallpaper( HDC ref, int width, int height, BOOL dark, BOOL win10 )
++{
++    return win10 ? build_win10_wallpaper( ref, width, height, dark ) : build_xp_wallpaper( ref, width, height, dark );
++}
++
+ /* called by the desktop window instead of PaintDesktop */
+ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
+ {
++    static int wallpaper_cache_win10 = -1;
+     BOOL dark = is_dark_theme();
+     HGDIOBJ old;
+     RECT rect;
+@@ -2329,13 +2870,14 @@ BOOL paint_xp_wallpaper( HWND hwnd, HDC hdc )
+     if (!use_xp_wallpaper( xp_style, xp_wallpaper )) return FALSE;
+     GetClientRect( hwnd, &rect );
+     if (!wallpaper_cache || rect.right != wallpaper_cache_width || rect.bottom != wallpaper_cache_height ||
+-        dark != wallpaper_cache_dark)
++        dark != wallpaper_cache_dark || win10_style != wallpaper_cache_win10)
+     {
+         if (wallpaper_cache) DeleteObject( wallpaper_cache );
+-        wallpaper_cache = build_xp_wallpaper( hdc, rect.right, rect.bottom, dark );
++        wallpaper_cache = build_wallpaper( hdc, rect.right, rect.bottom, dark, win10_style );
+         wallpaper_cache_width = rect.right;
+         wallpaper_cache_height = rect.bottom;
+         wallpaper_cache_dark = dark;
++        wallpaper_cache_win10 = win10_style;
+     }
+     if (!wallpaper_cache || !(mem = CreateCompatibleDC( hdc ))) return FALSE;
+     old = SelectObject( mem, wallpaper_cache );
+@@ -2362,7 +2904,8 @@ void reset_xp_wallpaper(void)
+ 
+ struct display_settings
+ {
+-    BOOL xp;
++    BOOL xp;      /* a hand painted taskbar: the XP or the Windows 10 style */
++    BOOL win10;
+     UINT scheme;
+     int  rows;
+     BOOL locked;
+@@ -2402,19 +2945,30 @@ static void invalidate_taskbar(void)
+     }
+ }
+ 
+-/* switch between the Luna and the classic Wine taskbar while running */
+-static void set_taskbar_style( BOOL xp )
++/* switch between the Luna, the Windows 10 and the classic Wine taskbar while running */
++static void set_taskbar_style( BOOL xp, BOOL win10 )
+ {
+     DWORD style = GetWindowLongW( tray_window, GWL_STYLE );
+ 
+-    if (xp == xp_style) return;
++    win10 = xp && win10;
++    if (xp == xp_style && win10 == win10_style) return;
++    if (xp == xp_style)
++    {
++        /* between the two hand painted styles */
++        win10_style = win10;
++        win10_init_tooltip();
++        do_show_systray();
++        return;
++    }
+     xp_style = xp;
++    win10_style = win10;
+     SetWindowLongW( tray_window, GWL_STYLE, xp ? style | WS_CLIPCHILDREN : style & ~WS_CLIPCHILDREN );
+     if (xp) xp_init_taskbar();
+     else
+     {
+         KillTimer( tray_window, CLOCK_TIMER );
+         if (clock_tooltip) SendMessageW( clock_tooltip, TTM_ACTIVATE, FALSE, 0 );
++        if (win10_task_tooltip) SendMessageW( win10_task_tooltip, TTM_ACTIVATE, FALSE, 0 );
+     }
+     do_show_systray();
+ }
+@@ -2431,7 +2985,7 @@ static void apply_display_settings( const struct display_settings *settings )
+     if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Taskbar", 0, NULL, 0,
+                           KEY_SET_VALUE, NULL, &hkey, NULL ))
+     {
+-        const WCHAR *style = settings->xp ? L"xp" : L"classic";
++        const WCHAR *style = settings->win10 ? L"win10" : settings->xp ? L"xp" : L"classic";
+ 
+         RegSetValueExW( hkey, L"Style", 0, REG_SZ, (const BYTE *)style, (lstrlenW( style ) + 1) * sizeof(WCHAR) );
+         RegCloseKey( hkey );
+@@ -2444,17 +2998,19 @@ static void apply_display_settings( const struct display_settings *settings )
+     xp_save_setting( L"Wallpaper", settings->wallpaper );
+     xp_save_setting( L"Controls", settings->controls );
+     xp_controls = settings->controls;
+-    apply_xp_controls( settings->xp && settings->controls, taskbar_scheme );
++    /* the Windows 10 style keeps the default Wine theme for the controls, which is flat already */
++    apply_xp_controls( settings->xp && !settings->win10 && settings->controls, taskbar_scheme );
+     /* let the other processes pick up the frame style, then have every window repaint its frame */
+     if (settings->frames != xp_frames || settings->frames) SetTimer( tray_window, FRAMES_TIMER, FRAMES_DELAY, NULL );
+     xp_frames = settings->frames;
+-    if (settings->wallpaper != xp_wallpaper || settings->xp != xp_style)
++    if (settings->wallpaper != xp_wallpaper || settings->xp != xp_style || settings->win10 != win10_style)
+     {
+         xp_wallpaper = settings->wallpaper;
++        /* the desktop icons are drawn differently too */
+         InvalidateRect( GetDesktopWindow(), NULL, TRUE );
+     }
+ 
+-    if (settings->xp != xp_style) set_taskbar_style( settings->xp );
++    if (settings->xp != xp_style || settings->win10 != win10_style) set_taskbar_style( settings->xp, settings->win10 );
+     else do_show_systray();
+     invalidate_taskbar();
+ }
+@@ -2479,7 +3035,10 @@ static void get_dialog_settings( HWND dlg, struct display_settings *settings )
+ {
+     LRESULT sel;
+ 
+-    settings->xp = SendDlgItemMessageW( dlg, IDC_DP_STYLE, CB_GETCURSEL, 0, 0 ) != 1;
++    /* the style list: Windows XP, Windows Classic, Windows 10 */
++    sel = SendDlgItemMessageW( dlg, IDC_DP_STYLE, CB_GETCURSEL, 0, 0 );
++    settings->xp = sel != 1;
++    settings->win10 = sel == 2;
+     sel = SendDlgItemMessageW( dlg, IDC_DP_SCHEME, CB_GETCURSEL, 0, 0 );
+     settings->scheme = sel > 0 ? sel : 0;
+     sel = SendDlgItemMessageW( dlg, IDC_DP_ROWS, CB_GETCURSEL, 0, 0 );
+@@ -2498,8 +3057,21 @@ static void update_dialog_state( HWND dlg )
+                    IDC_DP_CLOCK };
+     unsigned int i;
+ 
++    static const UINT labels[][3] =
++    {
++        { IDC_DP_FRAMES, IDS_DP_FRAMES_XP, IDS_DP_FRAMES_WIN10 },
++        { IDC_DP_CONTROLS, IDS_DP_CONTROLS_XP, IDS_DP_CONTROLS_WIN10 },
++        { IDC_DP_WALLPAPER, IDS_DP_WALLPAPER_XP, IDS_DP_WALLPAPER_WIN10 },
++    };
++    WCHAR str[128];
++
+     get_dialog_settings( dlg, &settings );
+     for (i = 0; i < ARRAY_SIZE(ids); i++) EnableWindow( GetDlgItem( dlg, ids[i] ), settings.xp );
++    /* the Windows 10 style always uses the flat default Wine theme for the controls */
++    if (settings.win10) EnableWindow( GetDlgItem( dlg, IDC_DP_CONTROLS ), FALSE );
++    for (i = 0; i < ARRAY_SIZE(labels); i++)
++        if (LoadStringW( NULL, labels[i][settings.win10 ? 2 : 1], str, ARRAY_SIZE(str) ))
++            SetDlgItemTextW( dlg, labels[i][0], str );
+     InvalidateRect( GetDlgItem( dlg, IDC_DP_PREVIEW ), NULL, FALSE );
+ }
+ 
+@@ -2524,7 +3096,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+ 
+     if (use_xp_wallpaper( settings->xp, settings->wallpaper ))
+     {
+-        HBITMAP background = build_xp_wallpaper( hdc, width, top, is_dark_theme() );
++        HBITMAP background = build_wallpaper( hdc, width, top, is_dark_theme(), settings->win10 );
+         HDC background_dc = CreateCompatibleDC( hdc );
+         HGDIOBJ old_background = SelectObject( background_dc, background );
+ 
+@@ -2554,7 +3126,19 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+ 
+         if (wh > cap + 6)
+         {
+-            if (settings->xp && settings->frames)
++            if (settings->win10 && settings->frames)
++            {
++                /* flat title bar, a thin border in the accent color */
++                COLORREF back = is_dark_theme() ? RGB(0x20,0x20,0x20) : RGB(0xff,0xff,0xff);
++
++                fill_solid( hdc, wx, wy, ww, wh, win10_accents[settings->scheme < XP_USER_SCHEMES ? settings->scheme : 0] );
++                fill_solid( hdc, wx + 1, wy + 1, ww - 2, wh - 2, back );
++                fill_solid( hdc, wx + 1, wy + cap, ww - 2, wh - cap - 1, GetSysColor( COLOR_BTNFACE ));
++                fill_solid( hdc, wx + ww - button - 6, wy + cap / 2, button * 2 / 3, 1,
++                            is_dark_theme() ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
++                SetTextColor( hdc, is_dark_theme() ? RGB(0xff,0xff,0xff) : RGB(0x00,0x00,0x00) );
++            }
++            else if (settings->xp && settings->frames)
+             {
+                 fill_solid( hdc, wx, wy, ww, wh, caption[index][2] );
+                 fill_gradient2( hdc, wx, wy, ww, cap / 2, caption[index][0], caption[index][1] );
+@@ -2577,7 +3161,30 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+         }
+     }
+ 
+-    if (settings->xp)
++    if (settings->win10)
++    {
++        COLORREF accent = blend_color( win10_accents[settings->scheme < XP_USER_SCHEMES ? settings->scheme : 0],
++                                       RGB(0xff,0xff,0xff), 3, 10 );
++        int glyph = max( bar * 2 / 3, 6 );
++        BYTE *alpha;
++
++        fill_solid( hdc, 0, top, width, bar, WIN10_BAR );
++        if ((alpha = render_wine_glass( glyph )))
++        {
++            draw_coverage( hdc, (bar * 3 / 2 - glyph) / 2, top + (bar - glyph) / 2, glyph, alpha, RGB(0xff,0xff,0xff) );
++            free( alpha );
++        }
++        /* one running program */
++        fill_solid( hdc, bar * 3, top, bar * 3 / 2, bar, WIN10_HOT );
++        fill_solid( hdc, bar * 3, height - 2, bar * 3 / 2, 2, accent );
++        if (settings->clock)
++        {
++            SetTextColor( hdc, RGB(0xff,0xff,0xff) );
++            SetRect( &rect, width - bar * 3, top, width, height );
++            DrawTextW( hdc, clock_time, -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX );
++        }
++    }
++    else if (settings->xp)
+     {
+         fill_gradient( hdc, 0, top, width, bar, 0, bar, scheme->bar, scheme->bar_count );
+         fill_gradient( hdc, width - bar * 3, top, bar * 3, bar, 0, bar, scheme->notify, scheme->notify_count );
+@@ -2623,7 +3230,7 @@ static void draw_display_preview( const DRAWITEMSTRUCT *dis, const struct displa
+ 
+ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lparam )
+ {
+-    static const UINT style_ids[] = { IDS_DP_STYLE_XP, IDS_DP_STYLE_CLASSIC };
++    static const UINT style_ids[] = { IDS_DP_STYLE_XP, IDS_DP_STYLE_CLASSIC, IDS_DP_STYLE_WIN10 };
+     static const UINT scheme_ids[] = { IDS_DP_SCHEME_BLUE, IDS_DP_SCHEME_OLIVE, IDS_DP_SCHEME_SILVER };
+     static const UINT rows_ids[] = { IDS_TASKBAR_ROWS1, IDS_TASKBAR_ROWS2, IDS_TASKBAR_ROWS3 };
+     struct display_settings settings;
+@@ -2632,7 +3239,8 @@ static INT_PTR CALLBACK display_properties_proc( HWND dlg, UINT msg, WPARAM wpar
+     {
+     case WM_INITDIALOG:
+         display_dialog = dlg;
+-        load_combo_strings( GetDlgItem( dlg, IDC_DP_STYLE ), style_ids, ARRAY_SIZE(style_ids), xp_style ? 0 : 1 );
++        load_combo_strings( GetDlgItem( dlg, IDC_DP_STYLE ), style_ids, ARRAY_SIZE(style_ids),
++                            !xp_style ? 1 : win10_style ? 2 : 0 );
+         load_combo_strings( GetDlgItem( dlg, IDC_DP_SCHEME ), scheme_ids, ARRAY_SIZE(scheme_ids), get_taskbar_scheme() );
+         load_combo_strings( GetDlgItem( dlg, IDC_DP_ROWS ), rows_ids, ARRAY_SIZE(rows_ids), taskbar_rows - 1 );
+         CheckDlgButton( dlg, IDC_DP_LOCK, taskbar_locked ? BST_CHECKED : BST_UNCHECKED );
+@@ -2695,6 +3303,12 @@ static void show_display_properties( HWND owner )
+     if (owner && !IsWindowEnabled( owner )) EnableWindow( owner, TRUE );
+ }
+ 
++/* Settings in the Windows 10 style start menu */
++void show_theme_settings(void)
++{
++    show_display_properties( NULL );
++}
++
+ /* right click on the desktop */
+ void show_desktop_menu( HWND hwnd, LPARAM lparam )
+ {
+@@ -2870,6 +3484,12 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+         break;
+ 
+     case WM_LBUTTONDOWN:
++        if ((win10_pressed = win10_hit_test( lparam )))
++        {
++            SetCapture( hwnd );
++            win10_invalidate_part( win10_pressed );
++            break;
++        }
+         if (xp_style && !taskbar_locked)
+         {
+             POINT pt;
+@@ -2888,6 +3508,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+         return DefWindowProcW( hwnd, msg, wparam, lparam );
+ 
+     case WM_LBUTTONUP:
++        if (win10_pressed)
++        {
++            int part = win10_pressed;
++
++            win10_pressed = 0;
++            if (GetCapture() == hwnd) ReleaseCapture();
++            win10_invalidate_part( part );
++            if (win10_hit_test( lparam ) != part) break;
++            if (part == WIN10_SEARCH) do_run_dialog();
++            else win10_show_desktop();
++            break;
++        }
+         if (sizing_taskbar)
+         {
+             xp_update_sizing();
+@@ -2896,6 +3528,34 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
+         }
+         return DefWindowProcW( hwnd, msg, wparam, lparam );
+ 
++    case WM_CAPTURECHANGED:
++        if (win10_pressed && (HWND)lparam != hwnd)
++        {
++            win10_invalidate_part( win10_pressed );
++            win10_pressed = 0;
++        }
++        return DefWindowProcW( hwnd, msg, wparam, lparam );
++
++    case WM_NOTIFY:
++    {
++        NMHDR *hdr = (NMHDR *)lparam;
++
++        if (win10_task_tooltip && hdr->hwndFrom == win10_task_tooltip && hdr->code == TTN_GETDISPINFOW)
++        {
++            static WCHAR title[256];
++            NMTTDISPINFOW *info = (NMTTDISPINFOW *)lparam;
++            struct taskbar_button *win;
++
++            title[0] = 0;
++            LIST_FOR_EACH_ENTRY( win, &taskbar_buttons, struct taskbar_button, entry )
++                if ((UINT_PTR)win->button == hdr->idFrom && win->hwnd)
++                    InternalGetWindowText( win->hwnd, title, ARRAY_SIZE(title) );
++            info->lpszText = title;
++            return 0;
++        }
++        return DefWindowProcW( hwnd, msg, wparam, lparam );
++    }
++
+     case WM_SETCURSOR:
+         if (xp_style && !taskbar_locked && (HWND)wparam == hwnd && LOWORD(lparam) == HTCLIENT)
+         {

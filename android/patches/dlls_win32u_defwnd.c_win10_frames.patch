@@ -1,0 +1,211 @@
+diff --git a/dlls/win32u/defwnd.c b/dlls/win32u/defwnd.c
+index 633d932e2f9..e7dad3c0ab3 100644
+--- a/dlls/win32u/defwnd.c
++++ b/dlls/win32u/defwnd.c
+@@ -1658,7 +1658,38 @@ static const struct xp_frame_colors xp_frame_schemes[6][2] =
+ 
+ #define XP_FRAME_SCHEMES  3  /* the ones picked in the registry, each has a dark twin */
+ 
++/*
++ * Windows 10 style frames (HKCU\Software\Wine\Explorer\Taskbar: Style "win10"): a flat title bar,
++ * white or dark with dark window colours, a one pixel border in the accent color of the scheme
++ * (blue, green or slate) and flat caption buttons. Same sizes as the other frames.
++ */
++static const struct xp_stop win10_light_caption[] = { { 0, RGB(0xff,0xff,0xff) }, { 100, RGB(0xff,0xff,0xff) } };
++static const struct xp_stop win10_dark_caption[] = { { 0, RGB(0x20,0x20,0x20) }, { 100, RGB(0x20,0x20,0x20) } };
++static const struct xp_stop win10_dark_caption_inactive[] = { { 0, RGB(0x2b,0x2b,0x2b) }, { 100, RGB(0x2b,0x2b,0x2b) } };
++
++#define WIN10_FRAME( caption, back, border, text ) \
++    { caption, ARRAY_SIZE(caption), { border, back, back }, { border, back, back }, back, \
++      text, CLR_INVALID, back, back, back, text }
++#define WIN10_LIGHT( accent ) \
++    { WIN10_FRAME( win10_light_caption, RGB(0xff,0xff,0xff), accent, RGB(0x00,0x00,0x00) ), \
++      WIN10_FRAME( win10_light_caption, RGB(0xff,0xff,0xff), RGB(0xaa,0xaa,0xaa), RGB(0x99,0x99,0x99) ) }
++#define WIN10_DARK( accent ) \
++    { WIN10_FRAME( win10_dark_caption, RGB(0x20,0x20,0x20), accent, RGB(0xff,0xff,0xff) ), \
++      WIN10_FRAME( win10_dark_caption_inactive, RGB(0x2b,0x2b,0x2b), RGB(0x44,0x44,0x44), RGB(0x88,0x88,0x88) ) }
++
++static const struct xp_frame_colors win10_frame_schemes[6][2] =
++{
++    WIN10_LIGHT( RGB(0x00,0x78,0xd7) ), WIN10_LIGHT( RGB(0x49,0x82,0x05) ), WIN10_LIGHT( RGB(0x68,0x76,0x8a) ),
++    WIN10_DARK( RGB(0x00,0x78,0xd7) ), WIN10_DARK( RGB(0x49,0x82,0x05) ), WIN10_DARK( RGB(0x68,0x76,0x8a) ),
++};
++
++static BOOL is_win10_frame( const struct xp_frame_colors *colors )
++{
++    return colors >= &win10_frame_schemes[0][0] && colors < &win10_frame_schemes[0][0] + 12;
++}
++
+ static UINT xp_frame_scheme = ~0u;  /* ~0u: plain Wine frames */
++static BOOL xp_frame_win10;         /* the Windows 10 style frames */
+ 
+ /* the settings are read again at most once a second, so a change reaches every process */
+ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+@@ -1670,10 +1701,12 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+     if (!last_check || now - last_check > 1000)
+     {
+         static const WCHAR classicW[] = {'c','l','a','s','s','i','c',0};
++        static const WCHAR win10W[] = {'w','i','n','1','0',0};
+         char buffer[offsetof( KEY_VALUE_PARTIAL_INFORMATION, Data[64] )];
+         KEY_VALUE_PARTIAL_INFORMATION *info = (void *)buffer;
+         const char *env = getenv( "WINE_XP_FRAMES" );
+         UINT scheme = ~0u, frames = 1;
++        BOOL win10 = FALSE;
+         HKEY hkey;
+ 
+         if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Taskbar" )))
+@@ -1681,9 +1714,11 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+             if (query_reg_ascii_value( hkey, "Frames", info, sizeof(buffer) ) == sizeof(DWORD) &&
+                 info->Type == REG_DWORD)
+                 frames = *(DWORD *)info->Data;
+-            if (frames && query_reg_ascii_value( hkey, "Style", info, sizeof(buffer) ) &&
+-                info->Type == REG_SZ && !wcsicmp( (const WCHAR *)info->Data, classicW ))
+-                frames = 0;
++            if (frames && query_reg_ascii_value( hkey, "Style", info, sizeof(buffer) ) && info->Type == REG_SZ)
++            {
++                if (!wcsicmp( (const WCHAR *)info->Data, classicW )) frames = 0;
++                else if (!wcsicmp( (const WCHAR *)info->Data, win10W )) win10 = TRUE;
++            }
+             if (query_reg_ascii_value( hkey, "Scheme", info, sizeof(buffer) ) == sizeof(DWORD) &&
+                 info->Type == REG_DWORD && *(DWORD *)info->Data < XP_FRAME_SCHEMES)
+                 scheme = *(DWORD *)info->Data;
+@@ -1691,14 +1726,20 @@ static const struct xp_frame_colors *get_xp_frame_colors( BOOL active )
+         }
+         if (env) frames = atoi( env );
+         xp_frame_scheme = !frames ? ~0u : scheme == ~0u ? 0 : scheme;
++        xp_frame_win10 = win10;
+         last_check = now ? now : 1;
+     }
+     if (xp_frame_scheme >= XP_FRAME_SCHEMES) return NULL;
+ 
+-    /* dark window colours turn Blue to navy, Olive Green to moss and Silver to graphite */
++    /* dark window colours turn Blue to navy, Olive Green to moss and Silver to graphite,
++     * and the Windows 10 style title bars dark */
+     window = get_sys_color( COLOR_WINDOW );
+     if ((GetRValue(window) * 299 + GetGValue(window) * 587 + GetBValue(window) * 114) / 1000 < 128)
++    {
++        if (xp_frame_win10) return &win10_frame_schemes[xp_frame_scheme + XP_FRAME_SCHEMES][active ? 0 : 1];
+         return &xp_frame_schemes[xp_frame_scheme + XP_FRAME_SCHEMES][active ? 0 : 1];
++    }
++    if (xp_frame_win10) return &win10_frame_schemes[xp_frame_scheme][active ? 0 : 1];
+     return &xp_frame_schemes[xp_frame_scheme][active ? 0 : 1];
+ }
+ 
+@@ -1785,6 +1826,95 @@ static void xp_draw_line( HDC hdc, int x1, int y1, int x2, int y2, int width, CO
+     NtGdiDeleteObjectApp( pen );
+ }
+ 
++/* a flat Windows 10 style caption button over the full height of the title bar, with a thin glyph;
++ * pressed, the close button turns red */
++static void win10_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,
++                                       const struct xp_frame_colors *colors )
++{
++    BOOL down = (flags & DFCS_PUSHED) != 0, grayed = (flags & DFCS_INACTIVE) != 0;
++    BOOL dark = GetRValue( colors->fill ) < 0x80;
++    UINT type = flags & 0xff;
++    DWORD style = get_window_long( hwnd, GWL_STYLE ), ex_style = get_window_long( hwnd, GWL_EXSTYLE );
++    int width, height, size, x, y, t = max( 1, muldiv( 1, get_dpi_for_window( hwnd ), 96 ));
++    COLORREF back = colors->fill, glyph = colors->glyph;
++    HBITMAP bitmap, prev_bitmap;
++    RECT caption, box;
++    HDC mem;
++
++    get_inside_rect( hwnd, COORDS_WINDOW, &caption, style, ex_style );
++    caption.bottom = caption.top + get_system_metrics( (ex_style & WS_EX_TOOLWINDOW) ? SM_CYSMCAPTION : SM_CYCAPTION );
++    /* the classic button rectangles leave a two pixel gap on their right, the flat buttons fill it */
++    box.left = rect->left;
++    box.right = min( rect->right + 2, caption.right );
++    box.top = caption.top;
++    box.bottom = caption.bottom;
++    width = box.right - box.left;
++    height = box.bottom - box.top;
++    if (width <= 4 || height <= 4) return;
++
++    if (down)
++    {
++        if (type == DFCS_CAPTIONCLOSE)
++        {
++            back = RGB(0xe8,0x11,0x23);
++            glyph = RGB(0xff,0xff,0xff);
++        }
++        else back = dark ? RGB(0x44,0x44,0x44) : RGB(0xcc,0xcc,0xcc);
++    }
++    if (grayed) glyph = RGB( (GetRValue( glyph ) + 2 * GetRValue( back )) / 3, (GetGValue( glyph ) + 2 * GetGValue( back )) / 3,
++                             (GetBValue( glyph ) + 2 * GetBValue( back )) / 3 );
++
++    if (!(mem = NtGdiCreateCompatibleDC( hdc ))) return;
++    if (!(bitmap = NtGdiCreateCompatibleBitmap( hdc, width, height )))
++    {
++        NtGdiDeleteObjectApp( mem );
++        return;
++    }
++    prev_bitmap = NtGdiSelectBitmap( mem, bitmap );
++    xp_fill( mem, 0, 0, width, height, back );
++
++    size = max( 8, min( width, height ) * 2 / 5 );
++    size -= size % 2;
++    x = (width - size) / 2;
++    y = (height - size) / 2;
++    switch (type)
++    {
++    case DFCS_CAPTIONCLOSE:
++        xp_draw_line( mem, x, y, x + size, y + size, t, glyph );
++        xp_draw_line( mem, x + size, y, x, y + size, t, glyph );
++        break;
++    case DFCS_CAPTIONMIN:
++        xp_fill( mem, x, y + size / 2, size, t, glyph );
++        break;
++    case DFCS_CAPTIONMAX:
++        xp_fill( mem, x, y, size, t, glyph );
++        xp_fill( mem, x, y + size - t, size, t, glyph );
++        xp_fill( mem, x, y, t, size, glyph );
++        xp_fill( mem, x + size - t, y, t, size, glyph );
++        break;
++    case DFCS_CAPTIONRESTORE:
++    {
++        int s = size * 4 / 5, d = size - s;
++
++        /* the back window, then the front one */
++        xp_fill( mem, x + d, y, s, t, glyph );
++        xp_fill( mem, x + size - t, y, t, s, glyph );
++        xp_fill( mem, x, y + d, s, t, glyph );
++        xp_fill( mem, x, y + size - t, s, t, glyph );
++        xp_fill( mem, x, y + d, t, s, glyph );
++        xp_fill( mem, x + s - t, y + d, t, s, glyph );
++        xp_fill( mem, x + d, y, t, d, glyph );
++        xp_fill( mem, x + s, y + s - t, d, t, glyph );
++        break;
++    }
++    }
++
++    NtGdiBitBlt( hdc, box.left, box.top, width, height, mem, 0, 0, SRCCOPY, 0, 0 );
++    NtGdiSelectBitmap( mem, prev_bitmap );
++    NtGdiDeleteObjectApp( bitmap );
++    NtGdiDeleteObjectApp( mem );
++}
++
+ /* draw a rounded caption button with its glyph, flags are the DFCS_CAPTION* values */
+ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,
+                                     const struct xp_frame_colors *colors )
+@@ -1800,6 +1930,11 @@ static void xp_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT f
+     RECT box, caption;
+     HDC mem;
+ 
++    if (is_win10_frame( colors ))
++    {
++        win10_draw_caption_button( hwnd, hdc, rect, flags, colors );
++        return;
++    }
+     if (size <= 4) return;
+     /* square buttons on the right side of the classic button rectangle */
+     box.right = rect->right;
+@@ -2070,7 +2205,8 @@ static void draw_nc_caption( HDC hdc, RECT *rect, HWND hwnd, DWORD  style,
+         nclm.cbSize = sizeof(nclm);
+         NtUserSystemParametersInfo( SPI_GETNONCLIENTMETRICS, 0, &nclm, 0 );
+         lf = (ex_style & WS_EX_TOOLWINDOW) ? nclm.lfSmCaptionFont : nclm.lfCaptionFont;
+-        lf.lfWeight = FW_BOLD;
++        /* bold Luna titles, regular Windows 10 ones */
++        lf.lfWeight = is_win10_frame( xp ) ? FW_NORMAL : FW_BOLD;
+         font = NtGdiHfontCreate( &lf, sizeof(lf), 0, 0, NULL );
+         prev_font = NtGdiSelectFont( hdc, font );
+         NtGdiGetAndSetDCDword( hdc, NtGdiSetBkMode, TRANSPARENT, NULL );

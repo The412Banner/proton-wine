@@ -293,6 +293,10 @@ do
       # Cut, Copy, Create Link, Delete to the Trash, in-place Rename, Properties; one combined Properties sheet for
       # several icons), as on Windows
       "programs_explorer_desktop.c_icon_selection.patch"
+      # Windows 10 style ("win10", Display Properties): taskbar, start menu, desktop background and icons
+      # (explorer), window frames (win32u); no Microsoft artwork, the Wine glass is drawn
+      "programs_explorer_win10_theme.patch"
+      "dlls_win32u_defwnd.c_win10_frames.patch"
       "programs_wineboot_wineboot.c.patch"
       "programs_winebrowser_Makefile.in.patch"
       "programs_winebrowser_main.c.patch"
@@ -583,6 +587,11 @@ do
       "programs/explorer/desktop.c|static void update_band( HWND hwnd, int x, int y )|desktop selection box"
       "programs/explorer/desktop.c|static void show_launcher_menu( HWND hwnd, unsigned int index, LPARAM lparam )|desktop icon right-click menu"
       "programs/explorer/desktop.c|static void show_multi_properties(void)|combined Properties for several desktop icons"
+      "programs/explorer/systray.c|static void win10_draw_task_button( HDC hdc, struct taskbar_button *win, int width, int height, BOOL down )|Windows 10 style taskbar"
+      "programs/explorer/systray.c|static HBITMAP build_win10_wallpaper( HDC ref, int width, int height, BOOL dark )|Windows 10 style desktop background"
+      "programs/explorer/startmenu.c|void do_win10_startmenu( HWND tray )|Windows 10 style start menu"
+      "programs/explorer/desktop.c|static void alpha_frame( HDC hdc, const RECT *rect, COLORREF color, BYTE alpha )|Windows 10 style desktop icon selection"
+      "dlls/win32u/defwnd.c|static void win10_draw_caption_button( HWND hwnd, HDC hdc, const RECT *rect, UINT flags,|Windows 10 style window frames"
     )
     for row in "${MARKERS[@]}"; do
       m_file="${row%%|*}"; rest="${row#*|}"; m_token="${rest%%|*}"; m_what="${rest#*|}"
